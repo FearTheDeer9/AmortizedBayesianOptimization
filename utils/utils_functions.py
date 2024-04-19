@@ -1,0 +1,270 @@
+import itertools
+import logging
+from typing import List, OrderedDict, Tuple
+
+import numpy as np
+import scipy
+import scipy.spatial
+from emukit.core import ParameterSpace
+from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
+from GPy.core import Mapping
+from GPy.kern.src.rbf import RBF
+from GPy.models.gp_regression import GPRegression
+
+from utils.graph_utils.graph import GraphStructure
+from utils.utils_classes import (
+    CausalExpectedImprovement,
+    CausalGradientAcquisitionOptimizer,
+    CausalRBF,
+    Cost,
+    DoFunctions,
+)
+
+
+def set_up_GP(
+    causal_prior: bool,
+    input_space: int,
+    do_effects: DoFunctions,
+    X: np.ndarray,
+    Y: np.ndarray,
+) -> GPyModelWrapper:
+    """
+    Setting up the Gaussian Process based on the previous computed interventional
+    mean function and interventional variance function
+    """
+    if causal_prior:
+        logging.info("Using the Causal Gaussian Prior")
+        # define the model for the causal prior here
+        mf = Mapping(input_space, 1)
+        mf.f = lambda x: do_effects.mean_function_do(x)
+        mf.update_gradients = lambda a, b: None
+        kernel = CausalRBF(
+            input_space,
+            variance_adjustment=do_effects.var_function_do,
+            lenghtscale=1.0,
+            variance=1.0,
+            rescale_variance=1.0,
+            ARD=False,
+        )
+
+        gpy_model = GPRegression(
+            X=X, Y=Y, kernel=kernel, noise_var=1e-10, mean_function=mf
+        )
+        emukit_model = GPyModelWrapper(gpy_model)
+    else:
+        logging.info("Setting up the gaussian prior")
+        gpy_model = GPRegression(
+            X=X,
+            Y=Y,
+            kernel=RBF(input_space, lengthscale=1.0, variance=1.0),
+            noise_var=1e-10,
+        )
+        emukit_model = GPyModelWrapper(gpy_model)
+    emukit_model.optimize()
+    return emukit_model
+
+
+def update_all_do_functions(
+    graph: GraphStructure,
+    samples: np.ndarray,
+    exploration_set: List,
+) -> List:
+    """
+    This is for CBO algorithm when the variables in the exploration set changes. This changes
+    based on what is in the intervention set, as well as what was newly observed. Each of
+    these classes have a mean_function_do and var_function_do instance contained within them
+    """
+    variables = graph.get_variables()
+    samples_dict = {
+        var: samples[:, i].reshape(-1, 1) for i, var in enumerate(variables)
+    }
+    # to make it an instance of the class rather than the individual functions
+    do_functions_list = [None] * len(exploration_set)
+    for i, intervention_set in enumerate(exploration_set):
+        do_functions_list[i] = DoFunctions(
+            graph.get_all_do(),
+            samples_dict,
+            intervention_set,
+        )
+
+    return do_functions_list
+
+
+def update_hull(
+    observational_samples: np.ndarray, manipulative_variables: List
+) -> float:
+    """
+    Calculates the coverage of the observational space, for the computation of epsilon
+    """
+    list_variables = [
+        list(observational_samples[:, i]) for i in range(len(manipulative_variables))
+    ]
+
+    stack_variables = np.transpose(np.vstack((list_variables)))
+    coverage_obs = scipy.spatial.ConvexHull(stack_variables).volume
+    return coverage_obs
+
+
+def compute_coverage(
+    observational_samples: np.ndarray, manipulative_variables: List, dict_ranges: dict
+) -> Tuple[float, float, float]:
+    """
+    Calculates the different quantities of the observation intervention tradeoff
+    """
+    list_variables = [
+        list(observational_samples[:, i]) for i in range(len(manipulative_variables))
+    ]
+
+    list_ranges = [
+        list(dict_ranges[manipulative_variables[i]])
+        for i in range(len(manipulative_variables))
+    ]
+
+    # calculate the total possible volume of the set
+    vertices = list(
+        itertools.product(*[list_ranges[i] for i in range(len(manipulative_variables))])
+    )
+    coverage_total = scipy.spatial.ConvexHull(vertices).volume
+
+    # now do the calculation for the observational samples
+    stack_variables = np.transpose(np.vstack(list_variables))
+    coverage_obs = scipy.spatial.ConvexHull(stack_variables).volume
+    hull_obs = scipy.spatial.ConvexHull(stack_variables)
+    alpha_coverage = coverage_obs / coverage_total
+    return alpha_coverage, hull_obs, coverage_total
+
+
+def update_posterior_model(
+    exploration_set: List,
+    trial_observed: bool,
+    model_list: List,
+    data_x_list: dict,
+    data_y_list: dict,
+    causal_prior: bool,
+    best_variable: int,
+    input_space: List,
+    do_function_list: List,
+) -> List:
+    # update the Gaussian Processes
+    if trial_observed:
+        # update all the models if we observed in the previous trial
+        for j in range(len(exploration_set)):
+            X = data_x_list[j]
+            Y = data_y_list[j].reshape(-1, 1)
+            model_list[j] = set_up_GP(
+                causal_prior, input_space[j], do_function_list[j], X, Y
+            )
+    else:
+        # only update the model of the set that was intervened upon
+        Y = data_y_list[best_variable].reshape(-1, 1)
+        X = data_x_list[best_variable]
+        model_list[best_variable] = set_up_GP(
+            causal_prior,
+            input_space[best_variable],
+            do_function_list[best_variable],
+            X,
+            Y,
+        )
+
+    return model_list
+
+
+def get_new_x_y_list(
+    exploration_set: List[List[str]],
+    graph: GraphStructure,
+    current_global_min: float,
+    model_list: List,
+    cost_functions: OrderedDict,
+    task: str = "min",
+) -> Tuple[np.ndarray, List[List[float]]]:
+    """
+    Get the new acquisitions for the all the elements in the exploration set
+    """
+    y_acquisition_list = [None] * len(exploration_set)
+    x_new_list = [None] * len(exploration_set)
+    for j, vars in enumerate(exploration_set):
+        space = graph.get_parameter_space(vars)
+        cost = Cost(cost_functions, vars)
+        optimizer = CausalGradientAcquisitionOptimizer(space)
+        acquisition = (
+            CausalExpectedImprovement(current_global_min, task, model_list[j]) / cost
+        )
+        x_new, _ = optimizer.optimize(acquisition)
+        y_acquisition = acquisition.evaluate(x_new)
+        y_acquisition_list[j] = y_acquisition
+        x_new_list[j] = x_new
+
+    return np.array(y_acquisition_list), x_new_list
+
+
+def define_initial_data_CBO(
+    interventional_data: dict,
+    num_interventions: int,
+    exploration_set: List[List[str]],
+    name_index: int,
+    manipulative_variables: List[str],
+    outcome_variable: str,
+    task: str = "min",
+):
+    """
+    Processes interventional data to identify optimal interventions based on a specified criterion (min/max).
+
+    Parameters:
+        interventional_data (dict): Dictionary of datasets containing interventions,
+                                    indexed by type and containing numpy arrays for each variable.
+        num_interventions (int): Number of interventions to consider in the optimization.
+        exploration_set (list): List of potential variables or configurations used in the interventions.
+        name_index (int): Index used for setting a seed for reproducibility.
+        manipulative_variables (list): List of variables that are manipulated.
+        outcome_variable (str): The variable used as the outcome for optimization.
+        task (str): Task to perform, either 'min' for minimization or 'max' for maximization.
+
+    Returns:
+        tuple: Tuple containing lists of X data, Y data, best intervention values, optimal Y value, and best variables.
+    """
+    assert task in ["min", "max"]
+    data_x_list = []
+    data_y_list = []
+    opt_list = []
+
+    # Process each dataset in the provided interventional data
+    for idx, (index, data) in enumerate(interventional_data.items()):
+        # Combine data for manipulative variables
+        num_interventions = len(data) - 1
+        data_x = np.column_stack(
+            [data[var] for var in manipulative_variables if var in data]
+        )
+        data_y = np.array(data[outcome_variable])
+
+        # Combine and shuffle data using a reproducible random seed
+        all_data = np.column_stack((data_x, data_y))
+        np.random.seed(name_index + idx)  # Adjust seed to be unique per dataset
+        np.random.shuffle(all_data)
+
+        # Select the subset of data for optimization
+        subset_all_data = all_data[:num_interventions]
+
+        data_x_list.append(subset_all_data[:, :-1])
+        data_y_list.append(subset_all_data[:, -1])
+
+        current_opt_val = (
+            np.min(subset_all_data[:, -1])
+            if task == "min"
+            else np.max(subset_all_data[:, -1])
+        )
+        opt_list.append(current_opt_val)
+
+    # Identify the best overall intervention and corresponding values
+    best_idx = np.argmin(opt_list) if task == "min" else np.argmax(opt_list)
+    best_variable = exploration_set[best_idx]
+    best_data = data_x_list[best_idx]
+    opt_y = opt_list[best_idx]
+    best_intervention_value = best_data[
+        (
+            np.argmin(data_y_list[best_idx])
+            if task == "min"
+            else np.argmax(data_y_list[best_idx])
+        )
+    ]
+
+    return data_x_list, data_y_list, best_intervention_value, opt_y, best_variable

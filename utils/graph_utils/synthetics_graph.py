@@ -14,6 +14,9 @@ from utils.graph_utils.graph import GraphStructure
 
 
 class SyntheticGraph(GraphStructure):
+    """
+    This is a graph data structure that do have unobserved confounders
+    """
 
     def __init__(
         self,
@@ -194,9 +197,6 @@ class SyntheticGraph(GraphStructure):
     def get_variables(self) -> List:
         variables = ["F", "A", "B", "C", "D", "E", "Y"]
         return variables
-
-    def target(self) -> str:
-        return super().target
 
     def get_sets(self) -> Tuple[List[List[str]], List[List[str]], List[str]]:
         mis = [["B"], ["D"], ["E"], ["B", "D"], ["B", "E"], ["D", "E"]]

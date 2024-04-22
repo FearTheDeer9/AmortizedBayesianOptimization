@@ -3,6 +3,10 @@ import logging
 from collections import OrderedDict, defaultdict
 from typing import OrderedDict
 
+import matplotlib.pyplot as plt
+import networkx as nx
+from pgmpy.models import BayesianNetwork
+
 
 class GraphStructure:
     """
@@ -112,11 +116,27 @@ class GraphStructure:
 
     @abc.abstractmethod
     def make_graphical_model(self):
-        raise NotImplementedError("Subclass should implement this")
+        model = BayesianNetwork(self.edges)
+
+        # Manually creating a networkx graph from the BayesianModel
+        G = nx.MultiDiGraph()
+        G.add_edges_from(model.edges())
+        return G
 
     @abc.abstractmethod
     def show_graphical_model(self):
-        raise NotImplementedError("Subclass should implement this")
+        pos = nx.spring_layout(self.G)  # positions for all nodes
+        nx.draw(
+            self.G,
+            pos,
+            with_labels=True,
+            node_size=700,
+            node_color="lightblue",
+            font_size=10,
+            font_weight="bold",
+        )
+        plt.title("Bayesian Network")
+        plt.show()
 
 
 class DAGModel:

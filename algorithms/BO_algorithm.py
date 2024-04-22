@@ -40,7 +40,6 @@ def BO(
     ) = graph_setup(graph_type=graph_type)
 
     graph.refit_models(samples)
-    T = 35
     causal_prior = True
     input_space = 2
     X = np.hstack([samples[var] for var in manipulative_variables])

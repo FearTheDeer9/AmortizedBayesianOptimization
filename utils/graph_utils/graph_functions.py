@@ -5,6 +5,7 @@ from typing import List, OrderedDict, Tuple
 import numpy as np
 
 from utils.graph_utils.graph import GraphStructure
+from utils.graph_utils.graph_6_nodes import Graph6Nodes
 from utils.graph_utils.synthetics_graph import SyntheticGraph
 from utils.graph_utils.toy_graph import ToyGraph
 from utils.sem_sampling import (
@@ -28,17 +29,20 @@ def graph_setup(
     if seed is not None:
         np.random.seed(seed)
 
-    assert graph_type in ["Toy", "Synthetic"]
+    assert graph_type in ["Toy", "Synthetic", "Graph6"]
     if graph_type == "Toy":
         logging.info("Setting up the toy graph")
         graph = ToyGraph()
     elif graph_type == "Synthetic":
         logging.info("Setting up the synthetic graph")
         graph = SyntheticGraph()
+    elif graph_type == "Graph6":
+        logging.info("Setting up the 6 nodes graph")
+        graph = Graph6Nodes()
 
-    sem_model = graph.SEM()
-    variables = graph.get_variables()
-    target = graph.target()
+    sem_model = graph.SEM
+    variables = graph.variables
+    target = graph.target
     mis, pomis, manipulative_variables = graph.get_sets()
 
     if exploration_set is None:

@@ -25,7 +25,7 @@ def CBO(
     """
     This is the CBO
     """
-    assert graph_type in ["Toy", "Synthetic"]
+    assert graph_type in ["Toy", "Synthetic", "Graph6"]
     # defining the initial variables
     (
         graph,
@@ -65,7 +65,7 @@ def CBO(
 
     for i in range(len(exploration_set)):
         parameter_spaces[i] = graph.get_parameter_space(exploration_set[i])
-        target_classes[i] = TargetClass(graph.SEM(), exploration_set[i])
+        target_classes[i] = TargetClass(graph.SEM, exploration_set[i])
 
     # defining some variables necessary for the algorithm
     alpha_coverage, hull_obs, coverage_total = utils_functions.compute_coverage(
@@ -103,12 +103,12 @@ def CBO(
             )
             trial_observed[i] = True
             # 1. Observe new observations (xt, ct, yt)
-            observed_sample = sample_model(graph.define_SEM(), sample_count=1)
+            observed_sample = sample_model(graph.SEM, sample_count=1)
             # 2. Augment D_O
             observational_samples = np.vstack(
                 (
                     observational_samples,
-                    [observed_sample[var][0, 0] for var in graph.get_variables()],
+                    [observed_sample[var][0, 0] for var in graph.variables],
                 )
             )
 
@@ -192,5 +192,5 @@ def CBO(
             logging.info(f"Current global optimum {global_opt[i+1]}")
 
 
-if __name__ == "__main__":
-    CBO_algorithm("Toy")
+# if __name__ == "__main__":
+#     CBO_algorithm("Toy")

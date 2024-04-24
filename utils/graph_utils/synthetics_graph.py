@@ -36,7 +36,7 @@ class SyntheticGraph(GraphStructure):
         self.F = F
         self.Y = Y
         self._SEM = self.define_SEM()
-        self.edges = [
+        self._edges = [
             ("F", "A"),
             ("U1", "A"),
             ("U2", "B"),
@@ -107,7 +107,7 @@ class SyntheticGraph(GraphStructure):
         )
         return dict_ranges
 
-    def get_parameter_space(self, exploration_set):
+    def get_parameter_space(self, exploration_set) -> ParameterSpace:
         interventional_range = self.get_interventional_range()
         space = {}
 

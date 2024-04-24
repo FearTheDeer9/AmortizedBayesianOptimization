@@ -213,7 +213,7 @@ def draw_interventional_samples(
         i: {var: [] for var in interventions}
         for i, interventions in enumerate(exploration_set)
     }
-    target = graph.target()
+    target = graph.target
 
     # Add a 'target' key for each intervention type
     for i in interventional_data:
@@ -230,9 +230,7 @@ def draw_interventional_samples(
             None,
         )
         if index is not None:
-            sample = sample_model(
-                graph.SEM(), sample_count=1, interventions=intervention
-            )
+            sample = sample_model(graph.SEM, sample_count=1, interventions=intervention)
             for var in intervention:
                 interventional_data[index][var].append(sample[var][0, 0])
 

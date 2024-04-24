@@ -74,7 +74,7 @@ def update_all_do_functions(
     based on what is in the intervention set, as well as what was newly observed. Each of
     these classes have a mean_function_do and var_function_do instance contained within them
     """
-    variables = graph.get_variables()
+    variables = graph.variables
     samples_dict = {
         var: samples[:, i].reshape(-1, 1) for i, var in enumerate(variables)
     }

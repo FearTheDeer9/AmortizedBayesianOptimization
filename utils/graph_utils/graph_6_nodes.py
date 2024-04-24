@@ -1,14 +1,10 @@
 import logging
 from collections import OrderedDict
+from itertools import chain
 from typing import Dict, List, Optional, OrderedDict, Tuple
 
-import matplotlib.pyplot as plt
-import networkx as nx
 import numpy as np
-from emukit.core import ContinuousParameter, ParameterSpace
-from GPy.kern import RBF
 from GPy.models.gp_regression import GPRegression
-from pgmpy.models import BayesianNetwork
 
 from utils.graph_utils.graph import GraphStructure
 
@@ -34,7 +30,7 @@ class Graph6Nodes(GraphStructure):
         self.As = As
         self.Y = Y
         self._SEM = self.define_SEM()
-        self.edges = [
+        self._edges = [
             ("A", "C"),
             ("A", "S"),
             ("A", "B"),
@@ -48,9 +44,13 @@ class Graph6Nodes(GraphStructure):
             ("A", "As"),
             ("C", "Y"),
         ]
+        self._nodes = set(chain(*self.edges))
+        self._parents, self._children = self.build_relationships()
+
         self.G = self.make_graphical_model()
         self._target = "Y"
-        self.functions: Optional[Dict[str, GPRegression]] = None
+        self._functions: Optional[Dict[str, GPRegression]] = None
+        self._variables = ["A", "B", "As", "S", "C", "Y"]
 
     def define_SEM(self):
         fa = lambda epsilon, sample: epsilon
@@ -86,43 +86,116 @@ class Graph6Nodes(GraphStructure):
         return graph
 
     def fit_all_models(self):
-        return super().fit_all_models()
-
-    def refit_models(self, observational_samples):
-        return super().refit_models(observational_samples)
+        samples = {
+            "A": self.A,
+            "B": self.B,
+            "As": self.As,
+            "S": self.S,
+            "C": self.C,
+            "Y": self.Y,
+        }
+        self.fit_samples_to_graph(samples)
 
     def get_all_do(self):
-        return super().get_all_do()
-
-    def get_variables(self):
-        return super().get_variables()
+        do_dict = {}
+        do_dict["compute_do_As"] = self.compute_do_As
+        do_dict["compute_do_S"] = self.compute_do_S
+        do_dict["compute_do_AsS"] = self.compute_do_As_S
+        return do_dict
 
     def get_interventional_range(self):
-        return super().get_interventional_range()
 
-    def get_parameter_space(self, exploration_set):
-        return super().get_parameter_space(exploration_set)
+        min_intervention_As = 0.0
+        max_intervention_As = 1.0
 
-    def get_cost_structure(self, type_cost: int) -> OrderedDict:
-        return super().get_cost_structure(type_cost)
+        min_intervention_S = 0.0
+        max_intervention_S = 1.0
+
+        dict_ranges = OrderedDict(
+            [
+                ("As", [min_intervention_As, max_intervention_As]),
+                ("S", [min_intervention_S, max_intervention_S]),
+            ]
+        )
+        return dict_ranges
 
     def get_sets(self):
-        return super().get_sets()
-
-    def get_variable_different_costs(self):
-        return super().get_variable_different_costs()
-
-    def get_fixed_different_costs(self):
-        return super().get_fixed_different_costs()
-
-    def get_fixed_equal_costs(self):
-        return super().get_fixed_equal_costs()
+        mis = [["As"], ["S"], ["As", "S"]]
+        pomis = [["As", "S"]]
+        manipulative_variables = ["As", "S"]
+        return mis, pomis, manipulative_variables
 
     def get_variable_equal_costs(self):
-        return super().get_variable_equal_costs()
+        logging.info("Using the variable equal cost structure")
+        cost_variable_As_equal = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 1.0
+        )
+        cost_variable_S_equal = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 1.0
+        )
+        costs = OrderedDict(
+            [
+                ("As", cost_variable_As_equal),
+                ("S", cost_variable_S_equal),
+            ]
+        )
+        return costs
 
-    def get_interventional_domain(self):
-        return super().get_interventional_domain()
+    def get_fixed_equal_costs(self):
+        logging.info("Using the fixed equal cost structure")
+        cost_fix_As_equal = lambda intervention_value: 1.0
+        cost_fix_S_equal = lambda intervention_value: 1.0
+        costs = OrderedDict([("As", cost_fix_As_equal), ("S", cost_fix_S_equal)])
+        return costs
 
-    def get_set_BO(self):
-        return super().get_set_BO()
+    def get_fixed_different_costs(self):
+        logging.info("Using the fixed different cost structure")
+        cost_fix_As_different = lambda intervention_value: 1.0
+        cost_fix_S_different = lambda intervention_value: 3.0
+        costs = OrderedDict(
+            [
+                ("As", cost_fix_As_different),
+                ("S", cost_fix_S_different),
+            ]
+        )
+        return costs
+
+    def get_variable_different_costs(self):
+        logging.info("Using the variable different cost structure")
+        cost_variable_As_different = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 1.0
+        )
+        cost_variable_S_different = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 3.0
+        )
+        costs = OrderedDict(
+            [
+                ("As", cost_variable_As_different),
+                ("S", cost_variable_S_different),
+            ]
+        )
+        return costs
+
+    def compute_do_As(self, observational_samples, value):
+        interventions_nodes = ["As"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
+
+        return mean_do, var_do
+
+    def compute_do_S(self, observational_samples, value):
+        interventions_nodes = ["S"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
+
+        return mean_do, var_do
+
+    def compute_do_As_S(self, observational_samples, value):
+        interventions_nodes = ["As", "S"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
+
+        return mean_do, var_do

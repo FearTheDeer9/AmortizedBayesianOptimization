@@ -172,7 +172,10 @@ def sample_model(
 
 
 def create_grid_interventions(
-    ranges: OrderedDict, num_points: int = 10, include_full_combination: bool = True
+    ranges: OrderedDict,
+    num_points: int = 10,
+    include_full_combination: bool = True,
+    get_list_format: bool = False,
 ) -> List:
     """Create both individual and combined grid interventions for given variable ranges.
 
@@ -199,6 +202,25 @@ def create_grid_interventions(
     # Optionally remove the full combination if not desired
     if not include_full_combination and len(ranges) > 1:
         interventions = [intv for intv in interventions if len(intv) < len(ranges)]
+
+    new_grid = {}
+
+    # Loop through each dictionary in the original grid
+    for entry in interventions:
+        keys = tuple(
+            sorted(entry.keys())
+        )  # Sort keys to ensure consistent order for tuples
+        values = tuple(
+            entry[key] for key in keys
+        )  # Get the corresponding values in tuple form
+
+        if keys in new_grid:
+            new_grid[keys].append(values)
+        else:
+            new_grid[keys] = [values]
+
+    if get_list_format:
+        interventions = new_grid.copy()
 
     return interventions
 

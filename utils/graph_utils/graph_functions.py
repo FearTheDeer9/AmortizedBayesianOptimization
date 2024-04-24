@@ -46,10 +46,9 @@ def graph_setup(
     mis, pomis, manipulative_variables = graph.get_sets()
 
     if exploration_set is None:
-        if use_mis:
-            exploration_set = mis.copy()
-        else:
-            exploration_set = pomis.copy()
+        exploration_set = set(tuple(sublist) for sublist in mis) | set(
+            tuple(sublist) for sublist in pomis
+        )
 
     # first define observational samples
     samples = sample_model(sem_model)

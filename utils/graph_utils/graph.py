@@ -1,7 +1,7 @@
 import abc
 import logging
 from collections import OrderedDict, defaultdict, deque
-from typing import List, OrderedDict, Tuple
+from typing import Callable, Dict, List, OrderedDict, Tuple
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -190,7 +190,7 @@ class GraphStructure:
         raise NotImplementedError(MESSAGE)
 
     @abc.abstractmethod
-    def get_sets(self):
+    def get_sets(self) -> Tuple[List, List, List]:
         raise NotImplementedError(MESSAGE)
 
     @abc.abstractmethod
@@ -269,8 +269,9 @@ class GraphStructure:
         plt.show()
 
     @abc.abstractmethod
-    def get_error_distribution(self) -> OrderedDict:
-        raise NotImplementedError("Subclass should implement this")
+    def get_error_distribution(self) -> Dict[str, Callable]:
+        # raise NotImplementedError(MESSAGE)
+        return {var: np.random.rand for var in self.variables}
 
     @abc.abstractmethod
     def fit_samples_to_graph(
@@ -492,3 +493,22 @@ class GraphStructure:
             )
 
         return mean_do, var_do
+
+    @abc.abstractmethod
+    def break_dependency_structure(self):
+        """
+        Changing the edges for the BO method
+        """
+        target = self.target
+        nodes = self.nodes
+        self._edges = []
+        for node in nodes:
+            if node != target:
+                self._edges.append((node, target))
+
+    @abc.abstractmethod
+    def mispecify_graph(self, edges):
+        """
+        Flip some of the edges of the graph for further experimentation
+        """
+        self._edges = edges

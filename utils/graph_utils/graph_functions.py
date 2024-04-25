@@ -49,6 +49,7 @@ def graph_setup(
         exploration_set = set(tuple(sublist) for sublist in mis) | set(
             tuple(sublist) for sublist in pomis
         )
+        exploration_set = list(exploration_set)
 
     # first define observational samples
     samples = sample_model(sem_model)

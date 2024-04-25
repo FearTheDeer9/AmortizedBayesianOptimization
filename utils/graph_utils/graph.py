@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from emukit.core import ContinuousParameter, ParameterSpace
+from GPy.core.parameterization import priors
 from GPy.kern import RBF
 from GPy.models.gp_regression import GPRegression
 from pgmpy.models import BayesianNetwork
@@ -275,7 +276,10 @@ class GraphStructure:
 
     @abc.abstractmethod
     def fit_samples_to_graph(
-        self, samples: OrderedDict, parameters: OrderedDict = None
+        self,
+        samples: OrderedDict,
+        parameters: OrderedDict = None,
+        set_priors: bool = False,
     ) -> None:
 
         # first step is get the set of all the child nodes
@@ -292,6 +296,17 @@ class GraphStructure:
                 input_dim=len(parents), variance=1.0, ARD=False, lengthscale=1.0
             )
             gp = GPRegression(X=X, Y=Y, kernel=kernel)
+
+            # this can also be a flag - not sure why it is added
+            if set_priors:
+                prior_len = priors.InverseGamma.from_EV(1.0, 1.0)
+                prior_sigma_f = priors.InverseGamma.from_EV(4.0, 0.5)
+                prior_lik = priors.InverseGamma.from_EV(3, 1)
+
+                gp.kern.variance.set_prior(prior_sigma_f)
+                gp.kern.lengthscale.set_prior(prior_len)
+                gp.likelihood.variance.set_prior(prior_lik)
+
             gp.optimize()
             self._functions[child] = gp
 
@@ -512,3 +527,4 @@ class GraphStructure:
         Flip some of the edges of the graph for further experimentation
         """
         self._edges = edges
+        self._parents, self._children = self.build_relationships()

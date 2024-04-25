@@ -66,6 +66,8 @@ class CBO:
                 self.target,
             )
         )
+        print(len(data_x_list))
+        print(self.exploration_set)
 
         # parameter in the algorithm
         # current_global_min = np.min(samples[target])

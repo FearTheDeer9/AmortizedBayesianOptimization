@@ -1,6 +1,7 @@
 import logging
+import random
 from collections import OrderedDict
-from itertools import combinations, product
+from itertools import combinations, islice, product
 from typing import Callable, List
 
 import numpy as np
@@ -186,6 +187,7 @@ def create_grid_interventions(
     Returns:
         list: List various interventions in the corresponding ranges
     """
+    max_combinations = num_points
     grids = {
         var: np.linspace(min_val, max_val, num_points)
         for var, (min_val, max_val) in ranges.items()
@@ -196,7 +198,14 @@ def create_grid_interventions(
     # Individual and combination interventions
     for size in range(1, len(ranges) + 1):
         for variable_subset in combinations(ranges.keys(), size):
-            for product_values in product(*(grids[var] for var in variable_subset)):
+            full_product = list(product(*(grids[var] for var in variable_subset)))
+
+            if len(full_product) > max_combinations:
+                sampled_product = random.sample(full_product, max_combinations)
+            else:
+                sampled_product = full_product
+
+            for product_values in sampled_product:
                 interventions.append(dict(zip(variable_subset, product_values)))
 
     # Optionally remove the full combination if not desired
@@ -230,10 +239,12 @@ def draw_interventional_samples(
 ) -> dict:
     """
     Draw interventional samples from the given list of interventions
+    This one only returns the output and the intervention, we are
+    effectively computing E[Y|do(X=x)]
     """
     interventional_data = {
-        i: {var: [] for var in interventions}
-        for i, interventions in enumerate(exploration_set)
+        i: {var: [] for var in intervention}
+        for i, intervention in enumerate(exploration_set)
     }
     target = graph.target
 
@@ -257,6 +268,41 @@ def draw_interventional_samples(
                 interventional_data[index][var].append(sample[var][0, 0])
 
             interventional_data[index][target].append(sample[target][0, 0])
+
+    # Convert lists to numpy arrays for easier manipulation and consistency
+    for idx in interventional_data:
+        for var in interventional_data[idx]:
+            interventional_data[idx][var] = np.array(interventional_data[idx][var])
+
+    return interventional_data
+
+
+def draw_interventional_samples_sem(
+    interventions: List[dict], exploration_set: List[List[str]], graph: GraphStructure
+) -> dict:
+    """
+    Draw interventional samples from the given list of interventions
+    This one returns samples from the entire SEM model, even after
+    an intervention has been performed
+    """
+    interventional_data = {
+        tuple(es): {var: [] for var in graph.variables} for es in exploration_set
+    }
+
+    for intervention in interventions:
+        intervention_keys_sorted = sorted(intervention.keys())
+        index = next(
+            (
+                i
+                for i, sublist in enumerate(exploration_set)
+                if sorted(sublist) == intervention_keys_sorted
+            ),
+            None,
+        )
+        if index is not None:
+            sample = sample_model(graph.SEM, sample_count=1, interventions=intervention)
+            for var in graph.variables:
+                interventional_data[tuple(intervention)][var].append(sample[var][0, 0])
 
     # Convert lists to numpy arrays for easier manipulation and consistency
     for idx in interventional_data:

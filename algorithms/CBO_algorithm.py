@@ -56,18 +56,18 @@ class CBO:
         num_interventions = len(self.exploration_set)
 
         # setting up the data for the rest of the algorithm
-        data_x_list, data_y_list, best_variable, current_global_min, best_variable = (
-            utils_functions.define_initial_data_CBO(
-                self.interventional_samples,
-                num_interventions,
-                self.exploration_set,
-                5,
-                self.manipulative_variables,
-                self.target,
-            )
+        (
+            data_x_list,
+            data_y_list,
+            best_intervention_value,
+            current_global_min,
+            best_variable,
+        ) = utils_functions.define_initial_data_CBO(
+            self.interventional_samples,
+            self.exploration_set,
+            self.manipulative_variables,
+            self.target,
         )
-        print(len(data_x_list))
-        print(self.exploration_set)
 
         # parameter in the algorithm
         # current_global_min = np.min(samples[target])

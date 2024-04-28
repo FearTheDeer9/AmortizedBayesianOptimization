@@ -1,6 +1,6 @@
 import itertools
 import logging
-from typing import List, OrderedDict, Tuple
+from typing import Callable, List, OrderedDict, Tuple
 
 import numpy as np
 import scipy
@@ -24,7 +24,8 @@ from utils.utils_classes import (
 def set_up_GP(
     causal_prior: bool,
     input_space: int,
-    do_effects: DoFunctions,
+    mean_function_do: Callable,
+    var_function_do: Callable,
     X: np.ndarray,
     Y: np.ndarray,
 ) -> GPyModelWrapper:
@@ -35,12 +36,13 @@ def set_up_GP(
     if causal_prior:
         logging.info("Using the Causal Gaussian Prior")
         # define the model for the causal prior here
+        # this one uses the computed mean and variance with Gaussian Processes
         mf = Mapping(input_space, 1)
-        mf.f = lambda x: do_effects.mean_function_do(x)
+        mf.f = lambda x: mean_function_do(x)
         mf.update_gradients = lambda a, b: None
         kernel = CausalRBF(
             input_space,
-            variance_adjustment=do_effects.var_function_do,
+            variance_adjustment=var_function_do,
             lenghtscale=1.0,
             variance=1.0,
             rescale_variance=1.0,
@@ -53,6 +55,7 @@ def set_up_GP(
         emukit_model = GPyModelWrapper(gpy_model)
     else:
         logging.info("Setting up the gaussian prior")
+        # this one just uses the data
         gpy_model = GPRegression(
             X=X,
             Y=Y,
@@ -68,7 +71,7 @@ def update_all_do_functions(
     graph: GraphStructure,
     samples: np.ndarray,
     exploration_set: List,
-) -> List:
+) -> List[DoFunctions]:
     """
     This is for CBO algorithm when the variables in the exploration set changes. This changes
     based on what is in the intervention set, as well as what was newly observed. Each of
@@ -137,22 +140,31 @@ def compute_coverage(
 def update_posterior_model(
     exploration_set: List,
     trial_observed: bool,
-    model_list: List,
+    model_list: List[GPyModelWrapper],
     data_x_list: dict,
     data_y_list: dict,
     causal_prior: bool,
     best_variable: int,
     input_space: List,
-    do_function_list: List,
+    do_function_list: List[DoFunctions],
 ) -> List:
+    """
+    Update the posterior of the gaussian process if it was intervened on in the previous timestep
+    """
     # update the Gaussian Processes
     if trial_observed:
         # update all the models if we observed in the previous trial
+        # this one uses the computed do functions by fitting the causal graph
         for j in range(len(exploration_set)):
             X = data_x_list[j]
             Y = data_y_list[j].reshape(-1, 1)
             model_list[j] = set_up_GP(
-                causal_prior, input_space[j], do_function_list[j], X, Y
+                causal_prior,
+                input_space[j],
+                do_function_list[j].mean_function_do,
+                do_function_list[j].var_function_do,
+                X,
+                Y,
             )
     else:
         # only update the model of the set that was intervened upon
@@ -161,7 +173,8 @@ def update_posterior_model(
         model_list[best_variable] = set_up_GP(
             causal_prior,
             input_space[best_variable],
-            do_function_list[best_variable],
+            do_function_list[best_variable].mean_function_do,
+            do_function_list[best_variable].var_function_do,
             X,
             Y,
         )
@@ -199,9 +212,7 @@ def get_new_x_y_list(
 
 def define_initial_data_CBO(
     interventional_data: dict,
-    num_interventions: int,
     exploration_set: List[List[str]],
-    name_index: int,
     manipulative_variables: List[str],
     outcome_variable: str,
     task: str = "min",
@@ -238,11 +249,11 @@ def define_initial_data_CBO(
 
         # Combine and shuffle data using a reproducible random seed
         all_data = np.column_stack((data_x, data_y))
-        np.random.seed(name_index + idx)  # Adjust seed to be unique per dataset
-        np.random.shuffle(all_data)
+        # np.random.seed(name_index + idx)  # Adjust seed to be unique per dataset
+        # np.random.shuffle(all_data)
 
         # Select the subset of data for optimization
-        subset_all_data = all_data[:num_interventions]
+        subset_all_data = all_data
 
         data_x_list.append(subset_all_data[:, :-1])
         data_y_list.append(subset_all_data[:, -1])

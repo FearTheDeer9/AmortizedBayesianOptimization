@@ -62,7 +62,7 @@ def update_children_values(
 
 
 def predict_child(
-    functions: GPRegression, parent_values: dict[str, np.ndarray], parents: List
+    functions: GPRegression, parent_values: Dict[str, np.ndarray], parents: List
 ):
     """
     Makes sure that the parent variables are in the correct order for the GP model
@@ -85,6 +85,7 @@ def maintain_independent_and_parents(variables, nodes):
 def predict_causal_effect(functions, variables, parents_Y, num_observations, target):
     """
     Predicts the causal effect after all the variables has been intervened upon
+    Returns the mean and the variance of the observation
     """
     input_Y = np.hstack(
         [variables[parent].reshape(num_observations, -1) for parent in parents_Y]

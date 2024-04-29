@@ -150,6 +150,10 @@ class GraphStructure:
     def variables(self):
         return self._variables
 
+    @property
+    def G(self):
+        return self._G
+
     @abc.abstractmethod
     def define_SEM():
         """
@@ -529,3 +533,4 @@ class GraphStructure:
         """
         self._edges = edges
         self._parents, self._children = self.build_relationships()
+        self._G = self.make_graphical_model()

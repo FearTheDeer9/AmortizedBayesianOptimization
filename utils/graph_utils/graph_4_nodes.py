@@ -32,7 +32,7 @@ class Graph4Nodes(GraphStructure):
         self.Y = Y
         self._SEM = self.define_SEM()
         self.edges = []
-        self.G = self.make_graphical_model()
+        self._G = self.make_graphical_model()
         self._target = "Y"
         self.functions: Optional[Dict[str, GPRegression]] = None
 

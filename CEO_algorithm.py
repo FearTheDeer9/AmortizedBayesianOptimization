@@ -136,24 +136,14 @@ for graph in graphs:
         )
     )
 
-# for i in range(len(exploration_set)):
-#     es = tuple(exploration_set[i])
-#     x = np.array([interventional_samples[i][es[0]][0]])
-#     print(all_posteriors[-1])
-#     print(
-#         ceo_utils.aggregate_var_function(
-#             i,
-#             do_effects_functions,
-#             all_posteriors[-1],
-#             x,
-#         )
-#     )
 
 input_space = [len(es) for es in exploration_set]
 causal_prior = True
 model_list: List[GPyModelWrapper] = [None] * len(exploration_set)
 model_list_overall: List[GPyModelWrapper] = [None] * len(exploration_set)
-n_es_mapping = {i: es for i, es in enumerate(exploration_set)}
+arm_n_es_mapping = {i: es for i, es in enumerate(exploration_set)}
+arm_es_n_mapping = {tuple(es): i for i, es in enumerate(exploration_set)}
+cost_functions = graph.get_cost_structure(1)
 
 print(intervention_grid)
 print(interventional_range)
@@ -161,21 +151,6 @@ for i in range(T):
     if i == 0:
         # # update the prior of all the Gaussian Processes for each graph
         # trial_observed.append(True)
-
-        # for g in range(len(graphs)):
-        #     model_list[g] = utils_functions.update_posterior_model(
-        #         exploration_set,
-        #         trial_observed[i - 1],
-        #         model_list[g],
-        #         data_x_list,
-        #         data_y_list,
-        #         causal_prior,
-        #         best_variable,
-        #         input_space,
-        #         do_effects_functions[g],
-        #     )
-
-        # for s, es in enumerate(exploration_set):
         model_list_overall = ceo_utils.update_posterior_model_aggregate(
             exploration_set,
             True,
@@ -188,23 +163,11 @@ for i in range(T):
             do_effects_functions,
             all_posteriors[-1],
         )
-
-        # model_list = utils_functions.update_posterior_model(
-        #     exploration_set,
-        #     True,
-        #     model_list,
-        #     data_x_list,
-        #     data_y_list,
-        #     causal_prior,
-        #     best_variable,
-        #     input_space,
-        #     do_effects_functions[0],
-        # )
     else:
 
         # update the arm distribution, i.e. that each intervention in the exploration set is optimal
         arm_distribution = ceo_utils.update_arm_distribution(
-            arm_distribution, model_list_overall, data_x_list, n_es_mapping
+            arm_distribution, model_list_overall, data_x_list, arm_n_es_mapping
         )
 
         py_star_samples, p_x_star_samples = ceo_utils.build_p_y_star(
@@ -215,11 +178,28 @@ for i in range(T):
             n_samples_mixture=1000, all_ystar=py_star_samples, arm_dist=arm_distribution
         )
 
-        kde_global = ceo_utils.MyKDENew(samples_global_xstar)
+        kde_global = ceo_utils.MyKDENew(samples_global_ystar)
         try:
             kde_global.fit()
         except RuntimeError:
             kde_global.fit(bw=0.5)
 
-        print(kde_global)
+        for s, es in enumerate(exploration_set):
+            # figure out the sem_hat and sem_ems_fncs
+            ceo_utils.evaluate_acquisition_ceo(
+                graphs=graphs,
+                bo_model=model_list_overall[s],
+                exploration_set=es,
+                cost_functions=cost_functions,
+                posterior=all_posteriors[-1],
+                arm_distribution=arm_distribution,
+                pystar_samples=py_star_samples,
+                pxstar_samples=p_x_star_samples,
+                samples_global_ystar=samples_global_ystar,
+                samples_global_xstar=samples_global_xstar,
+                kde_globalystar=kde_global,
+                arm_mapping_es_to_num=arm_es_n_mapping,
+                arm_mapping_num_to_es=arm_n_es_mapping,
+                interventional_grid=intervention_grid,
+            )
         break

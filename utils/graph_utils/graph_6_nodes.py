@@ -47,7 +47,7 @@ class Graph6Nodes(GraphStructure):
         self._nodes = set(chain(*self.edges))
         self._parents, self._children = self.build_relationships()
 
-        self.G = self.make_graphical_model()
+        self._G = self.make_graphical_model()
         self._target = "Y"
         self._functions: Optional[Dict[str, GPRegression]] = None
         self._variables = ["A", "B", "As", "S", "C", "Y"]

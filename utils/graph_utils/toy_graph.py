@@ -29,7 +29,7 @@ class ToyGraph(GraphStructure):
         self.Y = Y
         self._SEM = self.define_SEM()
         self._edges = [("X", "Z"), ("Z", "Y")]
-        self.G = self.make_graphical_model()
+        self._G = self.make_graphical_model()
         self._target = "Y"
         self._functions = None
         self._nodes = set(chain(*self.edges))

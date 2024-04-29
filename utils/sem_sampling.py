@@ -5,6 +5,7 @@ from itertools import combinations, islice, product
 from typing import Callable, List
 
 import numpy as np
+from GPy.models.gp_regression import GPRegression
 
 from utils.graph_utils.graph import GraphStructure
 
@@ -67,8 +68,8 @@ def sample_from_SEM(
 
 
 def sample_from_SEM_hat(
-    static_sem: OrderedDict,
-    node_parents: Callable,
+    static_sem: OrderedDict[str, GPRegression],
+    graph: GraphStructure,
     initial_values: dict = None,
     interventions: dict = None,
     seed: int = None,
@@ -80,8 +81,8 @@ def sample_from_SEM_hat(
     ----------
     static_sem : OrderedDict
         SEMs specifying the relationships among variables.
-    node_parents : Callable
-        Function that returns the parents of the given node.
+    graph : GraphStructure
+        The current graph we are sampling from
     initial_values : dict, optional
         Initial values of nodes, by default None.
     interventions : dict, optional
@@ -107,12 +108,17 @@ def sample_from_SEM_hat(
             sample[var] = initial_values[var]
         else:
             # Find parents and sample from the model
-            parents = node_parents(var, None)
+            parents = graph.parents[var]
             if parents:
-                sample[var] = function(None, parents, sample)
+                # Create parent matrix for GP
+                parent_values = np.array([[sample[parent] for parent in parents]])
+                # Predict from GP model, mean of distribution used as sample
+                mean, _ = function.predict(parent_values)
+                sample[var] = mean.squeeze()
             else:
-                # Sample source node marginal
-                sample[var] = function(None, var)
+                # For source nodes, you might need a default sampling strategy
+                # or handle as no-parent scenario typically with some prior
+                sample[var] = np.random.normal(loc=0.0, scale=1.0)
 
     return sample
 

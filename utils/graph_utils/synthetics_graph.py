@@ -49,7 +49,7 @@ class SyntheticGraph(GraphStructure):
             ("U1", "Y"),
             ("U2", "Y"),
         ]
-        self.G = self.make_graphical_model()
+        self._G = self.make_graphical_model()
         self._target = "Y"
         self.functions: Dict[str, GPRegression] = None
 

@@ -4,6 +4,7 @@ from collections import OrderedDict
 from itertools import combinations, islice, product
 from typing import Callable, List
 
+import networkx as nx
 import numpy as np
 from GPy.models.gp_regression import GPRegression
 
@@ -99,26 +100,35 @@ def sample_from_SEM_hat(
         np.random.seed(seed)
 
     sample = OrderedDict()
+    topological_order = list(nx.topological_sort(graph.G))
 
-    for var, function in static_sem.items():
+    for var in topological_order:
         # Apply interventions or initial values if specified
         if interventions and var in interventions:
-            sample[var] = interventions[var]
+            value = interventions[var]
         elif initial_values and var in initial_values:
-            sample[var] = initial_values[var]
+            value = initial_values[var]
         else:
             # Find parents and sample from the model
             parents = graph.parents[var]
             if parents:
+                gp_function = static_sem[var]
                 # Create parent matrix for GP
                 parent_values = np.array([[sample[parent] for parent in parents]])
                 # Predict from GP model, mean of distribution used as sample
-                mean, _ = function.predict(parent_values)
-                sample[var] = mean.squeeze()
+                mean = gp_function.predict(parent_values)[0][0]
+                value = mean.squeeze()
             else:
                 # For source nodes, you might need a default sampling strategy
                 # or handle as no-parent scenario typically with some prior
-                sample[var] = np.random.normal(loc=0.0, scale=1.0)
+                value = np.random.normal(loc=0.0, scale=1.0)
+
+            # Convert arrays to scalar if necessary
+            # Ensure value is a scalar
+        if isinstance(value, np.ndarray) and value.size == 1:
+            value = value.item()  # Convert one-element array to scalar
+
+        sample[var] = np.array(value)
 
     return sample
 

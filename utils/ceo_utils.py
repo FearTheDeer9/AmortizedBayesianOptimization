@@ -6,10 +6,7 @@ from typing import Callable, Dict, List, OrderedDict, Tuple, Union
 
 import numpy as np
 import statsmodels.api as sm
-from emukit.bayesian_optimization.interfaces import IEntropySearchModel
-from emukit.core import ParameterSpace
 from emukit.core.acquisition import Acquisition
-from emukit.core.interfaces import IDifferentiable, IModel
 from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
 from GPy.models.gp_regression import GPRegression
 from scipy.special import logsumexp, softmax
@@ -22,350 +19,11 @@ from utils.utils_classes import Cost, DoFunctions
 from utils.utils_functions import set_up_GP
 
 
-class CausalEntropySearch(Acquisition):
-    def __init__(
-        self,
-        all_sem_hat,
-        all_emit_fncs,
-        graphs: List[GraphStructure],
-        node_parents,
-        current_posterior,
-        es,
-        model: Union[IModel, IEntropySearchModel],
-        space: ParameterSpace,
-        interventional_grid,
-        kde,
-        es_num_arm_mapping,
-        num_es_arm_mapping,
-        arm_distr,
-        seed,
-        task,
-        all_xstar,
-        all_ystar,
-        samples_global_ystar,
-        samples_global_xstar,
-        do_cdcbo=False,
-    ) -> None:
-        """ """
-        super().__init__()
-
-        if not isinstance(model, IEntropySearchModel):
-            raise RuntimeError("Model is not supported for MES")
-
-        self.es = es
-        self.model = model
-        self.space = space
-        self.grid = interventional_grid
-        self.pre_kde = kde
-        self.es_num_mapping = es_num_arm_mapping
-        self.num_es_arm_mapping = num_es_arm_mapping
-        self.prev_arm_distr = arm_distr
-        self.seed = seed
-        self.task = task
-        self.init_posterior = current_posterior
-        self.node_parents = node_parents
-        self.graphs = graphs
-        self.all_sem_hat = all_sem_hat
-        self.all_emit_fncs = all_emit_fncs
-        self.prev_all_ystar = all_ystar
-        self.prev_all_xstar = all_xstar
-        self.prev_global_samples_ystar = samples_global_ystar
-        self.prev_global_samples_xstar = samples_global_xstar
-        self.do_cdcbo = do_cdcbo
-
-    def evaluate(self, x: np.ndarray) -> np.ndarray:
-        """
-        Computes the information gain, i.e the predicted change in entropy of p_min (the distribution
-        of the minimal value of the objective function) if we evaluate x.
-        :param x: points where the acquisition is evaluated.
-        """
-
-        # Make new aquisition points
-
-        grid = self.grid if len(self.es) == 1 else x  # this was wrong
-
-        initial_entropy = self.pre_kde.entropy  # A scalar really
-        # initial_graph_entropy = entropy(normalize_log(self.init_posterior))
-        n_fantasies = 5  # N. of fantasy observations
-        # could  choose a subset of them to reduce computation
-        n_acquisitions = x.shape[0]
-
-        n_samples_mixture = self.prev_global_samples_ystar.shape[0]
-        # first dimension is n anchor points
-        new_entropies = np.empty((n_acquisitions,))
-        # first dimension is n anchor points
-        # new_entropies_opt = np.empty((n_acquisitions,))
-        # first dimension is n anchor points
-        # new_entropies_graph = np.empty((n_acquisitions,))
-
-        # Stores the new samples from the updated p(y* | D, (x,y)).
-        new_samples_global_ystar_list = np.empty(
-            (n_acquisitions, n_fantasies, n_samples_mixture)
-        )
-
-        # Keeping track of these just because of plotting later
-        # shape will be n_acquisitions x n_fantasies
-        updated_models_list = [[] for _ in range(n_acquisitions)]
-
-        const = np.pi**-0.5
-
-        # Approx integral with GQ
-        xx, w = np.polynomial.hermite.hermgauss(n_fantasies)
-
-        curr_normalized_graph = normalize_log(self.init_posterior)
-
-        if curr_normalized_graph[0] > 0.90:
-            print("graph is found")
-            # If you found the graph, optimize
-            for id_acquisition, single_x in tqdm(enumerate(x[:n_acquisitions])):
-
-                # Get samples from p(y | D, do(x) )
-                if single_x.shape[0] == 1:
-                    x_inp = single_x.reshape(-1, 1)
-                else:
-                    x_inp = single_x.reshape(1, -1)
-
-                m, v = self.model.predict(x_inp)
-                m, v = m.squeeze(), v.squeeze()
-
-                # Fantasy samples from sigma points xx
-                fantasy_ys = 2**0.5 * np.sqrt(v) * xx + m
-
-                new_entropies_unweighted = np.empty((n_fantasies,))
-
-                for n_fantasy, fantasy_y in enumerate(fantasy_ys):
-
-                    updated_model = deepcopy(self.model)
-                    prevx, prevy = updated_model.get_X(), updated_model.get_Y()
-
-                    tempx = np.concatenate([prevx, x_inp])
-
-                    fantasy_y, prevy = fantasy_y.reshape(-1, 1), prevy.reshape(-1, 1)
-
-                    tempy = np.vstack([prevy, fantasy_y])
-
-                    updated_model.set_XY(tempx, tempy)
-
-                    # Keeping track of them just for plotting ie. debugging reasons
-                    updated_models_list[id_acquisition].append(updated_model)
-
-                    # Arm distr gets updated only because model gets updated
-                    new_arm_dist = update_arm_dist_single_model(
-                        deepcopy(self.prev_arm_distr),
-                        self.es,
-                        updated_model,
-                        grid,
-                        self.es_num_mapping,
-                    )
-
-                    pystar_samples, pxstar_samples = update_pystar_single_model(
-                        arm_mapping=self.es_num_mapping,
-                        es=self.es,
-                        bo_model=updated_model,
-                        inputs=grid,
-                        all_xstar=self.prev_all_xstar,
-                        all_ystar=deepcopy(self.prev_all_ystar),
-                    )
-
-                    new_samples_global_ystar, _ = sample_global_xystar(
-                        n_samples_mixture=n_samples_mixture,
-                        all_ystar=pystar_samples,
-                        arm_dist=to_prob(
-                            new_arm_dist, self.task  # checked , this works for min
-                        ),
-                    )
-
-                    new_kde = MyKDENew(new_samples_global_ystar)
-                    try:
-                        new_kde.fit()
-                    except RuntimeError:
-                        new_kde.fit(bw=0.5)
-
-                    # this can be neg. as it's differential entropy
-                    new_entropy_ystar = new_kde.entropy
-
-                    new_entropies_unweighted[n_fantasy] = new_entropy_ystar
-                    new_samples_global_ystar_list[id_acquisition, n_fantasy, :] = (
-                        new_samples_global_ystar
-                    )
-
-                # GQ average
-                new_entropies[id_acquisition] = np.sum(
-                    w * const * new_entropies_unweighted
-                )
-
-                # Remove  when debugging with  batch
-            assert new_entropies.shape == (n_acquisitions,) or new_entropies == (
-                n_acquisitions,
-                1,
-            )
-            # Represents the improvement in (averaged over fantasy observations!) entropy (it's good if it lowers)
-            # It can be negative.
-            entropy_changes = initial_entropy - new_entropies
-
-        # else:
-        #     print("graph is not found")
-
-        #     if not self.do_cdcbo:
-        #         # Keep finding graph and optimize JOINTLY
-        #         intervened_vars = [s for s in self.es]
-        #         # Calc updated graph entropy
-        #         for id_acquisition, single_x in tqdm(enumerate(x[:n_acquisitions])):
-        #             if single_x.shape[0] == 1:
-        #                 x_inp = single_x.reshape(-1, 1)
-        #             else:
-        #                 x_inp = single_x.reshape(1, -1)
-
-        #             updated_posterior = fake_do_x(
-        #                 x=x_inp,
-        #                 node_parents=self.node_parents,
-        #                 graphs=self.graphs,
-        #                 log_graph_post=deepcopy(self.init_posterior),
-        #                 intervened_vars=intervened_vars,
-        #                 all_emission_fncs=self.all_emit_fncs,
-        #                 all_sem=self.all_sem_hat,
-        #             )
-        #             new_entropies_graph[id_acquisition] = entropy(
-        #                 normalize_log(updated_posterior)
-        #             )
-
-        #         entropy_changes_graph = initial_graph_entropy - new_entropies_graph
-
-        #         # Optimization part
-        #         for id_acquisition, single_x in tqdm(enumerate(x[:n_acquisitions])):
-
-        #             # Get samples from p(y | D, do(x) )
-        #             if single_x.shape[0] == 1:
-        #                 x_inp = single_x.reshape(-1, 1)
-        #             else:
-        #                 x_inp = single_x.reshape(1, -1)
-
-        #             m, v = self.model.predict(x_inp)
-        #             m, v = m.squeeze(), v.squeeze()
-
-        #             # Fantasy samples from sigma points xx
-        #             fantasy_ys = 2**0.5 * np.sqrt(v) * xx + m
-
-        #             new_entropies_unweighted = np.empty((n_fantasies,))
-
-        #             for n_fantasy, fantasy_y in enumerate(fantasy_ys):
-
-        #                 updated_model = deepcopy(self.model)
-        #                 prevx, prevy = updated_model.get_X(), updated_model.get_Y()
-
-        #                 tempx = np.concatenate([prevx, x_inp])
-
-        #                 fantasy_y, prevy = fantasy_y.reshape(-1, 1), prevy.reshape(
-        #                     -1, 1
-        #                 )
-
-        #                 tempy = np.vstack([prevy, fantasy_y])
-
-        #                 updated_model.set_XY(tempx, tempy)
-
-        #                 # Keeping track of them just for plotting ie. debugging reasons
-        #                 updated_models_list[id_acquisition].append(updated_model)
-
-        #                 # Arm distr gets updated only because model gets updated
-        #                 new_arm_dist = update_arm_dist_single_model(
-        #                     deepcopy(self.prev_arm_distr),
-        #                     self.es,
-        #                     updated_model,
-        #                     grid,
-        #                     self.es_num_mapping,
-        #                 )
-
-        #                 # Use this to build p(y*, x* | D, (x,y) )
-        #                 pystar_samples, pxstar_samples = update_pystar_single_model(
-        #                     arm_mapping=self.es_num_mapping,
-        #                     es=self.es,
-        #                     bo_model=updated_model,
-        #                     inputs=grid,
-        #                     all_xstar=self.prev_all_xstar,
-        #                     all_ystar=deepcopy(self.prev_all_ystar),
-        #                 )
-
-        #                 new_samples_global_ystar, _ = (
-        #                     sample_global_xystar(
-        #                         n_samples_mixture=n_samples_mixture,
-        #                         all_ystar=pystar_samples,
-        #                         arm_dist=to_prob(
-        #                             new_arm_dist,  # checked , this works for min
-        #                             self.task,
-        #                         ),
-        #                     )
-        #                 )
-
-        #                 new_kde = MyKDENew(new_samples_global_ystar)
-        #                 try:
-        #                     new_kde.fit()
-        #                 except RuntimeError:
-        #                     new_kde.fit(bw=0.5)
-
-        #                 new_entropy_ystar = (
-        #                     new_kde.entropy
-        #                 )  # this can be neg. as it's differential entropy
-
-        #                 new_entropies_unweighted[n_fantasy] = new_entropy_ystar
-        #                 new_samples_global_ystar_list[id_acquisition, n_fantasy, :] = (
-        #                     new_samples_global_ystar
-        #                 )
-
-        #             # GQ average
-        #             new_entropies_opt[id_acquisition] = np.sum(
-        #                 w * const * new_entropies_unweighted
-        #             )
-
-        #         entropy_changes_opt = initial_entropy - new_entropies_opt
-
-        #         entropy_changes = entropy_changes_graph + entropy_changes_opt
-        #     else:
-        #         # CD-CBO: only graph !
-        #         # Keep finding graph and optimize jointly
-        #         intervened_vars = [s for s in self.es]
-        #         # Calc updated graph entropy
-        #         for id_acquisition, single_x in tqdm(enumerate(x[:n_acquisitions])):
-        #             if single_x.shape[0] == 1:
-        #                 x_inp = single_x.reshape(-1, 1)
-        #             else:
-        #                 x_inp = single_x.reshape(1, -1)
-
-        #             updated_posterior = fake_do_x(
-        #                 x=x_inp,
-        #                 node_parents=self.node_parents,
-        #                 graphs=self.graphs,
-        #                 log_graph_post=deepcopy(self.init_posterior),
-        #                 intervened_vars=intervened_vars,
-        #                 all_emission_fncs=self.all_emit_fncs,
-        #                 all_sem=self.all_sem_hat,
-        #             )
-        #             new_entropies[id_acquisition] = entropy(
-        #                 normalize_log(updated_posterior)
-        #             )
-
-        #         entropy_changes = initial_graph_entropy - new_entropies
-
-        # end of inner if
-        # end of outer if
-
-        # Just in case any are negative, shift all, preserving the total order.
-        if np.any(entropy_changes < 0.0):
-            smallest = np.absolute(np.min(entropy_changes))
-            entropy_changes = entropy_changes + smallest
-
-        logging.info("Entropy changes for " + str(self.es) + ": ")
-        logging.info(str(entropy_changes.tolist()))
-        assert entropy_changes.shape[0] == x.shape[0]
-
-        return entropy_changes
-
-    @property
-    def has_gradients(self) -> bool:
-        """Returns that this acquisition has gradients"""
-        return False
-
-
 class MyKDENew(sm.nonparametric.KDEUnivariate):
+    """
+    This is the class to fit the kernel density estimates of the data
+    """
+
     def __init__(self, *args):
         super().__init__(*args)
 
@@ -384,6 +42,7 @@ def inverse_cdf(su, W):
     """
     The inverse CDF for a finite distribution
     """
+    # ensure W sums to one here
     cumulative_sums = np.cumsum(W)
     return np.searchsorted(cumulative_sums, su)
 
@@ -396,8 +55,10 @@ def update_posterior_interventional(
     interventional_samples: Dict[Tuple, Dict[str, np.ndarray]],
     lr=0.05,
 ):
-
-    interventional_samples = interventional_samples[intervened_var]
+    """
+    Updating the posterior probabilities of each graph after intervening on the system
+    """
+    current_interventional_sample = interventional_samples[intervened_var]
     for graph_idx, emission_fncs in enumerate(
         all_emission_fncs
     ):  # as many emission_fncs dicts as graphs
@@ -406,9 +67,12 @@ def update_posterior_interventional(
         for var in emission_fncs:
             parents = graph.parents[var]
             xx = np.hstack(
-                [interventional_samples[parent].reshape(1, -1) for parent in parents]
+                [
+                    current_interventional_sample[parent].reshape(1, -1)
+                    for parent in parents
+                ]
             )
-            yy = interventional_samples[var].reshape(1, -1)
+            yy = current_interventional_sample[var].reshape(1, -1)
 
             if var in intervened_var:
                 # Here the truncated assumption comes in. Dont compute posterior
@@ -423,7 +87,12 @@ def update_posterior_interventional(
     return posterior
 
 
-def log_likelihood(model: GPRegression, X_test: np.ndarray, y_test: np.ndarray):
+def log_likelihood(
+    model: GPRegression, X_test: np.ndarray, y_test: np.ndarray
+) -> float:
+    """
+    Computes the log-likelihood for the observations based on the fitted functions
+    """
     if y_test is not None:
         log_lik = model.log_predictive_density(x_test=X_test, y_test=y_test)
         res = log_lik.flatten().sum()
@@ -541,7 +210,8 @@ def update_posterior_model_aggregate(
 ) -> List[GPyModelWrapper]:
     """
     Update the posterior of the gaussian process if it was intervened on in the previous timestep
-    The do_functions is now a list of all variables for all graphs
+    The do_functions is now a list of all variables for all graphs, the partial sets up the function
+    to compute the newly defined mean and variance function
     """
     # update the Gaussian Processes
     if trial_observed:
@@ -608,7 +278,7 @@ def update_arm_dist_single_model(
     beta=0.1,
 ):
     corresponding_n = arm_mapping_es_to_n[es]
-    inps = inputs
+    inps = np.array(inputs)
     preds_mean, preds_var = single_updated_bo_model.predict(
         inps
     )  # Predictive mean    #
@@ -660,11 +330,16 @@ def update_pystar_single_model(
     all_ystar,
     all_xstar,
 ):
+    """
+    Update the samples for the optimal values based on the current elements in the
+    exploration set (only changes one of the posterior probabilities)
+    """
     corresponding_idx = arm_mapping[es]
     n_samples = all_ystar.shape[1]  # samples to build local p(y*, x*)
     gpy_model: GPRegression = bo_model.model
+    inps = np.array(inputs)
     samples = gpy_model.posterior_samples_f(
-        inputs, size=n_samples
+        inps, size=n_samples
     )  # less samples to speed up
     samples = samples.squeeze()
 
@@ -684,10 +359,10 @@ def sample_global_xystar(
     """
     # Select indexes of mixture components to sample from first
     mixture_idxs = stratified(
-        W=arm_dist, M=n_samples_mixture
+        W=to_prob(arm_dist), M=n_samples_mixture
     )  # lower variance sampling
 
-    local_pystars = []
+    local_pystars: List[MyKDENew] = []
     # This fits a KDE to each local p(Y*) i.e. p(Y*_(Z) | D), p(Y*_(X) | D)
     # It looks at all the elements in the exploration set
     for mixt_idx in range(all_ystar.shape[0]):
@@ -742,6 +417,10 @@ def optimal_sequence_of_interventions(
     graph: GraphStructure,
     task: str = "min",
 ) -> Tuple:
+    """
+    This is to start off the CEO algorithm, don't think it is used, rather used the one
+    in the CBO algorithm
+    """
 
     # setting up the noise model
     model_variables = graph.variables
@@ -823,13 +502,15 @@ def optimal_sequence_of_interventions(
 def numerical_optimization(
     acquisition: Acquisition,
     inputs: np.ndarray,
-    exploration_set,
+    exploration_set: List[str],
     task: str = "min",
 ):
-
+    """
+    Does the optimization for the CEO acquisition function
+    """
+    logging.info("Starting the optimization for CES")
     # Finds the new best point by evaluating the function in a set of given inputs
     _, D = inputs.shape
-
     improvements = acquisition.evaluate(inputs)
     # Is this correct ?
     # if task == "min":
@@ -862,235 +543,22 @@ def numerical_optimization(
     return x_new, y_new, inputs, improvements
 
 
-def evaluate_acquisition_ceo(
-    # these are the ones i defined
-    graphs: List[GraphStructure],
-    bo_model: GPyModelWrapper,
-    exploration_set: List[List[str]],
-    cost_functions: OrderedDict,
-    posterior: np.ndarray,
-    # these are taken from the code
-    num_anchor_points: int = 100,
-    sample_anchor_points: bool = False,
-    seed_anchor_points=None,
-    # NEW CEO STUFF. TODO: PASS A DICT AND MAKE IT INTO KWARGS
-    all_sem_hat=None,
-    all_emit_fncs=None,
-    # Local and global posterior over y* stuff
-    kde_globalystar: MyKDENew = None,
-    pxstar_samples: List = None,
-    pystar_samples: np.ndarray = None,
-    samples_global_ystar: np.ndarray = None,
-    samples_global_xstar: List = None,
-    interventional_grid=None,
-    # Arm stuff
-    arm_distribution: np.ndarray = None,
-    arm_mapping_es_to_num: Dict = None,
-    arm_mapping_num_to_es: Dict = None,
-):
-    """
-    This just assumes now that we are using causal entropy search
-    """
-    cost_of_acquisition = Cost(cost_functions, exploration_set)
-    acquisition = (
-        CausalEntropySearch(
-            all_sem_hat=all_sem_hat,
-            all_emit_fncs=all_emit_fncs,
-            graphs=graphs,
-            current_posterior=posterior,
-            es=exploration_set,
-            model=bo_model,
-            # space=parameter_intervention_domain,
-            kde=kde_globalystar,
-            interventional_grid=interventional_grid,
-            es_num_arm_mapping=arm_mapping_es_to_num,
-            num_es_arm_mapping=arm_mapping_num_to_es,
-            arm_distr=arm_distribution,
-            seed=seed_anchor_points,
-            # task=task,
-            all_xstar=pxstar_samples,
-            all_ystar=pystar_samples,
-            samples_global_ystar=samples_global_ystar,
-            samples_global_xstar=samples_global_xstar,
-        )
-        / cost_of_acquisition
-    )
-
-    if dim > 1:
-        num_anchor_points = int(np.sqrt(num_anchor_points))
-
-    if sample_anchor_points:
-        # This is to ensure the points are different every time we call the function
-        if seed_anchor_points is not None:
-            np.random.seed(seed_anchor_points)
-        else:
-            np.random.seed()
-
-        sampled_points = parameter_intervention_domain.sample_uniform(
-            point_count=num_anchor_points
-        )
-    else:
-        limits = [list(tup) for tup in parameter_intervention_domain.get_bounds()]
-        sampled_points = create_n_dimensional_intervention_grid(
-            limits=limits, size_intervention_grid=num_anchor_points
-        )
-
-    x_new, y_acquisition, inputs, improvements = numerical_optimization(
-        acquisition, sampled_points, exploration_set
-    )
-    y_acquisition = np.asarray([y_acquisition]).reshape(-1, 1)
-    y_acquisition = y_acquisition[:, np.newaxis]
-
-    return y_acquisition, x_new, inputs, improvements
-
-
-def evaluate_acquisition_function(
-    parameter_intervention_domain: np.ndarray,
-    bo_model,
-    mean_function,
-    variance_function,
-    optimal_target_value_at_current_time: float,
-    exploration_set: tuple,
-    cost_functions,
-    task: str,
-    base_target: str,
-    dynamic: bool,
-    causal_prior: bool,
-    temporal_index: int,
-    previous_variance: float = 1.0,
-    num_anchor_points: int = 100,
-    sample_anchor_points: bool = False,
-    seed_anchor_points=None,
-    # NEW CEO STUFF. TODO: PASS A DICT AND MAKE IT INTO KWARGS
-    posterior=None,
-    graphs=None,
-    all_sem_hat=None,
-    all_emit_fncs=None,
-    node_parents=None,
-    # Local and global posterior over y* stuff
-    kde_globalystar=None,
-    pxstar_samples=None,
-    pystar_samples=None,
-    samples_global_ystar=None,
-    samples_global_xstar=None,
-    interventional_grid=None,
-    # Arm stuff
-    arm_distribution=None,
-    arm_mapping_es_to_num=None,
-    arm_mapping_num_to_es=None,
-    do_cdcbo=False,
-):
-
-    assert isinstance(parameter_intervention_domain, ParameterSpace)
-    dim = parameter_intervention_domain.dimensionality
-    assert dim == len(exploration_set)
-
-    cost_of_acquisition = COST(cost_functions, exploration_set, base_target)
-
-    if bo_model:
-        if arm_mapping_es_to_num == None:  # TODO CLEAN THIS
-            acquisition = (
-                CausalExpectedImprovement(
-                    optimal_target_value_at_current_time,
-                    task,
-                    dynamic,
-                    causal_prior,
-                    temporal_index,
-                    bo_model,
-                )
-                / cost_of_acquisition
-            )
-        else:
-            acquisition = (
-                CausalEntropySearch(
-                    all_sem_hat=all_sem_hat,
-                    all_emit_fncs=all_emit_fncs,
-                    graphs=graphs,
-                    node_parents=node_parents,
-                    current_posterior=posterior,
-                    es=exploration_set,
-                    model=bo_model,
-                    space=parameter_intervention_domain,
-                    kde=kde_globalystar,
-                    interventional_grid=interventional_grid,
-                    es_num_arm_mapping=arm_mapping_es_to_num,
-                    num_es_arm_mapping=arm_mapping_num_to_es,
-                    arm_distr=arm_distribution,
-                    seed=seed_anchor_points,
-                    task=task,
-                    all_xstar=pxstar_samples,
-                    all_ystar=pystar_samples,
-                    samples_global_ystar=samples_global_ystar,
-                    samples_global_xstar=samples_global_xstar,
-                    do_cdcbo=do_cdcbo,
-                )
-                / cost_of_acquisition
-            )
-
-    else:
-        acquisition = (
-            ManualCausalExpectedImprovement(
-                optimal_target_value_at_current_time,
-                task,
-                mean_function,
-                variance_function,
-                previous_variance,
-            )
-            / cost_of_acquisition
-        )
-
-    if dim > 1:
-        num_anchor_points = int(np.sqrt(num_anchor_points))
-
-    if sample_anchor_points:
-        # This is to ensure the points are different every time we call the function
-        if seed_anchor_points is not None:
-            np.random.seed(seed_anchor_points)
-        else:
-            np.random.seed()
-
-        sampled_points = parameter_intervention_domain.sample_uniform(
-            point_count=num_anchor_points
-        )
-    else:
-        limits = [list(tup) for tup in parameter_intervention_domain.get_bounds()]
-        sampled_points = create_n_dimensional_intervention_grid(
-            limits=limits, size_intervention_grid=num_anchor_points
-        )
-
-    if causal_prior is False and dynamic:
-        # ABO
-        sampled_points = np.hstack(
-            (
-                sampled_points,
-                np.repeat(temporal_index, sampled_points.shape[0])[:, np.newaxis],
-            )
-        )
-
-    x_new, y_acquisition, inputs, improvements = numerical_optimization(
-        acquisition, sampled_points, task, exploration_set
-    )
-    y_acquisition = np.asarray([y_acquisition]).reshape(-1, 1)
-    y_acquisition = y_acquisition[:, np.newaxis]
-
-    return y_acquisition, x_new, inputs, improvements
-
-
 def fake_do_x(
     x: np.ndarray,
-    node_parents,
-    graphs,
-    log_graph_post,
-    intervened_vars,
-    all_sem,
-    all_emission_fncs,
+    graphs: List[GraphStructure],
+    log_graph_post: np.ndarray,
+    intervened_vars: Tuple[str],
+    all_sem: OrderedDict,
+    # all_emission_fncs,
 ):
+    """
+    Get interventional samples based on the estimated functions, these functions are
+    estimated based on the graph structure of the variables
+    """
     # Get a set of all variables
-    # all_vars = list(self.all_emission_pairs[0].keys())
-    all_vars = list(all_sem[0]().static(0).keys())
 
     # This will hold the fake intervention
-    intervention_blanket = {k: np.array([None]).reshape(-1, 1) for k in all_vars}
+    intervention_blanket = {k: np.array([None]).reshape(-1, 1) for k in intervened_vars}
 
     for i, intervened_var in enumerate(intervened_vars):
         intervention_blanket[intervened_var] = np.array(x.reshape(1, -1)[0, i]).reshape(
@@ -1099,9 +567,10 @@ def fake_do_x(
     # Better than  MAP
     posterior_to_avg = []
     for idx_graph in range(len(all_sem)):
-        sem_hat_map = all_sem[idx_graph]
+        sem_hat = all_sem[idx_graph]
+        # print(intervention_blanket)
         interv_sample = sample_from_SEM_hat(
-            static_sem=sem_hat_map().static(moment=0),
+            static_sem=sem_hat,
             graph=graphs[idx_graph],
             interventions=intervention_blanket,
         )
@@ -1110,13 +579,16 @@ def fake_do_x(
         for var, val in interv_sample.items():
             interv_sample[var] = val.reshape(-1, 1)
 
+        interv_sample = {intervened_vars: interv_sample}
         # P(G | D, (x,y) )  . avg over V_y  =  V \ (x,y)
+
+        # maybe check this again when there is a different number of interventions at one timestep
         posterior_to_avg.append(
             update_posterior_interventional(
                 graphs=graphs,
                 posterior=deepcopy(log_graph_post),
                 intervened_var=intervened_vars,
-                all_emission_fncs=all_emission_fncs,
+                all_emission_fncs=all_sem,
                 interventional_samples=interv_sample,
             )
         )
@@ -1124,3 +596,135 @@ def fake_do_x(
     posterior_to_avg = np.vstack(posterior_to_avg)
     # Average over intervention outcomes
     return np.average(posterior_to_avg, axis=0, weights=log_graph_post)
+
+
+# def evaluate_acquisition_function(
+#     parameter_intervention_domain: np.ndarray,
+#     bo_model,
+#     mean_function,
+#     variance_function,
+#     optimal_target_value_at_current_time: float,
+#     exploration_set: tuple,
+#     cost_functions,
+#     task: str,
+#     base_target: str,
+#     dynamic: bool,
+#     causal_prior: bool,
+#     temporal_index: int,
+#     previous_variance: float = 1.0,
+#     num_anchor_points: int = 100,
+#     sample_anchor_points: bool = False,
+#     seed_anchor_points=None,
+#     # NEW CEO STUFF. TODO: PASS A DICT AND MAKE IT INTO KWARGS
+#     posterior=None,
+#     graphs=None,
+#     all_sem_hat=None,
+#     all_emit_fncs=None,
+#     node_parents=None,
+#     # Local and global posterior over y* stuff
+#     kde_globalystar=None,
+#     pxstar_samples=None,
+#     pystar_samples=None,
+#     samples_global_ystar=None,
+#     samples_global_xstar=None,
+#     interventional_grid=None,
+#     # Arm stuff
+#     arm_distribution=None,
+#     arm_mapping_es_to_num=None,
+#     arm_mapping_num_to_es=None,
+#     do_cdcbo=False,
+# ):
+
+#     assert isinstance(parameter_intervention_domain, ParameterSpace)
+#     dim = parameter_intervention_domain.dimensionality
+#     assert dim == len(exploration_set)
+
+#     cost_of_acquisition = COST(cost_functions, exploration_set, base_target)
+
+#     if bo_model:
+#         if arm_mapping_es_to_num == None:  # TODO CLEAN THIS
+#             acquisition = (
+#                 CausalExpectedImprovement(
+#                     optimal_target_value_at_current_time,
+#                     task,
+#                     dynamic,
+#                     causal_prior,
+#                     temporal_index,
+#                     bo_model,
+#                 )
+#                 / cost_of_acquisition
+#             )
+#         else:
+#             acquisition = (
+#                 CausalEntropySearch(
+#                     all_sem_hat=all_sem_hat,
+#                     all_emit_fncs=all_emit_fncs,
+#                     graphs=graphs,
+#                     node_parents=node_parents,
+#                     current_posterior=posterior,
+#                     es=exploration_set,
+#                     model=bo_model,
+#                     space=parameter_intervention_domain,
+#                     kde=kde_globalystar,
+#                     interventional_grid=interventional_grid,
+#                     es_num_arm_mapping=arm_mapping_es_to_num,
+#                     num_es_arm_mapping=arm_mapping_num_to_es,
+#                     arm_distr=arm_distribution,
+#                     seed=seed_anchor_points,
+#                     task=task,
+#                     all_xstar=pxstar_samples,
+#                     all_ystar=pystar_samples,
+#                     samples_global_ystar=samples_global_ystar,
+#                     samples_global_xstar=samples_global_xstar,
+#                     do_cdcbo=do_cdcbo,
+#                 )
+#                 / cost_of_acquisition
+#             )
+
+#     else:
+#         acquisition = (
+#             ManualCausalExpectedImprovement(
+#                 optimal_target_value_at_current_time,
+#                 task,
+#                 mean_function,
+#                 variance_function,
+#                 previous_variance,
+#             )
+#             / cost_of_acquisition
+#         )
+
+#     if dim > 1:
+#         num_anchor_points = int(np.sqrt(num_anchor_points))
+
+#     if sample_anchor_points:
+#         # This is to ensure the points are different every time we call the function
+#         if seed_anchor_points is not None:
+#             np.random.seed(seed_anchor_points)
+#         else:
+#             np.random.seed()
+
+#         sampled_points = parameter_intervention_domain.sample_uniform(
+#             point_count=num_anchor_points
+#         )
+#     else:
+#         limits = [list(tup) for tup in parameter_intervention_domain.get_bounds()]
+#         sampled_points = create_n_dimensional_intervention_grid(
+#             limits=limits, size_intervention_grid=num_anchor_points
+#         )
+
+#     if causal_prior is False and dynamic:
+#         # ABO
+#         sampled_points = np.hstack(
+#             (
+#                 sampled_points,
+#                 np.repeat(temporal_index, sampled_points.shape[0])[:, np.newaxis],
+#             )
+#         )
+
+#     x_new, y_acquisition, inputs, improvements = numerical_optimization(
+#         acquisition, sampled_points, task, exploration_set
+#     )
+#     y_acquisition = np.asarray([y_acquisition]).reshape(-1, 1)
+#     y_acquisition = y_acquisition[:, np.newaxis]
+
+#     return y_acquisition, x_new, inputs, improvements

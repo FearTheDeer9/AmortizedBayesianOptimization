@@ -21,6 +21,7 @@ from GPy.kern.src.psi_comp import PSICOMP_RBF, PSICOMP_RBF_GPU
 from GPy.kern.src.stationary import Stationary
 from paramz.transformations import Logexp
 
+from utils.graph_utils.graph import GraphStructure
 from utils.sem_sampling import sample_model
 
 
@@ -305,12 +306,16 @@ class CausalRBF(Stationary):
 
 class TargetClass:
     """
-    Compute the target of the class when specific interventions are performed
+    Compute the target of the class when specific interventions are performed,
+    calculates the true effect after an intervention was selected
     """
 
-    def __init__(self, sem_model: OrderedDict, interventions: List) -> None:
+    def __init__(
+        self, sem_model: OrderedDict, interventions: List, variables: List
+    ) -> None:
         self.model = sem_model
         self.interventions = interventions
+        self.variables = variables
         self.num_interventions = len(interventions)
         self.interventional_dict = {val: "" for val in self.interventions}
 
@@ -322,6 +327,18 @@ class TargetClass:
             self.model, interventions=self.interventional_dict, sample_count=1000
         )
         return np.mean(new_samples["Y"]).reshape(1, 1)
+
+    def compute_all(self, value: np.ndarray):
+        for i in range(self.num_interventions):
+            self.interventional_dict[self.interventions[i]] = value[0, i]
+
+        new_samples = sample_model(
+            self.model, interventions=self.interventional_dict, sample_count=1000
+        )
+        all_vars = {
+            var: np.mean(new_samples[var]).reshape(1, 1) for var in self.variables
+        }
+        return all_vars
 
 
 class CausalGradientAcquisitionOptimizer(AcquisitionOptimizerBase):

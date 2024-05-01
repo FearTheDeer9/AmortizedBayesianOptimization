@@ -306,6 +306,7 @@ def build_p_y_star(
     for i, es in enumerate(exploration_set):
         emukit_model: GPyModelWrapper = bo_models[i]
         gpy_model: GPRegression = emukit_model.model
+
         if len(es) > 1:
             # can change this to sample uniformly
             inps = parameter_int_domain[tuple(es)]
@@ -315,7 +316,10 @@ def build_p_y_star(
             inps = np.array(inps).reshape(-1, 1)
 
         # this is different from the one used in the github code
-        samples = gpy_model.posterior_samples_f(inps, size=n_samples).squeeze()
+        print("Start of loop")
+        print(inps)
+        samples = gpy_model.posterior_samples(inps, size=n_samples).squeeze()
+        print("End of loop")
         all_ystar[i, :] = np.min(samples, axis=0).squeeze()
         all_xstar[i] = inps[np.argmin(samples, axis=0), :].squeeze()
 

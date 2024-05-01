@@ -20,6 +20,8 @@ def graph_setup(
     seed: int = None,
     use_mis: bool = True,
     exploration_set: List[List[str]] = None,
+    n_obs: int = 100,
+    n_int: int = 2,
 ) -> Tuple[GraphStructure]:
     """
     The function does the setup for the toy_graph which inherits from GraphStructure
@@ -57,7 +59,7 @@ def graph_setup(
 
     # now define interventional samples
     interventional_ranges = graph.get_interventional_range()
-    interventions = create_grid_interventions(interventional_ranges, num_points=10)
+    interventions = create_grid_interventions(interventional_ranges)
     interventional_samples = draw_interventional_samples(
         interventions, exploration_set, graph
     )

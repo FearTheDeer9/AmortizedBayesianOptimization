@@ -2,7 +2,7 @@ import logging
 import random
 from collections import OrderedDict
 from itertools import combinations, islice, product
-from typing import Callable, List
+from typing import Callable, Dict, List, Tuple
 
 import networkx as nx
 import numpy as np
@@ -190,7 +190,7 @@ def sample_model(
 
 def create_grid_interventions(
     ranges: OrderedDict,
-    num_points: int = 10,
+    num_points: int = 20,
     include_full_combination: bool = True,
     get_list_format: bool = False,
 ) -> List:
@@ -250,14 +250,50 @@ def create_grid_interventions(
     return interventions
 
 
+def change_intervention_list_format(
+    interventions: Dict, exploration_set: List[List[str]], target: str = "Y"
+) -> Dict:
+    """
+    This is for the CEO so that the intervention list can be in
+    two different formats
+    """
+    print(exploration_set)
+    new_grid = {i: {} for i in range(len(exploration_set))}
+
+    # # Loop through each dictionary in the original grid
+    # for entry in interventions:
+    #     keys = tuple(
+    #         sorted(entry.keys())
+    #     )  # Sort keys to ensure consistent order for tuples
+    #     values = tuple(
+    #         entry[key] for key in keys
+    #     )  # Get the corresponding values in tuple form
+
+    #     if keys in new_grid:
+    #         new_grid[keys].append(values)
+    #     else:
+    #         new_grid[keys] = [values]
+
+    for i, es in enumerate(exploration_set):
+        for val in es:
+            new_grid[i][val] = interventions[tuple(val)][val]
+        new_grid[i][target] = interventions[tuple(val)][target]
+    return new_grid
+
+
 def draw_interventional_samples(
-    interventions: List[dict], exploration_set: List[List[str]], graph: GraphStructure
+    interventions: List[Dict[str, float]],
+    exploration_set: List[List[str]],
+    graph: GraphStructure,
+    n_int: int = 2,
 ) -> dict:
     """
     Draw interventional samples from the given list of interventions
     This one only returns the output and the intervention, we are
     effectively computing E[Y|do(X=x)]
     """
+    np.random.shuffle(interventions)
+
     interventional_data = {
         i: {var: [] for var in intervention}
         for i, intervention in enumerate(exploration_set)
@@ -281,8 +317,12 @@ def draw_interventional_samples(
         if index is not None:
             sample = sample_model(graph.SEM, sample_count=1, interventions=intervention)
             for var in intervention:
+                if len(interventional_data[index][var]) >= n_int:
+                    continue
                 interventional_data[index][var].append(sample[var][0, 0])
 
+            if len(interventional_data[index][target]) >= n_int:
+                continue
             interventional_data[index][target].append(sample[target][0, 0])
 
     # Convert lists to numpy arrays for easier manipulation and consistency
@@ -294,7 +334,10 @@ def draw_interventional_samples(
 
 
 def draw_interventional_samples_sem(
-    interventions: List[dict], exploration_set: List[List[str]], graph: GraphStructure
+    interventions: List[dict],
+    exploration_set: List[List[str]],
+    graph: GraphStructure,
+    n_int: int = 2,
 ) -> dict:
     """
     Draw interventional samples from the given list of interventions
@@ -304,6 +347,8 @@ def draw_interventional_samples_sem(
     interventional_data = {
         tuple(es): {var: [] for var in graph.variables} for es in exploration_set
     }
+
+    print(interventions)
 
     for intervention in interventions:
         intervention_keys_sorted = sorted(intervention.keys())
@@ -318,6 +363,9 @@ def draw_interventional_samples_sem(
         if index is not None:
             sample = sample_model(graph.SEM, sample_count=1, interventions=intervention)
             for var in graph.variables:
+                # ensuring that you are not drawing too many interventional samples
+                if len(interventional_data[tuple(intervention)][var]) >= n_int:
+                    continue
                 interventional_data[tuple(intervention)][var].append(sample[var][0, 0])
 
     # Convert lists to numpy arrays for easier manipulation and consistency

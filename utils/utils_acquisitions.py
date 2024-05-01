@@ -445,6 +445,8 @@ class CausalEntropySearch(Acquisition):
 
         return entropy_changes
 
+    # def worker_function(x):
+
     @property
     def has_gradients(self) -> bool:
         """Returns that this acquisition has gradients"""

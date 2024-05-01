@@ -52,6 +52,7 @@ def set_up_GP(
         gpy_model = GPRegression(
             X=X, Y=Y, kernel=kernel, noise_var=1e-10, mean_function=mf
         )
+        gpy_model.optimize_restarts(num_restarts=5)
         emukit_model = GPyModelWrapper(gpy_model)
     else:
         logging.info("Setting up the gaussian prior")
@@ -62,8 +63,9 @@ def set_up_GP(
             kernel=RBF(input_space, lengthscale=1.0, variance=1.0),
             noise_var=1e-10,
         )
+        gpy_model.optimize_restarts(num_restarts=5)
         emukit_model = GPyModelWrapper(gpy_model)
-    emukit_model.optimize()
+    # emukit_model.optimize_restarts(num_restarts=5)
     return emukit_model
 
 
@@ -249,8 +251,6 @@ def define_initial_data_CBO(
 
         # Combine and shuffle data using a reproducible random seed
         all_data = np.column_stack((data_x, data_y))
-        # np.random.seed(name_index + idx)  # Adjust seed to be unique per dataset
-        # np.random.shuffle(all_data)
 
         # Select the subset of data for optimization
         subset_all_data = all_data

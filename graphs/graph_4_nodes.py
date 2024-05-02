@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, OrderedDict, Tuple
 
 import numpy as np
 from GPy.models.gp_regression import GPRegression
+from scipy.special import expit
 
 from graphs.graph import GraphStructure
 
@@ -16,23 +17,28 @@ class Graph4Nodes(GraphStructure):
     def __init__(
         self,
         X: np.ndarray = None,
-        A: np.ndarray = None,
+        T: np.ndarray = None,
         Z: np.ndarray = None,
         Y: np.ndarray = None,
     ):
-        self.B = B
-        self.T = T
-        self.L = L
-        self.R = R
+        self.X = X
+        self.A = T
+        self.Z = Z
         self.Y = Y
         self._SEM = self.define_SEM()
-        self.edges = []
+        self._edges = [("X", "T"), ("X", "Z"), ("T", "Y"), ("Z", "Y")]
         self._G = self.make_graphical_model()
         self._target = "Y"
-        self.functions: Optional[Dict[str, GPRegression]] = None
+        self._functions: Optional[Dict[str, GPRegression]] = None
+        self._variables = ["X", "Z", "T", "Y"]
 
     def define_SEM(self):
-        pass
+        fx = lambda epsilon, sample: epsilon
+        fz = lambda epsilon, sample: expit(0.3 * sample["X"])
+        ft = lambda epsilon, sample: np.cos(sample["X"]) + np.exp(-sample["X"])
+        fy = lambda epsilon, sample: -sample["Z"] ** 2 + np.sqrt(sample["T"]) + epsilon
+        graph = OrderedDict([("X", fx), ("Z", fz), ("T", ft), ("Y", fy)])
+        return graph
 
     def fit_all_models(self):
         return super().fit_all_models()
@@ -41,43 +47,167 @@ class Graph4Nodes(GraphStructure):
         return super().refit_models(observational_samples)
 
     def get_all_do(self):
-        return super().get_all_do()
-
-    def make_graphical_model(self):
-        return super().make_graphical_model()
-
-    def show_graphical_model(self):
-        return super().show_graphical_model()
-
-    def get_variables(self):
-        return super().get_variables()
+        do_dict = {}
+        do_dict["compute_do_X"] = self.compute_do_X
+        do_dict["compute_do_Z"] = self.compute_do_Z
+        do_dict["compute_do_T"] = self.compute_do_T
+        do_dict["compute_do_XZ"] = self.compute_do_XZ
+        do_dict["compute_do_XT"] = self.compute_do_XT
+        do_dict["compute_do_ZT"] = self.compute_do_ZT
+        do_dict["compute_do_XZT"] = self.compute_do_XZT
+        return do_dict
 
     def get_interventional_range(self):
-        return super().get_interventional_range()
+        min_intervention_x = -3
+        max_intervention_x = 3
 
-    def get_parameter_space(self, exploration_set):
-        return super().get_parameter_space(exploration_set)
+        min_intervention_z = -3
+        max_intervention_z = 3
 
-    def get_cost_structure(self, type_cost: int) -> OrderedDict:
-        return super().get_cost_structure(type_cost)
+        min_intervention_t = -3
+        max_intervention_t = 3
+
+        dict_ranges = OrderedDict(
+            [
+                ("X", [min_intervention_x, max_intervention_x]),
+                ("Z", [min_intervention_z, max_intervention_z]),
+                ("T", [min_intervention_t, max_intervention_t]),
+            ]
+        )
+        return dict_ranges
 
     def get_sets(self):
-        return super().get_sets()
+        mis = [["X"], ["Z"], ["T"]]
+        pomis = [["X", "Z"], ["X", "T"], ["Z", "T"]]
+        manipulative_variables = ["X", "Z", "T"]
+        return mis, pomis, manipulative_variables
 
-    def get_variable_different_costs(self):
-        return super().get_variable_different_costs()
+    def get_fixed_equal_costs(self) -> OrderedDict:
+        logging.info("Using the fixed equal cost structure")
+        cost_fix_X_equal = lambda intervention_value: 1.0
+        cost_fix_Z_equal = lambda intervention_value: 1.0
+        cost_fix_T_equal = lambda intervention_value: 1.0
+        costs = OrderedDict(
+            [
+                ("X", cost_fix_X_equal),
+                ("Z", cost_fix_Z_equal),
+                ("T", cost_fix_T_equal),
+            ]
+        )
+        return costs
 
-    def get_fixed_different_costs(self):
-        return super().get_fixed_different_costs()
+    def get_fixed_different_costs(self) -> OrderedDict:
+        logging.info("Using the fixed different cost structure")
+        cost_fix_X_different = lambda intervention_value: 1.0
+        cost_fix_Z_different = lambda intervention_value: 3.0
+        cost_fix_T_different = lambda intervention_value: 5.0
+        costs = OrderedDict(
+            [
+                ("X", cost_fix_X_different),
+                ("Z", cost_fix_Z_different),
+                ("T", cost_fix_T_different),
+            ]
+        )
+        return costs
 
-    def get_fixed_equal_costs(self):
-        return super().get_fixed_equal_costs()
+    def get_variable_equal_costs(self) -> OrderedDict:
+        logging.info("Using the variable equal cost structure")
+        cost_variable_X_equal = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 1.0
+        )
+        cost_variable_Z_equal = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 1.0
+        )
+        cost_variable_T_equal = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 1.0
+        )
+        costs = OrderedDict(
+            [
+                ("X", cost_variable_X_equal),
+                ("Z", cost_variable_Z_equal),
+                ("T", cost_variable_T_equal),
+            ]
+        )
+        return costs
 
-    def get_variable_equal_costs(self):
-        return super().get_variable_equal_costs()
+    def get_variable_different_costs(self) -> OrderedDict:
+        logging.info("Using the variable different cost structure")
+        cost_variable_X_different = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 1.0
+        )
+        cost_variable_Z_different = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 3.0
+        )
+        cost_variable_T_different = (
+            lambda intervention_value: np.sum(np.abs(intervention_value)) + 5.0
+        )
+        costs = OrderedDict(
+            [
+                ("X", cost_variable_X_different),
+                ("Z", cost_variable_Z_different),
+                ("T", cost_variable_T_different),
+            ]
+        )
+        return costs
 
-    def get_interventional_domain(self):
-        return super().get_interventional_domain()
+    def compute_do_X(self, observational_samples, value):
+        interventions_nodes = ["X"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
 
-    def get_set_BO(self):
-        return super().get_set_BO()
+        return mean_do, var_do
+
+    def compute_do_Z(self, observational_samples, value):
+
+        interventions_nodes = ["Z"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
+
+        return mean_do, var_do
+
+    def compute_do_T(self, observational_samples, value):
+
+        interventions_nodes = ["T"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
+
+        return mean_do, var_do
+
+    def compute_do_XZ(self, observational_samples, value):
+
+        interventions_nodes = ["X", "Z"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
+
+        return mean_do, var_do
+
+    def compute_do_XT(self, observational_samples, value):
+
+        interventions_nodes = ["X", "T"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
+
+        return mean_do, var_do
+
+    def compute_do_ZT(self, observational_samples, value):
+
+        interventions_nodes = ["Z", "T"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
+
+        return mean_do, var_do
+
+    def compute_do_XZT(self, observational_samples, value):
+
+        interventions_nodes = ["X", "Z", "T"]
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, interventions_nodes
+        )
+
+        return mean_do, var_do

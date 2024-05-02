@@ -10,6 +10,9 @@ from GPy.models.gp_regression import GPRegression
 import utils.cbo_functions as cbo_functions
 import utils.ceo_utils as ceo_utils
 from graphs.graph import GraphStructure
+from graphs.graph_4_nodes import Graph4Nodes
+from graphs.graph_5_nodes import Graph5Nodes
+from graphs.graph_6_nodes import Graph6Nodes
 from graphs.graph_functions import create_grid_interventions, graph_setup
 from graphs.toy_graph import ToyGraph
 from utils.cbo_classes import DoFunctions, TargetClass
@@ -42,6 +45,7 @@ class CEO:
         n_int: int = 2,
         task: str = "min",
     ):
+        self.graph_type = graph_type
         if graphs:
             self.graphs = graphs
             self.D_O = observational_samples
@@ -49,12 +53,12 @@ class CEO:
         else:
             self.graphs: List[GraphStructure] = []
             for edges in all_graph_edges:
-                if graph_type == "Toy":
-                    graph = ToyGraph()
-                    graph.mispecify_graph(edges)
-                    self.graphs.append(graph)
+                graph = self.chosen_structure()
+                graph.mispecify_graph(edges)
+                self.graphs.append(graph)
 
-            self.graphs.append(ToyGraph())
+            # specify all structures in the arguments, no need to do it again
+            # self.graphs.append(self.chosen_structure())
 
             (
                 _,
@@ -120,6 +124,21 @@ class CEO:
         self.arm_distribution = np.array(
             [1 / len(self.exploration_set)] * len(self.exploration_set)
         )
+
+    def chosen_structure(self) -> GraphStructure:
+        """
+        Setup the graph based on the structure we are using
+        """
+        assert self.graph_type in ["Toy", "Graph4", "Graph5", "Graph6"]
+        if self.graph_type == "Toy":
+            graph = ToyGraph()
+        elif self.graph_type == "Graph4":
+            graph = Graph4Nodes()
+        elif self.graph_type == "Graph5":
+            graph = Graph5Nodes()
+        elif self.graph_type == "Graph6":
+            graph = Graph6Nodes()
+        return graph
 
     def run_algorithm(self, T=30):
 

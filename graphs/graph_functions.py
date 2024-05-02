@@ -5,6 +5,8 @@ from typing import List, OrderedDict, Tuple
 import numpy as np
 
 from graphs.graph import GraphStructure
+from graphs.graph_4_nodes import Graph4Nodes
+from graphs.graph_5_nodes import Graph5Nodes
 from graphs.graph_6_nodes import Graph6Nodes
 from graphs.synthetics_graph import SyntheticGraph
 from graphs.toy_graph import ToyGraph
@@ -31,13 +33,19 @@ def graph_setup(
     if seed is not None:
         np.random.seed(seed)
 
-    assert graph_type in ["Toy", "Synthetic", "Graph6"]
+    assert graph_type in ["Toy", "Synthetic", "Graph4", "Graph5", "Graph6"]
     if graph_type == "Toy":
         logging.info("Setting up the toy graph")
         graph = ToyGraph()
     elif graph_type == "Synthetic":
         logging.info("Setting up the synthetic graph")
         graph = SyntheticGraph()
+    elif graph_type == "Graph4":
+        logging.info("Setting up the 4 nodes graph")
+        graph = Graph4Nodes()
+    elif graph_type == "Graph5":
+        logging.info("Setting up the 5 nodes graph")
+        graph = Graph5Nodes()
     elif graph_type == "Graph6":
         logging.info("Setting up the 6 nodes graph")
         graph = Graph6Nodes()

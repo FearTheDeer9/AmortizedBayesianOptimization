@@ -41,7 +41,6 @@ def update_children_values(
     for var, children_list in children.items():
         if var in variables:
             parent_values = {}
-            # parent_values = variables[var]
             for child in children_list:
                 if child in functions and child not in variables:
                     # this makes sure child was not previously intervened upon
@@ -276,8 +275,8 @@ class GraphStructure:
 
     @abc.abstractmethod
     def get_error_distribution(self) -> Dict[str, Callable]:
-        # raise NotImplementedError(MESSAGE)
-        return {var: np.random.rand for var in self.variables}
+        err_dist = {var: np.random.normal() for var in self.variables}
+        return err_dist
 
     @abc.abstractmethod
     def fit_samples_to_graph(

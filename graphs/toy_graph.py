@@ -134,9 +134,6 @@ class ToyGraph(GraphStructure):
             es_space.append(space[var])
         return ParameterSpace(es_space)
 
-    def get_cost_structure(self, type_cost: int) -> OrderedDict:
-        return super().get_cost_structure(type_cost)
-
     def get_fixed_equal_costs(self) -> OrderedDict:
         logging.info("Using the fixed equal cost structure")
         cost_fix_X_equal = lambda intervention_value: 1.0

@@ -8,7 +8,7 @@ import networkx as nx
 import numpy as np
 from GPy.models.gp_regression import GPRegression
 
-from utils.graph_utils.graph import GraphStructure
+from graphs.graph import GraphStructure
 
 
 # removed the dynamic component as I am only considering static SEMs
@@ -74,6 +74,7 @@ def sample_from_SEM_hat(
     initial_values: dict = None,
     interventions: dict = None,
     seed: int = None,
+    epsilon: Dict[str, float] = None,
 ) -> OrderedDict:
     """
     Function to sample from a SEM, considering interventions or initial values.
@@ -98,7 +99,7 @@ def sample_from_SEM_hat(
     """
     if seed:
         np.random.seed(seed)
-
+    assert epsilon is not None
     sample = OrderedDict()
     topological_order = list(nx.topological_sort(graph.G))
 
@@ -121,7 +122,7 @@ def sample_from_SEM_hat(
             else:
                 # For source nodes, you might need a default sampling strategy
                 # or handle as no-parent scenario typically with some prior
-                value = np.random.normal(loc=0.0, scale=1.0)
+                value = epsilon[var]
 
             # Convert arrays to scalar if necessary
             # Ensure value is a scalar
@@ -142,6 +143,7 @@ def sample_model(
     epsilon: dict = None,
     use_sem_estimate: bool = False,
     seed: int = None,
+    graph: GraphStructure = None,
 ) -> dict:
     """
     Draws multiple samples from Bayesian Network.
@@ -168,8 +170,13 @@ def sample_model(
             )
         # This option uses the true SEMs.
         else:
-            if epsilon is not None and isinstance(epsilon, list):
-                epsilon_term = epsilon[i]
+            # if epsilon is not None and isinstance(epsilon, list):
+            #     epsilon_term = epsilon[i]
+            # else:
+            #     epsilon_term = epsilon
+
+            if graph is not None:
+                epsilon_term = graph.get_error_distribution()
             else:
                 epsilon_term = epsilon
 
@@ -257,22 +264,7 @@ def change_intervention_list_format(
     This is for the CEO so that the intervention list can be in
     two different formats
     """
-    print(exploration_set)
     new_grid = {i: {} for i in range(len(exploration_set))}
-
-    # # Loop through each dictionary in the original grid
-    # for entry in interventions:
-    #     keys = tuple(
-    #         sorted(entry.keys())
-    #     )  # Sort keys to ensure consistent order for tuples
-    #     values = tuple(
-    #         entry[key] for key in keys
-    #     )  # Get the corresponding values in tuple form
-
-    #     if keys in new_grid:
-    #         new_grid[keys].append(values)
-    #     else:
-    #         new_grid[keys] = [values]
 
     for i, es in enumerate(exploration_set):
         for val in es:

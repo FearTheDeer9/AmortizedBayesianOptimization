@@ -10,7 +10,7 @@ from GPy.kern import RBF
 from GPy.models.gp_regression import GPRegression
 from pgmpy.models import BayesianNetwork
 
-from utils.graph_utils.graph import GraphStructure
+from graphs.graph import GraphStructure
 
 
 class SyntheticGraph(GraphStructure):

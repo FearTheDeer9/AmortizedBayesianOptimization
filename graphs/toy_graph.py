@@ -9,7 +9,7 @@ from emukit.core import ContinuousParameter, ParameterSpace
 from GPy.kern import RBF
 from GPy.models.gp_regression import GPRegression
 
-from utils.graph_utils.graph import GraphStructure
+from graphs.graph import GraphStructure
 
 sys.path.append("..")
 
@@ -40,9 +40,8 @@ class ToyGraph(GraphStructure):
         self._variables = ["X", "Z", "Y"]
 
     def define_SEM(self) -> OrderedDict:
-        logging.info("Setting up the structural equation model for the ToyGraph")
         fx = lambda epsilon, sample: epsilon
-        fz = lambda epsilon, sample: np.exp(-sample["X"]) + epsilon
+        fz = lambda epsilon, sample: 4 + np.exp(-sample["X"]) + epsilon
         fy = (
             lambda epsilon, sample: np.cos(sample["Z"])
             - np.exp(-sample["Z"] / 20)
@@ -105,7 +104,6 @@ class ToyGraph(GraphStructure):
         self._functions = OrderedDict([("Y", gp_Y), ("Z", gp_Z), ("X", [])])
 
     def get_interventional_range(self) -> OrderedDict:
-        logging.info("Getting the inverventional range for the ToyGraph")
         min_intervention_x = -5
         max_intervention_x = 5
 
@@ -198,7 +196,6 @@ class ToyGraph(GraphStructure):
         return mis, pomis, manipulative_variables
 
     def get_all_do(self):
-        logging.info("Getting the do-functions for the ToyGraph")
         do_dict = {}
         do_dict["compute_do_X"] = self.compute_do_X
         do_dict["compute_do_Z"] = self.compute_do_Z
@@ -230,3 +227,10 @@ class ToyGraph(GraphStructure):
         )
 
         return mean_do, var_do
+
+    def get_error_distribution(self):
+        error_distr = {}
+        error_distr["X"] = np.random.uniform(-5, 5)
+        error_distr["Z"] = 0
+        error_distr["Y"] = 0
+        return error_distr

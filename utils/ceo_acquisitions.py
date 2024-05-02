@@ -15,10 +15,9 @@ from scipy.stats import entropy
 from tqdm import tqdm
 
 import utils.ceo_utils as ceo_utils
-from utils.graph_utils.graph import GraphStructure
-from utils.sem_sampling import sample_from_SEM_hat, sample_model
-from utils.utils_classes import Cost, DoFunctions
-from utils.utils_functions import set_up_GP
+from graphs.graph import GraphStructure
+from utils.cbo_classes import Cost, DoFunctions
+from utils.cbo_functions import set_up_GP
 
 
 def evaluate_acquisition_ceo(
@@ -29,7 +28,7 @@ def evaluate_acquisition_ceo(
     cost_functions: OrderedDict,
     posterior: np.ndarray,
     # these are taken from the code
-    num_anchor_points: int = 100,
+    num_anchor_points: int = 30,
     sample_anchor_points: bool = False,
     seed_anchor_points=None,
     # NEW CEO STUFF. TODO: PASS A DICT AND MAKE IT INTO KWARGS
@@ -172,7 +171,8 @@ class CausalEntropySearch(Acquisition):
 
         # Make new aquisition points
 
-        grid = self.grid if len(self.es) == 1 else x  # this was wrong
+        # grid = self.grid if len(self.es) == 1 else x  # this was wrong
+        grid = self.grid
 
         initial_entropy = self.pre_kde.entropy  # A scalar really
         initial_graph_entropy = entropy(ceo_utils.normalize_log(self.init_posterior))
@@ -249,15 +249,13 @@ class CausalEntropySearch(Acquisition):
                         arm_mapping_es_to_n=self.es_num_mapping,
                     )
 
-                    pystar_samples, pxstar_samples = (
-                        ceo_utils.update_pystar_single_model(
-                            arm_mapping=self.es_num_mapping,
-                            es=self.es,
-                            bo_model=updated_model,
-                            inputs=grid[self.es],
-                            all_xstar=self.prev_all_xstar,
-                            all_ystar=deepcopy(self.prev_all_ystar),
-                        )
+                    pystar_samples, _ = ceo_utils.update_pystar_single_model(
+                        arm_mapping=self.es_num_mapping,
+                        es=self.es,
+                        bo_model=updated_model,
+                        inputs=grid[self.es],
+                        all_xstar=self.prev_all_xstar,
+                        all_ystar=deepcopy(self.prev_all_ystar),
                     )
 
                     new_samples_global_ystar, _ = ceo_utils.sample_global_xystar(
@@ -357,6 +355,8 @@ class CausalEntropySearch(Acquisition):
                     updated_models_list[id_acquisition].append(updated_model)
 
                     # Arm distr gets updated only because model gets updated
+                    # if self.es == ("X", "Z"):
+                    #     print(grid)
                     new_arm_dist = ceo_utils.update_arm_dist_single_model(
                         deepcopy(self.prev_arm_distr),
                         self.es,
@@ -443,6 +443,7 @@ class CausalEntropySearch(Acquisition):
         logging.info(str(entropy_changes.tolist()))
         assert entropy_changes.shape[0] == x.shape[0]
 
+        print(entropy_changes)
         return entropy_changes
 
     # def worker_function(x):

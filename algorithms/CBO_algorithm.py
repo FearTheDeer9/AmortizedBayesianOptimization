@@ -3,11 +3,11 @@ from typing import Dict, List
 
 import numpy as np
 
-import utils.utils_functions as utils_functions
-from utils.graph_utils.graph import GraphStructure
-from utils.graph_utils.graph_functions import graph_setup
+import utils.cbo_functions as cbo_functions
+from graphs.graph import GraphStructure
+from graphs.graph_functions import graph_setup
+from utils.cbo_classes import TargetClass
 from utils.sem_sampling import sample_model
-from utils.utils_classes import TargetClass
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the logging level
@@ -62,7 +62,7 @@ class CBO:
             best_intervention_value,
             current_global_min,
             best_variable,
-        ) = utils_functions.define_initial_data_CBO(
+        ) = cbo_functions.define_initial_data_CBO(
             self.interventional_samples,
             self.exploration_set,
             self.manipulative_variables,
@@ -91,7 +91,7 @@ class CBO:
             target_classes[i] = TargetClass(self.graph.SEM, self.exploration_set[i])
 
         # defining some variables necessary for the algorithm
-        alpha_coverage, hull_obs, coverage_total = utils_functions.compute_coverage(
+        alpha_coverage, hull_obs, coverage_total = cbo_functions.compute_coverage(
             self.observational_samples,
             self.manipulative_variables,
             self.graph.get_interventional_range(),
@@ -110,7 +110,7 @@ class CBO:
         cost_functions = self.graph.get_cost_structure(self.cost_num)
 
         for i in range(T):
-            coverage_obs = utils_functions.update_hull(
+            coverage_obs = cbo_functions.update_hull(
                 self.observational_samples, self.manipulative_variables
             )
             rescale = self.observational_samples.shape[0] / max_N
@@ -139,7 +139,7 @@ class CBO:
 
                 # 3. Update the prior of the causal GP
                 # update the interventional expectation and the interventional variance
-                do_function_list = utils_functions.update_all_do_functions(
+                do_function_list = cbo_functions.update_all_do_functions(
                     self.graph, self.observational_samples, self.exploration_set
                 )
 
@@ -159,7 +159,7 @@ class CBO:
                 trial_observed[i] = False
 
                 # updating the model based on the previous trial
-                model_list = utils_functions.update_posterior_model(
+                model_list = cbo_functions.update_posterior_model(
                     self.exploration_set,
                     trial_observed[i - 1],
                     model_list,
@@ -172,7 +172,7 @@ class CBO:
                 )
 
                 # get the new optimal value based on all the elements in the exploration set
-                y_acquisition_list, x_new_list = utils_functions.get_new_x_y_list(
+                y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
                     self.exploration_set,
                     self.graph,
                     current_global_min,

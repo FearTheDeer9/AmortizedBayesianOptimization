@@ -10,13 +10,11 @@ from emukit.core.acquisition import Acquisition
 from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
 from GPy.models.gp_regression import GPRegression
 from scipy.special import logsumexp, softmax
-from scipy.stats import entropy
-from tqdm import tqdm
 
-from utils.graph_utils.graph import GraphStructure
+from graphs.graph import GraphStructure
+from utils.cbo_classes import DoFunctions
+from utils.cbo_functions import set_up_GP
 from utils.sem_sampling import sample_from_SEM_hat, sample_model
-from utils.utils_classes import Cost, DoFunctions
-from utils.utils_functions import set_up_GP
 
 
 class MyKDENew(sm.nonparametric.KDEUnivariate):
@@ -62,8 +60,9 @@ def update_posterior_interventional(
     for graph_idx, emission_fncs in enumerate(
         all_emission_fncs
     ):  # as many emission_fncs dicts as graphs
-
         graph = graphs[graph_idx]
+        # logging.info(f"{emission_fncs}")
+        # i = 0
         for var in emission_fncs:
             parents = graph.parents[var]
             xx = np.hstack(
@@ -78,8 +77,7 @@ def update_posterior_interventional(
                 # Here the truncated assumption comes in. Dont compute posterior
                 continue
             # else:
-            #     print(var, parents)
-
+            #     i += 1
             posterior[graph_idx] += lr * log_likelihood(
                 emission_fncs[var], xx, yy  # the model
             )
@@ -129,7 +127,6 @@ def aggregate_mean_function(
     unweighted_means = np.hstack(
         [do_functions_es[i].mean_function_do(x) for do_functions_es in do_functions]
     )
-
     mean = unweighted_means @ posterior
     mean = mean.reshape(-1, 1)
     return mean
@@ -218,6 +215,7 @@ def update_posterior_model_aggregate(
         # update all the models if we observed in the previous trial
         # this one uses the computed do functions by fitting the causal graph
         for j in range(len(exploration_set)):
+            logging.info(f"Updating posterior for {exploration_set[j]}")
             X = data_x_list[j]
             Y = data_y_list[j].reshape(-1, 1)
             do_function_list[j]
@@ -232,6 +230,7 @@ def update_posterior_model_aggregate(
             )
     else:
         # only update the model of the set that was intervened upon
+        logging.info(f"Updating posterior for {exploration_set[best_variable]}")
         Y = data_y_list[best_variable].reshape(-1, 1)
         X = data_x_list[best_variable]
         mean_function = partial(
@@ -310,14 +309,13 @@ def build_p_y_star(
         if len(es) > 1:
             # can change this to sample uniformly
             inps = parameter_int_domain[tuple(es)]
-            inps = np.array(inps).resahpe(-1, len(es))
+            inps = np.array(inps).reshape(-1, len(es))
         else:
             inps = parameter_int_domain[tuple(es)]
             inps = np.array(inps).reshape(-1, 1)
 
         # this is different from the one used in the github code
         print("Start of loop")
-        print(inps)
         samples = gpy_model.posterior_samples(inps, size=n_samples).squeeze()
         print("End of loop")
         all_ystar[i, :] = np.min(samples, axis=0).squeeze()
@@ -428,7 +426,8 @@ def optimal_sequence_of_interventions(
 
     # setting up the noise model
     model_variables = graph.variables
-    static_noise_model = {k: 0 for k in model_variables}
+    # static_noise_model = {k: 0 for k in model_variables}
+    static_noise_model = graph.get_error_distribution()
 
     target_variable = graph.target
     SEM = graph.SEM
@@ -577,6 +576,7 @@ def fake_do_x(
             static_sem=sem_hat,
             graph=graphs[idx_graph],
             interventions=intervention_blanket,
+            epsilon=graphs[idx_graph].get_error_distribution(),
         )
 
         # In theory could/should replace Y with sample from surrogate model

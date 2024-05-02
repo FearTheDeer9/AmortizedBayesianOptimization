@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, OrderedDict, Tuple
 import numpy as np
 from GPy.models.gp_regression import GPRegression
 
-from utils.graph_utils.graph import GraphStructure
+from graphs.graph import GraphStructure
 
 
 class Graph6Nodes(GraphStructure):

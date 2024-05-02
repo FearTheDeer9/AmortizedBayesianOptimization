@@ -21,7 +21,6 @@ from GPy.kern.src.psi_comp import PSICOMP_RBF, PSICOMP_RBF_GPU
 from GPy.kern.src.stationary import Stationary
 from paramz.transformations import Logexp
 
-from utils.graph_utils.graph import GraphStructure
 from utils.sem_sampling import sample_model
 
 

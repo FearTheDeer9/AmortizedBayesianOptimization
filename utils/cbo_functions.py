@@ -11,8 +11,8 @@ from GPy.core import Mapping
 from GPy.kern.src.rbf import RBF
 from GPy.models.gp_regression import GPRegression
 
-from utils.graph_utils.graph import GraphStructure
-from utils.utils_classes import (
+from graphs.graph import GraphStructure
+from utils.cbo_classes import (
     CausalExpectedImprovement,
     CausalGradientAcquisitionOptimizer,
     CausalRBF,

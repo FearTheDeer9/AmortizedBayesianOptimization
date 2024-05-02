@@ -7,18 +7,18 @@ import numpy as np
 from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
 from GPy.models.gp_regression import GPRegression
 
+import utils.cbo_functions as cbo_functions
 import utils.ceo_utils as ceo_utils
-import utils.utils_functions as utils_functions
-from utils.graph_utils.graph import GraphStructure
-from utils.graph_utils.graph_functions import create_grid_interventions, graph_setup
-from utils.graph_utils.toy_graph import ToyGraph
+from graphs.graph import GraphStructure
+from graphs.graph_functions import create_grid_interventions, graph_setup
+from graphs.toy_graph import ToyGraph
+from utils.cbo_classes import DoFunctions, TargetClass
+from utils.ceo_acquisitions import evaluate_acquisition_ceo
 from utils.sem_sampling import (
     change_intervention_list_format,
     draw_interventional_samples_sem,
     sample_model,
 )
-from utils.utils_acquisitions import evaluate_acquisition_ceo
-from utils.utils_classes import DoFunctions, TargetClass
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the logging level
@@ -54,12 +54,14 @@ class CEO:
                     graph.mispecify_graph(edges)
                     self.graphs.append(graph)
 
+            self.graphs.append(ToyGraph())
+
             (
                 _,
                 self.exploration_set,
                 self.manipulative_variables,
                 self.target,
-                self.samples,
+                _,
                 self.observational_samples,
                 self.interventional_samples,
             ) = graph_setup(graph_type=graph_type)
@@ -114,9 +116,10 @@ class CEO:
         self.interventional_samples = change_intervention_list_format(
             self.D_I, self.exploration_set
         )
-        print(self.D_I)
-        print(self.D_O)
-        print(self.interventional_samples)
+
+        self.arm_distribution = np.array(
+            [1 / len(self.exploration_set)] * len(self.exploration_set)
+        )
 
     def run_algorithm(self, T=30):
 
@@ -124,9 +127,9 @@ class CEO:
             data_x_list,
             data_y_list,
             best_intervention_value,
-            current_global_min,
+            current_global_min,  # not used in the entropy algorithm
             best_variable,
-        ) = utils_functions.define_initial_data_CBO(
+        ) = cbo_functions.define_initial_data_CBO(
             self.interventional_samples,
             self.exploration_set,
             self.manipulative_variables,
@@ -140,22 +143,24 @@ class CEO:
         # get the surrogate model for each of the graphs
         sem_emit_fncs: List[OrderedDict[str, GPRegression]] = []
         do_effects_functions: List[List[DoFunctions]] = []
-        for graph in self.graphs:
-            graph.fit_samples_to_graph(self.samples, set_priors=False)
+        for i, graph in enumerate(self.graphs):
+            logging.info(f"---Fitting samples for graph {i}---")
+            graph.fit_samples_to_graph(self.D_O, set_priors=False)
             sem_emit_fncs.append(graph.functions)
 
-        all_posteriors = []
-        all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
-
         for es in self.exploration_set:
+            logging.info(f"Updating the posterior for {es}")
             self.posterior = ceo_utils.update_posterior_interventional(
                 self.graphs, self.posterior, tuple(es), sem_emit_fncs, self.D_I
             )
 
+        self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
+        logging.info(f"The updated posterior distribution is {self.all_posteriors[-1]}")
+
         for graph in self.graphs:
             # this is the mean and variance for each graph for each element in the exploration set
             do_effects_functions.append(
-                utils_functions.update_all_do_functions(
+                cbo_functions.update_all_do_functions(
                     graph, self.observational_samples, self.exploration_set
                 )
             )
@@ -185,14 +190,14 @@ class CEO:
                     best_variable,
                     input_space,
                     do_effects_functions,
-                    all_posteriors[-1],
+                    self.all_posteriors[-1],
                 )
             else:
 
                 # update the arm distribution, i.e. that each intervention in the exploration set is optimal
                 logging.info(f"----------------ITERATION {i}----------------")
                 logging.info(
-                    f"Current posterior {all_posteriors[-1]}, {all_posteriors[-1].sum()}"
+                    f"Current posterior {self.all_posteriors[-1]}, {self.all_posteriors[-1].sum()}"
                 )
                 trial_observed.append(False)
 
@@ -209,7 +214,7 @@ class CEO:
                     best_variable,
                     input_space,
                     do_effects_functions,
-                    all_posteriors[-1],
+                    self.all_posteriors[-1],
                 )
 
                 logging.info("Now setting up the arm distribution")
@@ -220,7 +225,6 @@ class CEO:
                     data_x_list,
                     arm_n_es_mapping,
                 )
-                print(self.arm_distribution)
 
                 # sampling from each exploration set value
                 logging.info("Building the py star")
@@ -230,7 +234,6 @@ class CEO:
                     self.interventional_range,
                     self.intervention_grid,
                 )
-                print(py_star_samples)
 
                 # getting the overall sample
                 logging.info("Building the global py star")
@@ -241,7 +244,6 @@ class CEO:
                         arm_dist=self.arm_distribution,
                     )
                 )
-                print(samples_global_ystar)
 
                 logging.info("Fitting the global KDE estimate")
                 kde_global = ceo_utils.MyKDENew(samples_global_ystar)
@@ -262,7 +264,7 @@ class CEO:
                             bo_model=model_list_overall[s],
                             exploration_set=es,
                             cost_functions=self.cost_functions,
-                            posterior=all_posteriors[-1],
+                            posterior=self.all_posteriors[-1],
                             arm_distribution=self.arm_distribution,
                             pystar_samples=py_star_samples,
                             pxstar_samples=p_x_star_samples,
@@ -290,6 +292,8 @@ class CEO:
                     .reshape(-1)
                 )
 
+                print(data_x_list)
+                print(data_y_list)
                 data_x_list[target_index] = np.vstack(
                     (data_x_list[target_index], x_new_list[target_index])
                 )
@@ -297,6 +301,8 @@ class CEO:
                 data_y_list[target_index] = np.concatenate(
                     (data_y_list[target_index], y_new)
                 )
+                print(data_x_list)
+                print(data_y_list)
                 # set the new best variable
                 best_variable = target_index
                 logging.info(
@@ -318,9 +324,11 @@ class CEO:
                     )
 
                 # calculating the posterior data again
-                self.posterior = np.zeros(shape=len(self.graphs))
+                # self.posterior = np.zeros(shape=len(self.graphs))
                 for es in self.exploration_set:
                     self.posterior = ceo_utils.update_posterior_interventional(
                         self.graphs, self.posterior, tuple(es), sem_emit_fncs, self.D_I
                     )
-                all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
+                self.all_posteriors.append(
+                    ceo_utils.normalize_log(deepcopy(self.posterior))
+                )

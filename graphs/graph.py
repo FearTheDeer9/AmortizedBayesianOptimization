@@ -288,13 +288,15 @@ class GraphStructure:
     ) -> None:
 
         # first step is get the set of all the child nodes
-        logging.info("Fitting each sample to the graph based on the parents")
         children_parents = self.parents
 
         self._functions = OrderedDict()
         for child, parents in children_parents.items():
             if not parents:
                 continue
+            logging.info(
+                f"Fitting child: {child} to parents: {parents} for {self.edges}"
+            )
             Y = samples[child]
             X = np.hstack([samples[parent] for parent in parents])
             kernel = RBF(
@@ -382,7 +384,7 @@ class GraphStructure:
         children,
         parents,
         independent_nodes,
-        observational_samples
+        observational_samples,
     ):
         """
         Computes the causal effect based on the interventions in the system

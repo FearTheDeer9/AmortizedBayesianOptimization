@@ -2,28 +2,22 @@ import logging
 from collections import OrderedDict
 from typing import Dict, List, Optional, OrderedDict, Tuple
 
-import matplotlib.pyplot as plt
-import networkx as nx
 import numpy as np
-from emukit.core import ContinuousParameter, ParameterSpace
-from GPy.kern import RBF
 from GPy.models.gp_regression import GPRegression
-from pgmpy.models import BayesianNetwork
 
-from utils.graph_utils.graph import GraphStructure
+from graphs.graph import GraphStructure
 
 
-class Graph5Nodes(GraphStructure):
+class Graph4Nodes(GraphStructure):
     """
-    This is the graph in the causal entropy optimization algorithm
+    This is my own synthetic toy graph
     """
 
     def __init__(
         self,
-        B: np.ndarray = None,
-        T: np.ndarray = None,
-        L: np.ndarray = None,
-        R: np.ndarray = None,
+        X: np.ndarray = None,
+        A: np.ndarray = None,
+        Z: np.ndarray = None,
         Y: np.ndarray = None,
     ):
         self.B = B

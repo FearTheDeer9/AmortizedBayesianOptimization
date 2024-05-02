@@ -4,10 +4,10 @@ from typing import List, OrderedDict, Tuple
 
 import numpy as np
 
-from utils.graph_utils.graph import GraphStructure
-from utils.graph_utils.graph_6_nodes import Graph6Nodes
-from utils.graph_utils.synthetics_graph import SyntheticGraph
-from utils.graph_utils.toy_graph import ToyGraph
+from graphs.graph import GraphStructure
+from graphs.graph_6_nodes import Graph6Nodes
+from graphs.synthetics_graph import SyntheticGraph
+from graphs.toy_graph import ToyGraph
 from utils.sem_sampling import (
     create_grid_interventions,
     draw_interventional_samples,

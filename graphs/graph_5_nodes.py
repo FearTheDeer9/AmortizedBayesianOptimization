@@ -10,19 +10,20 @@ from GPy.kern import RBF
 from GPy.models.gp_regression import GPRegression
 from pgmpy.models import BayesianNetwork
 
-from utils.graph_utils.graph import GraphStructure
+from graphs.graph import GraphStructure
 
 
-class Graph4Nodes(GraphStructure):
+class Graph5Nodes(GraphStructure):
     """
-    This is my own synthetic toy graph
+    This is the graph in the causal entropy optimization algorithm
     """
 
     def __init__(
         self,
-        X: np.ndarray = None,
-        A: np.ndarray = None,
-        Z: np.ndarray = None,
+        B: np.ndarray = None,
+        T: np.ndarray = None,
+        L: np.ndarray = None,
+        R: np.ndarray = None,
         Y: np.ndarray = None,
     ):
         self.B = B

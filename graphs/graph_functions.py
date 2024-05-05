@@ -20,7 +20,6 @@ from utils.sem_sampling import (
 def graph_setup(
     graph_type: str,
     seed: int = None,
-    use_mis: bool = True,
     exploration_set: List[List[str]] = None,
     n_obs: int = 100,
     n_int: int = 2,
@@ -53,16 +52,11 @@ def graph_setup(
     sem_model = graph.SEM
     variables = graph.variables
     target = graph.target
-    mis, pomis, manipulative_variables = graph.get_sets()
-
-    if exploration_set is None:
-        exploration_set = set(tuple(sublist) for sublist in mis) | set(
-            tuple(sublist) for sublist in pomis
-        )
-        exploration_set = list(exploration_set)
+    _, _, manipulative_variables = graph.get_sets()
+    exploration_set = graph.get_exploration_set()
 
     # first define observational samples
-    samples = sample_model(sem_model)
+    samples = sample_model(sem_model, graph=graph, sample_count=n_obs)
     observational_samples = np.hstack(([samples[var] for var in variables]))
 
     # now define interventional samples

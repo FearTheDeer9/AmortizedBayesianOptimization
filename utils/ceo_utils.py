@@ -218,7 +218,7 @@ def update_posterior_model_aggregate(
             logging.info(f"Updating posterior for {exploration_set[j]}")
             X = data_x_list[j]
             Y = data_y_list[j].reshape(-1, 1)
-            do_function_list[j]
+            print(X, Y)
             mean_function = partial(
                 aggregate_mean_function, j, do_function_list, posterior
             )

@@ -170,16 +170,13 @@ def sample_model(
             )
         # This option uses the true SEMs.
         else:
-            # if epsilon is not None and isinstance(epsilon, list):
-            #     epsilon_term = epsilon[i]
-            # else:
-            #     epsilon_term = epsilon
 
             if graph is not None:
                 epsilon_term = graph.get_error_distribution()
             else:
                 epsilon_term = epsilon
 
+            # print(epsilon_term)
             tmp = sample_from_SEM(
                 static_sem=static_sem,
                 initial_values=initial_values,
@@ -353,7 +350,9 @@ def draw_interventional_samples_sem(
             None,
         )
         if index is not None:
-            sample = sample_model(graph.SEM, sample_count=1, interventions=intervention)
+            sample = sample_model(
+                graph.SEM, sample_count=1, interventions=intervention, graph=graph
+            )
             for var in graph.variables:
                 # ensuring that you are not drawing too many interventional samples
                 if len(interventional_data[tuple(intervention)][var]) >= n_int:

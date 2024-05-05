@@ -3,6 +3,7 @@ import random
 from copy import deepcopy
 from typing import Callable, Dict, List, OrderedDict, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
 from GPy.models.gp_regression import GPRegression
@@ -66,9 +67,15 @@ class CEO:
                 self.manipulative_variables,
                 self.target,
                 _,
-                self.observational_samples,
-                self.interventional_samples,
+                _,
+                _,
             ) = graph_setup(graph_type=graph_type)
+        logging.info(f"The exploration set in this setup is {self.exploration_set}")
+
+        # create mappings for the exploration set
+        self.es_to_n_mapping = {
+            tuple(es): i for i, es in enumerate(self.exploration_set)
+        }
 
         self.causal_prior = causal_prior
         self.cost_num = cost_num
@@ -78,7 +85,7 @@ class CEO:
 
         self.SEM = self.graphs[0].SEM
         self.variables = self.graphs[0].variables
-        graph = self.graphs[0]
+        self.graph = self.graphs[0]
         self.interventional_range = graph.get_interventional_range()
         self.intervention_grid = create_grid_interventions(
             self.interventional_range, get_list_format=True
@@ -89,14 +96,18 @@ class CEO:
         )
 
         self.D_O: Dict[str, np.ndarray] = sample_model(
-            self.SEM, sample_count=self.n_obs
+            self.SEM, sample_count=self.n_obs, graph=graph
+        )
+
+        self.observational_samples = np.hstack(
+            ([self.D_O[var] for var in graph.variables])
         )
 
         # drawing the interventional samples
         interventional_ranges = graph.get_interventional_range()
         interventions = create_grid_interventions(interventional_ranges)
         self.D_I = draw_interventional_samples_sem(
-            interventions, self.exploration_set, graph
+            interventions, self.exploration_set, graph, n_int=n_int
         )
 
         # this just gets the interventional data in a format that is used by another function
@@ -116,6 +127,9 @@ class CEO:
         logging.info("Using predefined values for the optimization algorithm")
         self.exploration_set = exploration_set
         self.D_O = D_O
+        self.observational_samples = np.hstack(
+            ([self.D_O[var] for var in self.variables])
+        )
         self.D_I = D_I
         self.interventional_samples = change_intervention_list_format(
             self.D_I, self.exploration_set
@@ -140,6 +154,88 @@ class CEO:
             graph = Graph6Nodes()
         return graph
 
+    def fit_samples_to_graphs(self):
+        sem_emit_fncs: List[OrderedDict[str, GPRegression]] = []
+        for i, graph in enumerate(self.graphs):
+            logging.info(f"---Fitting samples for graph {i}---")
+            graph.fit_samples_to_graph(self.D_O, set_priors=False)
+            sem_emit_fncs.append(graph.functions)
+        return sem_emit_fncs
+
+    def calculate_do_statistics(self):
+        do_effects_functions: List[List[DoFunctions]] = []
+        for i, graph in enumerate(self.graphs):
+            # this is the mean and variance for each graph for each element in the exploration set
+            logging.info(f"----Computing do function for graph {i}------")
+            do_effects_functions.append(
+                cbo_functions.update_all_do_functions(
+                    graph, self.observational_samples, self.exploration_set
+                )
+            )
+        self.do_effects_functions = do_effects_functions
+        return do_effects_functions
+
+    def update_posterior(self):
+        """
+        Updating the posterior probability, this happens after intervening on the system
+        """
+        for es in self.exploration_set:
+            self.posterior = ceo_utils.update_posterior_interventional(
+                self.graphs, self.posterior, tuple(es), self.sem_emit_fncs, self.D_I
+            )
+
+    def do_function_graph(self, es: Tuple, size: int = 100, edge_num: int = 0):
+
+        # setting up the plotting stuff
+        true_vals = np.zeros(shape=size)
+        predictions = np.zeros(shape=size)
+        var = np.zeros(shape=size)
+        es_num = self.es_to_n_mapping[es]
+        interventions = {}
+
+        # getting the number of entries in the exploration set
+        intervention_domain = self.graph.get_interventional_range()
+        min_intervention, max_intervention = intervention_domain[es[0]]
+        intervention_vals = np.linspace(
+            start=min_intervention, stop=max_intervention, num=100
+        )
+
+        for i in range(1, len(es)):
+            min_i, max_i = intervention_domain[es[i]]
+            interventions[es[i]] = (min_i + max_i) / 2
+
+        for i, intervention_val in enumerate(intervention_vals):
+            interventions[es[0]] = intervention_val
+            true_vals[i] = np.mean(
+                sample_model(
+                    self.graph.SEM,
+                    interventions=interventions,
+                    sample_count=500,
+                    graph=self.graph,
+                )["Y"]
+            )
+
+            value = np.array([interventions[var] for var in es]).reshape(1, -1)
+            predictions[i] = self.do_effects_functions[edge_num][
+                es_num
+            ].mean_function_do(value)
+            var[i] = self.do_effects_functions[edge_num][es_num].var_function_do(value)
+
+        # print(predictions)
+        # print(intervention_vals)
+        # print(var)
+        plt.plot(intervention_vals, true_vals, label="True")
+        plt.plot(intervention_vals, predictions, label="Do 1")
+        plt.fill_between(
+            intervention_vals,
+            [p - 1.95 * np.sqrt(e) for p, e in zip(predictions, var)],
+            [p + 1.95 * np.sqrt(e) for p, e in zip(predictions, var)],
+            color="gray",
+            alpha=0.5,
+        )
+        plt.legend()
+        plt.show()
+
     def run_algorithm(self, T=30):
 
         (
@@ -155,34 +251,18 @@ class CEO:
             self.target,
         )
 
-        # print(data_x_list)
-
-        # stuff needed at this point, graph, true_objective_value, all_CE
-
         # get the surrogate model for each of the graphs
-        sem_emit_fncs: List[OrderedDict[str, GPRegression]] = []
-        do_effects_functions: List[List[DoFunctions]] = []
-        for i, graph in enumerate(self.graphs):
-            logging.info(f"---Fitting samples for graph {i}---")
-            graph.fit_samples_to_graph(self.D_O, set_priors=False)
-            sem_emit_fncs.append(graph.functions)
+        self.sem_emit_fncs: List[OrderedDict[str, GPRegression]] = (
+            self.fit_samples_to_graphs()
+        )
 
-        for es in self.exploration_set:
-            logging.info(f"Updating the posterior for {es}")
-            self.posterior = ceo_utils.update_posterior_interventional(
-                self.graphs, self.posterior, tuple(es), sem_emit_fncs, self.D_I
-            )
+        # for each graph and each exploration set you have a set of functions
+        self.do_effects_functions: List[List[DoFunctions]] = (
+            self.calculate_do_statistics()
+        )
 
         self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
         logging.info(f"The updated posterior distribution is {self.all_posteriors[-1]}")
-
-        for graph in self.graphs:
-            # this is the mean and variance for each graph for each element in the exploration set
-            do_effects_functions.append(
-                cbo_functions.update_all_do_functions(
-                    graph, self.observational_samples, self.exploration_set
-                )
-            )
 
         input_space = [len(es) for es in self.exploration_set]
         causal_prior = True
@@ -191,7 +271,8 @@ class CEO:
         arm_n_es_mapping = {i: es for i, es in enumerate(self.exploration_set)}
         arm_es_n_mapping = {tuple(es): i for i, es in enumerate(self.exploration_set)}
         target_classes: List[TargetClass] = [
-            TargetClass(self.SEM, es, self.variables) for es in self.exploration_set
+            TargetClass(self.SEM, es, self.variables, graph=self.graph)
+            for es in self.exploration_set
         ]
         trial_observed = []
 
@@ -208,7 +289,7 @@ class CEO:
                     causal_prior,
                     best_variable,
                     input_space,
-                    do_effects_functions,
+                    self.do_effects_functions,
                     self.all_posteriors[-1],
                 )
             else:
@@ -232,7 +313,7 @@ class CEO:
                     causal_prior,
                     best_variable,
                     input_space,
-                    do_effects_functions,
+                    self.do_effects_functions,
                     self.all_posteriors[-1],
                 )
 
@@ -293,7 +374,7 @@ class CEO:
                             arm_mapping_es_to_num=arm_es_n_mapping,
                             arm_mapping_num_to_es=arm_n_es_mapping,
                             interventional_grid=self.intervention_grid,
-                            all_sem_hat=sem_emit_fncs,
+                            all_sem_hat=self.sem_emit_fncs,
                         )
                     )
 
@@ -311,8 +392,6 @@ class CEO:
                     .reshape(-1)
                 )
 
-                print(data_x_list)
-                print(data_y_list)
                 data_x_list[target_index] = np.vstack(
                     (data_x_list[target_index], x_new_list[target_index])
                 )
@@ -320,8 +399,6 @@ class CEO:
                 data_y_list[target_index] = np.concatenate(
                     (data_y_list[target_index], y_new)
                 )
-                print(data_x_list)
-                print(data_y_list)
                 # set the new best variable
                 best_variable = target_index
                 logging.info(
@@ -344,10 +421,7 @@ class CEO:
 
                 # calculating the posterior data again
                 # self.posterior = np.zeros(shape=len(self.graphs))
-                for es in self.exploration_set:
-                    self.posterior = ceo_utils.update_posterior_interventional(
-                        self.graphs, self.posterior, tuple(es), sem_emit_fncs, self.D_I
-                    )
+                self.update_posterior()
                 self.all_posteriors.append(
                     ceo_utils.normalize_log(deepcopy(self.posterior))
                 )

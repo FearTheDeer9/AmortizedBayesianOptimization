@@ -17,16 +17,19 @@ MESSAGE = "Subclass should implement this."
 
 # this is for calculating the causal effect in a more clear way
 # these functions are just outside of the class as it is not needed in the class
-def set_intervention_values(variables, interventions, num_observations):
+def set_intervention_values(
+    variables: Dict, intervention: str, value: float, num_observations: int
+):
     """
     Changing the variables that was intervened upon when computing
     the outcome of the new graph
     """
-    for variable, value in interventions.items():
-        variables[variable] = value * np.ones((num_observations, 1))
+    # for variable, value in interventions.items():
+    #     variables[variable] = value * np.ones((num_observations, 1))
+    variables[intervention] = value * np.ones((num_observations, 1))
 
 
-def update_children_values(
+def update_children_values_og(
     functions: OrderedDict,
     variables: OrderedDict,
     children: OrderedDict,
@@ -60,14 +63,59 @@ def update_children_values(
                     )
 
 
+def update_children_values_new(
+    functions: OrderedDict,
+    variables: OrderedDict,
+    children: OrderedDict,
+    parents: OrderedDict,
+    observational_samples: OrderedDict,
+):
+    keys = variables.keys()
+    for var in keys:
+        propogate_effects(
+            var, functions, variables, children, parents, observational_samples
+        )
+
+
+def propogate_effects(
+    node: str,
+    functions: OrderedDict,
+    variables: Dict,
+    children: Dict,
+    parents: Dict,
+    observational_samples: Dict,
+):
+    if node in children:
+        for child in children[node]:
+            if child not in variables:  # Child has not been intervened upon
+                # Get parent values for the child
+                parent_values = {
+                    p: variables[p] if p in variables else observational_samples[p]
+                    for p in parents[child]
+                }
+                # Calculate new value for the child
+                variables[child] = predict_child(
+                    functions[child], parent_values, parents[child]
+                )
+                # Recursively update the child's children
+                propogate_effects(
+                    child,
+                    functions,
+                    variables,
+                    children,
+                    parents,
+                    observational_samples,
+                )
+
+
 def predict_child(
-    functions: GPRegression, parent_values: Dict[str, np.ndarray], parents: List
+    function: GPRegression, parent_values: Dict[str, np.ndarray], parents: List
 ):
     """
     Makes sure that the parent variables are in the correct order for the GP model
     """
     parent_values_cols = np.hstack([parent_values[val] for val in parents])
-    return functions.predict(parent_values_cols)[0]
+    return function.predict(parent_values_cols)[0]
 
 
 def maintain_independent_and_parents(variables, nodes):
@@ -81,7 +129,13 @@ def maintain_independent_and_parents(variables, nodes):
                 variables[var] = value
 
 
-def predict_causal_effect(functions, variables, parents_Y, num_observations, target):
+def predict_causal_effect(
+    functions: Dict[str, GPRegression],
+    variables: Dict[str, np.ndarray],
+    parents_Y: List[str],
+    num_observations: int,
+    target: str,
+):
     """
     Predicts the causal effect after all the variables has been intervened upon
     Returns the mean and the variance of the observation
@@ -169,6 +223,10 @@ class GraphStructure:
         raise NotImplementedError("Subclass should implement this.")
 
     @abc.abstractmethod
+    def get_exploration_set(self):
+        raise NotImplementedError(MESSAGE)
+
+    @abc.abstractmethod
     def refit_models(self, observational_samples):
         """
         Refit the GP models based on the new observational samples
@@ -196,10 +254,6 @@ class GraphStructure:
 
     @abc.abstractmethod
     def get_sets(self) -> Tuple[List, List, List]:
-        raise NotImplementedError(MESSAGE)
-
-    @abc.abstractmethod
-    def get_interventional_domain(self):
         raise NotImplementedError(MESSAGE)
 
     @abc.abstractmethod
@@ -377,9 +431,9 @@ class GraphStructure:
     @abc.abstractmethod
     def causal_effect_DO(
         self,
-        *interventions,
+        interventions,
         functions,
-        parents_Y,
+        # parents_Y,
         children,
         parents,
         independent_nodes,
@@ -389,24 +443,49 @@ class GraphStructure:
         Computes the causal effect based on the interventions in the system
         """
         final_variables = OrderedDict()
-        num_observations = list(parents_Y.values())[0].shape[0]
+        num_observations = observational_samples[self.target].shape[0]
+        update_check_dict = {var: False for var in self.variables}
 
+        topological_order = list(nx.topological_sort(self.G))
         # Process interventions
-        for intervention_dict in interventions:
+        for intervention in interventions:
             set_intervention_values(
-                final_variables, intervention_dict, num_observations
+                final_variables,
+                intervention,
+                interventions[intervention],
+                num_observations,
             )
+            # this one has been updated
+            update_check_dict[intervention] = True
 
-        # Update children based on the new values from interventions
-        update_children_values(
-            functions, final_variables, children, self.parents, observational_samples
-        )
+        for var in topological_order:
+            var_parents = self.parents[var]
+            # this condition checks if any of the parents of this
+            if update_check_dict[var]:
+                # this one has already been updated
+                continue
+            # variable has been updated through an intervention
+            if var_parents:
+                parents_updated = any(
+                    [update_check_dict[parent] for parent in var_parents]
+                )
+            else:
+                parents_updated = False
 
-        # Independent nodes and parents should maintain their original values
-        maintain_independent_and_parents(final_variables, independent_nodes)
-        maintain_independent_and_parents(final_variables, parents)
+            # if none of them have been updated use the observational samples
+            if not parents_updated:
 
-        # Predict the causal effect on the target variable 'Y'
+                final_variables[var] = observational_samples[var]
+                # continue to the next variable
+                continue
+
+            parents_dict = {var: final_variables[var] for var in var_parents}
+            final_variables[var] = predict_child(
+                functions[var], parents_dict, var_parents
+            )
+            update_check_dict[var] = True
+
+        parents_Y = self.parents[self.target]
         mean_effect, variance_effect = predict_causal_effect(
             functions,
             final_variables,
@@ -487,9 +566,9 @@ class GraphStructure:
         """
         # this may cause issues if multiple interventions are considered at once
         value = value.reshape(1, -1)
-        parents_Y = OrderedDict(
-            [(var, observational_samples[var]) for var in self.parents[self.target]]
-        )
+        # parents_Y = OrderedDict(
+        #     [(var, observational_samples[var]) for var in self.parents[self.target]]
+        # )
 
         functions = self.functions
         children, parents, independent = self.get_parents_children_independent(
@@ -506,7 +585,7 @@ class GraphStructure:
             mean_do[i], var_do[i] = self.causal_effect_DO(
                 interventions,
                 functions=functions,
-                parents_Y=parents_Y,
+                # parents_Y=parents_Y,
                 children=children,
                 parents=parents,
                 independent_nodes=independent,

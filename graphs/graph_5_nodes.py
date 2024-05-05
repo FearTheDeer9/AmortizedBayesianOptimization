@@ -67,18 +67,21 @@ class Graph5Nodes(GraphStructure):
     def refit_models(self, observational_samples):
         return super().refit_models(observational_samples)
 
+    def get_exploration_set(self) -> List[List[str]]:
+        return [("R",), ("T",), ("R", "T")]
+
     def get_interventional_range(self):
         min_intervention_t = 4
         max_intervention_t = 8
 
         # XXX This was not checked yet
-        min_intervention_r = -5
-        max_intervention_r = 5
+        min_intervention_r = 5
+        max_intervention_r = 15
 
         dict_ranges = OrderedDict(
             [
-                ("T", [min_intervention_t, max_intervention_t]),
                 ("R", [min_intervention_r, max_intervention_r]),
+                ("T", [min_intervention_t, max_intervention_t]),
             ]
         )
         return dict_ranges
@@ -87,9 +90,9 @@ class Graph5Nodes(GraphStructure):
         return super().get_cost_structure(type_cost)
 
     def get_sets(self):
-        mis = [["T"], ["R"]]
-        pomis = [["T", "R"]]
-        manipulative_variables = ["T", "R"]
+        mis = [["R"], ["T"]]
+        pomis = [["R", "T"]]
+        manipulative_variables = ["R", "T"]
         return mis, pomis, manipulative_variables
 
     def get_fixed_equal_costs(self) -> OrderedDict:
@@ -151,7 +154,7 @@ class Graph5Nodes(GraphStructure):
         do_dict = {}
         do_dict["compute_do_T"] = self.compute_do_T
         do_dict["compute_do_R"] = self.compute_do_R
-        do_dict["compute_do_TR"] = self.compute_do_TR
+        do_dict["compute_do_RT"] = self.compute_do_TR
         return do_dict
 
     def compute_do_T(self, observational_samples, value):
@@ -173,7 +176,7 @@ class Graph5Nodes(GraphStructure):
 
     def compute_do_TR(self, observational_samples, value):
 
-        interventions_nodes = ["T", "R"]
+        interventions_nodes = ["R", "T"]
         mean_do, var_do = self.compute_do(
             observational_samples, value, interventions_nodes
         )

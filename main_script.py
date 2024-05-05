@@ -15,7 +15,7 @@ all_graph_edges = [
     [("X", "Y"), ("Z", "Y")],
     [("Z", "X"), ("Z", "Y"), ("X", "Y")],
     [("Z", "X"), ("X", "Y")],
-    # [("X", "Z"), ("X", "Y")],
+    [("X", "Z"), ("Z", "Y")],
 ]
 directory = "/Users/jeandurand/Documents/Masters Thesis/CEO/"
 print(os.listdir(directory))
@@ -27,8 +27,10 @@ with open("/Users/jeandurand/Documents/Masters Thesis/CEO/D_I.pickle", "rb") as 
     D_I = pickle.load(handle)
 
 
-exploration_set = [("Z",), ("X",), ("X", "Z")]
-# exploration_set = [("X", "Z")]
+# print(D_I)
+
+# exploration_set = [("Z",), ("X",), ("X", "Z")]
+# # exploration_set = [("X", "Z")]
 model = CEO(all_graph_edges=all_graph_edges)
-model.set_values(D_O, D_I, exploration_set)
+# model.set_values(D_O, D_I, exploration_set)
 model.run_algorithm()

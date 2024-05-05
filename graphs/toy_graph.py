@@ -118,6 +118,9 @@ class ToyGraph(GraphStructure):
         )
         return dict_ranges
 
+    def get_exploration_set(self) -> List[Tuple[str]]:
+        return [("X",), ("Z",)]
+
     def get_parameter_space(self, exploration_set: List) -> ParameterSpace:
         interventional_range = self.get_interventional_range()
         space = {
@@ -204,7 +207,6 @@ class ToyGraph(GraphStructure):
         mean_do, var_do = self.compute_do(
             observational_samples, value, interventions_nodes
         )
-
         return mean_do, var_do
 
     def compute_do_Z(self, observational_samples, value):
@@ -213,7 +215,6 @@ class ToyGraph(GraphStructure):
         mean_do, var_do = self.compute_do(
             observational_samples, value, interventions_nodes
         )
-
         return mean_do, var_do
 
     def compute_do_XZ(self, observational_samples, value):

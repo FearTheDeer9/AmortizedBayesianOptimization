@@ -1,5 +1,4 @@
 import logging
-import random
 from copy import deepcopy
 from typing import Callable, Dict, List, OrderedDict, Tuple
 
@@ -10,12 +9,10 @@ from GPy.models.gp_regression import GPRegression
 
 import utils.cbo_functions as cbo_functions
 import utils.ceo_utils as ceo_utils
+from algorithms.BASE_algorithm import BASE
+from config import SHOW_GRAPHICS
 from graphs.graph import GraphStructure
-from graphs.graph_4_nodes import Graph4Nodes
-from graphs.graph_5_nodes import Graph5Nodes
-from graphs.graph_6_nodes import Graph6Nodes
 from graphs.graph_functions import create_grid_interventions, graph_setup
-from graphs.toy_graph import ToyGraph
 from utils.cbo_classes import DoFunctions, TargetClass
 from utils.ceo_acquisitions import evaluate_acquisition_ceo
 from utils.sem_sampling import (
@@ -31,7 +28,7 @@ logging.basicConfig(
 )
 
 
-class CEO:
+class CEO(BASE):
 
     def __init__(
         self,
@@ -46,7 +43,7 @@ class CEO:
         n_int: int = 2,
         task: str = "min",
     ):
-        self.graph_type = graph_type
+        self._graph_type = graph_type
         if graphs:
             self.graphs = graphs
             self.D_O = observational_samples
@@ -126,6 +123,10 @@ class CEO:
     def set_values(self, D_O: Dict, D_I: Dict, exploration_set: List[List[str]]):
         logging.info("Using predefined values for the optimization algorithm")
         self.exploration_set = exploration_set
+        # create mappings for the exploration set
+        self.es_to_n_mapping = {
+            tuple(es): i for i, es in enumerate(self.exploration_set)
+        }
         self.D_O = D_O
         self.observational_samples = np.hstack(
             ([self.D_O[var] for var in self.variables])
@@ -138,21 +139,6 @@ class CEO:
         self.arm_distribution = np.array(
             [1 / len(self.exploration_set)] * len(self.exploration_set)
         )
-
-    def chosen_structure(self) -> GraphStructure:
-        """
-        Setup the graph based on the structure we are using
-        """
-        assert self.graph_type in ["Toy", "Graph4", "Graph5", "Graph6"]
-        if self.graph_type == "Toy":
-            graph = ToyGraph()
-        elif self.graph_type == "Graph4":
-            graph = Graph4Nodes()
-        elif self.graph_type == "Graph5":
-            graph = Graph5Nodes()
-        elif self.graph_type == "Graph6":
-            graph = Graph6Nodes()
-        return graph
 
     def fit_samples_to_graphs(self):
         sem_emit_fncs: List[OrderedDict[str, GPRegression]] = []
@@ -221,22 +207,47 @@ class CEO:
             ].mean_function_do(value)
             var[i] = self.do_effects_functions[edge_num][es_num].var_function_do(value)
 
-        # print(predictions)
-        # print(intervention_vals)
-        # print(var)
         plt.plot(intervention_vals, true_vals, label="True")
         plt.plot(intervention_vals, predictions, label="Do 1")
         plt.fill_between(
             intervention_vals,
-            [p - 1.95 * np.sqrt(e) for p, e in zip(predictions, var)],
-            [p + 1.95 * np.sqrt(e) for p, e in zip(predictions, var)],
+            [p - 1.0 * np.sqrt(e) for p, e in zip(predictions, var)],
+            [p + 1.0 * np.sqrt(e) for p, e in zip(predictions, var)],
             color="gray",
             alpha=0.5,
         )
         plt.legend()
         plt.show()
 
-    def run_algorithm(self, T=30):
+    def safe_optimization(
+        self,
+        es: Tuple,
+        lower_bound_var: float = 1e-05,
+        upper_bound_var: float = 2.0,
+        bound_len: int = 20,
+    ):
+        gpy_model: GPRegression = self.model_list_overall[es].model
+        if gpy_model.kern.variance[0] < lower_bound_var:
+            logging.info(
+                "SAFE OPTIMIZATION: Resetting the kernel variance to lower bound"
+            )
+            self.model_list_overall[es].model.kern.variance[0] = lower_bound_var
+
+        if gpy_model.kern.lengthscale[0] > bound_len:
+            logging.info("SAFE OPTIMZATION: Resetting kernel lenghtscale")
+            self.model_list_overall[es].model.kern.lenghtscale[0] = 1.0
+
+        if gpy_model.likelihood.variance[0] > upper_bound_var:
+            logging.info("SAFE OPTIMIZATION: restting likelihood var to upper bound")
+            self.model_list_overall[es].model.likelihood.variance[0] = upper_bound_var
+
+        if gpy_model.likelihood.variance[0] < lower_bound_var:
+            logging.info("SAFE OPTIMIZATION: resetting likelihood var to lower bound")
+            self.model_list_overall[es].model.likelihood.variance[0] = lower_bound_var
+
+    def run_algorithm(
+        self, T: int = 30, safe_optimization: bool = False
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
         (
             data_x_list,
@@ -267,7 +278,9 @@ class CEO:
         input_space = [len(es) for es in self.exploration_set]
         causal_prior = True
         # model_list: List[GPyModelWrapper] = [None] * len(exploration_set)
-        model_list_overall: List[GPyModelWrapper] = [None] * len(self.exploration_set)
+        self.model_list_overall: List[GPyModelWrapper] = [None] * len(
+            self.exploration_set
+        )
         arm_n_es_mapping = {i: es for i, es in enumerate(self.exploration_set)}
         arm_es_n_mapping = {tuple(es): i for i, es in enumerate(self.exploration_set)}
         target_classes: List[TargetClass] = [
@@ -276,14 +289,22 @@ class CEO:
         ]
         trial_observed = []
 
+        # setting the variables that the algorithm needs to return for the plotting
+        best_y_array = np.zeros(shape=T + 1)
+        best_y_array[0] = current_global_min
+
+        current_y_array = np.zeros(shape=T)
+
+        cost_array = np.zeros(shape=T)
+
         for i in range(T):
             if i == 0:
                 # # update the prior of all the Gaussian Processes for each graph
                 trial_observed.append(True)
-                model_list_overall = ceo_utils.update_posterior_model_aggregate(
+                self.model_list_overall = ceo_utils.update_posterior_model_aggregate(
                     self.exploration_set,
                     True,
-                    model_list_overall,
+                    self.model_list_overall,
                     data_x_list,
                     data_y_list,
                     causal_prior,
@@ -304,10 +325,10 @@ class CEO:
                 logging.info(
                     "Updating the models based on the previous observed samples"
                 )
-                model_list_overall = ceo_utils.update_posterior_model_aggregate(
+                self.model_list_overall = ceo_utils.update_posterior_model_aggregate(
                     self.exploration_set,
                     trial_observed[i - 1],
-                    model_list_overall,
+                    self.model_list_overall,
                     data_x_list,
                     data_y_list,
                     causal_prior,
@@ -316,25 +337,32 @@ class CEO:
                     self.do_effects_functions,
                     self.all_posteriors[-1],
                 )
+                # doing the safe optimization stuff
+                if safe_optimization:
+                    for es in self.exploration_set:
+                        es_num = self.es_to_n_mapping[es]
+                        self.safe_optimization(es_num)
 
+                if SHOW_GRAPHICS:
+                    for k in range(len(self.exploration_set)):
+                        self.plot_model_list(
+                            self.model_list_overall, self.exploration_set[k]
+                        )
                 logging.info("Now setting up the arm distribution")
                 # updating the arm distribution
                 self.arm_distribution = ceo_utils.update_arm_distribution(
                     self.arm_distribution,
-                    model_list_overall,
+                    self.model_list_overall,
                     data_x_list,
                     arm_n_es_mapping,
                 )
 
-                # sampling from each exploration set value
-                logging.info("Building the py star")
                 py_star_samples, p_x_star_samples = ceo_utils.build_p_y_star(
                     self.exploration_set,
-                    model_list_overall,
+                    self.model_list_overall,
                     self.interventional_range,
                     self.intervention_grid,
                 )
-
                 # getting the overall sample
                 logging.info("Building the global py star")
                 samples_global_ystar, samples_global_xstar = (
@@ -361,7 +389,7 @@ class CEO:
                     y_acquisition_list[s], x_new_list[s], inputs, improvements = (
                         evaluate_acquisition_ceo(
                             graphs=self.graphs,
-                            bo_model=model_list_overall[s],
+                            bo_model=self.model_list_overall[s],
                             exploration_set=es,
                             cost_functions=self.cost_functions,
                             posterior=self.all_posteriors[-1],
@@ -383,7 +411,6 @@ class CEO:
                 logging.debug(f"The inpus are {inputs}")
                 logging.debug(f"The improvements are {improvements}")
                 # find the optimal intervention, which maximises the acquisition function
-                print(y_acquisition_list)
                 target_index = np.argmax(np.array(y_acquisition_list))
                 var_to_intervene = tuple(self.exploration_set[target_index])
                 y_new = (
@@ -410,6 +437,17 @@ class CEO:
                     x_new_list[target_index]
                 )
 
+                current_y_array[i] = y_new[0]
+                best_y_array[i + 1] = np.min(current_y_array)
+                cost_vars = self.exploration_set[target_index]
+
+                current_cost = 0
+                x_new = x_new_list[target_index].reshape(-1)
+                for i, var in enumerate(cost_vars):
+                    current_cost += self.cost_functions[var](x_new[i])
+
+                cost_array[i] = current_cost
+
                 # updating the interventional data
                 for var in self.variables:
                     self.D_I[var_to_intervene][var] = np.concatenate(
@@ -421,7 +459,11 @@ class CEO:
 
                 # calculating the posterior data again
                 # self.posterior = np.zeros(shape=len(self.graphs))
+
+                # XXX maybe the posterior here
                 self.update_posterior()
                 self.all_posteriors.append(
                     ceo_utils.normalize_log(deepcopy(self.posterior))
                 )
+
+        return best_y_array, current_y_array, cost_array

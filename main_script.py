@@ -29,7 +29,7 @@ with open("/Users/jeandurand/Documents/Masters Thesis/CEO/D_I.pickle", "rb") as 
 
 # print(D_I)
 
-# exploration_set = [("Z",), ("X",), ("X", "Z")]
+exploration_set = [("Z",), ("X",), ("X", "Z")]
 # # exploration_set = [("X", "Z")]
 model = CEO(all_graph_edges=all_graph_edges)
 # model.set_values(D_O, D_I, exploration_set)

@@ -4,10 +4,15 @@ from typing import Dict, List
 import numpy as np
 
 import utils.cbo_functions as cbo_functions
+from algorithms.BASE_algorithm import BASE
 from graphs.graph import GraphStructure
 from graphs.graph_functions import graph_setup
 from utils.cbo_classes import TargetClass
-from utils.sem_sampling import sample_model
+from utils.sem_sampling import (
+    change_intervention_list_format,
+    draw_interventional_samples_sem,
+    sample_model,
+)
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the logging level
@@ -16,7 +21,7 @@ logging.basicConfig(
 )
 
 
-class CBO:
+class CBO(BASE):
 
     def __init__(
         self,
@@ -28,6 +33,7 @@ class CBO:
         cost_num: int = 1,
         task: str = "min",
     ):
+        self._graph_type = graph_type
         if graph is not None:
             assert observational_samples is not None
             self.graph = graph
@@ -35,7 +41,7 @@ class CBO:
             self.interventional_samples = interventional_samples
 
         else:
-            assert graph_type in ["Toy", "Synthetic", "Graph6"]
+            assert graph_type in ["Toy", "Synthetic", "Graph6", "Graph5", "Graph4"]
             # defining the initial variables
             (
                 self.graph,
@@ -47,9 +53,32 @@ class CBO:
                 self.interventional_samples,
             ) = graph_setup(graph_type=graph_type)
 
+        self.es_to_n_mapping = {
+            tuple(es): i for i, es in enumerate(self.exploration_set)
+        }
         self.causal_prior = causal_prior
         self.cost_num = cost_num
         self.task = task
+
+    def set_values(self, D_O: Dict, D_I: Dict, exploration_set: List[List[str]]):
+        logging.info("Using predefined values for the optimization algorithm")
+        self.exploration_set = exploration_set
+        # create mappings for the exploration set
+        self.es_to_n_mapping = {
+            tuple(es): i for i, es in enumerate(self.exploration_set)
+        }
+        self.D_O = D_O
+        self.observational_samples = np.hstack(
+            ([self.D_O[var] for var in self.variables])
+        )
+        self.D_I = D_I
+        self.interventional_samples = change_intervention_list_format(
+            self.D_I, self.exploration_set
+        )
+
+        self.arm_distribution = np.array(
+            [1 / len(self.exploration_set)] * len(self.exploration_set)
+        )
 
     def run_algorithm(self, T: int = 10):
         self.graph.refit_models(self.samples)
@@ -88,7 +117,12 @@ class CBO:
             parameter_spaces[i] = self.graph.get_parameter_space(
                 self.exploration_set[i]
             )
-            target_classes[i] = TargetClass(self.graph.SEM, self.exploration_set[i])
+            target_classes[i] = TargetClass(
+                sem_model=self.graph.SEM,
+                interventions=self.exploration_set[i],
+                variables=self.graph.variables,
+                graph=self.graph,
+            )
 
         # defining some variables necessary for the algorithm
         alpha_coverage, hull_obs, coverage_total = cbo_functions.compute_coverage(
@@ -120,8 +154,9 @@ class CBO:
             # ensure one observation and one intervention (at least)
             u = 0 if i == 0 else u
             u = 1 if i == 1 else u
+            observe = u < epsilon_coverage
 
-            if u < epsilon_coverage:
+            if i == 0:
                 observed += 1
                 logging.info(
                     f"------ Iteration {i}: Observed {observed}, where epsilon = {epsilon_coverage} ------"
@@ -170,6 +205,8 @@ class CBO:
                     input_space,
                     do_function_list,
                 )
+                for es in self.exploration_set:
+                    self.plot_model_list(model_list, es)
 
                 # get the new optimal value based on all the elements in the exploration set
                 y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
@@ -190,8 +227,9 @@ class CBO:
                 data_x_list[target_index] = np.vstack(
                     (data_x_list[target_index], x_new_list[target_index])
                 )
-                data_y_list[target_index] = np.vstack(
-                    (data_y_list[target_index], y_new)
+
+                data_y_list[target_index] = np.concatenate(
+                    (data_y_list[target_index], y_new.reshape(-1))
                 )
                 # set the new best variable
                 best_variable = target_index

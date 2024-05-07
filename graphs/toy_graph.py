@@ -226,9 +226,10 @@ class ToyGraph(GraphStructure):
 
         return mean_do, var_do
 
-    def get_error_distribution(self):
+    def get_error_distribution(self, noiseless: bool = True):
         error_distr = {}
-        error_distr["X"] = np.random.uniform(-5, 5)
-        error_distr["Z"] = 0
-        error_distr["Y"] = 0
+        # error_distr["X"] = np.random.uniform(-5, 5)
+        error_distr["X"] = np.random.normal()
+        error_distr["Z"] = 0 if noiseless else np.random.normal()
+        error_distr["Y"] = 0 if noiseless else np.random.normal()
         return error_distr

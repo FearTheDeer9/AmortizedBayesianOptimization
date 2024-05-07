@@ -443,7 +443,8 @@ class CausalEntropySearch(Acquisition):
         logging.info(str(entropy_changes.tolist()))
         assert entropy_changes.shape[0] == x.shape[0]
 
-        print(entropy_changes)
+        # manually changing the entropy values
+        entropy_changes = np.nan_to_num(entropy_changes, nan=0.0)
         return entropy_changes
 
     # def worker_function(x):

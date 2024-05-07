@@ -8,6 +8,7 @@ from emukit.core.optimization import GradientAcquisitionOptimizer
 from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
 
 import utils.cbo_functions as cbo_functions
+from algorithms.BASE_algorithm import BASE
 from graphs.graph import GraphStructure
 from graphs.graph_functions import graph_setup
 from graphs.toy_graph import ToyGraph
@@ -21,7 +22,7 @@ logging.basicConfig(
 )
 
 
-class BO:
+class BO(BASE):
 
     def __init__(
         self,
@@ -39,8 +40,8 @@ class BO:
             (
                 self.graph,
                 _,
-                manipulative_variables,
-                target,
+                self.manipulative_variables,
+                _,
                 self.samples,
                 _,
                 _,
@@ -48,11 +49,12 @@ class BO:
 
         # this is to change the edges so that the method works for BO
         self.graph.break_dependency_structure()
-        print(self.graph.edges)
+
         self.causal_prior = causal_prior
         self.cost_num = cost_num
         self.target = self.graph.target
         _, _, self.manipulative_variables = self.graph.get_sets()
+        self.es_to_n_mapping = {tuple(self.manipulative_variables): 0}
 
     def run_algorithm(self, T: int = 30):
         self.graph.refit_models(self.samples)
@@ -60,11 +62,10 @@ class BO:
         Y = self.samples[self.target]
 
         # trying to define the target function for the interventions
-        interventions = self.manipulative_variables.copy()
         model = self.graph.SEM
 
         # for the BayesOpt algorithm
-        input_space = len(interventions)
+        input_space = len(self.manipulative_variables)
         best_x = np.zeros(shape=(T + 1, input_space))
         best_y = np.zeros(shape=T + 1)
         current_best = np.argmin(
@@ -73,13 +74,25 @@ class BO:
         best_y[0] = Y[current_best]
         best_x[0, :] = X[current_best, :]
 
-        do_effects = DoFunctions(self.graph.get_all_do(), self.samples, interventions)
-        space = self.graph.get_parameter_space(interventions)
+        do_effects = DoFunctions(
+            self.graph.get_all_do(), self.samples, self.manipulative_variables
+        )
+        space = self.graph.get_parameter_space(self.manipulative_variables)
 
-        target_class = TargetClass(model, interventions)
+        target_class = TargetClass(
+            sem_model=model,
+            interventions=self.manipulative_variables,
+            variables=self.graph.variables,
+            graph=self.graph,
+        )
 
-        emukit_model = cbo_functions.set_up_GP(
-            self.causal_prior, input_space, do_effects, X, Y
+        emukit_model: GPyModelWrapper = cbo_functions.set_up_GP(
+            self.causal_prior,
+            input_space,
+            do_effects.mean_function_do,
+            do_effects.var_function_do,
+            X,
+            Y,
         )
 
         cummulative_cost = 0
@@ -89,6 +102,8 @@ class BO:
         for i in range(T):
             logging.info(f"-------- Iteration {i} --------")
             emukit_model.optimize()
+            model_list = [emukit_model]
+            self.plot_model_list(model_list, tuple(self.manipulative_variables))
             acquisition = ExpectedImprovement(emukit_model)
             optimzer = GradientAcquisitionOptimizer(space)
             x_new, _ = optimzer.optimize(acquisition)
@@ -97,7 +112,7 @@ class BO:
                 f"The optimal point found in the optimizer is {y_new} for {x_new}"
             )
             logging.info(
-                f"The corresponding target is {target_class.compute_target(best_x[i].reshape(1, 2))}"
+                f"The corresponding target is {target_class.compute_target(best_x[i].reshape(1, -1))}"
             )
             logging.info(f"The global optimum was {best_y[i]} for {best_x[i]}")
 
@@ -108,7 +123,7 @@ class BO:
 
             # get the cost for these values
             total_cost = 0
-            for j, val in enumerate(interventions):
+            for j, val in enumerate(self.manipulative_variables):
                 total_cost += costs_functions[val](x_new[0, j])
 
             cummulative_cost += total_cost

@@ -57,6 +57,7 @@ def update_posterior_interventional(
     Updating the posterior probabilities of each graph after intervening on the system
     """
     current_interventional_sample = interventional_samples[intervened_var]
+    print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
     for graph_idx, emission_fncs in enumerate(
         all_emission_fncs
     ):  # as many emission_fncs dicts as graphs
@@ -67,11 +68,11 @@ def update_posterior_interventional(
             parents = graph.parents[var]
             xx = np.hstack(
                 [
-                    current_interventional_sample[parent].reshape(1, -1)
+                    current_interventional_sample[parent].reshape(-1, 1)
                     for parent in parents
                 ]
             )
-            yy = current_interventional_sample[var].reshape(1, -1)
+            yy = current_interventional_sample[var].reshape(-1, 1)
 
             if var in intervened_var:
                 # Here the truncated assumption comes in. Dont compute posterior

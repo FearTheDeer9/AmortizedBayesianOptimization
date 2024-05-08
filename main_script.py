@@ -1,6 +1,8 @@
 import os
 import pickle
 
+import numpy as np
+
 from algorithms.BO_algorithm import BO
 from algorithms.CBO_algorithm import CBO
 from algorithms.CEO_algorithm import CEO
@@ -32,6 +34,7 @@ with open("/Users/jeandurand/Documents/Masters Thesis/CEO/D_I.pickle", "rb") as 
 
 exploration_set = [("Z",), ("X",), ("X", "Z")]
 # # exploration_set = [("X", "Z")]
-model = CEO(all_graph_edges=all_graph_edges)
+val = np.random.randint(1, 100)
+model = CEO(all_graph_edges=all_graph_edges, seed=val)
 # model.set_values(D_O, D_I, exploration_set)
 model.run_algorithm()

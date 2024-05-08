@@ -256,6 +256,7 @@ class CEO(BASE):
             self.calculate_do_statistics()
         )
 
+        self.update_posterior()
         self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
         logging.info(f"The updated posterior distribution is {self.all_posteriors[-1]}")
 

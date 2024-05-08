@@ -17,6 +17,7 @@ all_graph_edges = [
     [("Z", "X"), ("X", "Y")],
     [("X", "Z"), ("Z", "Y")],
 ]
+
 directory = "/Users/jeandurand/Documents/Masters Thesis/CEO/"
 print(os.listdir(directory))
 

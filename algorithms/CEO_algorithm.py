@@ -21,12 +21,6 @@ from utils.sem_sampling import (
     sample_model,
 )
 
-logging.basicConfig(
-    level=logging.DEBUG,  # Set the logging level
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Set the format of log messages
-    datefmt="%m/%d/%Y %I:%M:%S %p",  # Set the date format
-)
-
 
 class CEO(BASE):
 
@@ -34,20 +28,18 @@ class CEO(BASE):
         self,
         graph_type: str = "Toy",
         graphs: List[GraphStructure] = None,
-        observational_samples: Dict = None,
-        interventional_samples: Dict = None,
         causal_prior: bool = None,
         all_graph_edges: List[List[Tuple[str, str]]] = None,
         cost_num: int = 1,
         n_obs: int = 100,
         n_int: int = 2,
+        n_anchor_points: int = 30,
+        seed: int = 42,
         task: str = "min",
     ):
         self._graph_type = graph_type
         if graphs:
             self.graphs = graphs
-            self.D_O = observational_samples
-            self.D_I = interventional_samples
         else:
             self.graphs: List[GraphStructure] = []
             for edges in all_graph_edges:
@@ -55,45 +47,30 @@ class CEO(BASE):
                 graph.mispecify_graph(edges)
                 self.graphs.append(graph)
 
-            # specify all structures in the arguments, no need to do it again
-            # self.graphs.append(self.chosen_structure())
+        # These part are for the GP and the CEO algorithm
+        self.causal_prior = causal_prior
+        self.cost_num = cost_num
+        self.cost_functions = self.graphs[0].get_cost_structure(cost_num)
+        self.task = task
+        self.n_obs = n_obs
+        self.n_int = n_int
 
-            (
-                _,
-                self.exploration_set,
-                self.manipulative_variables,
-                self.target,
-                _,
-                _,
-                _,
-            ) = graph_setup(graph_type=graph_type)
+        # This defines some of the important part of the graph that is used for this algorithm
+        self.graph = self.graphs[0]
+        self.target = self.graph.target
+        self.SEM = self.graphs[0].SEM
+        self.variables = self.graphs[0].variables
+        self.exploration_set = self.graph.get_exploration_set()
         logging.info(f"The exploration set in this setup is {self.exploration_set}")
-
         # create mappings for the exploration set
         self.es_to_n_mapping = {
             tuple(es): i for i, es in enumerate(self.exploration_set)
         }
 
-        self.causal_prior = causal_prior
-        self.cost_num = cost_num
-        self.task = task
-        self.n_obs = n_obs
-        self.n_int = n_int
-
-        self.SEM = self.graphs[0].SEM
-        self.variables = self.graphs[0].variables
-        self.graph = self.graphs[0]
-        self.interventional_range = graph.get_interventional_range()
-        self.intervention_grid = create_grid_interventions(
-            self.interventional_range, get_list_format=True
-        )
-
-        self.arm_distribution = np.array(
-            [1 / len(self.exploration_set)] * len(self.exploration_set)
-        )
+        self.manipulative_variables = self.graph.get_sets()[2]
 
         self.D_O: Dict[str, np.ndarray] = sample_model(
-            self.SEM, sample_count=self.n_obs, graph=graph
+            self.SEM, sample_count=self.n_obs, graph=graph, seed=seed + 1
         )
 
         self.observational_samples = np.hstack(
@@ -101,24 +78,31 @@ class CEO(BASE):
         )
 
         # drawing the interventional samples
+        self.interventional_range = graph.get_interventional_range()
+        self.intervention_grid = create_grid_interventions(
+            self.interventional_range, get_list_format=True, num_points=n_anchor_points
+        )
         interventional_ranges = graph.get_interventional_range()
-        interventions = create_grid_interventions(interventional_ranges)
-        self.D_I = draw_interventional_samples_sem(
-            interventions, self.exploration_set, graph, n_int=n_int
+        interventions = create_grid_interventions(
+            interventional_ranges, num_points=n_anchor_points
         )
 
-        # this just gets the interventional data in a format that is used by another function
+        # getting the interventional data in two different formats
+        self.D_I = draw_interventional_samples_sem(
+            interventions, self.exploration_set, graph, n_int=n_int, seed=seed
+        )
+
         self.interventional_samples = change_intervention_list_format(
             self.D_I, self.exploration_set
         )
 
-        # get the initial posterior model in log form
+        # Setting up the variables for the downstream algorithm
+        self.arm_distribution = np.array(
+            [1 / len(self.exploration_set)] * len(self.exploration_set)
+        )
         self.posterior = np.log(np.asarray([1 / len(self.graphs)] * len(self.graphs)))
         self.all_posteriors = []
         self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
-
-        # the cost of intervening on the system
-        self.cost_functions = self.graphs[0].get_cost_structure(1)
 
     def set_values(self, D_O: Dict, D_I: Dict, exploration_set: List[List[str]]):
         logging.info("Using predefined values for the optimization algorithm")
@@ -295,7 +279,7 @@ class CEO(BASE):
 
         current_y_array = np.zeros(shape=T)
 
-        cost_array = np.zeros(shape=T)
+        cost_array = np.zeros(shape=T + 1)
 
         for i in range(T):
             if i == 0:
@@ -443,10 +427,10 @@ class CEO(BASE):
 
                 current_cost = 0
                 x_new = x_new_list[target_index].reshape(-1)
-                for i, var in enumerate(cost_vars):
-                    current_cost += self.cost_functions[var](x_new[i])
+                for j, var in enumerate(cost_vars):
+                    current_cost += self.cost_functions[var](x_new[j])
 
-                cost_array[i] = current_cost
+                cost_array[i + 1] = cost_array[i] + current_cost
 
                 # updating the interventional data
                 for var in self.variables:
@@ -460,7 +444,6 @@ class CEO(BASE):
                 # calculating the posterior data again
                 # self.posterior = np.zeros(shape=len(self.graphs))
 
-                # XXX maybe the posterior here
                 self.update_posterior()
                 self.all_posteriors.append(
                     ceo_utils.normalize_log(deepcopy(self.posterior))

@@ -5,6 +5,7 @@ import numpy as np
 
 import utils.cbo_functions as cbo_functions
 from algorithms.BASE_algorithm import BASE
+from config import SHOW_GRAPHICS
 from graphs.graph import GraphStructure
 from graphs.graph_functions import graph_setup
 from utils.cbo_classes import TargetClass
@@ -27,18 +28,16 @@ class CBO(BASE):
         self,
         graph_type: str = "Toy",
         graph: GraphStructure = None,
-        observational_samples: Dict = None,
-        interventional_samples: Dict = None,
         causal_prior: bool = True,
         cost_num: int = 1,
         task: str = "min",
     ):
         self._graph_type = graph_type
         if graph is not None:
-            assert observational_samples is not None
             self.graph = graph
-            self.observational_samples = observational_samples
-            self.interventional_samples = interventional_samples
+            self.exploration_set = graph.get_exploration_set()
+            self.manipulative_variables = graph.get_sets()[2]
+            self.target = graph.target
 
         else:
             assert graph_type in ["Toy", "Synthetic", "Graph6", "Graph5", "Graph4"]
@@ -48,7 +47,7 @@ class CBO(BASE):
                 self.exploration_set,
                 self.manipulative_variables,
                 self.target,
-                self.samples,
+                self.D_O,
                 self.observational_samples,
                 self.interventional_samples,
             ) = graph_setup(graph_type=graph_type)
@@ -56,6 +55,7 @@ class CBO(BASE):
         self.es_to_n_mapping = {
             tuple(es): i for i, es in enumerate(self.exploration_set)
         }
+        self.variables = self.graph.variables
         self.causal_prior = causal_prior
         self.cost_num = cost_num
         self.task = task
@@ -81,8 +81,7 @@ class CBO(BASE):
         )
 
     def run_algorithm(self, T: int = 10):
-        self.graph.refit_models(self.samples)
-        num_interventions = len(self.exploration_set)
+        self.graph.fit_samples_to_graph(self.D_O)
 
         # setting up the data for the rest of the algorithm
         (
@@ -99,7 +98,6 @@ class CBO(BASE):
         )
 
         # parameter in the algorithm
-        # current_global_min = np.min(samples[target])
         input_space = [len(vars) for vars in self.exploration_set]
         objective = np.inf if self.task == "min" else -np.inf
         current_best_x = {
@@ -139,6 +137,7 @@ class CBO(BASE):
         # STARTING THE ALGORITHM
         current_cost = []
         global_opt = []
+        current_y = []
         global_opt.append(objective)
         current_cost.append(0.0)
         cost_functions = self.graph.get_cost_structure(self.cost_num)
@@ -156,6 +155,7 @@ class CBO(BASE):
             u = 1 if i == 1 else u
             observe = u < epsilon_coverage
 
+            # this is changed to make it more comparable to the CEO method
             if i == 0:
                 observed += 1
                 logging.info(
@@ -205,8 +205,9 @@ class CBO(BASE):
                     input_space,
                     do_function_list,
                 )
-                for es in self.exploration_set:
-                    self.plot_model_list(model_list, es)
+                if SHOW_GRAPHICS:
+                    for es in self.exploration_set:
+                        self.plot_model_list(model_list, es)
 
                 # get the new optimal value based on all the elements in the exploration set
                 y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
@@ -240,6 +241,7 @@ class CBO(BASE):
                 current_best_y[var_to_intervene].append(y_new[0][0])
                 # maybe need to update the model -> i don't think so as this is done at the start of each intervention loop
 
+                current_y.append(y_new[0][0])
                 best_y = global_opt[i]
                 all_values = [
                     value for values in current_best_y.values() for value in values
@@ -259,3 +261,5 @@ class CBO(BASE):
                     f"Selected intervention {var_to_intervene} at {x_new_list[target_index]} with y = {y_new}"
                 )
                 logging.info(f"Current global optimum {global_opt[i+1]}")
+
+        return global_opt, current_y, current_cost

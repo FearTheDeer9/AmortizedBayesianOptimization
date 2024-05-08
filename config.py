@@ -1,1 +1,1 @@
-SHOW_GRAPHICS = True
+SHOW_GRAPHICS = False

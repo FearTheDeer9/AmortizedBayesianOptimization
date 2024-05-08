@@ -327,41 +327,40 @@ def draw_interventional_samples_sem(
     exploration_set: List[List[str]],
     graph: GraphStructure,
     n_int: int = 2,
+    seed: int = None,
 ) -> dict:
     """
     Draw interventional samples from the given list of interventions
     This one returns samples from the entire SEM model, even after
     an intervention has been performed
     """
+    if seed is not None:
+        np.random.seed(seed=seed)
+
     interventional_data = {
-        tuple(es): {var: [] for var in graph.variables} for es in exploration_set
+        tuple(sorted(es)): {var: [] for var in graph.variables}
+        for es in exploration_set
     }
 
-    print(interventions)
+    interventional_range = graph.get_interventional_range()
+    for _ in range(n_int):
+        for es in exploration_set:
+            intervention = {}
+            for var in es:
+                intervention_sample = np.random.uniform(
+                    interventional_range[var][0], interventional_range[var][1]
+                )
+                intervention[var] = intervention_sample
 
-    for intervention in interventions:
-        intervention_keys_sorted = sorted(intervention.keys())
-        index = next(
-            (
-                i
-                for i, sublist in enumerate(exploration_set)
-                if sorted(sublist) == intervention_keys_sorted
-            ),
-            None,
-        )
-        if index is not None:
+            # Drawing the samples
             sample = sample_model(
                 graph.SEM, sample_count=1, interventions=intervention, graph=graph
             )
-            for var in graph.variables:
-                # ensuring that you are not drawing too many interventional samples
-                if len(interventional_data[tuple(intervention)][var]) >= n_int:
-                    continue
+
+            for var in sample:
                 interventional_data[tuple(intervention)][var].append(sample[var][0, 0])
 
-    # Convert lists to numpy arrays for easier manipulation and consistency
     for idx in interventional_data:
         for var in interventional_data[idx]:
             interventional_data[idx][var] = np.array(interventional_data[idx][var])
-
     return interventional_data

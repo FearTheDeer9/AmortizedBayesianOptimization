@@ -3,4 +3,3 @@ ceo_venv/
 .DS_Store
 *__pycache__/
 *log
-data/

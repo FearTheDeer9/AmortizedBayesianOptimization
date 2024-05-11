@@ -49,6 +49,9 @@ class Graph4Nodes(GraphStructure):
     def refit_models(self, observational_samples):
         return super().refit_models(observational_samples)
 
+    def get_exploration_set(self) -> List[Tuple[str]]:
+        return [("X",), ("Z",), ("T"), ("X", "Z"), ("X", "T"), ("Z", "T")]
+
     def get_all_do(self):
         do_dict = {}
         do_dict["compute_do_X"] = self.compute_do_X

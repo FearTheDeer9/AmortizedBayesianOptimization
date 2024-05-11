@@ -1,5 +1,6 @@
 import logging
 from collections import OrderedDict
+from itertools import chain
 from typing import Dict, List, Optional, OrderedDict, Tuple
 
 import numpy as np
@@ -27,9 +28,11 @@ class Graph4Nodes(GraphStructure):
         self.Y = Y
         self._SEM = self.define_SEM()
         self._edges = [("X", "T"), ("X", "Z"), ("T", "Y"), ("Z", "Y")]
-        self._G = self.make_graphical_model()
         self._target = "Y"
         self._functions: Optional[Dict[str, GPRegression]] = None
+        self._nodes = set(chain(*self.edges))
+        self._parents, self._children = self.build_relationships()
+        self._G = self.make_graphical_model()
         self._variables = ["X", "Z", "T", "Y"]
 
     def define_SEM(self):

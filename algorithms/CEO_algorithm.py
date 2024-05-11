@@ -215,7 +215,7 @@ class CEO(BASE):
             logging.info(
                 "SAFE OPTIMIZATION: Resetting the kernel variance to lower bound"
             )
-            self.model_list_overall[es].model.kern.variance[0] = lower_bound_var
+            self.model_list_overall[es].model.kern.variance[0] = 1.0
 
         if gpy_model.kern.lengthscale[0] > bound_len:
             logging.info("SAFE OPTIMZATION: Resetting kernel lenghtscale")
@@ -227,7 +227,7 @@ class CEO(BASE):
 
         if gpy_model.likelihood.variance[0] < lower_bound_var:
             logging.info("SAFE OPTIMIZATION: resetting likelihood var to lower bound")
-            self.model_list_overall[es].model.likelihood.variance[0] = lower_bound_var
+            self.model_list_overall[es].model.likelihood.variance[0] = 1.0
 
     def run_algorithm(
         self, T: int = 30, safe_optimization: bool = False

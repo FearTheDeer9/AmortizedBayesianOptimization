@@ -107,8 +107,8 @@ class ToyGraph(GraphStructure):
         min_intervention_x = -5
         max_intervention_x = 5
 
-        min_intervention_z = -5
-        max_intervention_z = 20
+        min_intervention_z = -5.5
+        max_intervention_z = 13
 
         dict_ranges = OrderedDict(
             [
@@ -119,7 +119,7 @@ class ToyGraph(GraphStructure):
         return dict_ranges
 
     def get_exploration_set(self) -> List[Tuple[str]]:
-        return [("X",), ("Z",)]
+        return [("X",), ("Z",), ("X", "Z")]
 
     def get_parameter_space(self, exploration_set: List) -> ParameterSpace:
         interventional_range = self.get_interventional_range()

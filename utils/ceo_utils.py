@@ -57,7 +57,6 @@ def update_posterior_interventional(
     Updating the posterior probabilities of each graph after intervening on the system
     """
     current_interventional_sample = interventional_samples[intervened_var]
-    print("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
     for graph_idx, emission_fncs in enumerate(
         all_emission_fncs
     ):  # as many emission_fncs dicts as graphs
@@ -163,6 +162,34 @@ def aggregate_var_function(
     )
     var = var.reshape(-1, 1)
     return var
+
+
+# def get_new_x_y_list(
+#     exploration_set: List[List[str]],
+#     graph: GraphStructure,
+#     current_global_min: float,
+#     model_list: List,
+#     cost_functions: OrderedDict,
+#     task: str = "min",
+# ) -> Tuple[np.ndarray, List[List[float]]]:
+#     """
+#     Get the new acquisitions for the all the elements in the exploration set
+#     """
+#     y_acquisition_list = [None] * len(exploration_set)
+#     x_new_list = [None] * len(exploration_set)
+#     for j, vars in enumerate(exploration_set):
+#         space = graph.get_parameter_space(vars)
+#         cost = Cost(cost_functions, vars)
+#         optimizer = CausalGradientAcquisitionOptimizer(space)
+#         acquisition = (
+#             CausalExpectedImprovement(current_global_min, task, model_list[j]) / cost
+#         )
+#         x_new, _ = optimizer.optimize(acquisition)
+#         y_acquisition = acquisition.evaluate(x_new)
+#         y_acquisition_list[j] = y_acquisition
+#         x_new_list[j] = x_new
+
+#     return np.array(y_acquisition_list), x_new_list
 
 
 def create_n_dimensional_intervention_grid(

@@ -50,7 +50,7 @@ class Graph4Nodes(GraphStructure):
         return super().refit_models(observational_samples)
 
     def get_exploration_set(self) -> List[Tuple[str]]:
-        return [("X",), ("Z",), ("T"), ("X", "Z"), ("X", "T"), ("Z", "T")]
+        return [("X",), ("Z",), ("T"), ("X", "Z"), ("T", "X"), ("T", "Z")]
 
     def get_all_do(self):
         do_dict = {}
@@ -75,9 +75,9 @@ class Graph4Nodes(GraphStructure):
 
         dict_ranges = OrderedDict(
             [
+                ("T", [min_intervention_t, max_intervention_t]),
                 ("X", [min_intervention_x, max_intervention_x]),
                 ("Z", [min_intervention_z, max_intervention_z]),
-                ("T", [min_intervention_t, max_intervention_t]),
             ]
         )
         return dict_ranges
@@ -193,7 +193,7 @@ class Graph4Nodes(GraphStructure):
 
     def compute_do_XT(self, observational_samples, value):
 
-        interventions_nodes = ["X", "T"]
+        interventions_nodes = ["T", "X"]
         mean_do, var_do = self.compute_do(
             observational_samples, value, interventions_nodes
         )
@@ -202,7 +202,7 @@ class Graph4Nodes(GraphStructure):
 
     def compute_do_ZT(self, observational_samples, value):
 
-        interventions_nodes = ["Z", "T"]
+        interventions_nodes = ["T", "Z"]
         mean_do, var_do = self.compute_do(
             observational_samples, value, interventions_nodes
         )
@@ -211,7 +211,7 @@ class Graph4Nodes(GraphStructure):
 
     def compute_do_XZT(self, observational_samples, value):
 
-        interventions_nodes = ["X", "Z", "T"]
+        interventions_nodes = ["T", "X", "Z"]
         mean_do, var_do = self.compute_do(
             observational_samples, value, interventions_nodes
         )

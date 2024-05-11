@@ -39,7 +39,7 @@ class Graph4Nodes(GraphStructure):
         fx = lambda epsilon, sample: epsilon
         fz = lambda epsilon, sample: expit(0.3 * sample["X"])
         ft = lambda epsilon, sample: np.cos(sample["X"]) + np.exp(-sample["X"])
-        fy = lambda epsilon, sample: -sample["Z"] ** 2 + np.sqrt(sample["T"]) + epsilon
+        fy = lambda epsilon, sample: -sample["Z"] ** 2 + np.sin(sample["T"]) + epsilon
         graph = OrderedDict([("X", fx), ("Z", fz), ("T", ft), ("Y", fy)])
         return graph
 
@@ -58,9 +58,9 @@ class Graph4Nodes(GraphStructure):
         do_dict["compute_do_Z"] = self.compute_do_Z
         do_dict["compute_do_T"] = self.compute_do_T
         do_dict["compute_do_XZ"] = self.compute_do_XZ
-        do_dict["compute_do_XT"] = self.compute_do_XT
-        do_dict["compute_do_ZT"] = self.compute_do_ZT
-        do_dict["compute_do_XZT"] = self.compute_do_XZT
+        do_dict["compute_do_TX"] = self.compute_do_TX
+        do_dict["compute_do_TZ"] = self.compute_do_TZ
+        do_dict["compute_do_TXZ"] = self.compute_do_TXZ
         return do_dict
 
     def get_interventional_range(self):
@@ -191,7 +191,7 @@ class Graph4Nodes(GraphStructure):
 
         return mean_do, var_do
 
-    def compute_do_XT(self, observational_samples, value):
+    def compute_do_TX(self, observational_samples, value):
 
         interventions_nodes = ["T", "X"]
         mean_do, var_do = self.compute_do(
@@ -200,7 +200,7 @@ class Graph4Nodes(GraphStructure):
 
         return mean_do, var_do
 
-    def compute_do_ZT(self, observational_samples, value):
+    def compute_do_TZ(self, observational_samples, value):
 
         interventions_nodes = ["T", "Z"]
         mean_do, var_do = self.compute_do(
@@ -209,7 +209,7 @@ class Graph4Nodes(GraphStructure):
 
         return mean_do, var_do
 
-    def compute_do_XZT(self, observational_samples, value):
+    def compute_do_TXZ(self, observational_samples, value):
 
         interventions_nodes = ["T", "X", "Z"]
         mean_do, var_do = self.compute_do(

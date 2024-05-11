@@ -219,7 +219,7 @@ class CEO(BASE):
 
         if gpy_model.kern.lengthscale[0] > bound_len:
             logging.info("SAFE OPTIMZATION: Resetting kernel lenghtscale")
-            self.model_list_overall[es].model.kern.lenghtscale[0] = 1.0
+            self.model_list_overall[es].model.kern.lengthscale[0] = 1.0
 
         if gpy_model.likelihood.variance[0] > upper_bound_var:
             logging.info("SAFE OPTIMIZATION: restting likelihood var to upper bound")

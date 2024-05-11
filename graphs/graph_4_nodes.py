@@ -37,7 +37,7 @@ class Graph4Nodes(GraphStructure):
 
     def define_SEM(self):
         fx = lambda epsilon, sample: epsilon
-        fz = lambda epsilon, sample: expit(0.3 * sample["X"])
+        fz = lambda epsilon, sample: 0.3 * sample["X"]
         ft = lambda epsilon, sample: np.cos(sample["X"]) + np.exp(-sample["X"])
         fy = lambda epsilon, sample: -sample["Z"] ** 2 + np.sin(sample["T"]) + epsilon
         graph = OrderedDict([("X", fx), ("Z", fz), ("T", ft), ("Y", fy)])
@@ -50,7 +50,7 @@ class Graph4Nodes(GraphStructure):
         return super().refit_models(observational_samples)
 
     def get_exploration_set(self) -> List[Tuple[str]]:
-        return [("X",), ("Z",), ("T"), ("X", "Z"), ("T", "X"), ("T", "Z")]
+        return [("X",), ("Z",), ("T",), ("X", "Z"), ("T", "X"), ("T", "Z")]
 
     def get_all_do(self):
         do_dict = {}

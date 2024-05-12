@@ -85,7 +85,7 @@ class Graph4Nodes(GraphStructure):
     def get_sets(self):
         mis = [["X"], ["Z"], ["T"]]
         pomis = [["X", "Z"], ["X", "T"], ["Z", "T"]]
-        manipulative_variables = ["X", "Z", "T"]
+        manipulative_variables = ["T", "X", "Z"]
         return mis, pomis, manipulative_variables
 
     def get_fixed_equal_costs(self) -> OrderedDict:

@@ -99,34 +99,34 @@ with open(filename_es, "wb") as file:
 #     pickle.dump(ceo_result_dict, file)
 
 # now for the CBO algorithm
-for i, edges in enumerate(all_graph_edges):
-    graph = Graph4Nodes()
-    graph.mispecify_graph(edges)
-    cbo_model = CBO(graph=graph)
-    cbo_model.set_values(D_O, D_I, exploration_set)
-    best_y_array, current_y_array, cost_array = cbo_model.run_algorithm(T=n_trials)
-    cbo_results_dict = {
-        "Best_Y": best_y_array,
-        "Per_trial_Y": current_y_array,
-        "Cost": cost_array,
-    }
-    filename_cbo = f"results/Graph4/run{run_num}_cbo_results_graph_{i}.pickle"
-    with open(filename_cbo, "wb") as file:
-        pickle.dump(cbo_results_dict, file)
+# for i, edges in enumerate(all_graph_edges):
+#     graph = Graph4Nodes()
+#     graph.mispecify_graph(edges)
+#     cbo_model = CBO(graph=graph)
+#     cbo_model.set_values(D_O, D_I, exploration_set)
+#     best_y_array, current_y_array, cost_array = cbo_model.run_algorithm(T=n_trials)
+#     cbo_results_dict = {
+#         "Best_Y": best_y_array,
+#         "Per_trial_Y": current_y_array,
+#         "Cost": cost_array,
+#     }
+#     filename_cbo = f"results/Graph4/run{run_num}_cbo_results_graph_{i}.pickle"
+#     with open(filename_cbo, "wb") as file:
+#         pickle.dump(cbo_results_dict, file)
 
-# adding the CBO for the real graph
-graph = Graph4Nodes()
-cbo_model = CBO(graph=graph)
-cbo_model.set_values(D_O, D_I, exploration_set)
-best_y_array, current_y_array, cost_array = cbo_model.run_algorithm(T=n_trials)
-cbo_results_dict = {
-    "Best_Y": best_y_array,
-    "Per_trial_Y": current_y_array,
-    "Cost": cost_array,
-}
-filename_cbo = f"results/Graph4/run{run_num}_cbo_results_true_graph.pickle"
-with open(filename_cbo, "wb") as file:
-    pickle.dump(cbo_results_dict, file)
+# # adding the CBO for the real graph
+# graph = Graph4Nodes()
+# cbo_model = CBO(graph=graph)
+# cbo_model.set_values(D_O, D_I, exploration_set)
+# best_y_array, current_y_array, cost_array = cbo_model.run_algorithm(T=n_trials)
+# cbo_results_dict = {
+#     "Best_Y": best_y_array,
+#     "Per_trial_Y": current_y_array,
+#     "Cost": cost_array,
+# }
+# filename_cbo = f"results/Graph4/run{run_num}_cbo_results_true_graph.pickle"
+# with open(filename_cbo, "wb") as file:
+#     pickle.dump(cbo_results_dict, file)
 
 
 # now for the BO implementation

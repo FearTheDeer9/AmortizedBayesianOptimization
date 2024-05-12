@@ -70,8 +70,8 @@ class Graph4Nodes(GraphStructure):
         min_intervention_z = -3
         max_intervention_z = 3
 
-        min_intervention_t = -3
-        max_intervention_t = 3
+        min_intervention_t = -2
+        max_intervention_t = 8
 
         dict_ranges = OrderedDict(
             [

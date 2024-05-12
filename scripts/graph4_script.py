@@ -69,7 +69,9 @@ model: CEO = CEO(
 D_O = model.D_O
 D_I = model.D_I
 exploration_set = model.exploration_set
-
+print("X", D_O["X"].min(), D_O["X"].max())
+print("Z", D_O["Z"].min(), D_O["Z"].max())
+print("T", D_O["T"].min(), D_O["T"].max())
 filename_D_O = f"data/Graph4/run{run_num}_D_O.pickle"
 filename_D_I = f"data/Graph4/run{run_num}_D_I.pickle"
 filename_es = f"data/Graph4/run{run_num}_es.pickle"
@@ -83,18 +85,18 @@ with open(filename_D_I, "wb") as file:
 with open(filename_es, "wb") as file:
     pickle.dump(exploration_set, file)
 
-best_y_array, current_y_array, cost_array = model.run_algorithm(
-    T=n_trials, safe_optimization=safe_optimization
-)
-ceo_result_dict = {
-    "Best_Y": best_y_array,
-    "Per_trial_Y": current_y_array,
-    "Cost": cost_array,
-}
+# best_y_array, current_y_array, cost_array = model.run_algorithm(
+#     T=n_trials, safe_optimization=safe_optimization
+# )
+# ceo_result_dict = {
+#     "Best_Y": best_y_array,
+#     "Per_trial_Y": current_y_array,
+#     "Cost": cost_array,
+# }
 
-filename_ceo = f"results/Graph4/run_ceo_{run_num}_results.pickle"
-with open(filename_ceo, "wb") as file:
-    pickle.dump(ceo_result_dict, file)
+# filename_ceo = f"results/Graph4/run_ceo_{run_num}_results.pickle"
+# with open(filename_ceo, "wb") as file:
+#     pickle.dump(ceo_result_dict, file)
 
 # now for the CBO algorithm
 for i, edges in enumerate(all_graph_edges):

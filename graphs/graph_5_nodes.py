@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, OrderedDict, Tuple
 
 import numpy as np
 from GPy.models.gp_regression import GPRegression
-from scipy.special import expit
+from scipy.special import expit, logit
 
 from graphs.graph import GraphStructure
 
@@ -48,7 +48,7 @@ class Graph5Nodes(GraphStructure):
     def define_SEM(self):
         fb = lambda epsilon, sample: epsilon
         ft = lambda epsilon, sample: epsilon
-        fl = lambda epsilon, sample: expit(0.5 * sample["T"] + sample["B"])
+        fl = lambda epsilon, sample: np.tanh(0.5 * sample["T"] + sample["B"])
         fr = lambda epsilon, sample: 4 + sample["L"] * sample["T"]
         fy = (
             lambda epsilon, sample: 0.5

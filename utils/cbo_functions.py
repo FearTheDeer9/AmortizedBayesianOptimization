@@ -111,19 +111,15 @@ def update_hull(
 
 
 def compute_coverage(
-    observational_samples: np.ndarray, manipulative_variables: List, dict_ranges: dict
+    D_O: dict, manipulative_variables: List, dict_ranges: dict
 ) -> Tuple[float, float, float]:
     """
     Calculates the different quantities of the observation intervention tradeoff
     """
-    list_variables = [
-        list(observational_samples[:, i]) for i in range(len(manipulative_variables))
-    ]
+    list_variables = [list(D_O[var]) for var in manipulative_variables]
+    print(len(list_variables))
 
-    list_ranges = [
-        list(dict_ranges[manipulative_variables[i]])
-        for i in range(len(manipulative_variables))
-    ]
+    list_ranges = [list(dict_ranges[var]) for var in manipulative_variables]
 
     # calculate the total possible volume of the set
     vertices = list(
@@ -133,6 +129,8 @@ def compute_coverage(
 
     # now do the calculation for the observational samples
     stack_variables = np.transpose(np.vstack(list_variables))
+    # stack_variables = np.hstack(list_variables)
+    # print(vertices)
     coverage_obs = scipy.spatial.ConvexHull(stack_variables).volume
     hull_obs = scipy.spatial.ConvexHull(stack_variables)
     alpha_coverage = coverage_obs / coverage_total

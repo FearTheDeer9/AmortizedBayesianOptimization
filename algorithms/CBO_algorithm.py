@@ -123,12 +123,11 @@ class CBO(BASE):
             )
 
         # defining some variables necessary for the algorithm
-        alpha_coverage, hull_obs, coverage_total = cbo_functions.compute_coverage(
-            self.observational_samples,
-            self.manipulative_variables,
-            self.graph.get_interventional_range(),
-        )
-        max_N = 200
+        # alpha_coverage, hull_obs, coverage_total = cbo_functions.compute_coverage(
+        #     self.D_O,
+        #     self.manipulative_variables,
+        #     self.graph.get_interventional_range(),
+        # )
 
         # some counters for the algorithm
         observed = 0
@@ -143,23 +142,23 @@ class CBO(BASE):
         cost_functions = self.graph.get_cost_structure(self.cost_num)
 
         for i in range(T):
-            coverage_obs = cbo_functions.update_hull(
-                self.observational_samples, self.manipulative_variables
-            )
-            rescale = self.observational_samples.shape[0] / max_N
-            epsilon_coverage = (coverage_obs / coverage_total) / rescale
-            u = np.random.uniform()
+            # coverage_obs = cbo_functions.update_hull(
+            #     self.observational_samples, self.manipulative_variables
+            # )
+            # rescale = self.observational_samples.shape[0] / max_N
+            # epsilon_coverage = (coverage_obs / coverage_total) / rescale
+            # u = np.random.uniform()
 
             # ensure one observation and one intervention (at least)
             u = 0 if i == 0 else u
             u = 1 if i == 1 else u
-            observe = u < epsilon_coverage
+            # observe = u < epsilon_coverage
 
             # this is changed to make it more comparable to the CEO method
             if i == 0:
                 observed += 1
                 logging.info(
-                    f"------ Iteration {i}: Observed {observed}, where epsilon = {epsilon_coverage} ------"
+                    f"------ Iteration {i}: Observed {observed}, where epsilon =  ------"
                 )
                 trial_observed[i] = True
                 # 1. Observe new observations (xt, ct, yt)
@@ -189,7 +188,7 @@ class CBO(BASE):
                 # 4. Update the posterior of the causal GP
                 intervened += 1
                 logging.info(
-                    f"------ Iteration {i}: Intervened {intervened} where epsilon = {epsilon_coverage}  ------"
+                    f"------ Iteration {i}: Intervened {intervened} where epsilon =  ------"
                 )
                 trial_observed[i] = False
 

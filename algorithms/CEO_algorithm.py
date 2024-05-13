@@ -359,6 +359,7 @@ class CEO(BASE):
                 )
 
                 logging.info("Fitting the global KDE estimate")
+                print(samples_global_ystar)
                 kde_global = ceo_utils.MyKDENew(samples_global_ystar)
                 try:
                     kde_global.fit()
@@ -393,8 +394,8 @@ class CEO(BASE):
 
                 logging.info(f"The acquisition is {y_acquisition_list}")
                 logging.info(f"The corresponding x value is {x_new_list}")
-                logging.debug(f"The inpus are {inputs}")
-                logging.debug(f"The improvements are {improvements}")
+                logging.info(f"The inpus are {inputs}")
+                logging.info(f"The improvements are {improvements}")
                 # find the optimal intervention, which maximises the acquisition function
                 target_index = np.argmax(np.array(y_acquisition_list))
                 var_to_intervene = tuple(self.exploration_set[target_index])

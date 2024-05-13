@@ -43,6 +43,7 @@ class BO(BASE):
         self.manipulative_variables = self.graph.get_sets()[2]
         self.n_obs = n_obs
         self.variables = self.graph.variables
+        self.var_mapping = {var: i for i, var in enumerate(self.variables)}
 
         self.D_O: Dict[str, np.ndarray] = sample_model(
             self.graph.SEM, sample_count=self.n_obs, graph=graph
@@ -66,8 +67,14 @@ class BO(BASE):
         )
 
     def run_algorithm(self, T: int = 30):
+        manipulative_index = [
+            self.var_mapping[var]
+            for var in self.variables
+            if var in self.manipulative_variables
+        ]
         self.graph.refit_models(self.D_O)
         X = np.hstack([self.D_O[var] for var in self.variables if var != self.target])
+        X = X[:, manipulative_index]
         Y = self.D_O[self.target]
 
         # for the BayesOpt algorithm
@@ -80,6 +87,7 @@ class BO(BASE):
         current_cost = np.zeros(shape=T)
         current_best = np.argmin(Y)
         best_y[0] = Y[current_best]
+
         best_x[0, :] = X[current_best, :]
 
         do_effects = DoFunctions(

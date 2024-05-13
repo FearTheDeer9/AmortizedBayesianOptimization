@@ -1,7 +1,7 @@
 import logging
 from collections import OrderedDict
 from itertools import chain
-from typing import Dict, List, Optional, OrderedDict, Tuple
+from typing import Any, Callable, Dict, List, Optional, OrderedDict, Tuple
 
 import numpy as np
 from GPy.models.gp_regression import GPRegression
@@ -202,3 +202,13 @@ class Graph6Nodes(GraphStructure):
 
     def get_exploration_set(self):
         return [("As",), ("S",), ("As", "S")]
+
+    def get_error_distribution(self):
+        err_dist = {}
+        err_dist["A"] = np.random.uniform(55, 75)
+        err_dist["B"] = 0
+        err_dist["As"] = 0
+        err_dist["S"] = 0
+        err_dist["C"] = 0
+        err_dist["Y"] = 0
+        return err_dist

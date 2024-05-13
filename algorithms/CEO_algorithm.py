@@ -92,7 +92,6 @@ class CEO(BASE):
             interventions, self.exploration_set, graph, n_int=n_int, seed=seed
         )
 
-        print(self.D_I)
         self.interventional_samples = change_intervention_list_format(
             self.D_I, self.exploration_set
         )

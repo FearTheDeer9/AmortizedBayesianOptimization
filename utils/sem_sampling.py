@@ -265,8 +265,8 @@ def change_intervention_list_format(
 
     for i, es in enumerate(exploration_set):
         for val in es:
-            new_grid[i][val] = interventions[tuple(val)][val]
-        new_grid[i][target] = interventions[tuple(val)][target]
+            new_grid[i][val] = interventions[es][val]
+        new_grid[i][target] = interventions[es][target]
     return new_grid
 
 

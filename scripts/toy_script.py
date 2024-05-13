@@ -3,6 +3,7 @@ import logging
 import os
 import pickle
 import sys
+from copy import deepcopy
 
 os.chdir("..")
 
@@ -71,8 +72,8 @@ model: CEO = CEO(
     seed=seeds_int_data,
 )
 # using this as the interventional and observational data
-D_O = model.D_O
-D_I = model.D_I
+D_O = deepcopy(model.D_O)
+D_I = deepcopy(model.D_I)
 exploration_set = model.exploration_set
 
 filename_D_O = f"data/ToyGraph/run{run_num}_D_O.pickle"
@@ -88,25 +89,25 @@ with open(filename_D_I, "wb") as file:
 with open(filename_es, "wb") as file:
     pickle.dump(exploration_set, file)
 
-best_y_array, current_y_array, cost_array = model.run_algorithm(
-    T=n_trials, safe_optimization=safe_optimization
-)
-ceo_result_dict = {
-    "Best_Y": best_y_array,
-    "Per_trial_Y": current_y_array,
-    "Cost": cost_array,
-}
+# best_y_array, current_y_array, cost_array = model.run_algorithm(
+#     T=n_trials, safe_optimization=safe_optimization
+# )
+# ceo_result_dict = {
+#     "Best_Y": best_y_array,
+#     "Per_trial_Y": current_y_array,
+#     "Cost": cost_array,
+# }
 
-filename_ceo = f"results/ToyGraph/run_ceo_{run_num}_results.pickle"
-with open(filename_ceo, "wb") as file:
-    pickle.dump(ceo_result_dict, file)
+# filename_ceo = f"results/ToyGraph/run_ceo_{run_num}_results.pickle"
+# with open(filename_ceo, "wb") as file:
+#     pickle.dump(ceo_result_dict, file)
 
 # now for the CBO algorithm
 for i, edges in enumerate(all_graph_edges):
     graph = ToyGraph()
     graph.mispecify_graph(edges)
     cbo_model = CBO(graph=graph)
-    cbo_model.set_values(D_O, D_I, exploration_set)
+    cbo_model.set_values(deepcopy(D_O), deepcopy(D_I), exploration_set)
     best_y_array, current_y_array, cost_array = cbo_model.run_algorithm(T=n_trials)
     cbo_results_dict = {
         "Best_Y": best_y_array,
@@ -120,7 +121,7 @@ for i, edges in enumerate(all_graph_edges):
 # adding the CBO for the real graph
 graph = ToyGraph()
 cbo_model = CBO(graph=graph)
-cbo_model.set_values(D_O, D_I, exploration_set)
+cbo_model.set_values(deepcopy(D_O), deepcopy(D_I), exploration_set)
 best_y_array, current_y_array, cost_array = cbo_model.run_algorithm(T=n_trials)
 cbo_results_dict = {
     "Best_Y": best_y_array,
@@ -136,7 +137,7 @@ with open(filename_cbo, "wb") as file:
 graph = ToyGraph()
 graph.break_dependency_structure()
 bo_model = BO(graph=graph)
-bo_model.set_values(D_O)
+bo_model.set_values(deepcopy(D_O))
 best_y_array, current_y_array, cost_array = bo_model.run_algorithm(T=n_trials)
 cbo_results_dict = {
     "Best_Y": best_y_array,

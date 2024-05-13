@@ -199,3 +199,6 @@ class Graph6Nodes(GraphStructure):
         )
 
         return mean_do, var_do
+
+    def get_exploration_set(self):
+        return [("As",), ("S",), ("As", "S")]

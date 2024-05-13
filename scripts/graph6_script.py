@@ -131,6 +131,7 @@ model: CEO = CEO(
 # using this as the interventional and observational data
 D_O = deepcopy(model.D_O)
 D_I = deepcopy(model.D_I)
+
 exploration_set = model.exploration_set
 
 filename_D_O = f"data/Graph6/run{run_num}_D_O.pickle"

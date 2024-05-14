@@ -89,18 +89,18 @@ with open(filename_D_I, "wb") as file:
 with open(filename_es, "wb") as file:
     pickle.dump(exploration_set, file)
 
-# best_y_array, current_y_array, cost_array = model.run_algorithm(
-#     T=n_trials, safe_optimization=safe_optimization
-# )
-# ceo_result_dict = {
-#     "Best_Y": best_y_array,
-#     "Per_trial_Y": current_y_array,
-#     "Cost": cost_array,
-# }
+best_y_array, current_y_array, cost_array = model.run_algorithm(
+    T=n_trials, safe_optimization=safe_optimization
+)
+ceo_result_dict = {
+    "Best_Y": best_y_array,
+    "Per_trial_Y": current_y_array,
+    "Cost": cost_array,
+}
 
-# filename_ceo = f"results/ToyGraph/run_ceo_{run_num}_results.pickle"
-# with open(filename_ceo, "wb") as file:
-#     pickle.dump(ceo_result_dict, file)
+filename_ceo = f"results/ToyGraph/run_ceo_{run_num}_results.pickle"
+with open(filename_ceo, "wb") as file:
+    pickle.dump(ceo_result_dict, file)
 
 # now for the CBO algorithm
 for i, edges in enumerate(all_graph_edges):

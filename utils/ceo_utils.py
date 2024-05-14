@@ -340,9 +340,7 @@ def build_p_y_star(
             inps = np.array(inps).reshape(-1, 1)
 
         # this is different from the one used in the github code
-        print("Start of loop")
         samples = gpy_model.posterior_samples(inps, size=n_samples).squeeze()
-        print("End of loop")
         all_ystar[i, :] = np.min(samples, axis=0).squeeze()
         all_xstar[i] = inps[np.argmin(samples, axis=0), :].squeeze()
 

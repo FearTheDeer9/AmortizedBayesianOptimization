@@ -37,9 +37,11 @@ class Graph4Nodes(GraphStructure):
 
     def define_SEM(self):
         fx = lambda epsilon, sample: epsilon
-        fz = lambda epsilon, sample: 0.3 * sample["X"]
-        ft = lambda epsilon, sample: np.cos(sample["X"]) + np.exp(-sample["X"])
-        fy = lambda epsilon, sample: -sample["Z"] ** 2 + np.sin(sample["T"]) + epsilon
+        fz = lambda epsilon, sample: 1.5 * np.tanh(sample["X"]) + epsilon
+        ft = (
+            lambda epsilon, sample: np.cos(sample["X"]) + np.exp(-sample["X"]) + epsilon
+        )
+        fy = lambda epsilon, sample: sample["Z"] ** 2 + np.sin(sample["T"]) + epsilon
         graph = OrderedDict([("X", fx), ("Z", fz), ("T", ft), ("Y", fy)])
         return graph
 
@@ -65,7 +67,7 @@ class Graph4Nodes(GraphStructure):
 
     def get_interventional_range(self):
         min_intervention_x = -3
-        max_intervention_x = 3
+        max_intervention_x = 2
 
         min_intervention_z = -3
         max_intervention_z = 3
@@ -217,3 +219,11 @@ class Graph4Nodes(GraphStructure):
         )
 
         return mean_do, var_do
+
+    def get_error_distribution(self, noiseless: bool = True) -> Dict:
+        error_distr = {}
+        error_distr["X"] = np.random.uniform(-2, 2)
+        error_distr["T"] = 0
+        error_distr["Z"] = 0
+        error_distr["Y"] = 0 if noiseless else np.random.normal()
+        return error_distr

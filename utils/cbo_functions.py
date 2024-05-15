@@ -38,7 +38,7 @@ def set_up_GP(
         # define the model for the causal prior here
         # this one uses the computed mean and variance with Gaussian Processes
         mf = Mapping(input_space, 1)
-        mf.f = lambda x: mean_function_do(x)
+        mf.f = mean_function_do
         mf.update_gradients = lambda a, b: None
         kernel = CausalRBF(
             input_space,
@@ -52,7 +52,8 @@ def set_up_GP(
         gpy_model = GPRegression(
             X=X, Y=Y, kernel=kernel, noise_var=1e-10, mean_function=mf
         )
-        gpy_model.optimize_restarts(num_restarts=5)
+        # gpy_model.optimize_restarts(num_restarts=5)
+        gpy_model.optimize()
         emukit_model = GPyModelWrapper(gpy_model)
     else:
         logging.info("Setting up the gaussian prior")
@@ -63,7 +64,8 @@ def set_up_GP(
             kernel=RBF(input_space, lengthscale=1.0, variance=1.0),
             noise_var=1e-10,
         )
-        gpy_model.optimize_restarts(num_restarts=5)
+        # gpy_model.optimize_restarts(num_restarts=5)
+        gpy_model.optimize()
         emukit_model = GPyModelWrapper(gpy_model)
     # emukit_model.optimize_restarts(num_restarts=5)
     return emukit_model

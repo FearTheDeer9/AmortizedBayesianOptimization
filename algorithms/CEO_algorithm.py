@@ -36,8 +36,10 @@ class CEO(BASE):
         n_anchor_points: int = 30,
         seed: int = 42,
         task: str = "min",
+        noiseless: bool = True,
     ):
         self._graph_type = graph_type
+        self.noiseless = noiseless
         if graphs:
             self.graphs = graphs
         else:

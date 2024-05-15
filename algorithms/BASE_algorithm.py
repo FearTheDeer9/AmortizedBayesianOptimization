@@ -33,7 +33,7 @@ class BASE:
         """
         assert self.graph_type in ["Toy", "Graph4", "Graph5", "Graph6"]
         if self.graph_type == "Toy":
-            graph = ToyGraph()
+            graph = ToyGraph(noiseless=self.noiseless)
         elif self.graph_type == "Graph4":
             graph = Graph4Nodes()
         elif self.graph_type == "Graph5":
@@ -42,22 +42,25 @@ class BASE:
             graph = Graph6Nodes()
         return graph
 
-    @abc.abstractmethod
     def plot_model_list(
-        self, model_list: List[GPyModelWrapper], es: Tuple[str], size: int = 100
-    ) -> None:
-        # setting up the plotting stuff
+        self,
+        model_list: List[GPyModelWrapper],
+        es: Tuple[str],
+        size: int = 100,
+        **kwargs,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        # Setting up the plotting stuff
         true_vals = np.zeros(shape=size)
         predictions = np.zeros(shape=size)
         var = np.zeros(shape=size)
         es_num = self.es_to_n_mapping[es]
         interventions = {}
 
-        # getting the number of entries in the exploration set
+        # Getting the number of entries in the exploration set
         intervention_domain = self.graph.get_interventional_range()
         min_intervention, max_intervention = intervention_domain[es[0]]
         intervention_vals = np.linspace(
-            start=min_intervention, stop=max_intervention, num=100
+            start=min_intervention, stop=max_intervention, num=size
         )
 
         for i in range(1, len(es)):
@@ -77,14 +80,42 @@ class BASE:
             value = np.array([interventions[var] for var in es]).reshape(1, -1)
             predictions[i], var[i] = model_list[es_num].model.predict(value)
 
-        plt.plot(intervention_vals, true_vals, label="True")
-        plt.plot(intervention_vals, predictions, label="Do 1")
-        plt.fill_between(
+        # Create figure and axes
+        fig, ax = plt.subplots()
+
+        # Plot the true values and predictions
+        ax.plot(
+            intervention_vals,
+            true_vals,
+            label="True",
+            color="blue",
+            linestyle="--",
+            linewidth=2,
+        )
+        ax.plot(
+            intervention_vals,
+            predictions,
+            label=f"Do {es}",
+            color="red",
+            linewidth=2,
+        )
+
+        # Fill the area between the prediction intervals
+        ax.fill_between(
             intervention_vals,
             [p - 1.0 * np.sqrt(e) for p, e in zip(predictions, var)],
             [p + 1.0 * np.sqrt(e) for p, e in zip(predictions, var)],
             color="gray",
-            alpha=0.5,
+            alpha=0.3,
         )
-        plt.legend()
-        plt.show()
+
+        # Add grid, labels, title, and legend
+        ax.grid(True, linestyle="--", alpha=0.6)
+        ax.set_xlabel(kwargs.get("xlabel", "Intervention Value"), fontsize=12)
+        ax.set_ylabel(kwargs.get("ylabel", "Value"), fontsize=12)
+        ax.set_title(
+            kwargs.get("title", "Model Predictions"), fontsize=14, fontweight="bold"
+        )
+        ax.legend(loc="upper right", fontsize=10, frameon=True, shadow=True)
+
+        return fig, ax

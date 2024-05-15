@@ -144,6 +144,7 @@ def sample_model(
     use_sem_estimate: bool = False,
     seed: int = None,
     graph: GraphStructure = None,
+    noiseless: bool = False,
 ) -> dict:
     """
     Draws multiple samples from Bayesian Network.
@@ -172,7 +173,7 @@ def sample_model(
         else:
 
             if graph is not None:
-                epsilon_term = graph.get_error_distribution()
+                epsilon_term = graph.get_error_distribution(noiseless=noiseless)
             else:
                 epsilon_term = epsilon
 
@@ -323,11 +324,11 @@ def draw_interventional_samples(
 
 
 def draw_interventional_samples_sem(
-    interventions: List[dict],
     exploration_set: List[List[str]],
     graph: GraphStructure,
     n_int: int = 2,
     seed: int = None,
+    noiseless=True,
 ) -> dict:
     """
     Draw interventional samples from the given list of interventions
@@ -354,7 +355,11 @@ def draw_interventional_samples_sem(
 
             # Drawing the samples
             sample = sample_model(
-                graph.SEM, sample_count=1, interventions=intervention, graph=graph
+                graph.SEM,
+                sample_count=1,
+                interventions=intervention,
+                graph=graph,
+                noiseless=noiseless,
             )
 
             for var in sample:

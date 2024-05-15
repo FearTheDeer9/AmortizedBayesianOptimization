@@ -3,3 +3,4 @@ ceo_venv/
 .DS_Store
 *__pycache__/
 *log
+model_checkpoints/

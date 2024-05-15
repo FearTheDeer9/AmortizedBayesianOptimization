@@ -54,7 +54,7 @@ all_graph_edges = [
     [("X", "T"), ("X", "Z"), ("T", "Y"), ("Z", "Y")],
     [("X", "T"), ("X", "Z"), ("T", "Y"), ("X", "Y"), ("Z", "Y")],  # adding one,
     [("X", "T"), ("X", "Z"), ("Z", "Y")],  # removing one
-    [("X", "T"), ("Z", "X"), ("Z", "Y"), ("Z", "Y")],  # misspecifying one
+    [("X", "T"), ("Z", "X"), ("T", "Y"), ("Z", "Y")],  # misspecifying one
 ]
 
 model: CEO = CEO(

@@ -75,19 +75,16 @@ all_graph_edges = [
         ("B", "Y"),
         ("T", "L"),
         ("T", "R"),
-        # ("T", "Y"),
         ("L", "R"),
         ("R", "Y"),
-    ],  # removing one,
+    ],
     [
         ("B", "L"),
         ("B", "Y"),
         ("T", "L"),
         ("T", "R"),
-        # ("T", "Y"),
-        # ("L", "R"),
         ("R", "Y"),
-    ],  # misspecifying two
+    ],
 ]
 
 model: CEO = CEO(

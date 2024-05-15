@@ -48,7 +48,7 @@ class Graph5Nodes(GraphStructure):
     def define_SEM(self):
         fb = lambda epsilon, sample: epsilon
         ft = lambda epsilon, sample: epsilon
-        fl = lambda epsilon, sample: np.tanh(0.5 * sample["T"] + sample["B"])
+        fl = lambda epsilon, sample: expit(0.5 * sample["T"] + sample["B"])
         fr = lambda epsilon, sample: 4 + sample["L"] * sample["T"]
         fy = (
             lambda epsilon, sample: 0.5
@@ -141,7 +141,7 @@ class Graph5Nodes(GraphStructure):
     def get_set_BO(self):
         return super().get_set_BO()
 
-    def get_error_distribution(self):
+    def get_error_distribution(self, noiseless: bool = False):
         err_dist = {}
         err_dist["B"] = np.random.uniform(-1, 1)
         err_dist["T"] = np.random.uniform(4, 8)

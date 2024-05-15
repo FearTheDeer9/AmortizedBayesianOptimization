@@ -21,12 +21,17 @@ class ToyGraph(GraphStructure):
     """
 
     def __init__(
-        self, X: np.ndarray = None, Z: np.ndarray = None, Y: np.ndarray = None
+        self,
+        X: np.ndarray = None,
+        Z: np.ndarray = None,
+        Y: np.ndarray = None,
+        noiseless: bool = False,
     ):
         logging.info("Initializing the Toy Graph Structures")
         self.X = X
         self.Z = Z
         self.Y = Y
+        self.noiseless = noiseless
         self._SEM = self.define_SEM()
         self._edges = [("X", "Z"), ("Z", "Y")]
         self._nodes = set(chain(*self.edges))
@@ -37,14 +42,17 @@ class ToyGraph(GraphStructure):
         self._variables = ["X", "Z", "Y"]
 
     def define_SEM(self) -> OrderedDict:
-        fx = lambda epsilon, sample: epsilon
-        fz = lambda epsilon, sample: 4 + np.exp(-sample["X"]) + epsilon
-        fy = (
-            lambda epsilon, sample: np.cos(sample["Z"])
-            - np.exp(-sample["Z"] / 20)
-            + epsilon
-        )
+        # Define named functions within the method
+        def fx(epsilon, sample):
+            return epsilon
 
+        def fz(epsilon, sample):
+            return 4 + np.exp(-sample["X"]) + epsilon
+
+        def fy(epsilon, sample):
+            return np.cos(sample["Z"]) - np.exp(-sample["Z"] / 20) + epsilon
+
+        # Create the graph using the named functions
         graph = OrderedDict([("X", fx), ("Z", fz), ("Y", fy)])
         return graph
 
@@ -223,10 +231,14 @@ class ToyGraph(GraphStructure):
 
         return mean_do, var_do
 
-    def get_error_distribution(self, noiseless: bool = True):
+    def get_error_distribution(self, noiseless: bool = None):
+        if noiseless is not None:
+            use_noise = noiseless
+        else:
+            use_noise = self.noiseless
         error_distr = {}
         # error_distr["X"] = np.random.uniform(-5, 5)
         error_distr["X"] = np.random.normal()
-        error_distr["Z"] = 0 if noiseless else np.random.normal()
-        error_distr["Y"] = 0 if noiseless else np.random.normal()
+        error_distr["Z"] = 0 if use_noise else np.random.normal()
+        error_distr["Y"] = 0 if use_noise else np.random.normal()
         return error_distr

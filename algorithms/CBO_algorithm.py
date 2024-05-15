@@ -1,7 +1,11 @@
 import logging
-from typing import Dict, List
+import pickle
+from copy import deepcopy
+from typing import Dict, List, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
+from emukit.model_wrappers import GPyModelWrapper
 
 import utils.cbo_functions as cbo_functions
 from algorithms.BASE_algorithm import BASE
@@ -71,16 +75,91 @@ class CBO(BASE):
         self.observational_samples = np.hstack(
             ([self.D_O[var] for var in self.variables])
         )
+        # just fitting the observational data to the graph
+        self.graph.fit_samples_to_graph(self.D_O)
         self.D_I = D_I
         self.interventional_samples = change_intervention_list_format(
             self.D_I, self.exploration_set
         )
 
-        self.arm_distribution = np.array(
-            [1 / len(self.exploration_set)] * len(self.exploration_set)
+        self.do_function_list = cbo_functions.update_all_do_functions(
+            self.graph, self.observational_samples, self.exploration_set
         )
 
-    def run_algorithm(self, T: int = 10):
+    def do_function_graph(
+        self,
+        es: Tuple,
+        size: int = 200,
+        edge_num: int = 0,
+        save_path: str = None,
+        **kwargs,
+    ):
+        # setting up the plotting stuff
+        true_vals = np.zeros(shape=size)
+        predictions = np.zeros(shape=size)
+        var = np.zeros(shape=size)
+        es_num = self.es_to_n_mapping[es]
+        interventions = {}
+
+        # getting the number of entries in the exploration set
+        intervention_domain = self.graph.get_interventional_range()
+        min_intervention, max_intervention = intervention_domain[es[0]]
+        intervention_vals = np.linspace(
+            start=min_intervention, stop=max_intervention, num=size
+        )
+
+        for i in range(1, len(es)):
+            min_i, max_i = intervention_domain[es[i]]
+            interventions[es[i]] = (min_i + max_i) / 2
+
+        for i, intervention_val in enumerate(intervention_vals):
+            interventions[es[0]] = intervention_val
+            true_vals[i] = np.mean(
+                sample_model(
+                    self.graph.SEM,
+                    interventions=interventions,
+                    sample_count=500,
+                    graph=self.graph,
+                    noiseless=True,
+                )["Y"]
+            )
+
+            value = np.array([interventions[var] for var in es]).reshape(1, -1)
+            predictions[i] = self.do_function_list[es_num].mean_function_do(value)
+            var[i] = self.do_function_list[es_num].var_function_do(value)
+
+        # Apply custom plot styles from kwargs
+        plt.plot(
+            intervention_vals,
+            true_vals,
+            label="True",
+            **kwargs.get("true_vals_style", {}),
+        )
+        plt.plot(
+            intervention_vals,
+            predictions,
+            label=f"Do {es[0] if len(es) == 1 else es}",
+            **kwargs.get("predictions_style", {}),
+        )
+        plt.fill_between(
+            intervention_vals,
+            [p - 1.0 * np.sqrt(e) for p, e in zip(predictions, var)],
+            [p + 1.0 * np.sqrt(e) for p, e in zip(predictions, var)],
+            color=kwargs.get("fill_color", "gray"),
+            alpha=kwargs.get("fill_alpha", 0.5),
+        )
+        plt.legend()
+        plt.xlabel(kwargs.get("xlabel", "Intervention Value"))
+        plt.ylabel(kwargs.get("ylabel", "Y"))
+        plt.title(kwargs.get("title", "Do-Function Graph"))
+
+        # Save the figure if save_path is provided
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight")
+
+        plt.show()
+
+    def run_algorithm(self, T: int = 10, file: str = None):
         self.graph.fit_samples_to_graph(self.D_O)
 
         # setting up the data for the rest of the algorithm
@@ -99,7 +178,11 @@ class CBO(BASE):
 
         # parameter in the algorithm
         input_space = [len(vars) for vars in self.exploration_set]
-        objective = np.inf if self.task == "min" else -np.inf
+        objective = (
+            np.min(self.D_O[self.target])
+            if self.task == "min"
+            else np.max(self.D_O[self.target])
+        )
         current_best_x = {
             tuple(interventions): [] for interventions in self.exploration_set
         }
@@ -108,7 +191,7 @@ class CBO(BASE):
         }
         parameter_spaces = [None] * len(self.exploration_set)
         target_classes: List[TargetClass] = [None] * len(self.exploration_set)
-        model_list = [None] * len(self.exploration_set)
+        model_list = [[None] * len(self.exploration_set)]
         trial_observed = [True] * T
 
         for i in range(len(self.exploration_set)):
@@ -134,9 +217,11 @@ class CBO(BASE):
         intervened = 0
 
         # STARTING THE ALGORITHM
-        current_cost = []
-        global_opt = []
-        current_y = []
+        current_cost: List[int] = []
+        global_opt: List[float] = []
+        current_y: List[float] = []
+        intervention_set: List[Tuple[str]] = []
+        intervention_values: List[Tuple[float]] = []
         global_opt.append(objective)
         current_cost.append(0.0)
         cost_functions = self.graph.get_cost_structure(self.cost_num)
@@ -173,7 +258,7 @@ class CBO(BASE):
 
                 # 3. Update the prior of the causal GP
                 # update the interventional expectation and the interventional variance
-                do_function_list = cbo_functions.update_all_do_functions(
+                self.do_function_list = cbo_functions.update_all_do_functions(
                     self.graph, self.observational_samples, self.exploration_set
                 )
 
@@ -193,33 +278,55 @@ class CBO(BASE):
                 trial_observed[i] = False
 
                 # updating the model based on the previous trial
-                model_list = cbo_functions.update_posterior_model(
-                    self.exploration_set,
-                    trial_observed[i - 1],
-                    model_list,
-                    data_x_list,
-                    data_y_list,
-                    self.causal_prior,
-                    best_variable,
-                    input_space,
-                    do_function_list,
+                model_list.append(
+                    cbo_functions.update_posterior_model(
+                        self.exploration_set,
+                        trial_observed[i - 1],
+                        model_list[-1],
+                        data_x_list,
+                        data_y_list,
+                        self.causal_prior,
+                        best_variable,
+                        input_space,
+                        self.do_function_list,
+                    )
                 )
+
                 if SHOW_GRAPHICS:
                     for es in self.exploration_set:
-                        self.plot_model_list(model_list, es)
+                        fig, ax = self.plot_model_list(model_list[-1], es)
+                        for i, intervention in enumerate(intervention_set):
+                            if intervention == es:
+                                ax.scatter(
+                                    intervention_values[i],
+                                    current_y[i],
+                                    marker="x",
+                                    color="black",
+                                    s=100,
+                                    label="Intervention Points",
+                                )
+                        if file:
+                            filename = f"{file}_{es[0]}_iter_{i+1}"
+                            plt.savefig(filename, bbox_inches="tight")
+                        else:
+                            plt.show()
 
                 # get the new optimal value based on all the elements in the exploration set
                 y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
                     self.exploration_set,
                     self.graph,
                     current_global_min,
-                    model_list,
+                    model_list[-1],
                     cost_functions,
                 )
 
                 # find the optimal intervention, which maximises the acquisition function
                 target_index = np.argmax(y_acquisition_list)
                 var_to_intervene = tuple(self.exploration_set[target_index])
+                intervention_set.append(var_to_intervene)
+
+                # Setting the data after the new point was found
+                intervention_values.append(tuple(x_new_list[target_index][0]))
                 y_new = target_classes[target_index].compute_target(
                     x_new_list[target_index]
                 )
@@ -235,7 +342,6 @@ class CBO(BASE):
                 best_variable = target_index
 
                 ## Update the dict storing the current optimal solution
-
                 current_best_x[var_to_intervene].append(x_new_list[target_index][0][0])
                 current_best_y[var_to_intervene].append(y_new[0][0])
                 # maybe need to update the model -> i don't think so as this is done at the start of each intervention loop
@@ -261,4 +367,10 @@ class CBO(BASE):
                 )
                 logging.info(f"Current global optimum {global_opt[i+1]}")
 
-        return global_opt, current_y, current_cost
+        return (
+            global_opt,
+            current_y,
+            current_cost,
+            intervention_set,
+            intervention_values,
+        )

@@ -69,16 +69,16 @@ all_graph_edges = [
 ]
 
 # using this as the interventional and observational data
-# D_O, D_I, exploration_set = setup_observational_interventional(
-#     graph_type="Toy", noiseless=noiseless, seed=seeds_int_data
-# )
+D_O, D_I, exploration_set = setup_observational_interventional(
+    graph_type="Toy", noiseless=noiseless, seed=seeds_int_data
+)
 
-print(os.getcwd())
-with open("/Users/jeandurand/Documents/Masters Thesis/CEO/D_O.pickle", "rb") as file:
-    D_O = pickle.load(file)
+# print(os.getcwd())
+# with open("/Users/jeandurand/Documents/Masters Thesis/CEO/D_O.pickle", "rb") as file:
+#     D_O = pickle.load(file)
 
-with open("/Users/jeandurand/Documents/Masters Thesis/CEO/D_I.pickle", "rb") as file:
-    D_I = pickle.load(file)
+# with open("/Users/jeandurand/Documents/Masters Thesis/CEO/D_I.pickle", "rb") as file:
+#     D_I = pickle.load(file)
 
 print("The observational dataset")
 print(D_O)

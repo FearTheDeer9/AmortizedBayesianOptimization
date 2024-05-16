@@ -345,6 +345,7 @@ class GraphStructure:
 
         self._functions = OrderedDict()
         for child, parents in children_parents.items():
+            print(child, parents)
             if not parents:
                 continue
             logging.info(

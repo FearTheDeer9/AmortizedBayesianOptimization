@@ -316,6 +316,7 @@ class TargetClass:
         interventions: List,
         variables: List,
         graph: GraphStructure,
+        noiseless=True,
     ) -> None:
         self.model = sem_model
         self.interventions = interventions
@@ -323,15 +324,21 @@ class TargetClass:
         self.num_interventions = len(interventions)
         self.interventional_dict = {val: "" for val in self.interventions}
         self.graph = graph
+        self.noiseless = noiseless
 
     def compute_target(self, value: np.ndarray) -> np.ndarray:
         for i in range(self.num_interventions):
             self.interventional_dict[self.interventions[i]] = value[0, i]
 
+        if self.noiseless:
+            sample_count = 1000
+        else:
+            sample_count = 1
+
         new_samples = sample_model(
             self.model,
             interventions=self.interventional_dict,
-            sample_count=1000,
+            sample_count=sample_count,
             graph=self.graph,
         )
         return np.mean(new_samples["Y"]).reshape(1, 1)

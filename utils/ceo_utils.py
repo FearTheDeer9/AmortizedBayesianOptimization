@@ -73,8 +73,11 @@ def update_posterior_interventional(
             )
             yy = current_interventional_sample[var].reshape(-1, 1)
 
+            print(parents, var, intervened_var)
             if var in intervened_var:
                 # Here the truncated assumption comes in. Dont compute posterior
+                print("TRUNCATION")
+                print(parents, var, intervened_var)
                 continue
             # else:
             #     i += 1

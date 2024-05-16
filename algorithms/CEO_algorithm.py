@@ -71,37 +71,12 @@ class CEO(BASE):
 
         self.manipulative_variables = self.graph.get_sets()[2]
 
-        self.D_O: Dict[str, np.ndarray] = sample_model(
-            self.SEM, sample_count=self.n_obs, graph=graph, seed=seed + 1
-        )
-
-        self.observational_samples = np.hstack(
-            ([self.D_O[var] for var in graph.variables])
-        )
-
         # drawing the interventional samples
         self.interventional_range = graph.get_interventional_range()
         self.intervention_grid = create_grid_interventions(
             self.interventional_range, get_list_format=True, num_points=n_anchor_points
         )
-        interventional_ranges = graph.get_interventional_range()
-        interventions = create_grid_interventions(
-            interventional_ranges, num_points=n_anchor_points
-        )
 
-        # getting the interventional data in two different formats
-        self.D_I = draw_interventional_samples_sem(
-            interventions, self.exploration_set, graph, n_int=n_int, seed=seed
-        )
-
-        self.interventional_samples = change_intervention_list_format(
-            self.D_I, self.exploration_set
-        )
-
-        # Setting up the variables for the downstream algorithm
-        self.arm_distribution = np.array(
-            [1 / len(self.exploration_set)] * len(self.exploration_set)
-        )
         self.posterior = np.log(np.asarray([1 / len(self.graphs)] * len(self.graphs)))
         self.all_posteriors = []
         self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
@@ -257,8 +232,10 @@ class CEO(BASE):
         self.do_effects_functions: List[List[DoFunctions]] = (
             self.calculate_do_statistics()
         )
-
+        print(ceo_utils.normalize_log(deepcopy(self.posterior)))
         self.update_posterior()
+        print(ceo_utils.normalize_log(deepcopy(self.posterior)))
+
         self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
         logging.info(f"The updated posterior distribution is {self.all_posteriors[-1]}")
 
@@ -271,7 +248,9 @@ class CEO(BASE):
         arm_n_es_mapping = {i: es for i, es in enumerate(self.exploration_set)}
         arm_es_n_mapping = {tuple(es): i for i, es in enumerate(self.exploration_set)}
         target_classes: List[TargetClass] = [
-            TargetClass(self.SEM, es, self.variables, graph=self.graph)
+            TargetClass(
+                self.SEM, es, self.variables, graph=self.graph, noiseless=self.noiseless
+            )
             for es in self.exploration_set
         ]
         trial_observed = []
@@ -284,6 +263,8 @@ class CEO(BASE):
 
         cost_array = np.zeros(shape=T + 1)
 
+        print(self.D_I)
+        self.update_posterior()
         for i in range(T):
             if i == 0:
                 # # update the prior of all the Gaussian Processes for each graph
@@ -394,8 +375,8 @@ class CEO(BASE):
                         )
                     )
 
-                logging.info(f"The acquisition is {y_acquisition_list}")
-                logging.info(f"The corresponding x value is {x_new_list}")
+                logging.debug(f"The acquisition is {y_acquisition_list}")
+                logging.debug(f"The corresponding x value is {x_new_list}")
                 logging.info(f"The inpus are {inputs}")
                 logging.info(f"The improvements are {improvements}")
                 # find the optimal intervention, which maximises the acquisition function

@@ -35,27 +35,20 @@ class CBO(BASE):
         causal_prior: bool = True,
         cost_num: int = 1,
         task: str = "min",
+        noiseless: bool = True,
     ):
         self._graph_type = graph_type
+        self.noiseless = noiseless
         if graph is not None:
             self.graph = graph
-            self.exploration_set = graph.get_exploration_set()
-            self.manipulative_variables = graph.get_sets()[2]
-            self.target = graph.target
-
         else:
             assert graph_type in ["Toy", "Synthetic", "Graph6", "Graph5", "Graph4"]
             # defining the initial variables
-            (
-                self.graph,
-                self.exploration_set,
-                self.manipulative_variables,
-                self.target,
-                self.D_O,
-                self.observational_samples,
-                self.interventional_samples,
-            ) = graph_setup(graph_type=graph_type)
+            self.graph = self.chosen_structure()
 
+        self.exploration_set = self.graph.get_exploration_set()
+        self.manipulative_variables = self.graph.get_sets()[2]
+        self.target = self.graph.target
         self.es_to_n_mapping = {
             tuple(es): i for i, es in enumerate(self.exploration_set)
         }
@@ -203,6 +196,7 @@ class CBO(BASE):
                 interventions=self.exploration_set[i],
                 variables=self.graph.variables,
                 graph=self.graph,
+                noiseless=self.noiseless,
             )
 
         # defining some variables necessary for the algorithm

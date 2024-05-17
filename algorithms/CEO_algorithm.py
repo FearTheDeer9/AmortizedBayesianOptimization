@@ -21,6 +21,14 @@ from utils.sem_sampling import (
     sample_model,
 )
 
+logging.basicConfig(
+    level=logging.DEBUG,  # Set the loggingand level
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Set the format of log messages
+    datefmt="%m/%d/%Y %I:%M:%S %p",  # Set the date format
+    filename="logfile.log",  # Specify the file to write the logs to
+    filemode="w",  # Set the file mode to 'a' to append to the file (use 'w' to overwrite each time)
+)
+
 
 class CEO(BASE):
 
@@ -126,9 +134,14 @@ class CEO(BASE):
         """
         Updating the posterior probability, this happens after intervening on the system
         """
+        print("---------UPDATING POSTERIOR WITH INTERVENTIONAL DATA------------")
         for es in self.exploration_set:
             self.posterior = ceo_utils.update_posterior_interventional(
-                self.graphs, self.posterior, tuple(es), self.sem_emit_fncs, self.D_I
+                self.graphs,
+                deepcopy(self.posterior),
+                tuple(es),
+                self.sem_emit_fncs,
+                self.D_I,
             )
 
     def do_function_graph(self, es: Tuple, size: int = 100, edge_num: int = 0):
@@ -207,7 +220,7 @@ class CEO(BASE):
             self.model_list_overall[es].model.likelihood.variance[0] = 1.0
 
     def run_algorithm(
-        self, T: int = 30, safe_optimization: bool = False
+        self, T: int = 30, safe_optimization: bool = False, file: str = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
         (
@@ -232,9 +245,9 @@ class CEO(BASE):
         self.do_effects_functions: List[List[DoFunctions]] = (
             self.calculate_do_statistics()
         )
-        print(ceo_utils.normalize_log(deepcopy(self.posterior)))
+        logging.info(ceo_utils.normalize_log(deepcopy(self.posterior)))
         self.update_posterior()
-        print(ceo_utils.normalize_log(deepcopy(self.posterior)))
+        logging.info(ceo_utils.normalize_log(deepcopy(self.posterior)))
 
         self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
         logging.info(f"The updated posterior distribution is {self.all_posteriors[-1]}")
@@ -256,14 +269,15 @@ class CEO(BASE):
         trial_observed = []
 
         # setting the variables that the algorithm needs to return for the plotting
-        best_y_array = np.zeros(shape=T + 1)
-        best_y_array[0] = current_global_min
+        best_y_array = []
+        best_y_array.append(np.mean(self.D_O["Y"]))
+        intervention_set: List[Tuple[str]] = []
+        intervention_values: List[Tuple[float]] = []
 
-        current_y_array = np.zeros(shape=T)
+        current_y_array = []
 
         cost_array = np.zeros(shape=T + 1)
 
-        print(self.D_I)
         self.update_posterior()
         for i in range(T):
             if i == 0:
@@ -311,11 +325,6 @@ class CEO(BASE):
                         es_num = self.es_to_n_mapping[es]
                         self.safe_optimization(es_num)
 
-                if SHOW_GRAPHICS:
-                    for k in range(len(self.exploration_set)):
-                        self.plot_model_list(
-                            self.model_list_overall, self.exploration_set[k]
-                        )
                 logging.info("Now setting up the arm distribution")
                 # updating the arm distribution
                 self.arm_distribution = ceo_utils.update_arm_distribution(
@@ -342,7 +351,6 @@ class CEO(BASE):
                 )
 
                 logging.info("Fitting the global KDE estimate")
-                print(samples_global_ystar)
                 kde_global = ceo_utils.MyKDENew(samples_global_ystar)
                 try:
                     kde_global.fit()
@@ -351,11 +359,13 @@ class CEO(BASE):
 
                 y_acquisition_list = [None] * len(self.exploration_set)
                 x_new_list = [None] * len(self.exploration_set)
+                inputs = [None] * len(self.exploration_set)
+                improvements = [None] * len(self.exploration_set)
                 logging.info("Starting with the entropy search")
                 for s, es in enumerate(self.exploration_set):
                     # figure out the sem_hat and sem_ems_fncs
                     # not sure what to do with inputs and improvements
-                    y_acquisition_list[s], x_new_list[s], inputs, improvements = (
+                    y_acquisition_list[s], x_new_list[s], inputs[s], improvements[s] = (
                         evaluate_acquisition_ceo(
                             graphs=self.graphs,
                             bo_model=self.model_list_overall[s],
@@ -375,10 +385,10 @@ class CEO(BASE):
                         )
                     )
 
-                logging.debug(f"The acquisition is {y_acquisition_list}")
-                logging.debug(f"The corresponding x value is {x_new_list}")
-                logging.info(f"The inpus are {inputs}")
-                logging.info(f"The improvements are {improvements}")
+                logging.info(f"The acquisition is {y_acquisition_list}")
+                logging.info(f"The corresponding x value is {x_new_list}")
+                logging.debug(f"The inpus are {inputs}")
+                logging.debug(f"The improvements are {improvements}")
                 # find the optimal intervention, which maximises the acquisition function
                 target_index = np.argmax(np.array(y_acquisition_list))
                 var_to_intervene = tuple(self.exploration_set[target_index])
@@ -397,6 +407,8 @@ class CEO(BASE):
                 )
                 # set the new best variable
                 best_variable = target_index
+                intervention_set.append(self.exploration_set[best_variable])
+                intervention_values.append(tuple(x_new_list[target_index][0]))
                 logging.info(
                     f"CEO found {self.exploration_set[best_variable]} as the best variable with value {x_new_list[target_index]} and corresponding y {y_new}"
                 )
@@ -406,8 +418,8 @@ class CEO(BASE):
                     x_new_list[target_index]
                 )
 
-                current_y_array[i] = y_new[0]
-                best_y_array[i + 1] = np.min(current_y_array)
+                current_y_array.append(y_new[0])
+                best_y_array.append(np.min(current_y_array))
                 cost_vars = self.exploration_set[target_index]
 
                 current_cost = 0
@@ -426,12 +438,34 @@ class CEO(BASE):
                         )
                     )
 
-                # calculating the posterior data again
-                # self.posterior = np.zeros(shape=len(self.graphs))
+                if SHOW_GRAPHICS:
+                    for es in self.exploration_set:
+                        fig, ax = self.plot_model_list(self.model_list_overall, es)
+                        for j, intervention in enumerate(intervention_set):
+                            if intervention == es:
+                                ax.scatter(
+                                    intervention_values[j],
+                                    current_y_array[j],
+                                    marker="x",
+                                    color="black",
+                                    s=100,
+                                    label="Intervention Points",
+                                )
+                        if file:
+                            filename = f"{file}_{es[0]}_iter_{i+1}"
+                            plt.savefig(filename, bbox_inches="tight")
+                        else:
+                            plt.show()
 
                 self.update_posterior()
                 self.all_posteriors.append(
                     ceo_utils.normalize_log(deepcopy(self.posterior))
                 )
 
-        return best_y_array, current_y_array, cost_array
+        return (
+            best_y_array,
+            current_y_array,
+            cost_array,
+            intervention_set,
+            intervention_values,
+        )

@@ -11,8 +11,24 @@ from GPy.core.parameterization import priors
 from GPy.kern import RBF
 from GPy.models.gp_regression import GPRegression
 from pgmpy.models import BayesianNetwork
+from sklearn.neighbors import KernelDensity
 
 MESSAGE = "Subclass should implement this."
+
+
+class MyKDE(KernelDensity):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.X = None
+
+    def fit_and_update(self, X):
+        self.X = X
+        return super().fit(X)
+
+    def predict(self):
+        return np.mean(super().sample(n_samples=500)), np.var(
+            super().sample(n_samples=500)
+        )
 
 
 # this is for calculating the causal effect in a more clear way
@@ -345,31 +361,33 @@ class GraphStructure:
 
         self._functions = OrderedDict()
         for child, parents in children_parents.items():
-            print(child, parents)
-            if not parents:
-                continue
-            logging.info(
-                f"Fitting child: {child} to parents: {parents} for {self.edges}"
-            )
-            Y = samples[child]
-            X = np.hstack([samples[parent] for parent in parents])
-            kernel = RBF(
-                input_dim=len(parents), variance=1.0, ARD=False, lengthscale=1.0
-            )
-            gp = GPRegression(X=X, Y=Y, kernel=kernel)
+            if parents:
+                logging.info(
+                    f"Fitting child: {child} to parents: {parents} for {self.edges}"
+                )
+                Y = samples[child]
+                X = np.hstack([samples[parent] for parent in parents])
+                kernel = RBF(
+                    input_dim=len(parents), variance=1.0, ARD=False, lengthscale=1.0
+                )
+                gp = GPRegression(X=X, Y=Y, kernel=kernel)
+
+                gp.optimize()
+                self._functions[child] = gp
+            else:
+                logging.info(f"Fitting marginal distribution for child {child}")
+                Y = samples[child]
+                self._functions[child] = MyKDE(kernel="gaussian").fit_and_update(Y)
 
             # this can also be a flag - not sure why it is added
-            if set_priors:
-                prior_len = priors.InverseGamma.from_EV(1.0, 1.0)
-                prior_sigma_f = priors.InverseGamma.from_EV(4.0, 0.5)
-                prior_lik = priors.InverseGamma.from_EV(3, 1)
+            # if set_priors:
+            #     prior_len = priors.InverseGamma.from_EV(1.0, 1.0)
+            #     prior_sigma_f = priors.InverseGamma.from_EV(4.0, 0.5)
+            #     prior_lik = priors.InverseGamma.from_EV(3, 1)
 
-                gp.kern.variance.set_prior(prior_sigma_f)
-                gp.kern.lengthscale.set_prior(prior_len)
-                gp.likelihood.variance.set_prior(prior_lik)
-
-            gp.optimize()
-            self._functions[child] = gp
+            #     gp.kern.variance.set_prior(prior_sigma_f)
+            #     gp.kern.lengthscale.set_prior(prior_len)
+            #     gp.likelihood.variance.set_prior(prior_lik)
 
     @abc.abstractmethod
     def build_relationships(self) -> Tuple[dict, dict]:

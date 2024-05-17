@@ -17,9 +17,11 @@ from utils.cbo_classes import DoFunctions, TargetClass
 from utils.sem_sampling import sample_model
 
 logging.basicConfig(
-    level=logging.INFO,  # Set the logging level
+    level=logging.DEBUG,  # Set the loggingand level
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Set the format of log messages
     datefmt="%m/%d/%Y %I:%M:%S %p",  # Set the date format
+    filename="logfile.log",  # Specify the file to write the logs to
+    filemode="w",  # Set the file mode to 'a' to append to the file (use 'w' to overwrite each time)
 )
 
 

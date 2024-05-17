@@ -49,7 +49,7 @@ class Graph6Nodes(GraphStructure):
 
         self._G = self.make_graphical_model()
         self._target = "Y"
-        self._functions: Optional[Dict[str, GPRegression]] = None
+        self._functions: Optional[Dict[str, Callable]] = None
         self._variables = ["A", "B", "As", "S", "C", "Y"]
 
     def define_SEM(self):

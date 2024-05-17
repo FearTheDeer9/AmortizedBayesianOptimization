@@ -65,25 +65,31 @@ def update_posterior_interventional(
         # i = 0
         for var in emission_fncs:
             parents = graph.parents[var]
-            xx = np.hstack(
-                [
-                    current_interventional_sample[parent].reshape(-1, 1)
-                    for parent in parents
-                ]
-            )
-            yy = current_interventional_sample[var].reshape(-1, 1)
+            if parents:
+                xx = np.hstack(
+                    [
+                        current_interventional_sample[parent].reshape(-1, 1)
+                        for parent in parents
+                    ]
+                )
+                yy = current_interventional_sample[var].reshape(-1, 1)
+                if var in intervened_var:
+                    # Here the truncated assumption comes in. Dont compute posterior
+                    continue
+                # else:
+                #     i += 1
+                posterior[graph_idx] += lr * log_likelihood(
+                    emission_fncs[var], xx, yy  # the model
+                )
+            else:
+                yy = current_interventional_sample[var].reshape(-1, 1)
+                if var in intervened_var:
+                    # Here the truncated assumption comes in. Dont compute posterior
+                    continue
 
-            print(parents, var, intervened_var)
-            if var in intervened_var:
-                # Here the truncated assumption comes in. Dont compute posterior
-                print("TRUNCATION")
-                print(parents, var, intervened_var)
-                continue
-            # else:
-            #     i += 1
-            posterior[graph_idx] += lr * log_likelihood(
-                emission_fncs[var], xx, yy  # the model
-            )
+                posterior[graph_idx] += lr * log_likelihood(
+                    emission_fncs[var], None, yy  # the model
+                )
 
     return posterior
 
@@ -94,12 +100,12 @@ def log_likelihood(
     """
     Computes the log-likelihood for the observations based on the fitted functions
     """
-    if y_test is not None:
+    if X_test is not None:
         log_lik = model.log_predictive_density(x_test=X_test, y_test=y_test)
         res = log_lik.flatten().sum()
     else:
         # Marginal
-        log_lik = model.score_samples(X_test)
+        log_lik = model.score_samples(y_test)
         res = log_lik.flatten().sum()
 
     return res
@@ -261,8 +267,8 @@ def update_posterior_model_aggregate(
     else:
         # only update the model of the set that was intervened upon
         logging.info(f"Updating posterior for {exploration_set[best_variable]}")
-        Y = data_y_list[best_variable].reshape(-1, 1)
         X = data_x_list[best_variable]
+        Y = data_y_list[best_variable].reshape(-1, 1)
         mean_function = partial(
             aggregate_mean_function, best_variable, do_function_list, posterior
         )
@@ -614,12 +620,14 @@ def fake_do_x(
 
         # maybe check this again when there is a different number of interventions at one timestep
         posterior_to_avg.append(
-            update_posterior_interventional(
-                graphs=graphs,
-                posterior=deepcopy(log_graph_post),
-                intervened_var=intervened_vars,
-                all_emission_fncs=all_sem,
-                interventional_samples=interv_sample,
+            normalize_log(
+                update_posterior_interventional(
+                    graphs=graphs,
+                    posterior=deepcopy(log_graph_post),
+                    intervened_var=intervened_vars,
+                    all_emission_fncs=all_sem,
+                    interventional_samples=interv_sample,
+                )
             )
         )
 

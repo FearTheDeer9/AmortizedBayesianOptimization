@@ -122,7 +122,9 @@ def sample_from_SEM_hat(
             else:
                 # For source nodes, you might need a default sampling strategy
                 # or handle as no-parent scenario typically with some prior
-                value = epsilon[var]
+                function = static_sem[var]
+                mean = function.predict()[0]
+                value = mean.squeeze()
 
             # Convert arrays to scalar if necessary
             # Ensure value is a scalar

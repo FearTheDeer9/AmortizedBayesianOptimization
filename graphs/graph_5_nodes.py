@@ -1,7 +1,7 @@
 import logging
 from collections import OrderedDict
 from itertools import chain
-from typing import Dict, List, Optional, OrderedDict, Tuple
+from typing import Callable, Dict, List, Optional, OrderedDict
 
 import numpy as np
 from GPy.models.gp_regression import GPRegression
@@ -42,7 +42,7 @@ class Graph5Nodes(GraphStructure):
         self._nodes = set(chain(*self.edges))
         self._parents, self._children = self.build_relationships()
         self._target = "Y"
-        self._functions: Optional[Dict[str, GPRegression]] = None
+        self._functions: Optional[Dict[str, Callable]] = None
         self._variables = ["B", "T", "L", "R", "Y"]
 
     def define_SEM(self):

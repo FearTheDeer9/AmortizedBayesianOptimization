@@ -307,7 +307,8 @@ class CausalEntropySearch(Acquisition):
                     x_inp = single_x.reshape(-1, 1)
                 else:
                     x_inp = single_x.reshape(1, -1)
-
+                # print("+++++++++++++++++++++++++++++++++++++++")
+                # print(self.init_posterior)
                 updated_posterior = ceo_utils.fake_do_x(
                     x=x_inp,
                     graphs=self.graphs,
@@ -315,6 +316,7 @@ class CausalEntropySearch(Acquisition):
                     intervened_vars=tuple(intervened_vars),
                     all_sem=self.all_sem_hat,
                 )
+                # print(updated_posterior)
                 new_entropies_graph[id_acquisition] = entropy(
                     ceo_utils.normalize_log(updated_posterior)
                 )
@@ -407,6 +409,7 @@ class CausalEntropySearch(Acquisition):
             entropy_changes_opt = initial_entropy - new_entropies_opt
 
             entropy_changes = entropy_changes_graph + entropy_changes_opt
+            # entropy_changes = entropy_changes_opt
             # else:
             #     # CD-CBO: only graph !
             #     # Keep finding graph and optimize jointly

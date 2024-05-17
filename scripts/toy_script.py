@@ -134,34 +134,25 @@ if RUN_CBO:
         graph.mispecify_graph(edges)
         cbo_model = CBO(graph=graph)
         cbo_model.set_values(deepcopy(D_O), deepcopy(D_I), exploration_set)
-        best_y_array, current_y_array, cost_array = cbo_model.run_algorithm(T=n_trials)
+        (
+            best_y_array,
+            current_y_array,
+            cost_array,
+            intervention_set,
+            intervention_value,
+        ) = cbo_model.run_algorithm(T=n_trials)
         cbo_results_dict = {
             "Best_Y": best_y_array,
             "Per_trial_Y": current_y_array,
             "Cost": cost_array,
+            "Intervention_Set": intervention_set,
+            "Intervention_Value": intervention_value,
         }
         filename_cbo = (
             f"results/ToyGraph/run{run_num}_cbo_results_graph_{i}{noisy_string}.pickle"
         )
         with open(filename_cbo, "wb") as file:
             pickle.dump(cbo_results_dict, file)
-
-    # # adding the CBO for the real graph
-    # graph = ToyGraph()
-    # cbo_model = CBO(graph=graph)
-    # cbo_model.set_values(deepcopy(D_O), deepcopy(D_I), exploration_set)
-    # best_y_array, current_y_array, cost_array = cbo_model.run_algorithm(T=n_trials)
-    # cbo_results_dict = {
-    #     "Best_Y": best_y_array,
-    #     "Per_trial_Y": current_y_array,
-    #     "Cost": cost_array,
-    # }
-    # filename_cbo = (
-    #     f"results/ToyGraph/run{run_num}_cbo_results_true_graph{noisy_string}.pickle"
-    # )
-    # with open(filename_cbo, "wb") as file:
-    #     pickle.dump(cbo_results_dict, file)
-
 
 # now for the BO implementation
 

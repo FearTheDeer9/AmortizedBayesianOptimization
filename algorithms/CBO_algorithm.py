@@ -206,6 +206,7 @@ class CBO(BASE):
         #     self.graph.get_interventional_range(),
         # )
 
+        current_global_min = np.mean(self.D_O[self.target])
         # some counters for the algorithm
         observed = 0
         intervened = 0
@@ -216,7 +217,7 @@ class CBO(BASE):
         current_y: List[float] = []
         intervention_set: List[Tuple[str]] = []
         intervention_values: List[Tuple[float]] = []
-        global_opt.append(objective)
+        global_opt.append(current_global_min)
         current_cost.append(0.0)
         cost_functions = self.graph.get_cost_structure(self.cost_num)
 
@@ -257,8 +258,9 @@ class CBO(BASE):
                 )
 
                 # update the optimal values, if observed, it is the same as the previous round
-                global_opt.append(global_opt[i])
-                current_cost.append(current_cost[i])
+                if global_opt:
+                    global_opt.append(global_opt[i])
+                    current_cost.append(current_cost[i])
             else:
                 # intervene
                 # 1. compute the expected improvement for each element in the exploration set

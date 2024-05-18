@@ -88,7 +88,7 @@ class BO(BASE):
         current_y = np.zeros(shape=T)
         current_cost = np.zeros(shape=T)
         current_best = np.argmin(Y)
-        best_y[0] = Y[current_best]
+        best_y[0] = np.mean(self.D_O[self.target])
 
         best_x[0, :] = X[current_best, :]
 

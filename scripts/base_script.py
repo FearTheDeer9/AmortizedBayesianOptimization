@@ -5,18 +5,13 @@ import sys
 from copy import deepcopy
 from typing import List, Tuple
 
-os.chdir("..")
-
-if os.getcwd() not in sys.path:
-    sys.path.append(os.getcwd())
-
 import matplotlib.pyplot as plt
 import numpy as np
 
 from algorithms.BO_algorithm import BO
 from algorithms.CBO_algorithm import CBO
 from algorithms.CEO_algorithm import CEO
-from config import RUN_BO, RUN_CBO, RUN_CEO
+from config import RUN_BO, RUN_CBO, RUN_CEO, SAVE_RUN
 from graphs.data_setup import setup_observational_interventional
 from graphs.graph import GraphStructure
 from graphs.graph_4_nodes import Graph4Nodes
@@ -73,14 +68,15 @@ def run_script(
     filename_D_I = f"data/{file}/run{run_num}_D_I{noisy_string}.pickle"
     filename_es = f"data/{file}/run{run_num}_es{noisy_string}.pickle"
 
-    with open(filename_D_O, "wb") as file:
-        pickle.dump(D_O, file)
+    if SAVE_RUN:
+        with open(filename_D_O, "wb") as file:
+            pickle.dump(D_O, file)
 
-    with open(filename_D_I, "wb") as file:
-        pickle.dump(D_I, file)
+        with open(filename_D_I, "wb") as file:
+            pickle.dump(D_I, file)
 
-    with open(filename_es, "wb") as file:
-        pickle.dump(exploration_set, file)
+        with open(filename_es, "wb") as file:
+            pickle.dump(exploration_set, file)
 
     if RUN_CEO:
         model: CEO = CEO(
@@ -92,6 +88,7 @@ def run_script(
             seed=seeds_int_data,
             noiseless=noiseless,
         )
+
         model.set_values(deepcopy(D_O), deepcopy(D_I), exploration_set)
         (
             best_y_array,
@@ -100,6 +97,7 @@ def run_script(
             intervention_set,
             intervention_value,
         ) = model.run_algorithm(T=n_trials, safe_optimization=safe_optimization)
+
         ceo_result_dict = {
             "Best_Y": best_y_array,
             "Per_trial_Y": current_y_array,
@@ -109,8 +107,10 @@ def run_script(
         }
 
         filename_ceo = f"results/{file}/run_ceo_{run_num}_results{noisy_string}.pickle"
-        with open(filename_ceo, "wb") as file:
-            pickle.dump(ceo_result_dict, file)
+
+        if SAVE_RUN:
+            with open(filename_ceo, "wb") as file:
+                pickle.dump(ceo_result_dict, file)
 
     if RUN_CBO:
         # now for the CBO algorithm
@@ -119,6 +119,7 @@ def run_script(
             graph.mispecify_graph(edges)
             cbo_model = CBO(graph=graph)
             cbo_model.set_values(deepcopy(D_O), deepcopy(D_I), exploration_set)
+
             (
                 best_y_array,
                 current_y_array,
@@ -126,6 +127,7 @@ def run_script(
                 intervention_set,
                 intervention_value,
             ) = cbo_model.run_algorithm(T=n_trials)
+
             cbo_results_dict = {
                 "Best_Y": best_y_array,
                 "Per_trial_Y": current_y_array,
@@ -133,9 +135,12 @@ def run_script(
                 "Intervention_Set": intervention_set,
                 "Intervention_Value": intervention_value,
             }
+
             filename_cbo = f"results/{file}/run{run_num}_cbo_results_graph_{i}{noisy_string}.pickle"
-            with open(filename_cbo, "wb") as file:
-                pickle.dump(cbo_results_dict, file)
+
+            if SAVE_RUN:
+                with open(filename_cbo, "wb") as file:
+                    pickle.dump(cbo_results_dict, file)
 
     # now for the BO implementation
 
@@ -152,5 +157,6 @@ def run_script(
         }
 
         filename_bo = f"results/{file}/run{run_num}_bo_results{noisy_string}.pickle"
-        with open(filename_bo, "wb") as file:
-            pickle.dump(cbo_results_dict, file)
+        if SAVE_RUN:
+            with open(filename_bo, "wb") as file:
+                pickle.dump(cbo_results_dict, file)

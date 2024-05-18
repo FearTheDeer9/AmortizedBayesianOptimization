@@ -70,5 +70,5 @@ run_script(
     n_int=n_int,
     n_anchor_points=n_anchor_points,
     n_trials=n_trials,
-    file="ToyGraph",
+    filename="ToyGraph",
 )

@@ -60,5 +60,5 @@ run_script(
     n_int=n_int,
     n_anchor_points=n_anchor_points,
     n_trials=n_trials,
-    file="Graph4",
+    filename="Graph4",
 )

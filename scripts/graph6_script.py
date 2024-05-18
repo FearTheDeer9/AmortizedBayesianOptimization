@@ -3,13 +3,12 @@ import logging
 import os
 import sys
 
-from scripts.base_script import run_script
-
 os.chdir("..")
 
 if os.getcwd() not in sys.path:
     sys.path.append(os.getcwd())
 
+from scripts.base_script import run_script
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the logging level

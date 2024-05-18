@@ -50,7 +50,7 @@ def run_script(
     n_int: int,
     n_anchor_points: int,
     n_trials: int,
-    file: str,
+    filename: str,
 ):
     if run_num <= 5:
         safe_optimization = False
@@ -64,9 +64,9 @@ def run_script(
     )
     # using this as the interventional and observational data
 
-    filename_D_O = f"data/{file}/run{run_num}_D_O{noisy_string}.pickle"
-    filename_D_I = f"data/{file}/run{run_num}_D_I{noisy_string}.pickle"
-    filename_es = f"data/{file}/run{run_num}_es{noisy_string}.pickle"
+    filename_D_O = f"data/{filename}/run{run_num}_D_O{noisy_string}.pickle"
+    filename_D_I = f"data/{filename}/run{run_num}_D_I{noisy_string}.pickle"
+    filename_es = f"data/{filename}/run{run_num}_es{noisy_string}.pickle"
 
     if SAVE_RUN:
         with open(filename_D_O, "wb") as file:
@@ -106,7 +106,9 @@ def run_script(
             "Intervention_Value": intervention_value,
         }
 
-        filename_ceo = f"results/{file}/run_ceo_{run_num}_results{noisy_string}.pickle"
+        filename_ceo = (
+            f"results/{filename}/run_ceo_{run_num}_results{noisy_string}.pickle"
+        )
 
         if SAVE_RUN:
             with open(filename_ceo, "wb") as file:
@@ -136,7 +138,7 @@ def run_script(
                 "Intervention_Value": intervention_value,
             }
 
-            filename_cbo = f"results/{file}/run{run_num}_cbo_results_graph_{i}{noisy_string}.pickle"
+            filename_cbo = f"results/{filename}/run{run_num}_cbo_results_graph_{i}{noisy_string}.pickle"
 
             if SAVE_RUN:
                 with open(filename_cbo, "wb") as file:
@@ -156,7 +158,7 @@ def run_script(
             "Cost": cost_array,
         }
 
-        filename_bo = f"results/{file}/run{run_num}_bo_results{noisy_string}.pickle"
+        filename_bo = f"results/{filename}/run{run_num}_bo_results{noisy_string}.pickle"
         if SAVE_RUN:
             with open(filename_bo, "wb") as file:
                 pickle.dump(cbo_results_dict, file)

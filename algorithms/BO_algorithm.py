@@ -114,9 +114,8 @@ class BO(BASE):
         )
 
         cummulative_cost = 0
-        costs_functions = self.graph.get_cost_structure(
-            self.cost_num
-        )  # this can be 1, 2, 3 or 4
+        # this can be 1, 2, 3 or 4
+        costs_functions = self.graph.get_cost_structure(self.cost_num)
         for i in range(T):
             logging.info(f"-------- Iteration {i} --------")
             emukit_model.optimize()
@@ -129,13 +128,10 @@ class BO(BASE):
             optimzer = GradientAcquisitionOptimizer(space)
             x_new, _ = optimzer.optimize(acquisition)
             y_new = target_class.compute_target(x_new)
+            logging.info(f"The global optimum was {best_y[i]}")
             logging.info(
                 f"The optimal point found in the optimizer is {y_new} for {x_new}"
             )
-            logging.info(
-                f"The corresponding target is {target_class.compute_target(x_new.reshape(1, -1))}"
-            )
-            logging.info(f"The global optimum was {best_y[i]}")
 
             # adding the new data point
             X = np.vstack([X, x_new])
@@ -158,6 +154,6 @@ class BO(BASE):
             # best_x[i + 1, :] = results_X[current_best, :]
 
             logging.info(
-                f"Total cost - {total_cost}: Cummulative cost - {cummulative_cost}: Best Y - {best_y[i + 1], current_best}"
+                f"Total cost - {total_cost}: Cummulative cost - {cummulative_cost}: Best Y - {best_y[i + 1]}"
             )
         return best_y, current_y, current_cost

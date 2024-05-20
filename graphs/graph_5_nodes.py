@@ -135,9 +135,6 @@ class Graph5Nodes(GraphStructure):
         )
         return costs
 
-    def get_interventional_domain(self):
-        return super().get_interventional_domain()
-
     def get_set_BO(self):
         return super().get_set_BO()
 
@@ -145,8 +142,8 @@ class Graph5Nodes(GraphStructure):
         err_dist = {}
         err_dist["B"] = np.random.uniform(-1, 1)
         err_dist["T"] = np.random.uniform(4, 8)
-        err_dist["L"] = 0
-        err_dist["R"] = 0
+        err_dist["L"] = np.random.normal()
+        err_dist["R"] = np.random.normal()
         err_dist["Y"] = np.random.normal()
         return err_dist
 

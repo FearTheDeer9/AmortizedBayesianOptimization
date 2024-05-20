@@ -34,9 +34,11 @@ class BO(BASE):
         causal_prior: bool = True,
         n_obs: int = 100,
         cost_num: int = 1,
+        noiseless: int = True,
     ):
 
         self._graph_type = graph_type
+        self.noiseless = noiseless
         if graph is not None:
             self.graph = graph
         else:
@@ -102,6 +104,7 @@ class BO(BASE):
             interventions=self.manipulative_variables,
             variables=self.graph.variables,
             graph=self.graph,
+            noiseless=self.noiseless,
         )
 
         emukit_model: GPyModelWrapper = cbo_functions.set_up_GP(

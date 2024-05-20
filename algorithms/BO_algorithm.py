@@ -87,10 +87,10 @@ class BO(BASE):
         best_y = np.zeros(shape=T + 1)
         current_y = np.zeros(shape=T)
         current_cost = np.zeros(shape=T)
-        current_best = np.argmin(Y)
+        # current_best = np.argmin(Y)
         best_y[0] = np.mean(self.D_O[self.target])
 
-        best_x[0, :] = X[current_best, :]
+        # best_x[0, :] = X[current_best, :]
 
         do_effects = DoFunctions(
             self.graph.get_all_do(), self.D_O, self.manipulative_variables
@@ -133,9 +133,9 @@ class BO(BASE):
                 f"The optimal point found in the optimizer is {y_new} for {x_new}"
             )
             logging.info(
-                f"The corresponding target is {target_class.compute_target(best_x[i].reshape(1, -1))}"
+                f"The corresponding target is {target_class.compute_target(x_new.reshape(1, -1))}"
             )
-            logging.info(f"The global optimum was {best_y[i]} for {best_x[i]}")
+            logging.info(f"The global optimum was {best_y[i]}")
 
             # adding the new data point
             X = np.vstack([X, x_new])
@@ -151,11 +151,11 @@ class BO(BASE):
             current_cost[i] = cummulative_cost
 
             # get the optimum
-            results_X, results_Y = emukit_model.X, emukit_model.Y
-            current_best = np.argmin(results_Y)
-            best_y[i + 1] = results_Y[current_best]
-            best_x[i + 1, :] = results_X[current_best, :]
+            # results_X, results_Y = emukit_model.X, emukit_model.Y
             current_y[i] = y_new[0][0]
+            current_best = np.argmin(current_y)
+            best_y[i + 1] = current_y[current_best]
+            # best_x[i + 1, :] = results_X[current_best, :]
 
             logging.info(
                 f"Total cost - {total_cost}: Cummulative cost - {cummulative_cost}: Best Y - {best_y[i + 1], current_best}"

@@ -62,6 +62,8 @@ def run_script(
     D_O, D_I, exploration_set = setup_observational_interventional(
         graph_type=graph_type, noiseless=noiseless, seed=seeds_int_data
     )
+    # print(D_O)
+    print(D_I)
     # using this as the interventional and observational data
 
     filename_D_O = f"data/{filename}/run{run_num}_D_O{noisy_string}.pickle"
@@ -149,7 +151,7 @@ def run_script(
     if RUN_BO:
         graph = set_graph(graph_type)
         graph.break_dependency_structure()
-        bo_model = BO(graph=graph)
+        bo_model = BO(graph=graph, noiseless=noiseless)
         bo_model.set_values(deepcopy(D_O))
         best_y_array, current_y_array, cost_array = bo_model.run_algorithm(T=n_trials)
         cbo_results_dict = {

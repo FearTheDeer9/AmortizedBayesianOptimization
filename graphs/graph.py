@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from emukit.core import ContinuousParameter, ParameterSpace
+from emukit.model_wrappers import GPyModelWrapper
 from GPy.core.parameterization import priors
 from GPy.kern import RBF
 from GPy.models.gp_regression import GPRegression
@@ -29,6 +30,30 @@ class MyKDE(KernelDensity):
         return np.mean(super().sample(n_samples=500)), np.var(
             super().sample(n_samples=500)
         )
+
+
+def safe_optimization(
+    gpy_model: GPRegression,
+    lower_bound_var: float = 1e-05,
+    upper_bound_var: float = 2.0,
+    bound_len: int = 20,
+) -> GPyModelWrapper:
+    if gpy_model.kern.variance[0] < lower_bound_var:
+        logging.info("SAFE OPTIMIZATION: Resetting the kernel variance to lower bound")
+        gpy_model.kern.variance[0] = lower_bound_var
+
+    if gpy_model.kern.lengthscale[0] > bound_len:
+        logging.info("SAFE OPTIMZATION: Resetting kernel lenghtscale")
+        gpy_model.kern.lengthscale[0] = 1.0
+
+    if gpy_model.likelihood.variance[0] > upper_bound_var:
+        logging.info("SAFE OPTIMIZATION: restting likelihood var to upper bound")
+        gpy_model.likelihood.variance[0] = upper_bound_var
+
+    if gpy_model.likelihood.variance[0] < lower_bound_var:
+        logging.info("SAFE OPTIMIZATION: resetting likelihood var to lower bound")
+        gpy_model.likelihood.variance[0] = lower_bound_var
+    return gpy_model
 
 
 # this is for calculating the causal effect in a more clear way
@@ -373,6 +398,7 @@ class GraphStructure:
                 gp = GPRegression(X=X, Y=Y, kernel=kernel)
 
                 gp.optimize()
+                gp = safe_optimization(gp)
                 self._functions[child] = gp
             else:
                 logging.info(f"Fitting marginal distribution for child {child}")

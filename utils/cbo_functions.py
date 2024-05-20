@@ -67,8 +67,33 @@ def set_up_GP(
         # gpy_model.optimize_restarts(num_restarts=5)
         gpy_model.optimize()
         emukit_model = GPyModelWrapper(gpy_model)
-    # emukit_model.optimize_restarts(num_restarts=5)
+    gpy_model = safe_optimization(emukit_model.model)
+    emukit_model = GPyModelWrapper(gpy_model)
     return emukit_model
+
+
+def safe_optimization(
+    gpy_model: GPRegression,
+    lower_bound_var: float = 1e-05,
+    upper_bound_var: float = 2.0,
+    bound_len: int = 20,
+) -> GPyModelWrapper:
+    if gpy_model.kern.variance[0] < lower_bound_var:
+        logging.info("SAFE OPTIMIZATION: Resetting the kernel variance to lower bound")
+        gpy_model.kern.variance[0] = lower_bound_var
+
+    if gpy_model.kern.lengthscale[0] > bound_len:
+        logging.info("SAFE OPTIMZATION: Resetting kernel lenghtscale")
+        gpy_model.kern.lengthscale[0] = 1.0
+
+    if gpy_model.likelihood.variance[0] > upper_bound_var:
+        logging.info("SAFE OPTIMIZATION: restting likelihood var to upper bound")
+        gpy_model.likelihood.variance[0] = upper_bound_var
+
+    if gpy_model.likelihood.variance[0] < lower_bound_var:
+        logging.info("SAFE OPTIMIZATION: resetting likelihood var to lower bound")
+        gpy_model.likelihood.variance[0] = lower_bound_var
+    return gpy_model
 
 
 def update_all_do_functions(

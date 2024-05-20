@@ -143,6 +143,8 @@ class CEO(BASE):
                 self.sem_emit_fncs,
                 self.D_I,
             )
+            print(self.D_I[es])
+            print(es, self.posterior)
 
     def do_function_graph(self, es: Tuple, size: int = 100, edge_num: int = 0):
 
@@ -220,7 +222,7 @@ class CEO(BASE):
             self.model_list_overall[es].model.likelihood.variance[0] = 1.0
 
     def run_algorithm(
-        self, T: int = 30, safe_optimization: bool = False, file: str = None
+        self, T: int = 30, safe_optimization: bool = True, file: str = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
         (
@@ -253,7 +255,6 @@ class CEO(BASE):
         logging.info(f"The updated posterior distribution is {self.all_posteriors[-1]}")
 
         input_space = [len(es) for es in self.exploration_set]
-        causal_prior = True
         # model_list: List[GPyModelWrapper] = [None] * len(exploration_set)
         self.model_list_overall: List[GPyModelWrapper] = [None] * len(
             self.exploration_set
@@ -289,7 +290,7 @@ class CEO(BASE):
                     self.model_list_overall,
                     data_x_list,
                     data_y_list,
-                    causal_prior,
+                    self.causal_prior,
                     best_variable,
                     input_space,
                     self.do_effects_functions,
@@ -313,7 +314,7 @@ class CEO(BASE):
                     self.model_list_overall,
                     data_x_list,
                     data_y_list,
-                    causal_prior,
+                    self.causal_prior,
                     best_variable,
                     input_space,
                     self.do_effects_functions,

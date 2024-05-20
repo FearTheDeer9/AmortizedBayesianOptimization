@@ -143,8 +143,6 @@ class CEO(BASE):
                 self.sem_emit_fncs,
                 self.D_I,
             )
-            print(self.D_I[es])
-            print(es, self.posterior)
 
     def do_function_graph(self, es: Tuple, size: int = 100, edge_num: int = 0):
 

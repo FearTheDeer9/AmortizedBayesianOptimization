@@ -98,7 +98,7 @@ def run_script(
             cost_array,
             intervention_set,
             intervention_value,
-        ) = model.run_algorithm(T=n_trials, safe_optimization=safe_optimization)
+        ) = model.run_algorithm(T=n_trials, safe_optimization=True)
 
         ceo_result_dict = {
             "Best_Y": best_y_array,

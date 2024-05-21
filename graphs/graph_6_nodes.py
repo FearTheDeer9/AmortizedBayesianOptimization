@@ -9,6 +9,10 @@ from GPy.models.gp_regression import GPRegression
 from graphs.graph import GraphStructure
 
 
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+
+
 class Graph6Nodes(GraphStructure):
     """
     This is the graph for the healthcare experiment
@@ -55,26 +59,24 @@ class Graph6Nodes(GraphStructure):
     def define_SEM(self):
         fa = lambda epsilon, sample: epsilon
         fb = lambda epsilon, sample: 27 - 0.01 * sample["A"] + epsilon
-        fas = lambda epsilon, sample: 1 / (
-            1 + np.exp(-0.8 + 0.1 * sample["A"] + 0.03 * sample["B"])
+        fas = lambda epsilon, sample: sigmoid(
+            -8 + 0.1 * sample["A"] + 0.03 * sample["B"]
         )
-        fs = lambda epsilon, sample: 1 / (
-            1 + np.exp(-13 + 0.1 * sample["A"] + 0.2 * sample["B"])
+        fs = lambda epsilon, sample: sigmoid(
+            -13 + 0.1 * sample["A"] + 0.2 * sample["B"]
         )
-        fc = lambda epsilon, sample: 1 / (
-            1
-            + np.exp(
-                2.2
-                - 0.05 * sample["A"]
-                + 0.01 * sample["B"]
-                - 0.04 * sample["S"]
-                + 0.02 * sample["As"]
-            )
+        fc = lambda epsilon, sample: sigmoid(
+            2.2
+            - 0.05 * sample["A"]
+            + 0.01 * sample["B"]
+            - 0.04 * sample["S"]
+            + 0.02 * sample["As"]
         )
+        # this is different for the text and the code
         fy = (
             lambda epsilon, sample: 6.8
             + 0.04 * sample["A"]
-            - 0.15 * sample["B"]
+            + 0.15 * sample["B"]
             - 0.6 * sample["S"]
             + 0.55 * sample["As"]
             + sample["C"]
@@ -203,12 +205,12 @@ class Graph6Nodes(GraphStructure):
     def get_exploration_set(self):
         return [("As",), ("S",), ("As", "S")]
 
-    def get_error_distribution(self):
+    def get_error_distribution(self, noiseless: bool = False):
         err_dist = {}
         err_dist["A"] = np.random.uniform(55, 75)
-        err_dist["B"] = 0
+        err_dist["B"] = np.random.normal(scale=np.sqrt(0.7))
         err_dist["As"] = 0
         err_dist["S"] = 0
         err_dist["C"] = 0
-        err_dist["Y"] = 0
+        err_dist["Y"] = np.random.normal(scale=np.sqrt(0.4))
         return err_dist

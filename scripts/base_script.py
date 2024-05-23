@@ -121,7 +121,7 @@ def run_script(
         for i, edges in enumerate(all_graph_edges):
             graph = set_graph(graph_type)
             graph.mispecify_graph(edges)
-            cbo_model = CBO(graph=graph)
+            cbo_model = CBO(graph=graph, noiseless=noiseless)
             cbo_model.set_values(deepcopy(D_O), deepcopy(D_I), exploration_set)
 
             (

@@ -86,12 +86,11 @@ class BO(BASE):
         best_x = np.zeros(shape=(T + 1, input_space))
 
         # setting up the variables
-        best_y = np.zeros(shape=T + 1)
+        best_y = []
         current_y = np.zeros(shape=T)
         current_cost = np.zeros(shape=T)
         # current_best = np.argmin(Y)
-        best_y[0] = np.mean(self.D_O[self.target])
-
+        best_y.append(np.mean(self.D_O[self.target]))
         # best_x[0, :] = X[current_best, :]
 
         do_effects = DoFunctions(
@@ -153,7 +152,7 @@ class BO(BASE):
             # results_X, results_Y = emukit_model.X, emukit_model.Y
             current_y[i] = y_new[0][0]
             current_best = np.argmin(current_y)
-            best_y[i + 1] = current_y[current_best]
+            best_y.append(current_y[current_best])
             # best_x[i + 1, :] = results_X[current_best, :]
 
             logging.info(

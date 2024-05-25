@@ -108,9 +108,7 @@ def run_script(
             "Intervention_Value": intervention_value,
         }
 
-        filename_ceo = (
-            f"results/{filename}/run_ceo_{run_num}_results{noisy_string}.pickle"
-        )
+        filename_ceo = f"results/{filename}/run_ceo_{run_num}_results_{n_obs}_{n_int}_{noisy_string}.pickle"
 
         if SAVE_RUN:
             with open(filename_ceo, "wb") as file:
@@ -140,7 +138,7 @@ def run_script(
                 "Intervention_Value": intervention_value,
             }
 
-            filename_cbo = f"results/{filename}/run{run_num}_cbo_results_graph_{i}{noisy_string}.pickle"
+            filename_cbo = f"results/{filename}/run{run_num}_cbo_results_{n_obs}_{n_int}_graph_{i}{noisy_string}.pickle"
 
             if SAVE_RUN:
                 with open(filename_cbo, "wb") as file:
@@ -160,7 +158,7 @@ def run_script(
             "Cost": cost_array,
         }
 
-        filename_bo = f"results/{filename}/run{run_num}_bo_results{noisy_string}.pickle"
+        filename_bo = f"results/{filename}/run{run_num}_bo_results_{n_obs}_{n_int}_{noisy_string}.pickle"
         if SAVE_RUN:
             with open(filename_bo, "wb") as file:
                 pickle.dump(cbo_results_dict, file)

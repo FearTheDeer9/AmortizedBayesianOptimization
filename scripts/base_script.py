@@ -60,7 +60,11 @@ def run_script(
 
     # using this as the interventional and observational data
     D_O, D_I, exploration_set = setup_observational_interventional(
-        graph_type=graph_type, noiseless=noiseless, seed=seeds_int_data
+        graph_type=graph_type,
+        noiseless=noiseless,
+        seed=seeds_int_data,
+        n_obs=n_obs,
+        n_int=n_int,
     )
     # print(D_O)
     print(D_I)

@@ -39,6 +39,7 @@ class Graph6Nodes(GraphStructure):
             ("A", "S"),
             ("A", "B"),
             ("B", "C"),
+            ("B", "S"),
             ("B", "As"),
             ("As", "C"),
             ("As", "Y"),

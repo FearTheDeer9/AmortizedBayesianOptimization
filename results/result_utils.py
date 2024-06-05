@@ -40,12 +40,12 @@ def plot_everything(
     if graph_idxs is None:
         graph_idxs = range(num_cbo_graphs)
     # Determine the string suffix based on the noiseless flag
-    noisy_suffix = r"\.pickle" if noiseless else r"_noisy\.pickle"
+    noisy_suffix = r"\.pickle" if noiseless else r"noisy\.pickle"
     noisy_string = "" if noiseless else "_noisy"
 
     # Load and aggregate results for CEO
-    ceo_string = f".*_ceo_.*results{noisy_suffix}"
-    ceo_results = load_results(base_path, r".*_ceo.*results" + noisy_suffix)
+    ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
+    ceo_results = load_results(base_path, ceo_string)
     ceo_mean, ceo_std = aggregate_results(ceo_results, experiment)
 
     # Load and aggregate results for BO
@@ -87,7 +87,7 @@ def plot_everything(
     plt.legend()
 
     if save_file:
-        filename = f"{base_path}/{experiment}{noisy_string}"
+        filename = f"{base_path}/{experiment}_{n_obs}_{n_int}_{noisy_string}"
         plt.savefig(filename)
 
     plt.show()

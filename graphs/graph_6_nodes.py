@@ -35,18 +35,19 @@ class Graph6Nodes(GraphStructure):
         self.Y = Y
         self._SEM = self.define_SEM()
         self._edges = [
+            ("A", "B"),
             ("A", "C"),
             ("A", "S"),
-            ("A", "B"),
+            ("A", "As"),
+            ("A", "Y"),
+            ("B", "As"),
             ("B", "C"),
             ("B", "S"),
-            ("B", "As"),
+            ("B", "Y"),
             ("As", "C"),
             ("As", "Y"),
             ("S", "C"),
             ("S", "Y"),
-            ("A", "Y"),
-            ("A", "As"),
             ("C", "Y"),
         ]
         self._nodes = set(chain(*self.edges))

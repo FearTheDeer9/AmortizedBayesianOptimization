@@ -61,12 +61,6 @@ class Graph5Nodes(GraphStructure):
         graph = OrderedDict([("B", fb), ("T", ft), ("L", fl), ("R", fr), ("Y", fy)])
         return graph
 
-    def fit_all_models(self):
-        return super().fit_all_models()
-
-    def refit_models(self, observational_samples):
-        return super().refit_models(observational_samples)
-
     def get_exploration_set(self) -> List[List[str]]:
         return [("R",), ("T",), ("R", "T")]
 
@@ -134,9 +128,6 @@ class Graph5Nodes(GraphStructure):
             [("T", cost_variable_T_different), ("R", cost_variable_R_different)]
         )
         return costs
-
-    def get_set_BO(self):
-        return super().get_set_BO()
 
     def get_error_distribution(self, noiseless: bool = False):
         err_dist = {}

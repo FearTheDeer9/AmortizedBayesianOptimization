@@ -179,7 +179,6 @@ def sample_model(
             else:
                 epsilon_term = epsilon
 
-            # print(epsilon_term)
             tmp = sample_from_SEM(
                 static_sem=static_sem,
                 initial_values=initial_values,

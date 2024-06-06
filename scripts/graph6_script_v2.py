@@ -159,7 +159,7 @@ all_graph_edges = [
 
 
 run_script(
-    graph_type="Graph6_v2",
+    graph_type="Graph6",
     run_num=run_num,
     all_graph_edges=all_graph_edges,
     noiseless=noiseless,
@@ -169,5 +169,5 @@ run_script(
     n_int=n_int,
     n_anchor_points=n_anchor_points,
     n_trials=n_trials,
-    filename="Graph6",
+    filename="Graph6_v2",
 )

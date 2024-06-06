@@ -86,25 +86,3 @@ class ChainGraph(GraphStructure):
                 ).sample(1)
 
         return err_dist
-
-    # def init_sampler(self):
-
-    #     graph = self.graph
-
-    #     if noise_type.endswith("gaussian"):
-    #         # Identifiable
-    #         if self.noise_type == "isotropic-gaussian":
-    #             self._noise_std = [self.noise_sigma] * self.num_nodes
-    #         elif self.noise_type == "gaussian":
-    #             self._noise_std = np.linspace(0.1, 1.0, self.num_nodes)
-    #         for i in range(self.num_nodes):
-    #             graph.nodes[i]["sampler"] = D(
-    #                 self.rng.normal, loc=0.0, scale=self._noise_std[i]
-    #             )
-
-    #     elif noise_type == "exponential":
-    #         noise_std = [self.noise_sigma] * self.num_nodes
-    #         for i in range(self.num_nodes):
-    #             graph.nodes[i]["sampler"] = D(self.rng.exponential, scale=noise_std[i])
-
-    #     return graph

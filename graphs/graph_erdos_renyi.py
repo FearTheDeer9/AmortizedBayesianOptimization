@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, OrderedDict, Tuple
 import numpy as np
 from GPy.models.gp_regression import GPRegression
 
+from config import NOISE_TYPE_INDEX, NOISE_TYPES
 from envs.erdos_renyi import CausalEnvironment, ErdosRenyi
 from graphs.graph import GraphStructure
 from graphs.graph_chain import define_SEM_causalenv
@@ -41,10 +42,23 @@ class ErdosRenyiGraph(GraphStructure):
 
     def get_error_distribution(self, noiseless=False):
         err_dist = {}
-        for node in self.nodes:
-            # if not self.parents[node]:
-            #     err_dist[node] = np.random.normal()
-            # else:
-            #     err_dist[node] = 0
-            err_dist[node] = np.random.normal()
+
+        noise_type = NOISE_TYPES[NOISE_TYPE_INDEX]
+        if noise_type.endswith("gaussian"):
+            # Identifiable
+            if noise_type == "isotropic-gaussian":
+                self._noise_std = [self.noise_sigma] * len(self.nodes)
+            elif noise_type == "gaussian":
+                self._noise_std = np.linspace(0.1, 1.0, len(self.nodes))
+            for i in range(len(self.nodes)):
+                err_dist[self.nodes[i]] = D(
+                    self.rng.normal, loc=0.0, scale=self._noise_std[i]
+                ).sample(1)
+        elif noise_type == "exponential":
+            noise_std = [self.noise_sigma] * len(self.nodes)
+            for i in range(len(self.nodes)):
+                err_dist[self.nodes[i]] = D(
+                    self.rng.exponential, scale=noise_std[i]
+                ).sample(1)
+
         return err_dist

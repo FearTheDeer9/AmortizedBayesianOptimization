@@ -52,25 +52,25 @@ class Graph4Nodes(GraphStructure):
         return super().refit_models(observational_samples)
 
     def get_exploration_set(self) -> List[Tuple[str]]:
-        return [("X",), ("Z",), ("T",), ("X", "Z"), ("T", "X"), ("T", "Z")]
+        return [("T",)]
 
     def get_all_do(self):
         do_dict = {}
-        do_dict["compute_do_X"] = self.compute_do_X
-        do_dict["compute_do_Z"] = self.compute_do_Z
+        # do_dict["compute_do_X"] = self.compute_do_X
+        # do_dict["compute_do_Z"] = self.compute_do_Z
         do_dict["compute_do_T"] = self.compute_do_T
-        do_dict["compute_do_XZ"] = self.compute_do_XZ
-        do_dict["compute_do_TX"] = self.compute_do_TX
-        do_dict["compute_do_TZ"] = self.compute_do_TZ
-        do_dict["compute_do_TXZ"] = self.compute_do_TXZ
+        # do_dict["compute_do_XZ"] = self.compute_do_XZ
+        # do_dict["compute_do_TX"] = self.compute_do_TX
+        # do_dict["compute_do_TZ"] = self.compute_do_TZ
+        # do_dict["compute_do_TXZ"] = self.compute_do_TXZ
         return do_dict
 
     def get_interventional_range(self):
-        min_intervention_x = -3
-        max_intervention_x = 2
+        # min_intervention_x = -3
+        # max_intervention_x = 2
 
-        min_intervention_z = -3
-        max_intervention_z = 3
+        # min_intervention_z = -3
+        # max_intervention_z = 3
 
         min_intervention_t = -2
         max_intervention_t = 8
@@ -78,16 +78,16 @@ class Graph4Nodes(GraphStructure):
         dict_ranges = OrderedDict(
             [
                 ("T", [min_intervention_t, max_intervention_t]),
-                ("X", [min_intervention_x, max_intervention_x]),
-                ("Z", [min_intervention_z, max_intervention_z]),
+                # ("X", [min_intervention_x, max_intervention_x]),
+                # ("Z", [min_intervention_z, max_intervention_z]),
             ]
         )
         return dict_ranges
 
     def get_sets(self):
-        mis = [["X"], ["Z"], ["T"]]
-        pomis = [["X", "Z"], ["X", "T"], ["Z", "T"]]
-        manipulative_variables = ["T", "X", "Z"]
+        mis = [["T"]]
+        pomis = [["T"]]
+        manipulative_variables = ["T"]
         return mis, pomis, manipulative_variables
 
     def get_fixed_equal_costs(self) -> OrderedDict:
@@ -225,5 +225,5 @@ class Graph4Nodes(GraphStructure):
         error_distr["X"] = np.random.uniform(-2, 2)
         error_distr["T"] = 0
         error_distr["Z"] = 0
-        error_distr["Y"] = 0 if noiseless else np.random.normal()
+        error_distr["Y"] = 0 if noiseless else np.random.normal(scale=0.3)
         return error_distr

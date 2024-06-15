@@ -236,9 +236,10 @@ class ToyGraph(GraphStructure):
             use_noise = noiseless
         else:
             use_noise = self.noiseless
+        rng = np.random.default_rng()
         error_distr = {}
         # error_distr["X"] = np.random.uniform(-5, 5)
-        error_distr["X"] = np.random.normal()
-        error_distr["Z"] = 0 if use_noise else np.random.normal()
-        error_distr["Y"] = 0 if use_noise else np.random.normal()
+        error_distr["X"] = rng.normal()
+        error_distr["Z"] = rng.normal()
+        error_distr["Y"] = rng.normal()
         return error_distr

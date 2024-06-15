@@ -52,11 +52,6 @@ def run_script(
     n_trials: int,
     filename: str,
 ):
-    if run_num <= 5:
-        safe_optimization = False
-    else:
-        safe_optimization = True
-    # run the CEO method using all the edges and then the CBO for each of the e
 
     # using this as the interventional and observational data
     D_O, D_I, exploration_set = setup_observational_interventional(
@@ -166,3 +161,53 @@ def run_script(
         if SAVE_RUN:
             with open(filename_bo, "wb") as file:
                 pickle.dump(cbo_results_dict, file)
+
+
+def run_script_uncertainty(
+    graph_type: str,
+    run_num: int,
+    all_graph_edges: List[List[Tuple]],
+    noiseless: bool,
+    noisy_string: str,
+    seeds_int_data: int,
+    n_obs: int,
+    n_int: int,
+    n_anchor_points: int,
+    n_trials: int,
+    filename: str,
+):
+    D_O, D_I, exploration_set = setup_observational_interventional(
+        graph_type=graph_type,
+        noiseless=noiseless,
+        seed=seeds_int_data,
+        n_obs=n_obs,
+        n_int=n_int,
+    )
+
+    for i, edges in enumerate(all_graph_edges):
+        graph = set_graph(graph_type)
+        graph.mispecify_graph(edges)
+        graph.fit_samples_to_graph(D_O)
+        uncertainties = graph.decompose_all_variance(D_O)
+        cbo_uncertainty_dict = {
+            "total": uncertainties["aleatoric"] + uncertainties["epistemic"],
+            "epistemic": uncertainties["epistemic"],
+            "aleatoric": uncertainties["aleatoric"],
+        }
+        filename_cbo = f"results/{filename}/run{run_num}_cbo_uncertainties_{n_obs}_{n_int}_graph_{i}{noisy_string}.pickle"
+        with open(filename_cbo, "wb") as file:
+            pickle.dump(cbo_uncertainty_dict, file)
+
+    graph = set_graph(graph_type)
+    graph.break_dependency_structure()
+    graph.fit_samples_to_graph(D_O)
+    uncertainties = graph.decompose_all_variance(D_O)
+
+    bo_uncertainty_dict = {
+        "total": uncertainties["aleatoric"] + uncertainties["epistemic"],
+        "epistemic": uncertainties["epistemic"],
+        "aleatoric": uncertainties["aleatoric"],
+    }
+    filename_bo = f"results/{filename}/run{run_num}_bo_uncertainties_{n_obs}_{n_int}_{noisy_string}.pickle"
+    with open(filename_bo, "wb") as file:
+        pickle.dump(bo_uncertainty_dict, file)

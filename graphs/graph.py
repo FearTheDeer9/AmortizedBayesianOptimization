@@ -387,7 +387,7 @@ class GraphStructure:
         self._functions = OrderedDict()
         for child, parents in children_parents.items():
             if parents:
-                logging.info(
+                logging.debug(
                     f"Fitting child: {child} to parents: {parents} for {self.edges}"
                 )
                 Y = samples[child]
@@ -401,7 +401,7 @@ class GraphStructure:
                 gp = safe_optimization(gp)
                 self._functions[child] = gp
             else:
-                logging.info(f"Fitting marginal distribution for child {child}")
+                logging.debug(f"Fitting marginal distribution for child {child}")
                 Y = samples[child]
                 self._functions[child] = MyKDE(kernel="gaussian").fit_and_update(Y)
 
@@ -659,3 +659,124 @@ class GraphStructure:
         self._edges = edges
         self._parents, self._children = self.build_relationships()
         self._G = self.make_graphical_model()
+
+    @abc.abstractmethod
+    def uncertainty_decomposition(
+        self, observational_samples: Dict, num_points: int = 100
+    ):
+        # decompose the variance into epistemic uncertainty and aleatoric uncertainty
+        _, _, manipulative_variables = self.get_sets()
+        for var in self.variables:
+            if var in manipulative_variables:
+                interventional_range = self.get_interventional_range()[var]
+                """add to the epistemic uncertainty"""
+                vals = np.linspace(
+                    start=interventional_range[0],
+                    stop=interventional_range[1],
+                    num=num_points,
+                )
+            elif var != self.target:
+                """add to the aleatoric uncertainty"""
+                pass
+            elif var == self.target:
+                """decompose how the uncertainty for the target is calculated"""
+                self.decompose_target_variance()
+
+            else:
+                logging.error("SHOULD NOT GET HERE")
+
+    @abc.abstractmethod
+    def decompose_variance(
+        self, variable: str, observational_samples: Dict, num_points: int = 100
+    ):
+        parents = self.parents[variable]
+
+        _, _, manipulative_variables = self.get_sets()
+        n_obs = len(observational_samples[self.target])
+
+        aleatoric_uncertainty = 0
+        epistemic_uncertainty = 0
+
+        count_m = 0
+        count_nm = 0
+
+        if parents:
+            target_function: GPRegression = self.functions[variable]
+            for i, var in enumerate(parents):
+                dataset = np.hstack(
+                    [observational_samples[parent] for parent in parents]
+                )
+                min_var = np.min(observational_samples[var])
+                max_var = np.max(observational_samples[var])
+                vals = np.linspace(start=min_var, stop=max_var, num=num_points)
+
+                variance = np.zeros(shape=num_points)
+                for j, val in enumerate(vals):
+                    dataset[:, i] = np.repeat(val, n_obs)
+                    variance[j] = np.mean(target_function.predict(dataset)[1])
+
+                if var in manipulative_variables:
+                    # this means we are in the subset X
+                    count_m += 1
+                    epistemic_uncertainty += np.mean(variance)
+                else:
+                    # this means we are in the subset C
+                    count_nm += 1
+                    aleatoric_uncertainty += np.mean(variance)
+
+        # else:
+        #     target_function: MyKDE = self.functions[variable]
+        #     variance = target_function.predict()[1]
+        #     if variable in manipulative_variables:
+        #         epistemic_uncertainty += variance
+        #     else:
+        #         aleatoric_uncertainty += variance
+
+        # normalize these uncertainties by the size of the set
+        if count_m > 0:
+            # XXX can divide by count_m here but it overall
+            epistemic_uncertainty = epistemic_uncertainty
+
+        if count_nm > 0:
+            # XXX can divide by count_nm here but want it overall
+            aleatoric_uncertainty = aleatoric_uncertainty
+        uncertanties = {
+            "epistemic": epistemic_uncertainty,
+            "aleatoric": aleatoric_uncertainty,
+        }
+        return uncertanties
+
+    @abc.abstractmethod
+    def decompose_target_variance(
+        self, observational_samples: Dict, num_points: int = 100
+    ):
+        return self.decompose_variance(
+            variable=self.target,
+            observational_samples=observational_samples,
+            num_points=num_points,
+        )
+
+    @abc.abstractmethod
+    def decompose_all_variance(
+        self, observational_samples: Dict, num_points: int = 100
+    ):
+        aleatoric_uncertainty = 0
+        epistemic_uncertainty = 0
+        for var in self.variables:
+            uncertanties = self.decompose_variance(
+                variable=var,
+                observational_samples=observational_samples,
+                num_points=num_points,
+            )
+            aleatoric_uncertainty += uncertanties["aleatoric"]
+            epistemic_uncertainty += uncertanties["epistemic"]
+
+        uncertanties = {
+            "aleatoric": aleatoric_uncertainty,
+            "epistemic": epistemic_uncertainty,
+        }
+        return uncertanties
+
+    @abc.abstractmethod
+    def set_err_distrbution(self, err_dist: Dict):
+        pass

@@ -162,7 +162,7 @@ def sample_model(
         np.random.seed(seed)
 
     new_samples = {k: [] for k in static_sem.keys()}
-    for i in range(sample_count):
+    for _ in range(sample_count):
         # This option uses the estimates of the SEMs, estimates found through use of GPs.
         if use_sem_estimate:
             tmp = sample_from_SEM_hat(

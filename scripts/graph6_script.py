@@ -8,7 +8,7 @@ os.chdir("..")
 if os.getcwd() not in sys.path:
     sys.path.append(os.getcwd())
 
-from scripts.base_script import run_script
+from scripts.base_script import run_script, run_script_uncertainty
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the logging level
@@ -127,6 +127,20 @@ all_graph_edges = [
 
 
 run_script(
+    graph_type="Graph6",
+    run_num=run_num,
+    all_graph_edges=all_graph_edges,
+    noiseless=noiseless,
+    noisy_string=noisy_string,
+    seeds_int_data=seeds_int_data,
+    n_obs=n_obs,
+    n_int=n_int,
+    n_anchor_points=n_anchor_points,
+    n_trials=n_trials,
+    filename="Graph6",
+)
+
+run_script_uncertainty(
     graph_type="Graph6",
     run_num=run_num,
     all_graph_edges=all_graph_edges,

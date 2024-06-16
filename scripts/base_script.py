@@ -183,31 +183,32 @@ def run_script_uncertainty(
         n_obs=n_obs,
         n_int=n_int,
     )
+    if RUN_CBO:
+        for i, edges in enumerate(all_graph_edges):
+            graph = set_graph(graph_type)
+            graph.mispecify_graph(edges)
+            graph.fit_samples_to_graph(D_O)
+            uncertainties = graph.decompose_all_variance(D_O)
+            cbo_uncertainty_dict = {
+                "total": uncertainties["aleatoric"] + uncertainties["epistemic"],
+                "epistemic": uncertainties["epistemic"],
+                "aleatoric": uncertainties["aleatoric"],
+            }
+            filename_cbo = f"results/{filename}/run{run_num}_cbo_uncertainties_{n_obs}_{n_int}_graph_{i}{noisy_string}.pickle"
+            with open(filename_cbo, "wb") as file:
+                pickle.dump(cbo_uncertainty_dict, file)
 
-    for i, edges in enumerate(all_graph_edges):
+    if True:
         graph = set_graph(graph_type)
-        graph.mispecify_graph(edges)
+        graph.break_dependency_structure()
         graph.fit_samples_to_graph(D_O)
         uncertainties = graph.decompose_all_variance(D_O)
-        cbo_uncertainty_dict = {
+
+        bo_uncertainty_dict = {
             "total": uncertainties["aleatoric"] + uncertainties["epistemic"],
             "epistemic": uncertainties["epistemic"],
             "aleatoric": uncertainties["aleatoric"],
         }
-        filename_cbo = f"results/{filename}/run{run_num}_cbo_uncertainties_{n_obs}_{n_int}_graph_{i}{noisy_string}.pickle"
-        with open(filename_cbo, "wb") as file:
-            pickle.dump(cbo_uncertainty_dict, file)
-
-    graph = set_graph(graph_type)
-    graph.break_dependency_structure()
-    graph.fit_samples_to_graph(D_O)
-    uncertainties = graph.decompose_all_variance(D_O)
-
-    bo_uncertainty_dict = {
-        "total": uncertainties["aleatoric"] + uncertainties["epistemic"],
-        "epistemic": uncertainties["epistemic"],
-        "aleatoric": uncertainties["aleatoric"],
-    }
-    filename_bo = f"results/{filename}/run{run_num}_bo_uncertainties_{n_obs}_{n_int}_{noisy_string}.pickle"
-    with open(filename_bo, "wb") as file:
-        pickle.dump(bo_uncertainty_dict, file)
+        filename_bo = f"results/{filename}/run{run_num}_bo_uncertainties_{n_obs}_{n_int}_{noisy_string}.pickle"
+        with open(filename_bo, "wb") as file:
+            pickle.dump(bo_uncertainty_dict, file)

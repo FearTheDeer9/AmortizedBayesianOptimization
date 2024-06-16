@@ -2,7 +2,7 @@ SHOW_GRAPHICS = False
 RUN_CEO = False
 RUN_CBO = False
 RUN_BO = False
-SAVE_RUN = False
+SAVE_RUN = True
 
 # error distributions for run: 'gaussian', 'isotropic-gaussian', 'exponential'
 PRESETS = ["chain", "collider", "fork", "random"]

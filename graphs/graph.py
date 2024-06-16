@@ -651,6 +651,9 @@ class GraphStructure:
             if node != target:
                 self._edges.append((node, target))
 
+        self._parents, self._children = self.build_relationships()
+        self._G = self.make_graphical_model()
+
     @abc.abstractmethod
     def mispecify_graph(self, edges):
         """

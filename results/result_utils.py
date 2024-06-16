@@ -91,3 +91,224 @@ def plot_everything(
         plt.savefig(filename)
 
     plt.show()
+
+
+def all_means(
+    base_path, num_cbo_graphs, n_obs=200, n_int=2, noiseless=True, graph_idxs=None
+):
+
+    if graph_idxs is None:
+        graph_idxs = range(num_cbo_graphs)
+
+    mean_results = {}
+    noisy_suffix = r"\.pickle" if noiseless else r"noisy\.pickle"
+    noisy_string = "" if noiseless else "_noisy"
+
+    # Load and aggregate results for CEO
+    ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
+    ceo_results = load_results(base_path, ceo_string)
+    ceo_results = np.hstack([ceo_result["Per_trial_Y"] for ceo_result in ceo_results])
+    ceo_mean = np.mean(ceo_results)
+    ceo_std = np.std(ceo_results)
+    mean_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
+
+    # Load and aggregate results for BO
+    # Load and aggregate results for CEO
+    bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+    bo_results = load_results(base_path, bo_string)
+    bo_results = np.hstack([bo_result["Per_trial_Y"] for bo_result in bo_results])
+    bo_mean = np.mean(bo_results)
+    bo_std = np.std(bo_results)
+    mean_results["bo"] = {"mean": bo_mean, "std": bo_std}
+
+    for graph_index in range(num_cbo_graphs):
+        cbo_string = (
+            rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
+        )
+        cbo_results = load_results(base_path, cbo_string)
+        cbo_results = np.hstack(
+            [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
+        )
+        cbo_mean = np.mean(cbo_results)
+        cbo_std = np.std(cbo_results)
+        mean_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
+
+    return mean_results
+
+
+def all_best(
+    base_path, num_cbo_graphs, n_obs=200, n_int=2, noiseless=True, graph_idxs=None
+):
+    if graph_idxs is None:
+        graph_idxs = range(num_cbo_graphs)
+
+    min_results = {}
+    noisy_suffix = r"\.pickle" if noiseless else r"noisy\.pickle"
+    noisy_string = "" if noiseless else "_noisy"
+
+    # Load and aggregate results for CEO
+    ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
+    ceo_results = load_results(base_path, ceo_string)
+    ceo_results = np.vstack([ceo_result["Best_Y"] for ceo_result in ceo_results])
+    ceo_best_results = ceo_results.min(axis=1)
+    ceo_mean = np.mean(ceo_best_results)
+    ceo_std = np.std(ceo_best_results)
+    min_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
+
+    # Load and aggregate results for BO
+    # Load and aggregate results for CEO
+    bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+    bo_results = load_results(base_path, bo_string)
+    bo_results = np.vstack([bo_result["Best_Y"] for bo_result in bo_results])
+    bo_best_results = bo_results.min(axis=1)
+    bo_mean = np.mean(bo_best_results)
+    bo_std = np.std(bo_best_results)
+    min_results["bo"] = {"mean": bo_mean, "std": bo_std}
+
+    for graph_index in range(num_cbo_graphs):
+        cbo_string = (
+            rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
+        )
+        cbo_results = load_results(base_path, cbo_string)
+        cbo_results = np.vstack(
+            [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
+        )
+        cbo_best_results = cbo_results.min(axis=1)
+        cbo_mean = np.mean(cbo_best_results)
+        cbo_std = np.std(cbo_best_results)
+        min_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
+
+    return min_results
+
+
+def all_best(
+    base_path, num_cbo_graphs, n_obs=200, n_int=2, noiseless=True, graph_idxs=None
+):
+
+    min_results = {}
+    noisy_suffix = r"\.pickle" if noiseless else r"noisy\.pickle"
+    noisy_string = "" if noiseless else "_noisy"
+
+    # Load and aggregate results for CEO
+    ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
+    ceo_results = load_results(base_path, ceo_string)
+    ceo_results = np.vstack([ceo_result["Best_Y"] for ceo_result in ceo_results])
+    ceo_best_results = ceo_results.min(axis=1)
+    ceo_mean = np.mean(ceo_best_results)
+    ceo_std = np.std(ceo_best_results)
+    min_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
+
+    # Load and aggregate results for BO
+    # Load and aggregate results for CEO
+    bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+    bo_results = load_results(base_path, bo_string)
+    bo_results = np.vstack([bo_result["Best_Y"] for bo_result in bo_results])
+    bo_best_results = bo_results.min(axis=1)
+    bo_mean = np.mean(bo_best_results)
+    bo_std = np.std(bo_best_results)
+    min_results["bo"] = {"mean": bo_mean, "std": bo_std}
+
+    for graph_index in range(num_cbo_graphs):
+        cbo_string = (
+            rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
+        )
+        cbo_results = load_results(base_path, cbo_string)
+        cbo_results = np.vstack(
+            [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
+        )
+        cbo_best_results = cbo_results.min(axis=1)
+        cbo_mean = np.mean(cbo_best_results)
+        cbo_std = np.std(cbo_best_results)
+        min_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
+
+    return min_results
+
+
+def iterations_to_min(
+    base_path, num_cbo_graphs, n_obs=100, n_int=2, noiseless=True, graph_idxs=None
+):
+    argmin_results = {}
+    noisy_suffix = r"\.pickle" if noiseless else r"noisy\.pickle"
+    noisy_string = "" if noiseless else "_noisy"
+
+    # Load and aggregate results for CEO
+    ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
+    ceo_results = load_results(base_path, ceo_string)
+    ceo_results = np.vstack([ceo_result["Best_Y"] for ceo_result in ceo_results])
+    ceo_best_results = ceo_results.argmin(axis=1)
+    ceo_mean = np.mean(ceo_best_results)
+    ceo_std = np.std(ceo_best_results)
+    argmin_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
+
+    # Load and aggregate results for BO
+    # Load and aggregate results for CEO
+    bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+    bo_results = load_results(base_path, bo_string)
+    bo_results = np.vstack([bo_result["Best_Y"] for bo_result in bo_results])
+    bo_best_results = bo_results.argmin(axis=1)
+    bo_mean = np.mean(bo_best_results)
+    bo_std = np.std(bo_best_results)
+    argmin_results["bo"] = {"mean": bo_mean, "std": bo_std}
+
+    for graph_index in range(num_cbo_graphs):
+        cbo_string = (
+            rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
+        )
+        cbo_results = load_results(base_path, cbo_string)
+        cbo_results = np.vstack([cbo_result["Best_Y"] for cbo_result in cbo_results])
+        cbo_best_results = cbo_results.argmin(axis=1)
+        cbo_mean = np.mean(cbo_best_results)
+        cbo_std = np.std(cbo_best_results)
+        argmin_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
+
+    return argmin_results
+
+
+def all_uncertainties(
+    base_path, num_cbo_graphs, n_obs=100, n_int=2, noiseless=True, graph_idxs=None
+):
+    uncertanties = {}
+    noisy_suffix = r"\.pickle" if noiseless else r"noisy\.pickle"
+    noisy_string = "" if noiseless else "_noisy"
+
+    # Load and aggregate results for BO
+    # Load and aggregate results for CEO
+    bo_string = rf".*_bo_uncertainties_{n_obs}_{n_int}_{noisy_suffix}"
+    bo_results = load_results(base_path, bo_string)
+    bo_results = np.vstack([bo_result["total"] for bo_result in bo_results])
+    bo_mean = np.mean(bo_results)
+    bo_std = np.std(bo_results)
+    uncertanties["bo"] = {"mean": bo_mean, "std": bo_std}
+
+    # for graph_index in range(num_cbo_graphs):
+    #     cbo_string = (
+    #         rf".*_cbo_uncertainties_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
+    #     )
+    #     cbo_results = load_results(base_path, cbo_string)
+    #     cbo_results = np.vstack([cbo_result["total"] for cbo_result in cbo_results])
+    #     cbo_mean = np.mean(cbo_results)
+    #     cbo_std = np.std(cbo_results)
+    #     uncertanties[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
+
+    return uncertanties
+
+
+def box_plots_mean(mean_results: dict, experiment: str):
+    # Setup the plot
+    fig, ax = plt.subplots()
+    for i, (key, val) in enumerate(mean_results.items()):
+        mean, std = val["mean"], val["std"]
+        # Create the box
+        box = plt.Rectangle(
+            (i - 0.4, mean - std), 0.8, 2 * std, color="lightblue", alpha=0.5
+        )
+        ax.add_patch(box)
+        # Plot the mean line
+        plt.plot([i - 0.4, i + 0.4], [mean, mean], color="red")
+
+    # Set plot properties
+    plt.xticks(range(len(mean_results)), labels=mean_results.keys(), rotation=45)
+    plt.ylabel("Value")
+    plt.title(f"{experiment} y value for each algorithm")
+    plt.grid(True)
+    plt.show()

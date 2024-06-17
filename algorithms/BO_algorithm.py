@@ -76,6 +76,7 @@ class BO(BASE):
             for var in self.variables
             if var in self.manipulative_variables
         ]
+        self.exploration_set = [tuple(self.manipulative_variables)]
         self.graph.refit_models(self.D_O)
         X = np.hstack([self.D_O[var] for var in self.variables if var != self.target])
         X = X[:, manipulative_index]
@@ -89,6 +90,7 @@ class BO(BASE):
         best_y = []
         current_y = []
         current_cost = np.zeros(shape=T)
+        average_uncertainty = []
         # current_best = np.argmin(Y)
         best_y.append(np.mean(self.D_O[self.target]))
         # best_x[0, :] = X[current_best, :]
@@ -122,6 +124,9 @@ class BO(BASE):
             logging.info(f"-------- Iteration {i} --------")
             emukit_model.optimize()
             model_list = [emukit_model]
+            self.model_list_overall = model_list
+            total_uncertainty = self.quantify_total_uncertainty()
+            average_uncertainty.append(total_uncertainty["average"])
 
             if SHOW_GRAPHICS:
                 self.plot_model_list(model_list, tuple(self.manipulative_variables))
@@ -149,13 +154,12 @@ class BO(BASE):
             current_cost[i] = cummulative_cost
 
             # get the optimum
-            # results_X, results_Y = emukit_model.X, emukit_model.Y
             current_y.append(y_new[0][0])
             current_best = np.argmin(current_y)
             best_y.append(current_y[current_best])
-            # best_x[i + 1, :] = results_X[current_best, :]
 
             logging.info(
                 f"Total cost - {total_cost}: Cummulative cost - {cummulative_cost}: Best Y - {best_y[i + 1]}"
             )
-        return best_y, current_y, current_cost
+
+        return best_y, current_y, current_cost, average_uncertainty

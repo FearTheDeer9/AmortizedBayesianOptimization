@@ -217,6 +217,7 @@ class CBO(BASE):
         current_cost: List[int] = []
         global_opt: List[float] = []
         current_y: List[float] = []
+        average_uncertainty: List[float] = []
         intervention_set: List[Tuple[str]] = []
         intervention_values: List[Tuple[float]] = []
         global_opt.append(current_global_min)
@@ -289,6 +290,9 @@ class CBO(BASE):
                         self.do_function_list,
                     )
                 )
+                self.model_list_overall = model_list[-1]
+                uncertainties = self.quantify_total_uncertainty()
+                average_uncertainty.append(uncertainties["average"])
 
                 if SHOW_GRAPHICS:
                     for es in self.exploration_set:
@@ -371,4 +375,5 @@ class CBO(BASE):
             current_cost,
             intervention_set,
             intervention_values,
+            average_uncertainty,
         )

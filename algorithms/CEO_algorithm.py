@@ -245,9 +245,7 @@ class CEO(BASE):
         self.do_effects_functions: List[List[DoFunctions]] = (
             self.calculate_do_statistics()
         )
-        logging.info(ceo_utils.normalize_log(deepcopy(self.posterior)))
         self.update_posterior()
-        logging.info(ceo_utils.normalize_log(deepcopy(self.posterior)))
 
         self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
         logging.info(f"The updated posterior distribution is {self.all_posteriors[-1]}")
@@ -257,6 +255,7 @@ class CEO(BASE):
         self.model_list_overall: List[GPyModelWrapper] = [None] * len(
             self.exploration_set
         )
+
         arm_n_es_mapping = {i: es for i, es in enumerate(self.exploration_set)}
         arm_es_n_mapping = {tuple(es): i for i, es in enumerate(self.exploration_set)}
         target_classes: List[TargetClass] = [
@@ -272,6 +271,7 @@ class CEO(BASE):
         best_y_array.append(np.mean(self.D_O["Y"]))
         intervention_set: List[Tuple[str]] = []
         intervention_values: List[Tuple[float]] = []
+        average_uncertainty: List[float] = []
 
         current_y_array = []
 
@@ -318,6 +318,8 @@ class CEO(BASE):
                     self.do_effects_functions,
                     self.all_posteriors[-1],
                 )
+                uncertainties = self.quantify_total_uncertainty()
+                average_uncertainty.append(uncertainties["average"])
                 # doing the safe optimization stuff
                 if safe_optimization:
                     for es in self.exploration_set:
@@ -467,4 +469,5 @@ class CEO(BASE):
             cost_array,
             intervention_set,
             intervention_values,
+            average_uncertainty,
         )

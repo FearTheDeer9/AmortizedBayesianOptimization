@@ -1,14 +1,17 @@
 import abc
-from typing import List, Tuple
+import logging
+from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
+from GPy.models import GPRegression
 
 from graphs.graph import GraphStructure
 from graphs.graph_4_nodes import Graph4Nodes
 from graphs.graph_5_nodes import Graph5Nodes
 from graphs.graph_6_nodes import Graph6Nodes
+from graphs.graph_functions import create_grid_interventions
 from graphs.toy_graph import ToyGraph
 from utils.sem_sampling import sample_model
 
@@ -20,6 +23,22 @@ class BASE:
     """
 
     __metaclass__ = abc.ABCMeta
+
+    @abc.abstractmethod
+    def get_model_dict(self) -> Dict[str, GPyModelWrapper]:
+        model_list_dict = {
+            key: self.model_list_overall[i]
+            for i, key in enumerate(self.exploration_set)
+        }
+        return model_list_dict
+
+    @abc.abstractmethod
+    def get_graph(self) -> GraphStructure:
+        return self.graph
+
+    @abc.abstractmethod
+    def get_exploration_set(self) -> List[Tuple[str]]:
+        return self.exploration_set
 
     @property
     @abc.abstractmethod
@@ -119,3 +138,36 @@ class BASE:
         ax.legend(loc="upper right", fontsize=10, frameon=True, shadow=True)
 
         return fig, ax
+
+    def quantify_total_uncertainty(self, num_points: int = 100):
+        # average it over all the surrogate models
+        model_dict = self.get_model_dict()
+        exploration_set = self.get_exploration_set()
+        graph = self.get_graph()
+
+        self.intervention_grid = create_grid_interventions(
+            graph.get_interventional_range(),
+            get_list_format=True,
+            num_points=num_points,
+        )
+
+        if exploration_set is None:
+            exploration_set = graph.get_sets()[2]
+            exploration_set = [tuple(exploration_set)]
+        all_entropies = np.zeros(shape=len(exploration_set))
+        for i, es in enumerate(exploration_set):
+            grid = self.intervention_grid[es]
+            model: GPRegression = model_dict[es].model
+            # print(grid)
+            values = np.vstack([value for value in grid])
+            variance = model.predict(values)[1]
+            entropy = 1 / 2 * np.log(2 * variance * np.pi * np.e)
+            all_entropies[i] = np.mean(entropy)
+
+        total_uncertainty = {}
+        for i in range(len(all_entropies)):
+            total_uncertainty[exploration_set[i]] = all_entropies[i]
+
+        total_uncertainty["average"] = np.mean(all_entropies)
+        logging.info(f"The total uncertainty is {total_uncertainty}")
+        return total_uncertainty

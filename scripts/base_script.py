@@ -97,6 +97,7 @@ def run_script(
             cost_array,
             intervention_set,
             intervention_value,
+            average_uncertainty,
         ) = model.run_algorithm(T=n_trials, safe_optimization=True)
 
         ceo_result_dict = {
@@ -105,6 +106,7 @@ def run_script(
             "Cost": cost_array,
             "Intervention_Set": intervention_set,
             "Intervention_Value": intervention_value,
+            "Uncertainty": average_uncertainty,
         }
 
         filename_ceo = f"results/{filename}/run_ceo_{run_num}_results_{n_obs}_{n_int}_{noisy_string}.pickle"
@@ -127,6 +129,7 @@ def run_script(
                 cost_array,
                 intervention_set,
                 intervention_value,
+                average_uncertainty,
             ) = cbo_model.run_algorithm(T=n_trials)
 
             cbo_results_dict = {
@@ -135,6 +138,7 @@ def run_script(
                 "Cost": cost_array,
                 "Intervention_Set": intervention_set,
                 "Intervention_Value": intervention_value,
+                "Uncertainty": average_uncertainty,
             }
 
             filename_cbo = f"results/{filename}/run{run_num}_cbo_results_{n_obs}_{n_int}_graph_{i}{noisy_string}.pickle"
@@ -150,17 +154,20 @@ def run_script(
         graph.break_dependency_structure()
         bo_model = BO(graph=graph, noiseless=noiseless)
         bo_model.set_values(deepcopy(D_O))
-        best_y_array, current_y_array, cost_array = bo_model.run_algorithm(T=n_trials)
-        cbo_results_dict = {
+        best_y_array, current_y_array, cost_array, average_uncertainty = (
+            bo_model.run_algorithm(T=n_trials)
+        )
+        bo_results_dict = {
             "Best_Y": best_y_array,
             "Per_trial_Y": current_y_array,
             "Cost": cost_array,
+            "Uncertainty": average_uncertainty,
         }
 
         filename_bo = f"results/{filename}/run{run_num}_bo_results_{n_obs}_{n_int}_{noisy_string}.pickle"
         if SAVE_RUN:
             with open(filename_bo, "wb") as file:
-                pickle.dump(cbo_results_dict, file)
+                pickle.dump(bo_results_dict, file)
 
 
 def run_script_uncertainty(
@@ -198,7 +205,7 @@ def run_script_uncertainty(
             with open(filename_cbo, "wb") as file:
                 pickle.dump(cbo_uncertainty_dict, file)
 
-    if True:
+    if RUN_BO:
         graph = set_graph(graph_type)
         graph.break_dependency_structure()
         graph.fit_samples_to_graph(D_O)

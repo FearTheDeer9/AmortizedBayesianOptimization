@@ -12,6 +12,7 @@ from GPy.core.parameterization import priors
 from GPy.kern import RBF
 from GPy.models.gp_regression import GPRegression
 from pgmpy.models import BayesianNetwork
+from scipy.stats import entropy
 from sklearn.neighbors import KernelDensity
 
 MESSAGE = "Subclass should implement this."
@@ -664,29 +665,32 @@ class GraphStructure:
         self._G = self.make_graphical_model()
 
     @abc.abstractmethod
-    def uncertainty_decomposition(
-        self, observational_samples: Dict, num_points: int = 100
-    ):
+    def entropy_decomposition(self, observational_samples: Dict, num_points: int = 100):
         # decompose the variance into epistemic uncertainty and aleatoric uncertainty
         _, _, manipulative_variables = self.get_sets()
+        total_entropy = 0
         for var in self.variables:
-            if var in manipulative_variables:
-                interventional_range = self.get_interventional_range()[var]
-                """add to the epistemic uncertainty"""
-                vals = np.linspace(
-                    start=interventional_range[0],
-                    stop=interventional_range[1],
-                    num=num_points,
+            parents = self.parents[var]
+            function = self.functions[var]
+            if parents:
+                dataset = np.hstack(
+                    [observational_samples[parent] for parent in parents]
                 )
-            elif var != self.target:
-                """add to the aleatoric uncertainty"""
-                pass
-            elif var == self.target:
-                """decompose how the uncertainty for the target is calculated"""
-                self.decompose_target_variance()
-
+                variance = function.predict(dataset)[1]
+                # print(variance)
+                entropy = 1 / 2 * np.log(2 * np.pi * np.exp(1) * variance)
+                # print(entropy)
+                total_entropy += np.mean(entropy)
+                print(f"{var} taking average {np.mean(entropy)}")
             else:
-                logging.error("SHOULD NOT GET HERE")
+                # since we assume gaussian noise and use gausian kernel use gausian again
+                variance = function.predict()[1]
+                entropy = 1 / 2 * np.log(2 * np.pi * np.exp(1) * variance)
+                total_entropy += entropy
+                print(f"{var} taking marginal {np.mean(entropy)}")
+
+        entropy_dict = {"entropy": total_entropy}
+        return entropy_dict
 
     @abc.abstractmethod
     def decompose_variance(
@@ -726,16 +730,6 @@ class GraphStructure:
                     # this means we are in the subset C
                     count_nm += 1
                     aleatoric_uncertainty += np.mean(variance)
-
-        # else:
-        #     target_function: MyKDE = self.functions[variable]
-        #     variance = target_function.predict()[1]
-        #     if variable in manipulative_variables:
-        #         epistemic_uncertainty += variance
-        #     else:
-        #         aleatoric_uncertainty += variance
-
-        # normalize these uncertainties by the size of the set
         if count_m > 0:
             # XXX can divide by count_m here but it overall
             epistemic_uncertainty = epistemic_uncertainty

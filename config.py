@@ -2,6 +2,7 @@ SHOW_GRAPHICS = False
 RUN_CEO = True
 RUN_CBO = True
 RUN_BO = True
+RUN_BOED = True
 SAVE_RUN = True
 
 # error distributions for run: 'gaussian', 'isotropic-gaussian', 'exponential'

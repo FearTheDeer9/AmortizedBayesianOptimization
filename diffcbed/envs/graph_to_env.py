@@ -180,15 +180,10 @@ class GraphStructureEnv(CausalEnvironment):
             mutated_graph[:, nodes_int] = 0
 
         # Initialize a new DiGraph from the mutated adjacency matrix
-        print(self.graph.edges)
         new_graph = nx.from_numpy_array(mutated_graph, create_using=nx.DiGraph)
 
         label_mapping = {idx: node for idx, node in enumerate(self.node_map)}
-        print(self.graph.nodes)
-        print(self.node_map)
-        print(label_mapping)
         nx.relabel_nodes(new_graph, label_mapping, copy=False)
-        print(new_graph.nodes)
 
         # Set node attributes from old graph (if necessary)
         # for node in new_graph.nodes:

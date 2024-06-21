@@ -8,7 +8,9 @@ import numpy as np
 from GPy.models.gp_regression import GPRegression
 
 from config import NOISE_TYPE_INDEX, NOISE_TYPES
-from envs.erdos_renyi import CausalEnvironment, ErdosRenyi
+from diffcbed.envs.causal_environment import CausalEnvironment
+from diffcbed.envs.erdos_renyi import ErdosRenyi
+from diffcbed.envs.samplers import D
 from graphs.graph import GraphStructure
 from graphs.graph_chain import define_SEM_causalenv
 

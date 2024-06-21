@@ -14,7 +14,7 @@ from sklearn.gaussian_process.kernels import RBF
 from sklearn.metrics import f1_score
 
 from config import NOISE_TYPES, PRESETS, VARIABLE_TYPES
-from envs.samplers import D
+from diffcbed.envs.samplers import D
 
 Data = namedtuple("Data", ["samples", "intervention_node"])
 

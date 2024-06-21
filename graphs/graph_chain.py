@@ -10,9 +10,9 @@ from GPy.models.gp_regression import GPRegression
 from scipy.special import expit
 
 from config import NOISE_TYPE_INDEX, NOISE_TYPES
-from envs.causal_environment import CausalEnvironment
-from envs.chain import Chain
-from envs.samplers import D
+from diffcbed.envs.causal_environment import CausalEnvironment
+from diffcbed.envs.chain import Chain
+from diffcbed.envs.samplers import D
 from graphs.graph import GraphStructure
 
 

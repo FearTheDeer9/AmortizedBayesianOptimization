@@ -280,15 +280,15 @@ def all_uncertainties(
     bo_std = np.std(bo_results)
     uncertanties["bo"] = {"mean": bo_mean, "std": bo_std}
 
-    # for graph_index in range(num_cbo_graphs):
-    #     cbo_string = (
-    #         rf".*_cbo_uncertainties_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
-    #     )
-    #     cbo_results = load_results(base_path, cbo_string)
-    #     cbo_results = np.vstack([cbo_result["total"] for cbo_result in cbo_results])
-    #     cbo_mean = np.mean(cbo_results)
-    #     cbo_std = np.std(cbo_results)
-    #     uncertanties[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
+    for graph_index in range(num_cbo_graphs):
+        cbo_string = (
+            rf".*_cbo_uncertainties_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
+        )
+        cbo_results = load_results(base_path, cbo_string)
+        cbo_results = np.vstack([cbo_result["total"] for cbo_result in cbo_results])
+        cbo_mean = np.mean(cbo_results)
+        cbo_std = np.std(cbo_results)
+        uncertanties[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
 
     return uncertanties
 

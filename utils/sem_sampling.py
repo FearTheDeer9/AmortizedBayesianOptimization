@@ -1,6 +1,6 @@
 import logging
 import random
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from itertools import combinations, islice, product
 from typing import Callable, Dict, List, Tuple
 
@@ -9,6 +9,8 @@ import numpy as np
 from GPy.models.gp_regression import GPRegression
 
 from graphs.graph import GraphStructure
+
+Data = namedtuple("Data", ["samples", "intervention_node"])
 
 
 # removed the dynamic component as I am only considering static SEMs
@@ -370,3 +372,44 @@ def draw_interventional_samples_sem(
         for var in interventional_data[idx]:
             interventional_data[idx][var] = np.array(interventional_data[idx][var])
     return interventional_data
+
+
+def change_obs_data_format_to_mi(D_O: Dict, intervention_node=-1) -> Data:
+    """
+    Change the data format from the format for the BO methods to the format needed for the
+    the MI methods
+    """
+    D_O_mi = np.hstack([D_O[key] for key in D_O])
+    print(D_O_mi)
+    return Data(samples=D_O_mi, intervention_node=intervention_node)
+
+
+def change_obs_data_format_to_bo(D_O: Data, node_names: List) -> Dict:
+    """
+    Change the data format from the format for the MI methods to the format needed for the
+    the BO methods
+    """
+    data = D_O.samples
+    data_bo = {}
+    for i, node_name in enumerate(node_names):
+        data_bo[node_name] = data[:, i]
+    return data_bo
+
+
+def change_int_data_format_to_mi(D_I: Dict) -> List[Data]:
+    # this only takes into account one intervention
+    D_I_mi = []
+    for key in D_I:
+        if len(key) == 1:
+            D_I_mi.append(
+                change_obs_data_format_to_mi(D_I[key], intervention_node=key[0])
+            )
+
+    return D_I_mi
+
+
+def change_int_data_format_to_bo(D_I: Data, node_names: List) -> Dict:
+    D_I_bo = {}
+    intervention = D_I.intervention_node
+    D_I_bo[intervention] = change_obs_data_format_to_bo(D_I, node_names)
+    return D_I_bo

@@ -1,12 +1,17 @@
 from typing import Dict
 
+from algorithms.BASE_algorithm import BASE
 from diffcbed.envs.causal_environment import CausalEnvironment
 from diffcbed.models.posterior_model import PosteriorModel
 from diffcbed.replay_buffer import ReplayBuffer
 from diffcbed.strategies.acquisition_strategy import AcquisitionStrategy
+from utils.sem_sampling import (
+    change_int_data_format_to_mi,
+    change_obs_data_format_to_mi,
+)
 
 
-class BOED:
+class BOED(BASE):
 
     def __init__(
         self,
@@ -22,8 +27,14 @@ class BOED:
         self.args = args
         self.buffer: ReplayBuffer = ReplayBuffer(binary=True)
 
-    def set_values(self, samples):
-        pass
+    def set_values(self, D_O, D_I):
+        self.D_O = change_obs_data_format_to_mi(D_O)
+        self.D_I = change_int_data_format_to_mi(D_I)
+        self.buffer.update(self.D_O)
+        for intervention in self.D_I:
+            self.buffer.update(intervention)
+
+        self.posterior_model.update(self.buffer.data())
 
     def run_algorithm(self, T: int = 50):
 

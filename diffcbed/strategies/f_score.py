@@ -1,7 +1,7 @@
 import numpy as np
 from collections import defaultdict
 
-from envs.samplers import Constant
+from diffcbed.envs.samplers import Constant
 from scipy.special import logsumexp
 from .acquisition_strategy import AcquisitionStrategy
 

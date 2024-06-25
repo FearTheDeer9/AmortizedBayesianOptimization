@@ -6,12 +6,12 @@ import matplotlib.pyplot as plt
 import math
 from matplotlib.lines import Line2D
 import time
-import strategies.multi_perturbation_ed.params
+import diffcbed.strategies.multi_perturbation_ed.params
 import json
 import sys
-import strategies.multi_perturbation_ed.mec_size
+import diffcbed.strategies.multi_perturbation_ed.mec_size
 import networkx.algorithms.approximation.vertex_cover as vertex_cover
-import strategies.multi_perturbation_ed.dream
+import diffcbed.strategies.multi_perturbation_ed.dream
 
 """
 Represented by a binary matrix where m[i, j]= 1 iff i->j, else 0

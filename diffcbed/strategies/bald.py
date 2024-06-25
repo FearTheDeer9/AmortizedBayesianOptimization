@@ -6,7 +6,7 @@ import numpy as np
 import tqdm
 from scipy.special import logsumexp
 
-from envs.samplers import Constant
+from diffcbed.envs.samplers import Constant
 
 from .acquisition_strategy import AcquisitionStrategy
 

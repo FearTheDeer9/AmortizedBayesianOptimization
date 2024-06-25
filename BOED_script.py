@@ -66,15 +66,24 @@ ENVS = {
     "graph": GraphStructureEnv,
 }
 
-strategy = "policyoptnmc"
-model = "dag_bootstrap"
+
+
+strategy_name = "policyoptnmc"
+model_name = "dag_bootstrap"
 env = "graph"
 
-args = argparse.Namespace(scm_bias=0.0, noise_bias=0.0)
+# setting up each of these three
+
+
 graph = ToyGraph()
+num_nodes = len(graph.variables)
+args = argparse.Namespace(scm_bias=0.0, noise_bias=0.0, num_nodes=num_nodes, 
+                          num_particles=10, group_interventions=False, seed=42, num_samples=100, batch_size=1, value_strategy="fixed", num_targets=1, node_range=[-1.0,1.0])
 graph_env = GraphStructureEnv(graph, args)
 D_O, D_I, _ = setup_observational_interventional("Toy", n_obs=100, n_int=2, seed=42)
 
-boed = BOED(graph_env, STRATEGIES[strategy], MODELS[model])
+model = MODELS[model_name](graph_env, args)
+strategy = STRATEGIES[strategy_name](model, graph_env, args)
+boed = BOED(graph_env, model, strategy, args)
 boed.set_values(D_O, D_I)
 boed.run_algorithm()

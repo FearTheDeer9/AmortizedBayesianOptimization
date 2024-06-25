@@ -379,7 +379,7 @@ def change_obs_data_format_to_mi(D_O: Dict, intervention_node=-1) -> Data:
     Change the data format from the format for the BO methods to the format needed for the
     the MI methods
     """
-    D_O_mi = np.hstack([D_O[key] for key in D_O])
+    D_O_mi = np.hstack([D_O[key].reshape(-1, 1) for key in D_O])
     print(D_O_mi)
     return Data(samples=D_O_mi, intervention_node=intervention_node)
 

@@ -1,5 +1,7 @@
 from typing import Dict
 
+import numpy as np
+
 from algorithms.BASE_algorithm import BASE
 from diffcbed.envs.causal_environment import CausalEnvironment
 from diffcbed.models.posterior_model import PosteriorModel
@@ -25,16 +27,18 @@ class BOED(BASE):
         self.posterior_model: PosteriorModel = posterior_model
         self.acquisition_strategy: AcquisitionStrategy = acquisition_strategy
         self.args = args
-        self.buffer: ReplayBuffer = ReplayBuffer(binary=True)
+        self.buffer: ReplayBuffer = ReplayBuffer(binary=False)
 
     def set_values(self, D_O, D_I):
         self.D_O = change_obs_data_format_to_mi(D_O)
+        self.posterior_model.covariance_matrix = np.cov(self.D_O.samples.T)
         self.D_I = change_int_data_format_to_mi(D_I)
         self.buffer.update(self.D_O)
         for intervention in self.D_I:
             self.buffer.update(intervention)
 
         self.posterior_model.update(self.buffer.data())
+        
 
     def run_algorithm(self, T: int = 50):
 

@@ -5,19 +5,19 @@ import random
 # from causaldag.utils.ci_tests import gauss_ci_suffstat, gauss_ci_test, MemoizedCI_Tester
 # from causaldag.utils.invariance_tests import gauss_invariance_suffstat, gauss_invariance_test, MemoizedInvarianceTester
 # import finite
-import strategies.multi_perturbation_ed.finite as finite
+import diffcbed.strategies.multi_perturbation_ed.finite as finite
 from scipy.stats import entropy
 from scipy.special import logsumexp
 from sklearn import preprocessing
 import time
-import strategies.multi_perturbation_ed.main as main
-import strategies.multi_perturbation_ed.mec_size as mec_size
+import diffcbed.strategies.multi_perturbation_ed.main as main
+import diffcbed.strategies.multi_perturbation_ed.mec_size as mec_size
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import json
 import sys
 import math
-import strategies.multi_perturbation_ed.params as params
+import diffcbed.strategies.multi_perturbation_ed.params as params
 
 def gen_dag_weights(dag):
     """

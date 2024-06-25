@@ -14,7 +14,7 @@ from bayes_opt import BayesianOptimization
 from jax import value_and_grad
 from jax.example_libraries import optimizers
 
-from envs.samplers import Constant
+from diffcbed.envs.samplers import Constant
 
 from .value_acquisition_strategy import (
     BOValueAcquisitionStrategy,

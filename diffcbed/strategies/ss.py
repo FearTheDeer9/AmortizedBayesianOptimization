@@ -1,7 +1,7 @@
 import numpy as np
 
 # import strategies.multi_perturbation_ed.main as mpe_main
-import strategies.multi_perturbation_ed.finite_cd as finite_cd
+import diffcbed.strategies.multi_perturbation_ed.finite_cd as finite_cd
 
 from .acquisition_strategy import AcquisitionStrategy
 

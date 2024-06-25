@@ -14,7 +14,7 @@ class ReplayBuffer(object):
 
     def update(self, data):
         self.buffer.append(data)
-
+        
         if (self.binary and data.intervention_node.sum() == 0) or (not self.binary and data.intervention_node == -1):
             self.n_obs += len(data.samples)
         else:

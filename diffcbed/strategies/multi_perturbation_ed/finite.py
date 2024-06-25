@@ -4,7 +4,7 @@ The module for all experiments related to the finite sample case
 
 import numpy as np
 import networkx as nx
-import strategies.multi_perturbation_ed.main as main
+import diffcbed.strategies.multi_perturbation_ed.main as main
 from sklearn.linear_model import LinearRegression
 from scipy.stats import multivariate_normal
 from scipy.stats import norm

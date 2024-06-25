@@ -8,7 +8,7 @@ import numpy as np
 from jax.scipy.stats.norm import logpdf
 from scipy.special import logsumexp
 
-from models.dag_bootstrap_lib import utils
+from diffcbed.models.dag_bootstrap_lib import utils
 
 from .posterior_model import PosteriorModel
 

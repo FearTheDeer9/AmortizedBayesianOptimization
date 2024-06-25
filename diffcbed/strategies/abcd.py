@@ -2,7 +2,7 @@ import numpy as np
 
 from .acquisition_strategy import AcquisitionStrategy
 from collections import defaultdict
-from envs.samplers import Constant
+from diffcbed.envs.samplers import Constant
 
 
 class ABCDStrategy(AcquisitionStrategy):

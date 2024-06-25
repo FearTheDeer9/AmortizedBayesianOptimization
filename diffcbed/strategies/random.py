@@ -1,7 +1,7 @@
 import os
 import numpy as np
 
-from envs.samplers import Constant
+from diffcbed.envs.samplers import Constant
 from .acquisition_strategy import AcquisitionStrategy
 from collections import defaultdict
 

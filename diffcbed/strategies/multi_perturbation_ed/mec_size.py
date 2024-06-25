@@ -8,7 +8,7 @@ from scipy.sparse.csgraph import connected_components
 import itertools
 from itertools import combinations
 from networkx.algorithms.tree.recognition import is_tree as nx_is_tree
-import strategies.multi_perturbation_ed.main
+import diffcbed.strategies.multi_perturbation_ed.main
 import time
 
 

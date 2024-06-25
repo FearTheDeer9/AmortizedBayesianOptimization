@@ -1,6 +1,6 @@
 from bayes_opt import BayesianOptimization, UtilityFunction
 import numpy as np
-from envs.samplers import Constant
+from diffcbed.envs.samplers import Constant
 
 
 class ValueAcquisitionStrategy(object):

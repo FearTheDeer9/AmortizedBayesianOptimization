@@ -622,7 +622,6 @@ class PolicyOptimization(object):
         else:
             nodes = jnp.int32(policy_params["nodes"])
             values = jnp.float32(policy_params["values"])
-
         return {"nodes": nodes, "values": values}, aux
 
 

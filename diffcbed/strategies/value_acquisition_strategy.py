@@ -21,17 +21,21 @@ class ValueAcquisitionStrategy(object):
         self.extra = [{}] * len(self.nodes)
 
         for i in range(n_iters):
-            value_samplers = [Constant(self.values[i][node]) for node in self.nodes]
+            value_samplers = [Constant(self.values[i][j]) for j, node in enumerate(self.nodes)]
             self.target[i], self.extra[i] = func(self.nodes, value_samplers, **kargs)
 
         self.func_max = np.amax(self.target)
         _max_x_idx, _max_j_idx = np.unravel_index(
             np.argmax(self.target, axis=None), self.target.shape
         )
+
+        # XXX made changes here
+        # print(f"This is causing the error {_max_j_idx} {self.nodes}")
+        node_map = {i : node for i, node in enumerate(self.nodes)}
         self.max_iter, self.max_x, self.max_j = (
             _max_x_idx,
-            self.values[_max_x_idx][self.nodes[_max_j_idx]],
-            self.nodes[_max_j_idx],
+            self.values[_max_x_idx][_max_j_idx],
+            _max_j_idx,
         )
 
         return self

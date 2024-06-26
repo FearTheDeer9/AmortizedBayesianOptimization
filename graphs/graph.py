@@ -266,7 +266,8 @@ class GraphStructure:
 
     @abc.abstractmethod
     def get_exploration_set(self):
-        raise NotImplementedError(MESSAGE)
+        logging.warning(MESSAGE)
+        return self.variables
 
     @abc.abstractmethod
     def refit_models(self, observational_samples):
@@ -288,7 +289,11 @@ class GraphStructure:
         """
         Sets the range of the variables we can intervene upon
         """
-        raise NotImplementedError(MESSAGE)
+        logging.warning(MESSAGE)
+        interventional_range = OrderedDict()
+        for var in self.variables:
+            interventional_range[var] = [-5, 5]
+        return interventional_range
 
     @abc.abstractmethod
     def get_set_BO(self):
@@ -349,9 +354,15 @@ class GraphStructure:
     def make_graphical_model(self) -> nx.MultiDiGraph:
         model = BayesianNetwork(self.edges)
 
-        # Manually creating a networkx graph from the BayesianModel
+        # Create a new MultiDiGraph
         G = nx.MultiDiGraph()
+        
+        # Add all nodes from the BayesianNetwork
+        G.add_nodes_from(self.variables)
+        
+        # Add all edges from the BayesianNetwork
         G.add_edges_from(model.edges())
+        
         return G
 
     @abc.abstractmethod

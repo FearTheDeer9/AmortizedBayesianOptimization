@@ -86,6 +86,11 @@ class PosteriorModel(object):
         return intervention_scores, intervention_logpdfs
 
     def _update_likelihood(self, nodes, nsamples, value_samplers, datapoints):
+        for intv_ix, intervention in tqdm(
+            enumerate(value_samplers), total=len(value_samplers)
+        ):
+            print(intv_ix, intervention)
+        print(nodes)
         matrix = np.stack(
             [
                 np.stack(
@@ -93,7 +98,8 @@ class PosteriorModel(object):
                         self.interventional_likelihood(
                             graph_ix=l,
                             data=datapoints[:, intv_ix].reshape(-1, len(nodes)),
-                            interventions={nodes[intv_ix]: intervention}
+                            # interventions={nodes[intv_ix]: intervention}
+                            interventions={intv_ix: intervention}
                         ).reshape(len(self.dags), nsamples)
                         for l, outter_dag in enumerate(self.dags)
                     ],

@@ -180,7 +180,7 @@ def sample_model(
                 epsilon_term = graph.get_error_distribution(noiseless=noiseless)
             else:
                 epsilon_term = epsilon
-
+            
             tmp = sample_from_SEM(
                 static_sem=static_sem,
                 initial_values=initial_values,
@@ -374,42 +374,52 @@ def draw_interventional_samples_sem(
     return interventional_data
 
 
-def change_obs_data_format_to_mi(D_O: Dict, intervention_node=-1) -> Data:
+def change_obs_data_format_to_mi(D_O: Dict, graph_variables: List, intervention_node) -> Data:
     """
     Change the data format from the format for the BO methods to the format needed for the
     the MI methods
     """
     D_O_mi = np.hstack([D_O[key].reshape(-1, 1) for key in D_O])
-    print(D_O_mi)
+    # if intervention_node == -1:
+    #     intervention_node = np.zeros(shape=len(graph_variables))
+    # else:
+    #     intervention_node = np.zeros(shape=len(graph_variables))
+    #     for i, var in enumerate(graph_variables):
+    #         if var in intervention_node:
+    #             intervention_node[i] = 1
     return Data(samples=D_O_mi, intervention_node=intervention_node)
 
 
-def change_obs_data_format_to_bo(D_O: Data, node_names: List) -> Dict:
+def change_obs_data_format_to_bo(D_O: Data, graph_variables: List) -> Dict:
     """
     Change the data format from the format for the MI methods to the format needed for the
     the BO methods
     """
     data = D_O.samples
     data_bo = {}
-    for i, node_name in enumerate(node_names):
+    for i, node_name in enumerate(graph_variables):
         data_bo[node_name] = data[:, i]
     return data_bo
 
 
-def change_int_data_format_to_mi(D_I: Dict) -> List[Data]:
+def change_int_data_format_to_mi(D_I: Dict, graph_variables: List) -> List[Data]:
     # this only takes into account one intervention
     D_I_mi = []
     for key in D_I:
         if len(key) == 1:
+            intervention_node = np.zeros(shape=len(graph_variables))
+            for i, var in enumerate(graph_variables):
+                if var in key:
+                    intervention_node[i] = 1
             D_I_mi.append(
-                change_obs_data_format_to_mi(D_I[key], intervention_node=key[0])
+                change_obs_data_format_to_mi(D_I[key], graph_variables, intervention_node=intervention_node)
             )
 
     return D_I_mi
 
 
-def change_int_data_format_to_bo(D_I: Data, node_names: List) -> Dict:
+def change_int_data_format_to_bo(D_I: Data, graph_variables: List) -> Dict:
     D_I_bo = {}
     intervention = D_I.intervention_node
-    D_I_bo[intervention] = change_obs_data_format_to_bo(D_I, node_names)
+    D_I_bo[intervention] = change_obs_data_format_to_bo(D_I, graph_variables)
     return D_I_bo

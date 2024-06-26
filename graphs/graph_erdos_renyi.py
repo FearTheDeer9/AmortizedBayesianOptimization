@@ -17,8 +17,8 @@ from graphs.graph_chain import define_SEM_causalenv
 
 class ErdosRenyiGraph(GraphStructure):
 
-    def __init__(self, num_nodes: int):
-        args = argparse.Namespace(scm_bias=1.0, noise_bias=1.0, old_er_logic=True)
+    def __init__(self, num_nodes: int, seed: int = 17):
+        args = argparse.Namespace(scm_bias=0.0, noise_bias=0.0, old_er_logic=True)
         self.num_nodes = num_nodes
 
         self.causal_env: CausalEnvironment = ErdosRenyi(
@@ -31,10 +31,13 @@ class ErdosRenyiGraph(GraphStructure):
             (str(edge[0]), str(edge[1])) for edge in self.causal_env.graph.edges
         ]
 
-        self._nodes = sorted(set(chain(*self.edges)))
+        self._nodes = sorted(set(self.variables))
         self._parents, self._children = self.build_relationships()
         self._target = f"{num_nodes - 1}"
         self._functions: Optional[Dict[str, Callable]] = None
+        self._G = self.make_graphical_model()
+
+        self.rng = np.random.default_rng(seed)
 
     def define_SEM(self):
         sem_functions = define_SEM_causalenv(
@@ -53,6 +56,7 @@ class ErdosRenyiGraph(GraphStructure):
             elif noise_type == "gaussian":
                 self._noise_std = np.linspace(0.1, 1.0, len(self.nodes))
             for i in range(len(self.nodes)):
+                print(i, self.nodes[i], self.nodes)
                 err_dist[self.nodes[i]] = D(
                     self.rng.normal, loc=0.0, scale=self._noise_std[i]
                 ).sample(1)

@@ -33,7 +33,7 @@ class GraphStructureEnv(CausalEnvironment):
         sigma_prior: float = 1.0,
         seed: int = 10,
         nonlinear: bool = False,
-        binary_nodes: bool = False,
+        binary_nodes: bool = True,
         logger=None,
     ):
         # this uses the networkx Graph as used in the graph datastructure
@@ -66,6 +66,8 @@ class GraphStructureEnv(CausalEnvironment):
         self.logger = logger
 
         self.node_map = {node: i for i, node in enumerate(self.graph.nodes)}
+        self.node_map_inv = {i: node for i, node in enumerate(self.graph.nodes)}
+        nx.relabel_nodes(self.graph, self.node_map, copy=False)
 
         # super().__init__(
         #     args,
@@ -159,10 +161,10 @@ class GraphStructureEnv(CausalEnvironment):
                 sample_dict[node] = noise
             else:
                 # Prepare parent values as input to the function
-                parent_values = {p: sample_dict[p] for p in nx.ancestors(graph, node)}
+                parent_values = {self.node_map_inv[p]: sample_dict[p] for p in nx.ancestors(graph, node)}
 
                 # Compute current node values using its function
-                current_values = self.SEM[node](noise, parent_values)
+                current_values = self.SEM[self.node_map_inv[node]](noise, parent_values)
                 sample_dict[node] = current_values
 
                 samples[:, i] = current_values
@@ -173,17 +175,18 @@ class GraphStructureEnv(CausalEnvironment):
         """Perform intervention to obtain a mutilated graph"""
 
         mutated_graph = self.adjacency_matrix.copy()
-        nodes_int = [self.node_map[node] for node in nodes]
+        # nodes_int = [self.node_map[node] for node in nodes]
+        # print(nodes)
         if self.binary_nodes:
             mutated_graph[:, nodes.astype(np.bool_)] = 0
         else:
-            mutated_graph[:, nodes_int] = 0
+            mutated_graph[:, nodes] = 0
 
         # Initialize a new DiGraph from the mutated adjacency matrix
         new_graph = nx.from_numpy_array(mutated_graph, create_using=nx.DiGraph)
 
-        label_mapping = {idx: node for idx, node in enumerate(self.node_map)}
-        nx.relabel_nodes(new_graph, label_mapping, copy=False)
+        # label_mapping = {idx: node for idx, node in enumerate(self.node_map)}
+        # nx.relabel_nodes(new_graph, label_mapping, copy=False)
 
         # Set node attributes from old graph (if necessary)
         # for node in new_graph.nodes:

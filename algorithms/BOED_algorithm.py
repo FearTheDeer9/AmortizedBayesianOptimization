@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import numpy as np
 
@@ -21,18 +21,20 @@ class BOED(BASE):
         posterior_model: PosteriorModel,
         acquisition_strategy: AcquisitionStrategy,
         args: Dict,
+        graph_variables: List
     ):
         # try to get the code the same as for the previous method
         self.env: CausalEnvironment = env
         self.posterior_model: PosteriorModel = posterior_model
         self.acquisition_strategy: AcquisitionStrategy = acquisition_strategy
         self.args = args
-        self.buffer: ReplayBuffer = ReplayBuffer(binary=False)
+        self.graph_variables = graph_variables
+        self.buffer: ReplayBuffer = ReplayBuffer(binary=True)
 
-    def set_values(self, D_O, D_I):
-        self.D_O = change_obs_data_format_to_mi(D_O)
+    def set_values(self, D_O: Dict, D_I: Dict):
+        self.D_O = change_obs_data_format_to_mi(D_O, graph_variables=self.graph_variables, intervention_node=np.zeros(shape=len(self.graph_variables)))
         self.posterior_model.covariance_matrix = np.cov(self.D_O.samples.T)
-        self.D_I = change_int_data_format_to_mi(D_I)
+        self.D_I = change_int_data_format_to_mi(D_I, graph_variables=self.graph_variables)
         self.buffer.update(self.D_O)
         for intervention in self.D_I:
             self.buffer.update(intervention)
@@ -41,18 +43,20 @@ class BOED(BASE):
         
 
     def run_algorithm(self, T: int = 50):
+        
 
         for i in range(T):
-            strategy = self.acquisition_strategy(
-                self.posterior_model, self.acquisition_strategy, self.args
-            )
+            # strategy = self.acquisition_strategy(
+            #     self.posterior_model, self.acquisition_strategy, self.args
+            # )
 
             # current assume you can intervene on all nodes
-            valid_interventions = self.env.graph.nodes
-            interventions, _ = strategy.acquire(valid_interventions, i)
+            # valid_interventions = self.env.graph.nodes
+            valid_interventions = list(range(self.args.num_nodes))
+            interventions, _ = self.acquisition_strategy.acquire(valid_interventions, i)
 
             # can change this to args.batch_size, currently assuming a size of 1
-            for k in range(1):
+            for k in range(self.args.batch_size):
                 self.buffer.update(
                     self.env.intervene(
                         i, 1, interventions["nodes"][k], interventions["values"][k]

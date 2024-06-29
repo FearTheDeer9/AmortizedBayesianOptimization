@@ -34,9 +34,11 @@ class GraphStructureEnv(CausalEnvironment):
         seed: int = 10,
         nonlinear: bool = False,
         binary_nodes: bool = True,
+        use_graph_error_dist: bool = True,  # boolean which determines if we sample from same distribution
         logger=None,
     ):
         # this uses the networkx Graph as used in the graph datastructure
+        self.graph_struct = graph
         self.graph: nx.DiGraph = nx.DiGraph(graph.G)
         self.SEM: OrderedDict = graph.SEM
         self.adjacency_matrix = nx.to_numpy_array(self.graph)
@@ -93,6 +95,7 @@ class GraphStructureEnv(CausalEnvironment):
 
         self.nodes = self.dag.nodes
         self.arcs = self.dag.arcs
+        self.use_graph_error_dist = use_graph_error_dist
 
     def __getitem__(self, index):
         return self.samples[index]
@@ -101,7 +104,6 @@ class GraphStructureEnv(CausalEnvironment):
         if graph is None:
             graph = self.graph
 
-        print(graph)
         nodes = list(graph.nodes)
         if self.noise_type.endswith("gaussian"):
             # Identifiable
@@ -145,11 +147,23 @@ class GraphStructureEnv(CausalEnvironment):
         samples = np.zeros((num_samples, self.num_nodes))
         sample_dict = {}
         edge_pointer = 0
+
+        if self.use_graph_error_dist:
+            epsilons = [
+                self.graph_struct.get_error_distribution() for _ in range(num_samples)
+            ]
         for i, node in enumerate(nx.topological_sort(graph)):
             if onehot and intervention_node[i] == 1:
                 noise = values[i]
             elif not onehot and node == intervention_node:
                 noise = values
+            elif intervention_node is not None:
+                # if an intervention was performed, ensure it was a perfect intervention
+                noise = np.zeros_like(shape=num_samples)
+            elif self.use_graph_error_dist:
+                noise = np.array(
+                    [epsilon[self.node_map_inv[node]] for epsilon in epsilons]
+                )
             else:
                 noise = self.args.scm_bias + self.graph.nodes[node]["sampler"].sample(
                     num_samples
@@ -161,7 +175,10 @@ class GraphStructureEnv(CausalEnvironment):
                 sample_dict[node] = noise
             else:
                 # Prepare parent values as input to the function
-                parent_values = {self.node_map_inv[p]: sample_dict[p] for p in nx.ancestors(graph, node)}
+                parent_values = {
+                    self.node_map_inv[p]: sample_dict[p]
+                    for p in nx.ancestors(graph, node)
+                }
 
                 # Compute current node values using its function
                 current_values = self.SEM[self.node_map_inv[node]](noise, parent_values)

@@ -29,32 +29,32 @@ from diffcbed.strategies import (
 )
 from graphs.data_setup import setup_observational_interventional
 from graphs.graph_6_nodes import Graph6Nodes
-from graphs.toy_graph import ToyGraph
-from graphs.graph_erdos_renyi import ErdosRenyiGraph
 from graphs.graph_chain import ChainGraph
+from graphs.graph_erdos_renyi import ErdosRenyiGraph
+from graphs.toy_graph import ToyGraph
 
 # the only ones that work are the ones used in the diffcbed code
 STRATEGIES = {
-    "greedyabcd": GreedyABCDStrategy, # does not work
-    "abcd": ABCDStrategy, # does not work
-    "softbald": SoftBALDStrategy, # does not work
+    "greedyabcd": GreedyABCDStrategy,  # does not work
+    "abcd": ABCDStrategy,  # does not work
+    "softbald": SoftBALDStrategy,  # does not work
     "batchbald": BatchBALDStrategy,
     "bald": BALDStrategy,
-    "random": RandomAcquisitionStrategy, # works
-    "replay": ReplayStrategy, # does not work
-    "f-score": FScoreBatchStrategy, # does not work
+    "random": RandomAcquisitionStrategy,  # works
+    "replay": ReplayStrategy,  # does not work
+    "f-score": FScoreBatchStrategy,  # does not work
     "softf-score": SoftFScoreStrategy,
     "pce": PCEBatchStrategy,
-    "softpce_bo": SoftPCE_BO, # does not work
+    "softpce_bo": SoftPCE_BO,  # does not work
     "randoptpce_bo": RandOptPCE_BO,
     "softpce_gd": SoftPCE_GD,
     "randoptpce_gd": RandOptPCE_GD,
     "policyoptpce": PolicyOptPCE,
     "ss_finite": SSFinite,
-    "policyoptnmc": PolicyOptNMC, # works
-    "policyoptnmc_fixed_value": PolicyOptNMCFixedValue, # works
-    "gridpce": GridOptPCE, # does not work
-    "policyoptcoveig": PolicyOptCovEig, # does not work
+    "policyoptnmc": PolicyOptNMC,  # works
+    "policyoptnmc_fixed_value": PolicyOptNMCFixedValue,  # works
+    "gridpce": GridOptPCE,  # does not work
+    "policyoptcoveig": PolicyOptCovEig,  # does not work
 }
 
 MODELS = {
@@ -70,23 +70,28 @@ ENVS = {
 }
 
 
-
 strategy_name = "bald"
 model_name = "dag_bootstrap"
 env = "graph"
 
 # setting up each of these three
 
+
 def remap_labels(D_O, D_I, nodes_to_int_map):
     D_O = {nodes_to_int_map[key]: value for key, value in D_O.items()}
     D_I_new = {}
     for intervention_keys in D_I.keys():
         intervention_data = D_I[intervention_keys]
-        new_intervention_keys = tuple([nodes_to_int_map[key] for key in intervention_keys])
-        D_I_new[new_intervention_keys] = {nodes_to_int_map[key]: value for key, value in intervention_data.items()}
+        new_intervention_keys = tuple(
+            [nodes_to_int_map[key] for key in intervention_keys]
+        )
+        D_I_new[new_intervention_keys] = {
+            nodes_to_int_map[key]: value for key, value in intervention_data.items()
+        }
 
     D_I = D_I_new.copy()
     return D_O, D_I
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -232,7 +237,6 @@ def parse_args():
         # help="Interventional value to set in `fixed` value_strategy, else ingored.",
     )
 
-
     parser.add_argument("--group_interventions", action="store_true")
     parser.add_argument("--plot_graphs", action="store_true")
     parser.add_argument("--save_models", action="store_true", default=False)
@@ -337,7 +341,9 @@ graph = ToyGraph()
 args.num_nodes = len(graph.variables)
 graph_env = GraphStructureEnv(graph, args)
 graph_variables = graph_env.nodes
-D_O, D_I, _ = setup_observational_interventional(None, n_obs=50, n_int=2, seed=42, graph=graph)
+D_O, D_I, _ = setup_observational_interventional(
+    None, n_obs=50, n_int=2, seed=42, graph=graph
+)
 
 model = MODELS[model_name](graph_env, args)
 strategy = STRATEGIES[strategy_name](model, graph_env, args)
@@ -348,5 +354,4 @@ nodes_to_int_map = graph_env.node_map
 D_O, D_I = remap_labels(D_O, D_I, nodes_to_int_map)
 
 boed.set_values(D_O, D_I)
-boed.run_algorithm(T = 4)
-
+boed.run_algorithm(T=4)

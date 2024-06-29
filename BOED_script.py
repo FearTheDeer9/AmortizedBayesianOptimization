@@ -33,27 +33,28 @@ from graphs.toy_graph import ToyGraph
 from graphs.graph_erdos_renyi import ErdosRenyiGraph
 from graphs.graph_chain import ChainGraph
 
+# the only ones that work are the ones used in the diffcbed code
 STRATEGIES = {
-    "greedyabcd": GreedyABCDStrategy,
-    "abcd": ABCDStrategy,
-    "softbald": SoftBALDStrategy,
+    "greedyabcd": GreedyABCDStrategy, # does not work
+    "abcd": ABCDStrategy, # does not work
+    "softbald": SoftBALDStrategy, # does not work
     "batchbald": BatchBALDStrategy,
     "bald": BALDStrategy,
-    "random": RandomAcquisitionStrategy,
-    "replay": ReplayStrategy,
-    "f-score": FScoreBatchStrategy,
+    "random": RandomAcquisitionStrategy, # works
+    "replay": ReplayStrategy, # does not work
+    "f-score": FScoreBatchStrategy, # does not work
     "softf-score": SoftFScoreStrategy,
     "pce": PCEBatchStrategy,
-    "softpce_bo": SoftPCE_BO,
+    "softpce_bo": SoftPCE_BO, # does not work
     "randoptpce_bo": RandOptPCE_BO,
     "softpce_gd": SoftPCE_GD,
     "randoptpce_gd": RandOptPCE_GD,
     "policyoptpce": PolicyOptPCE,
     "ss_finite": SSFinite,
-    "policyoptnmc": PolicyOptNMC,
-    "policyoptnmc_fixed_value": PolicyOptNMCFixedValue,
-    "gridpce": GridOptPCE,
-    "policyoptcoveig": PolicyOptCovEig,
+    "policyoptnmc": PolicyOptNMC, # works
+    "policyoptnmc_fixed_value": PolicyOptNMCFixedValue, # works
+    "gridpce": GridOptPCE, # does not work
+    "policyoptcoveig": PolicyOptCovEig, # does not work
 }
 
 MODELS = {
@@ -70,7 +71,7 @@ ENVS = {
 
 
 
-strategy_name = "policyoptnmc"
+strategy_name = "bald"
 model_name = "dag_bootstrap"
 env = "graph"
 
@@ -329,11 +330,12 @@ def parse_args():
 # boed.set_values(D_O, D_I)
 # boed.run_algorithm()
 
+print(f"Using strategy {strategy_name}")
 args = parse_args()
-graph = ChainGraph(num_nodes=10)
+# graph = ChainGraph(num_nodes=10)
+graph = ToyGraph()
 args.num_nodes = len(graph.variables)
 graph_env = GraphStructureEnv(graph, args)
-print(graph_env.sample_linear(50))
 graph_variables = graph_env.nodes
 D_O, D_I, _ = setup_observational_interventional(None, n_obs=50, n_int=2, seed=42, graph=graph)
 
@@ -346,5 +348,5 @@ nodes_to_int_map = graph_env.node_map
 D_O, D_I = remap_labels(D_O, D_I, nodes_to_int_map)
 
 boed.set_values(D_O, D_I)
-boed.run_algorithm()
+boed.run_algorithm(T = 4)
 

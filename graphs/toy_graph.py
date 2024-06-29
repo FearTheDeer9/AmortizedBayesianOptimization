@@ -36,10 +36,10 @@ class ToyGraph(GraphStructure):
         self._edges = [("X", "Z"), ("Z", "Y")]
         self._nodes = set(chain(*self.edges))
         self._parents, self._children = self.build_relationships()
+        self._variables = ["X", "Z", "Y"]
         self._G = self.make_graphical_model()
         self._target = "Y"
         self._functions: Optional[Dict[str, GPRegression]] = None
-        self._variables = ["X", "Z", "Y"]
 
     def define_SEM(self) -> OrderedDict:
         # Define named functions within the method

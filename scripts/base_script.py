@@ -63,19 +63,19 @@ def run_script(
     print(D_I)
     # using this as the interventional and observational data
 
-    filename_D_O = f"data/{filename}/run{run_num}_D_O{noisy_string}.pickle"
-    filename_D_I = f"data/{filename}/run{run_num}_D_I{noisy_string}.pickle"
-    filename_es = f"data/{filename}/run{run_num}_es{noisy_string}.pickle"
+    # filename_D_O = f"data/{filename}/run{run_num}_D_O{noisy_string}.pickle"
+    # filename_D_I = f"data/{filename}/run{run_num}_D_I{noisy_string}.pickle"
+    # filename_es = f"data/{filename}/run{run_num}_es{noisy_string}.pickle"
 
-    if SAVE_RUN:
-        with open(filename_D_O, "wb") as file:
-            pickle.dump(D_O, file)
+    # if SAVE_RUN:
+    #     with open(filename_D_O, "wb") as file:
+    #         pickle.dump(D_O, file)
 
-        with open(filename_D_I, "wb") as file:
-            pickle.dump(D_I, file)
+    #     with open(filename_D_I, "wb") as file:
+    #         pickle.dump(D_I, file)
 
-        with open(filename_es, "wb") as file:
-            pickle.dump(exploration_set, file)
+    #     with open(filename_es, "wb") as file:
+    #         pickle.dump(exploration_set, file)
 
     if RUN_CEO:
         model: CEO = CEO(

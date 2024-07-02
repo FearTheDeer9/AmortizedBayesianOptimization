@@ -8,6 +8,7 @@ if os.getcwd() not in sys.path:
     sys.path.append(os.getcwd())
 
 from scripts.base_script import run_script, run_script_uncertainty
+from scripts.base_script import parse_args
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the logging level
@@ -17,16 +18,16 @@ logging.basicConfig(
 
 
 # this is the arguments for running the script
-parser = argparse.ArgumentParser()
-parser.add_argument("--seeds_replicate", type=int)
-parser.add_argument("--n_observational", type=int)
-parser.add_argument("--n_trials", type=int)
-parser.add_argument("--n_anchor_points", type=int)
-parser.add_argument("--run_num", type=int)
-parser.add_argument("--noiseless", action="store_true", help="Run without noise")
+# parser = argparse.ArgumentParser()
+# parser.add_argument("--seeds_replicate", type=int)
+# parser.add_argument("--n_observational", type=int)
+# parser.add_argument("--n_trials", type=int)
+# parser.add_argument("--n_anchor_points", type=int)
+# parser.add_argument("--run_num", type=int)
+# parser.add_argument("--noiseless", action="store_true", help="Run without noise")
 
 # using the arguments
-args = parser.parse_args()
+args = parse_args()
 n_int = 2
 seeds_int_data = args.seeds_replicate
 

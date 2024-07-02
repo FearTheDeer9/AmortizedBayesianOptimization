@@ -133,13 +133,86 @@ class SubsetOperator:
         return res
 
 
+# class Policy(object):
+#     def __init__(self, num_nodes, num_targets, num_designs, node_range):
+#         super().__init__()
+#         self.num_nodes = num_nodes
+#         self.num_designs = num_designs
+#         self.num_targets = num_targets
+#         self.node_range = node_range
+
+#         if num_targets > 0:
+#             self.subset = SubsetOperator(
+#                 k=num_targets, num_designs=num_designs, num_nodes=num_nodes, hard=True
+#             )
+
+#     def __call__(self, key, batch_size, temperature=1.0):
+#         rng_seq = hk.PRNGSequence(key)
+
+#         # mean = hk.get_parameter('mean', [self.num_designs], init=jnp.zeros)
+#         stddev_init = hk.initializers.Constant(self.node_range[1])
+#         # stddev = hk.get_parameter('stddev', [self.num_designs], init=stddev_init)
+#         logits = hk.get_parameter(
+#             "logits", [self.num_designs, self.num_nodes], init=jnp.zeros
+#         )
+
+#         # binary = False
+
+#         # if binary:
+#         #     dist = tfp.substrates.jax.distributions.RelaxedOneHotCategorical(temperature=temperature, logits=logits)
+#         #     node_samples = dist.sample(seed=next(rng_seq), sample_shape=(batch_size,))
+#         #     nodes = jax.nn.one_hot(node_samples.argmax(-1), self.num_nodes)
+#         # else:
+#         #     dist = tfp.substrates.jax.distributions.RelaxedBernoulli(temperature=temperature, logits=logits)
+#         #     node_samples = dist.sample(seed=next(rng_seq), sample_shape=(batch_size,))
+#         #     nodes = (node_samples > .5)
+
+#         # nodes = node_samples + jax.lax.stop_gradient(nodes - node_samples)
+
+#         # # Gaussian for values
+#         # values_dist = distrax.MultivariateNormalDiag(
+#         #    loc=mean, scale_diag=jax.nn.softplus(stddev) + 1e-1)
+#         # values = values_dist._sample_n(key=next(rng_seq), n=batch_size)
+
+#         values = hk.get_parameter(
+#             "values",
+#             [self.num_designs, self.num_nodes],
+#             init=hk.initializers.RandomUniform(self.node_range[0], self.node_range[1]),
+#         )
+#         # # values = hk.get_parameter('values', [self.num_designs], init=jnp.zeros)
+
+#         # straight through
+#         if self.num_targets > 0:
+#             node_samples_hard_grad = self.subset.sample(
+#                 rng_seq, batch_size, logits, tau=temperature
+#             )
+#         else:
+#             dist = tfp.substrates.jax.distributions.RelaxedBernoulli(
+#                 temperature=temperature, logits=logits
+#             )
+#             node_samples = dist.sample(seed=next(rng_seq), sample_shape=(batch_size,))
+#             node_samples_hard = node_samples.round()
+#             node_samples_hard_grad = (
+#                 node_samples - jax.lax.stop_gradient(node_samples) + node_samples_hard
+#             )
+#         # import pdb; pdb.set_trace()
+
+#         # # Gumbel-Softmax for nodes
+#         # gumbel_noise = jax.random.gumbel(next(rng_seq), (batch_size, self.num_designs, self.num_nodes))
+#         # y = gumbel_noise + logits
+#         # node_samples = jax.nn.softmax(y / temperature, -1)
+#         # nodes2 = jax.nn.one_hot(node_samples.argmax(-1), self.num_nodes)
+
+#         return node_samples_hard_grad, values
+
+# testing it to specify new node ranges
 class Policy(object):
-    def __init__(self, num_nodes, num_targets, num_designs, node_range):
+    def __init__(self, num_nodes, num_targets, num_designs, node_ranges):
         super().__init__()
         self.num_nodes = num_nodes
         self.num_designs = num_designs
         self.num_targets = num_targets
-        self.node_range = node_range
+        self.node_ranges = node_ranges  # List of (min, max) tuples for each node
 
         if num_targets > 0:
             self.subset = SubsetOperator(
@@ -149,45 +222,28 @@ class Policy(object):
     def __call__(self, key, batch_size, temperature=1.0):
         rng_seq = hk.PRNGSequence(key)
 
-        # mean = hk.get_parameter('mean', [self.num_designs], init=jnp.zeros)
-        stddev_init = hk.initializers.Constant(self.node_range[1])
-        # stddev = hk.get_parameter('stddev', [self.num_designs], init=stddev_init)
+        # Initialize values within specified ranges for each node
+        values = jnp.zeros((self.num_designs, self.num_nodes))
+        for i in range(self.num_nodes):
+            min_val, max_val = self.node_ranges[i]
+            values_init = hk.get_parameter(
+                f"values_node_{i}", [self.num_designs], 
+                init=hk.initializers.RandomUniform(min_val, max_val)
+            )
+            # Clip values to ensure they remain within the specified ranges
+            values = values.at[:, i].set(jnp.clip(values_init, min_val, max_val))
+
         logits = hk.get_parameter(
             "logits", [self.num_designs, self.num_nodes], init=jnp.zeros
         )
 
-        # binary = False
-
-        # if binary:
-        #     dist = tfp.substrates.jax.distributions.RelaxedOneHotCategorical(temperature=temperature, logits=logits)
-        #     node_samples = dist.sample(seed=next(rng_seq), sample_shape=(batch_size,))
-        #     nodes = jax.nn.one_hot(node_samples.argmax(-1), self.num_nodes)
-        # else:
-        #     dist = tfp.substrates.jax.distributions.RelaxedBernoulli(temperature=temperature, logits=logits)
-        #     node_samples = dist.sample(seed=next(rng_seq), sample_shape=(batch_size,))
-        #     nodes = (node_samples > .5)
-
-        # nodes = node_samples + jax.lax.stop_gradient(nodes - node_samples)
-
-        # # Gaussian for values
-        # values_dist = distrax.MultivariateNormalDiag(
-        #    loc=mean, scale_diag=jax.nn.softplus(stddev) + 1e-1)
-        # values = values_dist._sample_n(key=next(rng_seq), n=batch_size)
-
-        values = hk.get_parameter(
-            "values",
-            [self.num_designs, self.num_nodes],
-            init=hk.initializers.RandomUniform(self.node_range[0], self.node_range[1]),
-        )
-        # # values = hk.get_parameter('values', [self.num_designs], init=jnp.zeros)
-
-        # straight through
+        # Sample node values based on logits using either the subset operation or a Bernoulli distribution
         if self.num_targets > 0:
             node_samples_hard_grad = self.subset.sample(
                 rng_seq, batch_size, logits, tau=temperature
             )
         else:
-            dist = tfp.substrates.jax.distributions.RelaxedBernoulli(
+            dist = tfp.distributions.RelaxedBernoulli(
                 temperature=temperature, logits=logits
             )
             node_samples = dist.sample(seed=next(rng_seq), sample_shape=(batch_size,))
@@ -195,13 +251,6 @@ class Policy(object):
             node_samples_hard_grad = (
                 node_samples - jax.lax.stop_gradient(node_samples) + node_samples_hard
             )
-        # import pdb; pdb.set_trace()
-
-        # # Gumbel-Softmax for nodes
-        # gumbel_noise = jax.random.gumbel(next(rng_seq), (batch_size, self.num_designs, self.num_nodes))
-        # y = gumbel_noise + logits
-        # node_samples = jax.nn.softmax(y / temperature, -1)
-        # nodes2 = jax.nn.one_hot(node_samples.argmax(-1), self.num_nodes)
 
         return node_samples_hard_grad, values
 

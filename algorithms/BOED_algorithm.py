@@ -82,13 +82,13 @@ class BOED(BASE):
                 )
 
             current_cost.append(1)
-            current_y.append(intervention_results[-1])
+            current_y.append(intervention_results[0, -1])
             global_opt.append(np.min(current_y))
             intervention_set.append(intervention_node)
             intervention_values.append(intervention_value)
             self.posterior_model.update(self.buffer.data())
             logging.info(
-                f"Selected node {intervention_node}: {intervention_value} with y = {intervention_results[-1]}"
+                f"Selected node {intervention_node}: {intervention_value} with y = {current_y[-1]}"
             )
             logging.info(f"Current global optimum is {global_opt[-1]}")
 

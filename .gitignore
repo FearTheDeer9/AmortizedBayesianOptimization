@@ -4,3 +4,4 @@ ceo_venv/
 *__pycache__/
 *log
 model_checkpoints/
+tmp/

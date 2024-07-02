@@ -101,6 +101,13 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Differentiable Multi-Target Causal Bayesian Experimental Design"
     )
+    parser.add_argument("--seeds_replicate", type=int)
+    parser.add_argument("--n_observational", type=int)
+    parser.add_argument("--n_trials", type=int)
+    parser.add_argument("--n_anchor_points", type=int)
+    parser.add_argument("--run_num", type=int)
+    parser.add_argument("--noiseless", action="store_true", help="Run without noise")
+
     parser.add_argument(
         "--save_path", type=str, default="results/", help="Path to save result files"
     )
@@ -218,7 +225,7 @@ def parse_args():
     parser.add_argument(
         "--num_intervention_values",
         type=int,
-        default=5,
+        default=10,
         help="Number of interventional values to consider.",
     )
     parser.add_argument(
@@ -434,7 +441,7 @@ def run_script(
                 pickle.dump(bo_results_dict, file)
 
     if RUN_BOED:
-        strategy_name = "random"
+        # strategy_name = "random"
         model_name = "dag_bootstrap"
         args = parse_args()
         graph = set_graph(graph_type)
@@ -442,22 +449,70 @@ def run_script(
         graph_env = GraphStructureEnv(graph, args)
         graph_variables = graph_env.nodes
 
-        model = MODELS[model_name](graph_env, args)
-        strategy = STRATEGIES[strategy_name](model, graph_env, args)
-        boed = BOED(graph_env, model, strategy, args, graph_variables)
-        boed.run_algorithm()
+        node_ranges = []
+        interventional_ranges = graph.get_interventional_range()
+        for node in graph.variables:
+            if node in interventional_ranges.keys():
+                node_ranges.append(tuple(interventional_ranges[node]))
+            else:
+                node_ranges.append((0, 0))
+        args.node_range = node_ranges
+
+        # model = MODELS[model_name](graph_env, args)
+        # strategy = STRATEGIES[strategy_name](model, graph_env, args)
+        # boed = BOED(graph_env, model, strategy, args, graph_variables)
+        # boed.run_algorithm()
 
         strategy_name = "policyoptnmc"
         model = MODELS[model_name](graph_env, args)
         strategy = STRATEGIES[strategy_name](model, graph_env, args)
         boed = BOED(graph_env, model, strategy, args, graph_variables)
-        boed.run_algorithm()
+        boed.set_values(D_O, D_I)
+        (
+            best_y_array,
+            current_y_array,
+            cost_array,
+            intervention_set,
+            intervention_value,
+        ) = boed.run_algorithm()
 
-        strategy_name = "policyoptnmc_fixed_value"
-        model = MODELS[model_name](graph_env, args)
-        strategy = STRATEGIES[strategy_name](model, graph_env, args)
-        boed = BOED(graph_env, model, strategy, args, graph_variables)
-        boed.run_algorithm()
+        boed_results_dict = {
+            "Best_Y": best_y_array,
+            "Per_trial_Y": current_y_array,
+            "Cost": cost_array,
+            "Intervention_Set": intervention_set,
+            "Intervention_Value": intervention_value,
+        }
+
+        filename_boed = f"results/{filename}/run{run_num}_boed_results_{n_obs}_{n_int}_{strategy_name}.pickle"
+        if SAVE_RUN:
+            with open(filename_boed, "wb") as file:
+                pickle.dump(boed_results_dict, file)
+        # strategy_name = "policyoptnmc_fixed_value"
+        # model = MODELS[model_name](graph_env, args)
+        # strategy = STRATEGIES[strategy_name](model, graph_env, args)
+        # boed = BOED(graph_env, model, strategy, args, graph_variables)
+        # (
+        #     best_y_array,
+        #     current_y_array,
+        #     cost_array,
+        #     intervention_set,
+        #     intervention_value,
+        # ) = boed.run_algorithm()
+
+        # boed_results_dict = {
+        #     "Best_Y": best_y_array,
+        #     "Per_trial_Y": current_y_array,
+        #     "Cost": cost_array,
+        #     "Intervention_Set": intervention_set,
+        #     "Intervention_Value": intervention_value,
+        #     "Uncertainty": average_uncertainty,
+        # }
+
+        # filename_boed = f"results/{filename}/run{run_num}_boed_results_{n_obs}_{n_int}_{strategy_name}.pickle"
+        # if SAVE_RUN:
+        #     with open(filename_boed, "wb") as file:
+        #         pickle.dump(boed_results_dict, file)
 
 
 def run_script_uncertainty(

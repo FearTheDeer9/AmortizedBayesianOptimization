@@ -152,14 +152,15 @@ class GraphStructureEnv(CausalEnvironment):
             epsilons = [
                 self.graph_struct.get_error_distribution() for _ in range(num_samples)
             ]
+        print(intervention_node)
         for i, node in enumerate(nx.topological_sort(graph)):
             if onehot and intervention_node[i] == 1:
                 noise = values[i]
             elif not onehot and node == intervention_node:
                 noise = values
-            elif intervention_node is not None:
+            elif np.sum(intervention_node) > 0:
                 # if an intervention was performed, ensure it was a perfect intervention
-                noise = np.zeros_like(shape=num_samples)
+                noise = np.zeros(shape=num_samples)
             elif self.use_graph_error_dist:
                 noise = np.array(
                     [epsilon[self.node_map_inv[node]] for epsilon in epsilons]

@@ -1,6 +1,6 @@
 SHOW_GRAPHICS = False
 RUN_CEO = False
-RUN_CBO = True
+RUN_CBO = False
 RUN_BO = False
 RUN_BOED = True
 SAVE_RUN = True

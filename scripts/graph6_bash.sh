@@ -1,8 +1,8 @@
-python3 graph6_script.py --seeds_replicate 17 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 1 --noiseless
-python3 graph6_script.py --seeds_replicate 11 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 2 --noiseless
-python3 graph6_script.py --seeds_replicate 89 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 3 --noiseless
-python3 graph6_script.py --seeds_replicate 69 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 4 --noiseless
-python3 graph6_script.py --seeds_replicate 7 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 5 --noiseless
+#python3 graph6_script.py --seeds_replicate 17 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 1 --noiseless
+#python3 graph6_script.py --seeds_replicate 11 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 2 --noiseless
+#python3 graph6_script.py --seeds_replicate 89 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 3 --noiseless
+#python3 graph6_script.py --seeds_replicate 69 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 4 --noiseless
+#python3 graph6_script.py --seeds_replicate 7 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 5 --noiseless
 python3 graph6_script.py --seeds_replicate 50 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 6 --noiseless
 python3 graph6_script.py --seeds_replicate 100 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 7 --noiseless
 python3 graph6_script.py --seeds_replicate 111 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 8 --noiseless

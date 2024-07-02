@@ -2,6 +2,7 @@ from collections import namedtuple
 from typing import Dict, List, OrderedDict
 
 import graphical_models
+import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 
@@ -127,8 +128,8 @@ class GraphStructureEnv(CausalEnvironment):
         self,
         num_samples: int,
         graph: nx.DiGraph = None,
-        intervention_node: str = None,
-        values: float = None,
+        intervention_node: List = None,
+        values: List = None,
         onehot: bool = False,
     ):
         """
@@ -152,38 +153,35 @@ class GraphStructureEnv(CausalEnvironment):
             epsilons = [
                 self.graph_struct.get_error_distribution() for _ in range(num_samples)
             ]
-        print(intervention_node)
-        for i, node in enumerate(nx.topological_sort(graph)):
+        for i in nx.topological_sort(graph):
+            print(i)
             if onehot and intervention_node[i] == 1:
+                print(values[i])
                 noise = values[i]
-            elif not onehot and node == intervention_node:
+            elif not onehot and i == intervention_node:
                 noise = values
-            elif np.sum(intervention_node) > 0:
-                # if an intervention was performed, ensure it was a perfect intervention
-                noise = np.zeros(shape=num_samples)
             elif self.use_graph_error_dist:
                 noise = np.array(
-                    [epsilon[self.node_map_inv[node]] for epsilon in epsilons]
+                    [epsilon[self.node_map_inv[i]] for epsilon in epsilons]
                 )
             else:
-                noise = self.args.scm_bias + self.graph.nodes[node]["sampler"].sample(
+                noise = self.args.scm_bias + self.graph.nodes[i]["sampler"].sample(
                     num_samples
                 )
-            parents = list(graph.predecessors(node))
+            parents = list(graph.predecessors(i))
 
             if len(parents) == 0:
                 samples[:, i] = noise
-                sample_dict[node] = noise
+                sample_dict[i] = noise
             else:
                 # Prepare parent values as input to the function
                 parent_values = {
-                    self.node_map_inv[p]: sample_dict[p]
-                    for p in nx.ancestors(graph, node)
+                    self.node_map_inv[p]: sample_dict[p] for p in nx.ancestors(graph, i)
                 }
 
                 # Compute current node values using its function
-                current_values = self.SEM[self.node_map_inv[node]](noise, parent_values)
-                sample_dict[node] = current_values
+                current_values = self.SEM[self.node_map_inv[i]](noise, parent_values)
+                sample_dict[i] = current_values
 
                 samples[:, i] = current_values
 
@@ -202,6 +200,20 @@ class GraphStructureEnv(CausalEnvironment):
 
         # Initialize a new DiGraph from the mutated adjacency matrix
         new_graph = nx.from_numpy_array(mutated_graph, create_using=nx.DiGraph)
+        # pos = nx.spring_layout(new_graph)  # positions for all nodes
+        # plt.figure(figsize=(8, 6))
+        # nx.draw(
+        #     new_graph,
+        #     pos,
+        #     with_labels=True,
+        #     node_color="lightblue",
+        #     edge_color="gray",
+        #     node_size=3000,
+        #     font_size=10,
+        #     font_weight="bold",
+        # )
+        # plt.title("Mutated graph")
+        # plt.show()
 
         # label_mapping = {idx: node for idx, node in enumerate(self.node_map)}
         # nx.relabel_nodes(new_graph, label_mapping, copy=False)

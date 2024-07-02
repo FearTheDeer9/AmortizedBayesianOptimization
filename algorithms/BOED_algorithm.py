@@ -70,16 +70,18 @@ class BOED(BASE):
             intervention_node = interventions["nodes"][0]
             intervention_value = interventions["values"][0]
             intervention_results = self.env.intervene(
-                i, 1, interventions["nodes"][0], interventions["values"][0]
-            ).samples
+                i, 1000, interventions["nodes"][0], interventions["values"][0]
+            )
+            intervention_results.samples = intervention_results.samples.mean(axis=0)
+            self.buffer.update(intervention_results)
 
             # can change this to args.batch_size, currently assuming a size of 1
-            for k in range(self.args.batch_size):
-                self.buffer.update(
-                    self.env.intervene(
-                        i, 1, interventions["nodes"][k], interventions["values"][k]
-                    )
-                )
+            # for k in range(self.args.batch_size):
+            #     self.buffer.update(
+            #         self.env.intervene(
+            #             i, 1, interventions["nodes"][k], interventions["values"][k]
+            #         )
+            #     )
 
             current_cost.append(1)
             current_y.append(intervention_results[0, -1])

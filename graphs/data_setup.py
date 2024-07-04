@@ -4,11 +4,11 @@ from typing import Callable, Dict, OrderedDict
 import networkx as nx
 import numpy as np
 
+from graphs.graph import GraphStructure
 from graphs.graph_4_nodes import Graph4Nodes
 from graphs.graph_5_nodes import Graph5Nodes
 from graphs.graph_6_nodes import Graph6Nodes
 from graphs.toy_graph import ToyGraph
-from graphs.graph import GraphStructure
 from utils.sem_sampling import (
     create_grid_interventions,
     draw_interventional_samples_sem,
@@ -22,7 +22,7 @@ def setup_observational_interventional(
     n_int: int = 2,
     noiseless: bool = True,
     seed: int = 42,
-    graph: GraphStructure = None
+    graph: GraphStructure = None,
 ):
     """
     Setup the graph based on the structure we are using
@@ -39,7 +39,7 @@ def setup_observational_interventional(
             graph = Graph6Nodes()
 
     logging.info("Sampling the observational data")
-    
+
     D_O: Dict[str, np.ndarray] = sample_model(
         graph.SEM, sample_count=n_obs, graph=graph, seed=seed + 1
     )

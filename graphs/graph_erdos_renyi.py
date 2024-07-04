@@ -22,7 +22,9 @@ class ErdosRenyiGraph(GraphStructure):
         self.num_nodes = num_nodes
 
         self.causal_env: CausalEnvironment = ErdosRenyi(
-            args=args, num_nodes=num_nodes, binary_nodes=True
+            args=args,
+            num_nodes=num_nodes,
+            binary_nodes=True,
         )
         self._SEM = self.define_SEM()
         self._variables = [str(i) for i in range(num_nodes)]

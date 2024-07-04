@@ -8,7 +8,15 @@ from algorithms.BO_algorithm import BO
 from algorithms.BOED_algorithm import BOED
 from algorithms.CBO_algorithm import CBO
 from algorithms.CEO_algorithm import CEO
-from config import RUN_BO, RUN_BOED, RUN_CBO, RUN_CEO, SAVE_RUN
+from config import (
+    RUN_BO,
+    RUN_BOED_POLICY_OPT,
+    RUN_BOED_POLICY_OPT_FIXED,
+    RUN_BOED_RANDOM,
+    RUN_CBO,
+    RUN_CEO,
+    SAVE_RUN,
+)
 from diffcbed.envs import Chain, ErdosRenyi, OnlyDAGDream4Environment, ScaleFree
 from diffcbed.envs.graph_to_env import GraphStructureEnv
 from diffcbed.models import DagBootstrap
@@ -440,29 +448,50 @@ def run_script(
             with open(filename_bo, "wb") as file:
                 pickle.dump(bo_results_dict, file)
 
-    if RUN_BOED:
-        # strategy_name = "random"
-        model_name = "dag_bootstrap"
-        args = parse_args()
-        graph = set_graph(graph_type)
-        args.num_nodes = len(graph.variables)
-        graph_env = GraphStructureEnv(graph, args)
-        graph_variables = graph_env.nodes
+    # strategy_name = "random"
+    model_name = "dag_bootstrap"
+    args = parse_args()
+    graph = set_graph(graph_type)
+    args.num_nodes = len(graph.variables)
+    graph_env = GraphStructureEnv(graph, args)
+    graph_variables = graph_env.nodes
+    node_ranges = []
+    interventional_ranges = graph.get_interventional_range()
+    for node in graph.variables:
+        if node in interventional_ranges.keys():
+            node_ranges.append(tuple(interventional_ranges[node]))
+        else:
+            node_ranges.append((0, 0))
+    args.node_range = node_ranges
 
-        node_ranges = []
-        interventional_ranges = graph.get_interventional_range()
-        for node in graph.variables:
-            if node in interventional_ranges.keys():
-                node_ranges.append(tuple(interventional_ranges[node]))
-            else:
-                node_ranges.append((0, 0))
-        args.node_range = node_ranges
+    if RUN_BOED_RANDOM:
+        strategy_name = "random"
+        model = MODELS[model_name](graph_env, args)
+        strategy = STRATEGIES[strategy_name](model, graph_env, args)
+        boed = BOED(graph_env, model, strategy, args, graph_variables)
+        boed.set_values(D_O, D_I)
+        (
+            best_y_array,
+            current_y_array,
+            cost_array,
+            intervention_set,
+            intervention_value,
+        ) = boed.run_algorithm()
 
-        # model = MODELS[model_name](graph_env, args)
-        # strategy = STRATEGIES[strategy_name](model, graph_env, args)
-        # boed = BOED(graph_env, model, strategy, args, graph_variables)
-        # boed.run_algorithm()
+        boed_results_dict = {
+            "Best_Y": best_y_array,
+            "Per_trial_Y": current_y_array,
+            "Cost": cost_array,
+            "Intervention_Set": intervention_set,
+            "Intervention_Value": intervention_value,
+        }
 
+        filename_boed = f"results/{filename}/run{run_num}_boed_results_{n_obs}_{n_int}_{strategy_name}.pickle"
+        if SAVE_RUN:
+            with open(filename_boed, "wb") as file:
+                pickle.dump(boed_results_dict, file)
+
+    if RUN_BOED_POLICY_OPT:
         strategy_name = "policyoptnmc"
         model = MODELS[model_name](graph_env, args)
         strategy = STRATEGIES[strategy_name](model, graph_env, args)
@@ -488,31 +517,32 @@ def run_script(
         if SAVE_RUN:
             with open(filename_boed, "wb") as file:
                 pickle.dump(boed_results_dict, file)
-        # strategy_name = "policyoptnmc_fixed_value"
-        # model = MODELS[model_name](graph_env, args)
-        # strategy = STRATEGIES[strategy_name](model, graph_env, args)
-        # boed = BOED(graph_env, model, strategy, args, graph_variables)
-        # (
-        #     best_y_array,
-        #     current_y_array,
-        #     cost_array,
-        #     intervention_set,
-        #     intervention_value,
-        # ) = boed.run_algorithm()
 
-        # boed_results_dict = {
-        #     "Best_Y": best_y_array,
-        #     "Per_trial_Y": current_y_array,
-        #     "Cost": cost_array,
-        #     "Intervention_Set": intervention_set,
-        #     "Intervention_Value": intervention_value,
-        #     "Uncertainty": average_uncertainty,
-        # }
+    if RUN_BOED_POLICY_OPT_FIXED:
+        strategy_name = "policyoptnmc_fixed_value"
+        model = MODELS[model_name](graph_env, args)
+        strategy = STRATEGIES[strategy_name](model, graph_env, args)
+        boed = BOED(graph_env, model, strategy, args, graph_variables)
+        (
+            best_y_array,
+            current_y_array,
+            cost_array,
+            intervention_set,
+            intervention_value,
+        ) = boed.run_algorithm()
 
-        # filename_boed = f"results/{filename}/run{run_num}_boed_results_{n_obs}_{n_int}_{strategy_name}.pickle"
-        # if SAVE_RUN:
-        #     with open(filename_boed, "wb") as file:
-        #         pickle.dump(boed_results_dict, file)
+        boed_results_dict = {
+            "Best_Y": best_y_array,
+            "Per_trial_Y": current_y_array,
+            "Cost": cost_array,
+            "Intervention_Set": intervention_set,
+            "Intervention_Value": intervention_value,
+        }
+
+        filename_boed = f"results/{filename}/run{run_num}_boed_results_{n_obs}_{n_int}_{strategy_name}.pickle"
+        if SAVE_RUN:
+            with open(filename_boed, "wb") as file:
+                pickle.dump(boed_results_dict, file)
 
 
 def run_script_uncertainty(

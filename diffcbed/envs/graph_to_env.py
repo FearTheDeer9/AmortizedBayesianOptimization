@@ -235,3 +235,11 @@ class GraphStructureEnv(CausalEnvironment):
             self.logger.log_interventions(iteration, nodes, samples)
 
         return Data(samples=samples, intervention_node=nodes)
+    
+    def get_valid_interventions(self):
+        valid_interventions = []
+        interventional_range_keys = self.graph_struct.get_interventional_range().keys()
+        for node in self.nodes:
+            if self.node_map_inv[node] in interventional_range_keys:
+                valid_interventions.append(node)
+        return valid_interventions

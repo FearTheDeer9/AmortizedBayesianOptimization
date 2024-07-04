@@ -486,3 +486,6 @@ class CausalEnvironment(torch.utils.data.Dataset):
                 _mmds.append(mmd(_model_samples, gt_samples, kernel))
             mmds.append((np.array(_mmds) * np.exp(model.normalized_log_weights)).sum())
         return np.array(mmds).mean()
+
+    def get_valid_interventions(self):
+        return list(range(self.num_nodes))

@@ -1,4 +1,5 @@
 import logging
+from collections import namedtuple
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -13,6 +14,7 @@ from utils.sem_sampling import (
     change_obs_data_format_to_mi,
 )
 
+Data = namedtuple("Data", ["samples", "intervention_node"])
 
 class BOED(BASE):
 
@@ -63,7 +65,8 @@ class BOED(BASE):
         for i in range(T):
             logging.info(f"------------------EXPERIMENT {i}-------------------")
             # just keep it like this for now and don't split it into manipulative and non-manipulative
-            valid_interventions = list(range(self.args.num_nodes))
+            valid_interventions = self.env.get_valid_interventions()
+            
             interventions, _ = self.acquisition_strategy.acquire(valid_interventions, i)
 
             # assuming a batch size of 1
@@ -72,7 +75,8 @@ class BOED(BASE):
             intervention_results = self.env.intervene(
                 i, 1000, interventions["nodes"][0], interventions["values"][0]
             )
-            intervention_results.samples = intervention_results.samples.mean(axis=0)
+            intervention_results = Data(samples = intervention_results.samples.mean(axis=0).reshape(1, -1), 
+                                        intervention_node=intervention_results.intervention_node)
             self.buffer.update(intervention_results)
 
             # can change this to args.batch_size, currently assuming a size of 1
@@ -84,7 +88,7 @@ class BOED(BASE):
             #     )
 
             current_cost.append(1)
-            current_y.append(intervention_results[0, -1])
+            current_y.append(intervention_results.samples[0, -1])
             global_opt.append(np.min(current_y))
             intervention_set.append(intervention_node)
             intervention_values.append(intervention_value)

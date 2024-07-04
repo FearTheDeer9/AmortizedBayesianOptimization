@@ -255,14 +255,52 @@ class Policy(object):
         return node_samples_hard_grad, values
 
 
+# class PolicyWithFixedValue(object):
+#     def __init__(self, num_nodes, num_targets, num_designs, node_range, fixed_value):
+#         super().__init__()
+#         self.num_nodes = num_nodes
+#         self.num_designs = num_designs
+#         self.num_targets = num_targets
+#         self.node_range = node_range
+#         self.fixed_value = fixed_value
+
+#         if num_targets > 0:
+#             self.subset = SubsetOperator(
+#                 k=num_targets, num_designs=num_designs, num_nodes=num_nodes, hard=True
+#             )
+
+#     def __call__(self, key, batch_size, temperature=1.0):
+#         rng_seq = hk.PRNGSequence(key)
+#         logits = hk.get_parameter(
+#             "logits", [self.num_designs, self.num_nodes], init=jnp.zeros
+#         )
+
+#         values = jnp.ones([self.num_designs, self.num_nodes]) * self.fixed_value
+
+#         # straight through
+#         if self.num_targets > 0:
+#             node_samples_hard_grad = self.subset.sample(
+#                 rng_seq, batch_size, logits, tau=temperature
+#             )
+#         else:
+#             dist = tfp.substrates.jax.distributions.RelaxedBernoulli(
+#                 temperature=temperature, logits=logits
+#             )
+#             node_samples = dist.sample(seed=next(rng_seq), sample_shape=(batch_size,))
+#             node_samples_hard = node_samples.round()
+#             node_samples_hard_grad = (
+#                 node_samples - jax.lax.stop_gradient(node_samples) + node_samples_hard
+#             )
+
+#         return node_samples_hard_grad, values
+
 class PolicyWithFixedValue(object):
-    def __init__(self, num_nodes, num_targets, num_designs, node_range, fixed_value):
+    def __init__(self, num_nodes, num_targets, num_designs, node_ranges):
         super().__init__()
         self.num_nodes = num_nodes
         self.num_designs = num_designs
         self.num_targets = num_targets
-        self.node_range = node_range
-        self.fixed_value = fixed_value
+        self.node_ranges = node_ranges  # List of (min, max) tuples for each node
 
         if num_targets > 0:
             self.subset = SubsetOperator(
@@ -275,15 +313,24 @@ class PolicyWithFixedValue(object):
             "logits", [self.num_designs, self.num_nodes], init=jnp.zeros
         )
 
-        values = jnp.ones([self.num_designs, self.num_nodes]) * self.fixed_value
+        # Initialize values within specified ranges for each node
+        values = jnp.zeros((self.num_designs, self.num_nodes))
+        for i in range(self.num_nodes):
+            min_val, max_val = self.node_ranges[i]
+            values_init = hk.get_parameter(
+                f"values_node_{i}", [self.num_designs],
+                init=hk.initializers.RandomUniform(min_val, max_val)
+            )
+            # Clip values to ensure they remain within the specified ranges
+            values = values.at[:, i].set(jnp.clip(values_init, min_val, max_val))
 
-        # straight through
+        # Sampling process
         if self.num_targets > 0:
             node_samples_hard_grad = self.subset.sample(
                 rng_seq, batch_size, logits, tau=temperature
             )
         else:
-            dist = tfp.substrates.jax.distributions.RelaxedBernoulli(
+            dist = tfp.distributions.RelaxedBernoulli(
                 temperature=temperature, logits=logits
             )
             node_samples = dist.sample(seed=next(rng_seq), sample_shape=(batch_size,))

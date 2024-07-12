@@ -311,7 +311,8 @@ def parse_args():
 
     parser.set_defaults(nonlinear=False)
 
-    args = parser.parse_args()
+    # args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
     args.node_range = [float(item) for item in args.node_range.split(":")]
 
     if args.env == "sf":

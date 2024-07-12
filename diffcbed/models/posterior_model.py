@@ -1,8 +1,8 @@
-from tqdm import tqdm
 import numpy as np
 import xarray as xr
 from scipy.special import logsumexp
 from scipy.stats import entropy
+from tqdm import tqdm
 
 
 class PosteriorModel(object):
@@ -90,6 +90,7 @@ class PosteriorModel(object):
             enumerate(value_samplers), total=len(value_samplers)
         ):
             print(intv_ix, intervention)
+
         print(nodes)
         matrix = np.stack(
             [
@@ -99,7 +100,7 @@ class PosteriorModel(object):
                             graph_ix=l,
                             data=datapoints[:, intv_ix].reshape(-1, len(nodes)),
                             # interventions={nodes[intv_ix]: intervention}
-                            interventions={intv_ix: intervention}
+                            interventions={intv_ix: intervention},
                         ).reshape(len(self.dags), nsamples)
                         for l, outter_dag in enumerate(self.dags)
                     ],

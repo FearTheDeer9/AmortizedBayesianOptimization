@@ -64,6 +64,7 @@ class DagBootstrap(PosteriorModel):
                 maintain_int_dist=True,
             )
             self.amats, dags = utils._load_dags(tmp_path=tmp_path, delete=cleanup)
+            # print(self.amats)
             self.dags = [utils.cov2dag(cov_mat, dag) for dag in dags]
             self.all_graphs = self.dags
         else:

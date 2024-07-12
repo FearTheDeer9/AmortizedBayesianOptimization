@@ -11,16 +11,14 @@ from pathlib import Path
 import causaldag as cd
 import networkx as nx
 import numpy as np
-
 # import config
 import pandas as pd
+import tqdm
 from networkx.utils import powerlaw_sequence
-
 # from sksparse.cholmod import cholesky  # this has to be used instead of scipy's because it doesn't permute the matrix
 from scipy import sparse
 from scipy.special import logsumexp
 
-import tqdm
 
 def bernoulli(p):
     return np.random.binomial(1, p)

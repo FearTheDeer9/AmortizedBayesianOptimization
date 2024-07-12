@@ -15,11 +15,8 @@ from graphs.graph import GraphStructure
 from graphs.graph_functions import create_grid_interventions, graph_setup
 from utils.cbo_classes import DoFunctions, TargetClass
 from utils.ceo_acquisitions import evaluate_acquisition_ceo
-from utils.sem_sampling import (
-    change_intervention_list_format,
-    draw_interventional_samples_sem,
-    sample_model,
-)
+from utils.sem_sampling import (change_intervention_list_format,
+                                draw_interventional_samples_sem, sample_model)
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the loggingand level
@@ -221,7 +218,7 @@ class CEO(BASE):
 
     def run_algorithm(
         self, T: int = 30, safe_optimization: bool = True, file: str = None
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ):
 
         (
             data_x_list,

@@ -154,9 +154,7 @@ class GraphStructureEnv(CausalEnvironment):
                 self.graph_struct.get_error_distribution() for _ in range(num_samples)
             ]
         for i in nx.topological_sort(graph):
-            print(i)
             if onehot and intervention_node[i] == 1:
-                print(values[i])
                 noise = values[i]
             elif not onehot and i == intervention_node:
                 noise = values
@@ -235,7 +233,7 @@ class GraphStructureEnv(CausalEnvironment):
             self.logger.log_interventions(iteration, nodes, samples)
 
         return Data(samples=samples, intervention_node=nodes)
-    
+
     def get_valid_interventions(self):
         valid_interventions = []
         interventional_range_keys = self.graph_struct.get_interventional_range().keys()

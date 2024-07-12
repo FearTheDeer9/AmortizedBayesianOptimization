@@ -1,14 +1,27 @@
 import logging
+from collections import namedtuple
+from copy import deepcopy
 from typing import Dict, List, Tuple
 
 import numpy as np
+import pandas as pd
 from scipy.stats import norm
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LassoCV, LinearRegression
 from sklearn.model_selection import KFold
 
 from algorithms.BASE_algorithm import BASE
+from diffcbed.envs.causal_environment import CausalEnvironment
+from diffcbed.models.posterior_model import PosteriorModel
+from diffcbed.replay_buffer import ReplayBuffer
+from diffcbed.strategies.acquisition_strategy import AcquisitionStrategy
 from graphs.graph import GraphStructure
+from utils.sem_sampling import (
+    change_int_data_format_to_mi,
+    change_obs_data_format_to_mi,
+)
+
+Data = namedtuple("Data", ["samples", "intervention_node"])
 
 
 class PARENT(BASE):
@@ -16,20 +29,70 @@ class PARENT(BASE):
     This is the class of my developed methodology
     """
 
-    def __init__(self, graph: GraphStructure):
+    def __init__(
+        self,
+        graph: GraphStructure,
+        graph_env: CausalEnvironment,
+        posterior_model: PosteriorModel,
+        acquisition_strategy: AcquisitionStrategy,
+    ):
         self.graph = graph
         self.num_nodes = len(self.graph.variables)
         self.variables = self.graph.variables
         self.target = self.graph.target
+        self.acquisition_strategy = acquisition_strategy
+
+        # setting up some more variables
+        self.graph_env = graph_env
+        self.posterior_model = posterior_model
+        self.buffer = ReplayBuffer(binary=True)
 
     def set_values(self, D_O: Dict, D_I: Dict):
-        self.D_O = D_O
-        self.D_I = D_I
-
-    def run_algorithm(self):
-        parents_Y = corth_features(
-            self.D_O, self.target, regression_technique="Random Forest"
+        self.D_O_bo_format = deepcopy(D_O)
+        self.D_O = change_obs_data_format_to_mi(
+            D_O,
+            graph_variables=self.variables,
+            intervention_node=np.zeros(shape=len(self.variables)),
         )
+        df_D_O = pd.DataFrame(self.D_O.samples)
+        self.posterior_model.covariance_matrix = np.cov(self.D_O.samples.T)
+        self.D_I = change_int_data_format_to_mi(D_I, graph_variables=self.variables)
+        # just using the observational data for now
+        self.buffer.update(self.D_O)
+        # for intervention in self.D_I:
+        #     self.buffer.update(intervention)
+
+        # self.posterior_model.update(self.buffer.data())
+
+        # writing the dataframe to a csv file
+        logging.info("Writing to the csv file")
+        df_D_O.to_csv(
+            "/vol/bitbucket/jd123/causal_bayes_opt/data/test.csv", index=False
+        )
+
+    def run_algorithm(self, T: int = 10):
+        parents_Y = corth_features(
+            self.D_O_bo_format, self.target, regression_technique="Random Forest"
+        )
+
+        # for i in range(T):
+        #     logging.info(f"------------------EXPERIMENT {i}-------------------")
+        #     # just keep it like this for now and don't split it into manipulative and non-manipulative
+        #     valid_interventions = self.graph_env.get_valid_interventions()
+
+        #     interventions, _ = self.acquisition_strategy.acquire(valid_interventions, i)
+
+        #     # assuming a batch size of 1
+        #     intervention_node = interventions["nodes"][0]
+        #     intervention_value = interventions["values"][0]
+        #     intervention_results = self.graph_env.intervene(
+        #         i, 1000, interventions["nodes"][0], interventions["values"][0]
+        #     )
+        #     intervention_results = Data(
+        #         samples=intervention_results.samples.mean(axis=0).reshape(1, -1),
+        #         intervention_node=intervention_results.intervention_node,
+        #     )
+        #     self.buffer.update(intervention_results)
         print(parents_Y)
         # parents_X = corth_features(
         #     self.D_O,
@@ -72,14 +135,6 @@ def corth_features(
             D_test = X[test_index, i]
             Y_train = Y[train_index]
             Y_test = Y[test_index]
-            print(
-                Z_train.shape,
-                Z_test.shape,
-                D_train.shape,
-                D_test.shape,
-                Y_train.shape,
-                Y_test.shape,
-            )
 
             # Choose regression technique based on parameter
             if regression_technique == "Lasso":

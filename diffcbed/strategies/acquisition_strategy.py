@@ -11,7 +11,7 @@ import optax
 import pandas as pd
 import tensorflow_probability as tfp
 from bayes_opt import BayesianOptimization
-from jax import value_and_grad
+from jax import device_get, value_and_grad
 from jax.example_libraries import optimizers
 
 from diffcbed.envs.samplers import Constant
@@ -205,6 +205,7 @@ class SubsetOperator:
 
 #         return node_samples_hard_grad, values
 
+
 # testing it to specify new node ranges
 class Policy(object):
     def __init__(self, num_nodes, num_targets, num_designs, node_ranges):
@@ -227,11 +228,15 @@ class Policy(object):
         for i in range(self.num_nodes):
             min_val, max_val = self.node_ranges[i]
             values_init = hk.get_parameter(
-                f"values_node_{i}", [self.num_designs], 
-                init=hk.initializers.RandomUniform(min_val, max_val)
+                f"values_node_{i}",
+                [self.num_designs],
+                init=hk.initializers.RandomUniform(min_val, max_val),
             )
+            # values = values_init
             # Clip values to ensure they remain within the specified ranges
             values = values.at[:, i].set(jnp.clip(values_init, min_val, max_val))
+            # values = values.at[:, i].set(values_init)
+            # print(values)
 
         logits = hk.get_parameter(
             "logits", [self.num_designs, self.num_nodes], init=jnp.zeros
@@ -294,6 +299,7 @@ class Policy(object):
 
 #         return node_samples_hard_grad, values
 
+
 class PolicyWithFixedValue(object):
     def __init__(self, num_nodes, num_targets, num_designs, node_ranges):
         super().__init__()
@@ -318,8 +324,9 @@ class PolicyWithFixedValue(object):
         for i in range(self.num_nodes):
             min_val, max_val = self.node_ranges[i]
             values_init = hk.get_parameter(
-                f"values_node_{i}", [self.num_designs],
-                init=hk.initializers.RandomUniform(min_val, max_val)
+                f"values_node_{i}",
+                [self.num_designs],
+                init=hk.initializers.RandomUniform(min_val, max_val),
             )
             # Clip values to ensure they remain within the specified ranges
             values = values.at[:, i].set(jnp.clip(values_init, min_val, max_val))
@@ -357,18 +364,37 @@ class GradientBasedPolicyOptimizer(object):
                 temperature=temperature,
             )
 
+            # print(self.args.strategy)
+            # print(self.args.value_strategy)
             if (
                 "fixed_value" in self.args.strategy
                 or self.args.value_strategy == "fixed"
             ):
-                values = values[None].repeat(nodes.shape[0], 0)
-            else:
-                soft_tanh = (
-                    lambda x: jax.nn.hard_sigmoid(
-                        (x - val_range[0]) / (val_range[1] - val_range[0])
+                # XXX
+                #     values = values[None].repeat(nodes.shape[0], 0)
+                # else:
+                # soft_tanh = (
+                #     lambda x: jax.nn.hard_sigmoid(
+                #         (x - val_range[0]) / (val_range[1] - val_range[0])
+                #     )
+                #     * (val_range[1] - val_range[0])
+                #     + val_range[0]
+                # )
+
+                soft_tanh = lambda x: (
+                    jnp.stack(
+                        [
+                            (
+                                jax.nn.hard_sigmoid((x[:, i] - vr[0]) / (vr[1] - vr[0]))
+                                * (vr[1] - vr[0])
+                                + vr[0]
+                                if vr[1] - vr[0] > 0
+                                else jnp.zeros_like(x[:, i])
+                            )
+                            for i, vr in enumerate(val_range)
+                        ],
+                        axis=1,
                     )
-                    * (val_range[1] - val_range[0])
-                    + val_range[0]
                 )
                 values = soft_tanh(values)[None].repeat(nodes.shape[0], 0)
 
@@ -401,6 +427,7 @@ class GradientBasedPolicyOptimizer(object):
                 1,
             )
         history = []
+
         for epoch in range(epochs):
             t0 = time.time()
 

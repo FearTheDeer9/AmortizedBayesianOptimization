@@ -11,10 +11,12 @@ from pathlib import Path
 import causaldag as cd
 import networkx as nx
 import numpy as np
+
 # import config
 import pandas as pd
 import tqdm
 from networkx.utils import powerlaw_sequence
+
 # from sksparse.cholmod import cholesky  # this has to be used instead of scipy's because it doesn't permute the matrix
 from scipy import sparse
 from scipy.special import logsumexp
@@ -223,22 +225,27 @@ def get_bootstrap_indices(intervention_mask, is_single_target, maintain_int_dist
         )
         if maintain_int_dist:
             unique_interventions_tuple = [
-            y for y in set([tuple(x) for x in all_interventions])
-        ]
+                y for y in set([tuple(x) for x in all_interventions])
+            ]
             hash_list_unique_interventions = [
                 hash(y) for y in unique_interventions_tuple
             ]
             hash_list_all_interventions = [hash(tuple(y)) for y in all_interventions]
             idx_ = 0
-            for k,i in enumerate(unique_interventions_tuple):
+            for k, i in enumerate(unique_interventions_tuple):
                 if i == ():
                     continue
                 unique_targets.append([element + 1 for element in i])
-                equal_indices = np.nonzero(np.array(hash_list_all_interventions) == hash_list_unique_interventions[k])[0]
-                selected_indices = np.random.choice(equal_indices, len(equal_indices), replace=True)
+                equal_indices = np.nonzero(
+                    np.array(hash_list_all_interventions)
+                    == hash_list_unique_interventions[k]
+                )[0]
+                selected_indices = np.random.choice(
+                    equal_indices, len(equal_indices), replace=True
+                )
                 data_indices.extend(selected_indices)
-                target_indices.extend([idx_+2]*len(equal_indices))
-                idx_+=1
+                target_indices.extend([idx_ + 2] * len(equal_indices))
+                idx_ += 1
         else:
             selected_indices = np.random.choice(
                 interventional_indices, len(interventional_indices), replace=True
@@ -256,7 +263,9 @@ def get_bootstrap_indices(intervention_mask, is_single_target, maintain_int_dist
                 unique_targets.append([element + 1 for element in i])
             for k, i in enumerate(selected_interventions):
                 hash_code = hash(tuple(i))
-                target_indices.extend([hash_list_unique_interventions.index(hash_code) + 2])
+                target_indices.extend(
+                    [hash_list_unique_interventions.index(hash_code) + 2]
+                )
     return data_indices, unique_targets, target_indices
 
 
@@ -367,13 +376,21 @@ if __name__ == "__main__":
     num_samples, num_nodes = 5, 4
     samples = np.random.normal(size=(num_samples, num_nodes))
     nodes = np.zeros((num_samples, num_nodes)).astype(bool)
-    nodes[2, 1], nodes[3, 3], nodes[3, 0], nodes[4, 0], nodes [4, 3]  = True, True, True, True, True
+    nodes[2, 1], nodes[3, 3], nodes[3, 0], nodes[4, 0], nodes[4, 3] = (
+        True,
+        True,
+        True,
+        True,
+        True,
+    )
 
     print(nodes)
 
     dags_path_ = run_gies_boot(
-        Data(samples=samples, nodes=nodes), n_boot=5, group_interventions=False, maintain_int_dist=
-        True
+        Data(samples=samples, nodes=nodes),
+        n_boot=5,
+        group_interventions=False,
+        maintain_int_dist=True,
     )
     dags, dags_amat = _load_dags(tmp_path=dags_path_, delete=True)
 

@@ -1,6 +1,7 @@
 import argparse
 import math
 import os
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -300,6 +301,8 @@ def train(
     )
     best_test_loss = float("inf")
     rounds_no_improve = 0  # counter for the number of rounds without improvement
+
+    # XXX this is the important loop that is necessary for understanding
     for epoch in range(num_epochs):
         net.train()
         for X, y in train_iter:
@@ -406,7 +409,10 @@ def infer_causal_parents(
     use_wandb,
 ):
     global common_permutation
-    X, y, groundtruth, data_conf = get_data(path, N_data)
+
+    # split the data into the features, the target
+    # X, y, groundtruth, data_conf = get_data(path, N_data)
+    X, y, groundtruth, data_conf = get_data_new(path, N_data)
     node_names = groundtruth.index
 
     experiment_config = {
@@ -550,6 +556,179 @@ def infer_causal_parents(
         wandb.log({"false_negatives": false_negatives})
         wandb.log({"false_positives": false_positives})
         run.finish()
+
+
+def infer_causal_parents_new(
+    X,
+    y,
+    groundtruth,
+    data_conf,
+    num_epochs,
+    learning_rate,
+    l1_reg,
+    l2_reg,
+    batch_size,
+    train_double,
+    N_data,
+    var_names,
+    closed_form,
+    use_wandb,
+):
+    global common_permutation
+    # split the data into the features, the target
+    # X, y, groundtruth, data_conf = get_data(path, N_data)
+    # X, y, groundtruth, data_conf = get_data_new(path, N_data)
+
+    # need to figure out what each of these columns mean
+    node_names = groundtruth.index
+    # node_names = var_names
+
+    experiment_config = {
+        "train_double": train_double,
+        "closed_form": closed_form,
+        "num_epochs": num_epochs,
+        "learning_rate": learning_rate,
+        "l1_reg": l1_reg,
+        "l2_reg": l2_reg,
+        "batch_size": batch_size,
+        "model_type": model_type,
+        "algorithm": "SITF",
+    }
+    experiment_config.update(data_conf)
+    if use_wandb:
+        run = wandb.init(
+            project="NEURIPS_DRCFS_TIMESERIES",
+            name="SR"
+            + experiment_config["model_type"]
+            + "_"
+            + experiment_config["dataset_type"]
+            + "_"
+            + experiment_config["dataset_transform_type"]
+            + "_feat_"
+            + str(experiment_config["N_feat"])
+            + "_n_obs_"
+            + str(X.shape[0])
+            + "_a_"
+            + str(experiment_config["data_coef_a"])
+            + "_nsr_"
+            + str(experiment_config["data_nsr"]),
+            config=experiment_config,
+        )
+
+    # y_true=a*(X[:,list(np.nonzero(groundtruth.to_numpy())[0]+1)]).sum(dim=1).reshape(-1,1)
+    # y_true=experiment_config['data_coef_a']*(X[:,list(groundtruth.to_numpy().nonzero()[0]+1)].exp().sum(dim=1)).log().reshape(-1,1)
+    def mean_and_std(z):
+        print(
+            f"inference mean: {z.mean().item():.3f} inference std: {z.std().item():.3f}"
+        )
+
+    def calculate_accuracy(a, b):
+        a, b = a.to_numpy()[0], b.to_numpy()
+        z = a - b
+        res = np.abs(z).sum() / len(z)
+        return 1 - res
+
+    def ttest(y, a0, r0, ai, ri, method):
+        if method == "direct":
+            z0, zi = y * r0, y * ri
+        else:
+            z0, zi = y * r0 - a0 * (r0 - y), y * ri - ai * (ri - y)
+            z = zi - z0
+            print(f"ttest mean: {z.mean().item():.3f} ttest std: {z.std().item():.3f}")
+        return stats.ttest_rel(z0, zi)
+
+    methods = ["direct", "dr"]
+    causal_graph = {
+        method: pd.DataFrame([{node_name: 0 for node_name in node_names}])
+        for method in methods
+    }
+    pValues = {
+        method: pd.DataFrame([{node_name: 0 for node_name in node_names}])
+        for method in methods
+    }
+    confidence_level = 0.95
+    Nfolds = 5
+    common_permutation = torch.randperm(X.shape[0])
+    a0 = cross_fit(
+        X, y, Nfolds, num_epochs, learning_rate, l1_reg, l2_reg, batch_size, closed_form
+    )
+    r0 = (
+        cross_fit(
+            X,
+            y,
+            Nfolds,
+            num_epochs,
+            learning_rate,
+            l1_reg,
+            l2_reg,
+            batch_size,
+            closed_form,
+        )
+        if train_double
+        else a0
+    )
+    z1, z2 = a0[:, 0] - y, r0[:, 0] - y
+    print("y std:", y.std().item())
+    # print('y_true std:',y_true.std().item())
+    mean_and_std(z1)
+    mean_and_std(z2)
+    for i in range(1, X.shape[1]):
+        print(node_names[i - 1], " groundtruth ", groundtruth.iloc[i - 1])
+        # ai=cross_fit(torch.cat([X[:,0:i],X[:,i+1:]],dim=1),y,Nfolds,num_epochs, learning_rate, l1_reg,l2_reg, batch_size,closed_form)
+        # ri=cross_fit(torch.cat([X[:,0:i],X[:,i+1:]],dim=1),y,Nfolds,num_epochs, learning_rate, l1_reg,l2_reg, batch_size,closed_form) if train_double else ai
+        z1, z2 = a0[:, i] - y, r0[:, i] - y
+        mean_and_std(z1)
+        mean_and_std(z2)
+        for method in methods:
+            test_res = ttest(y, a0[:, 0], r0[:, 0], a0[:, i], r0[:, i], method)
+            pValues[method][node_names[i - 1]] = (test_res[1]).item()
+            if method == "dr":
+                print(node_names[i - 1], method, test_res)
+    print("______Corrected p values______")
+    for method in methods:
+        pValues[method].iloc[0, :] = sm.stats.multipletests(
+            pValues[method].iloc[0, :], alpha=1 - confidence_level, method="fdr_by"
+        )[1]
+        causal_graph[method] = pValues[method].applymap(
+            lambda p: int(p < (1 - confidence_level))
+        )
+    df = (
+        pd.DataFrame(groundtruth)
+        .rename(columns={"Y": "groundtruth"})
+        .join((causal_graph["dr"]).T.rename(columns={0: "dr_causal_graph"}))
+        .join((pValues["dr"]).T.rename(columns={0: "dr_p_values"}))
+        .join((causal_graph["direct"]).T.rename(columns={0: "direct_causal_graph"}))
+        .join((pValues["direct"]).T.rename(columns={0: "direct_p_values"}))
+    )
+    node_names_dict = dict(zip(df.index, var_names))
+    df = df.rename(index=node_names_dict)
+    # groundtruth = groundtruth.rename(index=node_names_dict)
+    print(df.to_string())
+    acc = calculate_accuracy(causal_graph["dr"], groundtruth)
+    false_positives, false_negatives = sum(
+        ((causal_graph["dr"]).T)[0][groundtruth == 0]
+    ), -sum(((causal_graph["dr"]).T)[0][groundtruth == 1] - 1)
+    gdt_positives, gdt_negatives = sum(groundtruth == 1), sum(groundtruth == 0)
+
+    print(
+        f'N_features: {experiment_config["N_feat"]}, N_data: {experiment_config["N_obs"]}'
+    )
+    print("accuracy: ", acc)
+    print(
+        "groundtruth positives: ", gdt_positives, "false negatives: ", false_negatives
+    )
+    print(
+        "groundtruth negatives: ", gdt_negatives, "false positives: ", false_positives
+    )
+
+    if use_wandb:
+        wandb.log({"groundtruth_positives": gdt_positives})
+        wandb.log({"groundtruth_negatives": gdt_negatives})
+        wandb.log({"false_negatives": false_negatives})
+        wandb.log({"false_positives": false_positives})
+        run.finish()
+
+    return df["dr_causal_graph"]
 
 
 def analyse_path(path):
@@ -729,6 +908,77 @@ def get_data(path, N_data=-1):
     return X, y, groundtruth, data_conf
 
 
+def get_data_new(path: str, N_data=-1):
+    data_conf = {}
+    data = pd.read_csv(path)
+    node_names = list(data.columns)
+    X = data.iloc[:, :-1].to_numpy()
+    T_ones = np.ones((len(X), 1))
+    X = np.hstack((T_ones, X))
+    y = data.iloc[:, -1].to_numpy()
+    X, y = torch.tensor(X, dtype=torch.float32), torch.tensor(
+        y, dtype=torch.float32
+    ).reshape(-1, 1)
+
+    ground_truth = pd.Series(np.array([1, 1, 0]), index=node_names, dtype=bool)
+    data_conf["N_obs"] = len(X)
+    data_conf["dataset_type"] = "simulated_examples"
+    data_conf["dataset_transform_type"] = "linear"
+    data_conf["N_feat"] = 6
+    return X, y, ground_truth, data_conf
+
+
+# XXX this is the part that I am using
+class DoublyRobustClassWrapper:
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        groundtruth: pd.DataFrame,
+        data_conf: Dict,
+        topological_order: List,
+        target: str,
+    ):
+        var_names = [var for var in topological_order if var != target]
+        target_index = topological_order.index(target)
+        self.node_names = var_names
+        self.groundtruth = groundtruth
+        X = data.iloc[
+            :, [i for i in range(data.shape[1]) if i != target_index]
+        ].to_numpy()
+        T_ones = np.ones((len(X), 1))
+        X = np.hstack((T_ones, X))
+        y = data.iloc[:, target_index].to_numpy()
+        self.X, self.y = torch.tensor(X, dtype=torch.float32), torch.tensor(
+            y, dtype=torch.float32
+        ).reshape(-1, 1)
+
+        data_conf["N_obs"] = X.shape[0]
+        data_conf["N_feat"] = X.shape[1] - 1  # removing the bias term
+        self.data_conf = data_conf.copy()
+
+    def infer_causal_parents(self):
+        num_epochs, learning_rate, l1_reg, l2_reg, batch_size = 500, 0.01, 0, 0, 32
+        train_double = True
+        N_obs = self.data_conf["N_obs"]
+        direct_parents = infer_causal_parents_new(
+            self.X,
+            self.y,
+            self.groundtruth,
+            self.data_conf,
+            num_epochs,
+            learning_rate,
+            l1_reg,
+            l2_reg,
+            batch_size,
+            train_double,
+            N_obs,
+            self.node_names,
+            closed_form=False,
+            use_wandb=False,
+        )
+        return direct_parents
+
+
 model_type = "MLP"
 num_epochs, learning_rate, l1_reg, l2_reg, batch_size = 500, 0.01, 0, 0, 32
 train_double = True
@@ -736,12 +986,15 @@ train_double = True
 print("cuda is available", torch.cuda.is_available())
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Double robustness experiments")
-    parser.add_argument("--N_data", default=1000, type=int)
-    parser.add_argument("--path", type=str)
-    args = vars(parser.parse_args())
-    N_data = args["N_data"]
-    path = args["path"]
+    # parser = argparse.ArgumentParser(description="Double robustness experiments")
+    # parser.add_argument("--N_data", default=1000, type=int)
+    # parser.add_argument("--path", type=str)
+    # args = vars(parser.parse_args())
+    # N_data = args["N_data"]
+    # path = args["path"]
+
+    path = "/vol/bitbucket/jd123/causal_bayes_opt/data/test.csv"
+    N_data = 200
     infer_causal_parents(
         path,
         num_epochs,
@@ -752,5 +1005,5 @@ if __name__ == "__main__":
         train_double,
         N_data,
         closed_form=False,
-        use_wandb=True,
+        use_wandb=False,
     )

@@ -1,4 +1,5 @@
-import logging
+import os
+import uuid
 from collections import namedtuple
 from copy import deepcopy
 from typing import Dict, List, Tuple
@@ -7,7 +8,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LassoCV, LinearRegression
+from sklearn.linear_model import LassoCV
 from sklearn.model_selection import KFold
 
 from algorithms.BASE_algorithm import BASE
@@ -16,6 +17,8 @@ from diffcbed.models.posterior_model import PosteriorModel
 from diffcbed.replay_buffer import ReplayBuffer
 from diffcbed.strategies.acquisition_strategy import AcquisitionStrategy
 from graphs.graph import GraphStructure
+from posterior_model.doubly_robust import DoublyRobustClassWrapper
+from posterior_model.model import DoublyRobustModel
 from utils.sem_sampling import (
     change_int_data_format_to_mi,
     change_obs_data_format_to_mi,
@@ -49,12 +52,12 @@ class PARENT(BASE):
 
     def set_values(self, D_O: Dict, D_I: Dict):
         self.D_O_bo_format = deepcopy(D_O)
+        self.topological_order = list(self.D_O_bo_format.keys())
         self.D_O = change_obs_data_format_to_mi(
             D_O,
             graph_variables=self.variables,
             intervention_node=np.zeros(shape=len(self.variables)),
         )
-        df_D_O = pd.DataFrame(self.D_O.samples)
         self.posterior_model.covariance_matrix = np.cov(self.D_O.samples.T)
         self.D_I = change_int_data_format_to_mi(D_I, graph_variables=self.variables)
         # just using the observational data for now
@@ -65,45 +68,97 @@ class PARENT(BASE):
         # self.posterior_model.update(self.buffer.data())
 
         # writing the dataframe to a csv file
-        logging.info("Writing to the csv file")
-        df_D_O.to_csv(
-            "/vol/bitbucket/jd123/causal_bayes_opt/data/test.csv", index=False
-        )
-
-    def run_algorithm(self, T: int = 10):
-        parents_Y = corth_features(
-            self.D_O_bo_format, self.target, regression_technique="Random Forest"
-        )
-
-        # for i in range(T):
-        #     logging.info(f"------------------EXPERIMENT {i}-------------------")
-        #     # just keep it like this for now and don't split it into manipulative and non-manipulative
-        #     valid_interventions = self.graph_env.get_valid_interventions()
-
-        #     interventions, _ = self.acquisition_strategy.acquire(valid_interventions, i)
-
-        #     # assuming a batch size of 1
-        #     intervention_node = interventions["nodes"][0]
-        #     intervention_value = interventions["values"][0]
-        #     intervention_results = self.graph_env.intervene(
-        #         i, 1000, interventions["nodes"][0], interventions["values"][0]
-        #     )
-        #     intervention_results = Data(
-        #         samples=intervention_results.samples.mean(axis=0).reshape(1, -1),
-        #         intervention_node=intervention_results.intervention_node,
-        #     )
-        #     self.buffer.update(intervention_results)
-        print(parents_Y)
-        # parents_X = corth_features(
-        #     self.D_O,
-        #     "X",
+        # logging.info("Writing to the csv file")
+        # df_D_O.to_csv(
+        #     "/vol/bitbucket/jd123/causal_bayes_opt/data/test.csv", index=False
         # )
-        # print(parents_X)
-        # parents_Z = corth_features(
-        #     self.D_O,
-        #     "Z",
+
+    def run_algorithm(self, T: int = 10, python_code: bool = True):
+        # parents_Y = corth_features(
+        #     self.D_O_bo_format, self.target, regression_technique="Random Forest"
         # )
-        # print(parents_Z)
+
+        target = self.graph.target
+        parents = self.graph.parents[self.graph.target]
+        groundtruth = np.zeros(shape=len(self.graph.variables) - 1)
+        for i, var in enumerate(self.topological_order):
+            if var != self.graph.target and var in parents:
+                groundtruth[i] = 1
+        groundtruth = pd.Series(groundtruth.astype(bool))
+
+        data = pd.DataFrame(self.D_O.samples, columns=self.topological_order)
+        data_conf = {}
+
+        # this part is for the python doubly robust estimator
+        if python_code:
+            model = DoublyRobustModel(self.graph, self.topological_order, target)
+            model.run_bootstrap_obs(data)
+        else:
+
+            run_doubly_robust(data, self.topological_order, target)
+
+
+def run_doubly_robust(data: pd.DataFrame, topological_order: List, target: str):
+
+    os.chdir("/vol/bitbucket/jd123/causal_bayes_opt/")
+    target_index = topological_order.index(target)
+    X = data.iloc[:, [i for i in range(data.shape[1]) if i != target_index]].to_numpy()
+    # T_ones = np.ones((len(X), 1))
+    # X = np.hstack((T_ones, X))
+    y = data.iloc[:, target_index].to_numpy()
+    df_X = pd.DataFrame(X)
+    df_y = pd.DataFrame(y)
+    uid = str(uuid.uuid4())
+
+    tmp_path = "tmp"
+    os.makedirs(tmp_path, exist_ok=True)
+    dags_path = os.path.join(tmp_path, "dags/")
+    os.makedirs(dags_path, exist_ok=True)
+    df_X.to_csv(f"{dags_path}/X.csv", index=False)
+    df_y.to_csv(f"{dags_path}/y.csv", index=False)
+
+    rfile = os.path.join("posterior_model", "corth_algorithm.R")
+    r_command = f"Rscript {rfile}"
+    os.system(r_command)
+
+    # assert (
+    #     data.nodes.dtype == bool
+    # ), "Please input boolean mask for interventional samples"
+    # interventions = np.array(data.nodes)
+
+    # is_single_target = (interventions.sum((-1)) <= 1).sum() == interventions.shape[0]
+    # idx = np.array(range(len(interventions)))
+    # if is_single_target:
+    #     if group_interventions:
+    #         idx = np.argsort(interventions)
+    # # order samples by interventions to group similar interventions together
+    # interventions = interventions[idx]
+    # for i in tqdm.tqdm(range(n_boot)):
+    #     data_indices, unique_targets, target_indices = get_bootstrap_indices(
+    #         interventions, is_single_target, maintain_int_dist=maintain_int_dist
+    #     )
+    #     np.savetxt(tmp_path / "samples.csv", data.samples[data_indices], delimiter=" ")
+    #     with open(tmp_path / "unique_targets.csv", "w", newline="") as f:
+    #         writer = csv.writer(f)
+    #         writer.writerows(unique_targets)
+    #     np.array(target_indices).tofile(
+    #         tmp_path / "target_indices.csv", sep="\n", format="%d"
+    #     )
+    #     open(tmp_path / "target_indices.csv", "a").write("\n")
+    #     if not os.path.exists(dags_path):
+    #         os.mkdir(dags_path)
+    #     rfile = os.path.join("diffcbed", "models", "dag_bootstrap_lib", "run_gies.r")
+    #     r_command = "Rscript {} {} {} {} {} {}".format(
+    #         rfile,
+    #         str(tmp_path / "samples.csv"),
+    #         str(tmp_path / "unique_targets.csv"),
+    #         str(tmp_path / "target_indices.csv"),
+    #         dags_path,
+    #         i,
+    #     )
+
+    #     os.system(r_command)
+    # return tmp_path
 
 
 def corth_features(

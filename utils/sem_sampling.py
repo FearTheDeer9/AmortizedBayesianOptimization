@@ -180,7 +180,7 @@ def sample_model(
                 epsilon_term = graph.get_error_distribution(noiseless=noiseless)
             else:
                 epsilon_term = epsilon
-            
+
             tmp = sample_from_SEM(
                 static_sem=static_sem,
                 initial_values=initial_values,
@@ -374,7 +374,9 @@ def draw_interventional_samples_sem(
     return interventional_data
 
 
-def change_obs_data_format_to_mi(D_O: Dict, graph_variables: List, intervention_node) -> Data:
+def change_obs_data_format_to_mi(
+    D_O: Dict, graph_variables: List, intervention_node
+) -> Data:
     """
     Change the data format from the format for the BO methods to the format needed for the
     the MI methods
@@ -412,7 +414,9 @@ def change_int_data_format_to_mi(D_I: Dict, graph_variables: List) -> List[Data]
                 if var in key:
                     intervention_node[i] = 1
             D_I_mi.append(
-                change_obs_data_format_to_mi(D_I[key], graph_variables, intervention_node=intervention_node)
+                change_obs_data_format_to_mi(
+                    D_I[key], graph_variables, intervention_node=intervention_node
+                )
             )
 
     return D_I_mi

@@ -11,13 +11,15 @@ from diffcbed.strategies import PolicyOptNMC
 from graphs.data_setup import setup_observational_interventional
 from graphs.graph_6_nodes import Graph6Nodes
 from graphs.graph_chain import ChainGraph
+from graphs.graph_erdos_renyi import ErdosRenyiGraph
 from graphs.toy_graph import ToyGraph
 from scripts.base_script import parse_args
 
 args = parse_args()
-# graph = ToyGraph()
+graph = ToyGraph()
 graph = Graph6Nodes()
-graph = ChainGraph(num_nodes=20)
+# graph = ChainGraph(num_nodes=10)
+# graph = ErdosRenyiGraph(num_nodes=10)
 args.num_nodes = len(graph.variables)
 graph_env = GraphStructureEnv(graph, args)
 graph_variables = graph_env.nodes
@@ -35,9 +37,9 @@ strategy_name = "policyoptnmc"
 model = DagBootstrap(graph_env, args)
 strategy = PolicyOptNMC(model, graph_env, args)
 parent = PARENT(graph, graph_env, model, strategy)
-D_O, D_I, _ = setup_observational_interventional(None, graph=graph, n_int=0)
+D_O, D_I, _ = setup_observational_interventional(None, graph=graph, n_int=0, n_obs=500)
 parent.set_values(D_O, D_I)
-parent.run_algorithm()
+parent.run_algorithm(python_code=True)
 
 
 # import jax

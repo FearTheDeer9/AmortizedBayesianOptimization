@@ -123,34 +123,33 @@ doubleML_parental_test <- function(z, d, y, regression_technique){
   return(results)
 }
 
-CORTH_Features_find_parents <- function(data){
-  data <- scale(as.matrix(data), TRUE, TRUE)
+CORTH_Features_find_parents <- function(X, y, dim){
+  data <- scale(as.matrix(X), TRUE, TRUE)
   
-  k <- dim(data)[2]
-  x <- data[,1:k-1]
-  y <- data[,k]
-  print(y)
-  print(x)
+  k <- dim(X)[2] + 1
+  # x <- data[,1:k-1]
+  # y <- data[,k]
   
-  parental_state = matrix(0, 1, k)
-  colnames(parental_state) <- colnames(data)
+  parental_state = matrix(0, 1, k-1)
+  colnames(parental_state) <- colnames(X)
   rownames(parental_state) <- c("Result")
   regression_technique <- "Random Forest"
   
   for (i in 1:(k-1)){ # one-vs-rest search
     print("-----")
     print(i)
-    results <- doubleML_parental_test(x[,-i], x[,i], y, regression_technique)
+    results <- doubleML_parental_test(X[,-i], X[,i], y, regression_technique)
     parental_state["Result", i] <- results[,"Result"]
   }
   return(parental_state)
 }
-data <- read.csv("/vol/bitbucket/jd123/causal_bayes_opt/data/test.csv")
+X <- read.csv("/vol/bitbucket/jd123/causal_bayes_opt/tmp/dags/X.csv")
+y <- read.csv("/vol/bitbucket/jd123/causal_bayes_opt/tmp/dags/y.csv")
 shape <- dim(data)
 # print(data.frame(as.matrix(data[,2:shape[2]])))
 
 # data_address = "/DAG Samples/Random Structures/sparsity(0.2)n(5)observation_num(100)nonlinear_probability(0.3)a(0.5)b(1.5)theta(2)alpha(0.5)beta(0.5)/simulated_data10.csv"
 # data <- read.csv(paste(here(), data_address, sep=""), ,na.strings=c("", "NA") , header=TRUE, sep="\t")
 
-CORTH_Features_find_parents(data.frame(as.matrix(data[,2:shape[2]])))
+CORTH_Features_find_parents(as.matrix(X), as.matrix(y),  shape)
 # CORTH_Features_find_parents(data)

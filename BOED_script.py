@@ -20,7 +20,7 @@ graph = ToyGraph()
 graph = Graph6Nodes()
 # graph = ChainGraph(num_nodes=10)
 # graph = ErdosRenyiGraph(num_nodes=10)
-args.num_nodes = len(graph.variables)
+# args.num_nodes = len(graph.variables)
 graph_env = GraphStructureEnv(graph, args)
 graph_variables = graph_env.nodes
 node_ranges = []
@@ -37,7 +37,7 @@ strategy_name = "policyoptnmc"
 model = DagBootstrap(graph_env, args)
 strategy = PolicyOptNMC(model, graph_env, args)
 parent = PARENT(graph, graph_env, model, strategy)
-D_O, D_I, _ = setup_observational_interventional(None, graph=graph, n_int=0, n_obs=500)
+D_O, D_I, _ = setup_observational_interventional(None, graph=graph, n_int=5, n_obs=50)
 parent.set_values(D_O, D_I)
 parent.run_algorithm(python_code=True)
 

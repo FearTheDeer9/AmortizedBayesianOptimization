@@ -6,6 +6,8 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+from GPy.kern import RBF
+from GPy.models.gp_regression import GPRegression
 from scipy.stats import norm
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LassoCV
@@ -62,16 +64,31 @@ class PARENT(BASE):
         self.D_I = change_int_data_format_to_mi(D_I, graph_variables=self.variables)
         # just using the observational data for now
         self.buffer.update(self.D_O)
-        # for intervention in self.D_I:
-        #     self.buffer.update(intervention)
+        for intervention in self.D_I:
+            self.buffer.update(intervention)
 
         # self.posterior_model.update(self.buffer.data())
 
-        # writing the dataframe to a csv file
-        # logging.info("Writing to the csv file")
-        # df_D_O.to_csv(
-        #     "/vol/bitbucket/jd123/causal_bayes_opt/data/test.csv", index=False
-        # )
+    def fit_parents_to_target(self):
+        # this is the number of priors that the doubly robust method picked up
+        num_priors = len(self.model.prob_estimate.keys())
+        self.all_functions = {}
+        for parents in self.model.prob_estimate.keys():
+            if len(parents) > 0:
+                X = np.hstack([self.D_O_bo_format[parent] for parent in parents])
+                y = np.array(self.D_O_bo_format[self.target]).reshape(-1, 1)
+                kernel = RBF(
+                    input_dim=len(parents), variance=1.0, ARD=False, lengthscale=1.0
+                )
+                gp = GPRegression(X=X, Y=y, kernel=kernel)
+
+                gp.optimize()
+            else:
+                # you can fit the KDE estimate here as well
+                pass
+            self.all_functions[parents] = gp
+
+        print(self.all_functions)
 
     def run_algorithm(self, T: int = 10, python_code: bool = True):
         # parents_Y = corth_features(
@@ -79,6 +96,11 @@ class PARENT(BASE):
         # )
 
         target = self.graph.target
+        # define the model as well
+        self.model = DoublyRobustModel(
+            self.graph, self.topological_order, target, num_bootstraps=30
+        )
+
         parents = self.graph.parents[self.graph.target]
         groundtruth = np.zeros(shape=len(self.graph.variables) - 1)
         for i, var in enumerate(self.topological_order):
@@ -86,15 +108,16 @@ class PARENT(BASE):
                 groundtruth[i] = 1
         groundtruth = pd.Series(groundtruth.astype(bool))
 
-        data = pd.DataFrame(self.D_O.samples, columns=self.topological_order)
-        data_conf = {}
+        # need to change this to incorporate the interventional data as well
+        data: Data = self.buffer.data()
+        # data = pd.DataFrame(self.D_O.samples, columns=self.topological_order)
+        # data_conf = {}
 
-        # this part is for the python doubly robust estimator
+        # # this part is for the python doubly robust estimator
         if python_code:
-            model = DoublyRobustModel(self.graph, self.topological_order, target)
-            model.run_bootstrap_obs(data)
+            self.model.run_bootstrap_obs(data)
+            self.fit_parents_to_target()
         else:
-
             run_doubly_robust(data, self.topological_order, target)
 
 

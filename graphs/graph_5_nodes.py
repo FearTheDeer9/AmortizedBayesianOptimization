@@ -38,12 +38,13 @@ class Graph5Nodes(GraphStructure):
             ("L", "R"),
             ("R", "Y"),
         ]
+        self._variables = ["B", "T", "L", "R", "Y"]
         self._G = self.make_graphical_model()
         self._nodes = set(chain(*self.edges))
         self._parents, self._children = self.build_relationships()
         self._target = "Y"
         self._functions: Optional[Dict[str, Callable]] = None
-        self._variables = ["B", "T", "L", "R", "Y"]
+        
 
     def define_SEM(self):
         fb = lambda epsilon, sample: epsilon

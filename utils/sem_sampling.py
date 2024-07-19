@@ -364,7 +364,6 @@ def draw_interventional_samples_sem(
                 graph=graph,
                 noiseless=noiseless,
             )
-
             for var in sample:
                 interventional_data[tuple(intervention)][var].append(sample[var][0, 0])
 

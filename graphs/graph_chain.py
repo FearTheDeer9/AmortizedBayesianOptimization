@@ -87,3 +87,11 @@ class ChainGraph(GraphStructure):
                 ).sample(1)
 
         return err_dist
+
+    def get_sets(self):
+        mis = []
+        pomis = []
+        manipulative_variables = [
+            (var,) for var in self.variables if var != self.target
+        ]
+        return mis, pomis, manipulative_variables

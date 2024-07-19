@@ -115,10 +115,27 @@ class PARENT(BASE):
 
         # # this part is for the python doubly robust estimator
         if python_code:
-            self.model.run_bootstrap_obs(data)
+            self.model.run_method(data)
             self.fit_parents_to_target()
         else:
             run_doubly_robust(data, self.topological_order, target)
+
+    def check_dr_parent_accuracy(self):
+        target = self.graph.target
+        # just running it with one bootstrap
+        self.model = DoublyRobustModel(
+            self.graph, self.topological_order, target, num_bootstraps=1
+        )
+
+        parents = self.graph.parents[self.graph.target]
+        groundtruth = np.zeros(shape=len(self.graph.variables) - 1)
+        for i, var in enumerate(self.topological_order):
+            if var != self.graph.target and var in parents:
+                groundtruth[i] = 1
+        groundtruth = pd.Series(groundtruth.astype(bool))
+        data: Data = self.buffer.data()
+        parents = self.model.run_method(data)
+        return np.mean(parents.to_numpy() == groundtruth.to_numpy())
 
 
 def run_doubly_robust(data: pd.DataFrame, topological_order: List, target: str):

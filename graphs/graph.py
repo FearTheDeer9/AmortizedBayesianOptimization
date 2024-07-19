@@ -267,7 +267,7 @@ class GraphStructure:
     @abc.abstractmethod
     def get_exploration_set(self):
         logging.warning(MESSAGE)
-        return self.variables
+        return [(var,) for var in self.variables if var != self.target]
 
     @abc.abstractmethod
     def refit_models(self, observational_samples):

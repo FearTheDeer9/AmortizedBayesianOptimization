@@ -17,8 +17,8 @@ from scripts.base_script import parse_args
 
 args = parse_args()
 graph = ToyGraph()
-graph = Graph6Nodes()
-# graph = ChainGraph(num_nodes=10)
+# graph = Graph6Nodes()
+graph = ChainGraph(num_nodes=10)
 # graph = ErdosRenyiGraph(num_nodes=10)
 # args.num_nodes = len(graph.variables)
 graph_env = GraphStructureEnv(graph, args)
@@ -37,7 +37,7 @@ strategy_name = "policyoptnmc"
 model = DagBootstrap(graph_env, args)
 strategy = PolicyOptNMC(model, graph_env, args)
 parent = PARENT(graph, graph_env, model, strategy)
-D_O, D_I, _ = setup_observational_interventional(None, graph=graph, n_int=5, n_obs=50)
+D_O, D_I, _ = setup_observational_interventional(None, graph=graph, n_int=5, n_obs=200)
 parent.set_values(D_O, D_I)
 parent.run_algorithm(python_code=True)
 

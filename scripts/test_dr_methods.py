@@ -26,16 +26,16 @@ from scripts.base_script import parse_args
 
 
 def test_method_accuracy(
-    graph: GraphStructure, n_int: int, n_obs: int, num_simulations: int = 10
+    graph: GraphStructure, n_int: int, n_obs: int, num_simulations: int = 40
 ):
     graph_env = GraphStructureEnv(graph, args)
     model = DagBootstrap(graph_env, args)
     strategy = PolicyOptNMC(model, graph_env, args)
     accuracies = []
-    for _ in range(num_simulations):
+    for i in range(num_simulations):
         parent = PARENT(graph, graph_env, model, strategy)
         D_O, D_I, _ = setup_observational_interventional(
-            None, graph=graph, n_int=n_int, n_obs=n_obs
+            None, graph=graph, n_int=n_int, n_obs=n_obs, seed=i
         )
         parent.set_values(D_O, D_I)
         accuracy = parent.check_dr_parent_accuracy()

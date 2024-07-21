@@ -42,8 +42,8 @@ def test_method_accuracy(
         print(f"THE ACCURACY IS {accuracy}")
         accuracies.append(accuracy)
 
-    mean_accuracy = np.mean(accuracy)
-    std_accuracy = np.std(accuracy)
+    mean_accuracy = np.mean(accuracies)
+    std_accuracy = np.std(accuracies)
     return mean_accuracy, std_accuracy
 
 

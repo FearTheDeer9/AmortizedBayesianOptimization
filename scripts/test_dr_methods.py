@@ -47,8 +47,9 @@ def test_method_accuracy(
     return mean_accuracy, std_accuracy
 
 
-n_obs = 200
-n_ints = [0, 2, 4, 6, 8, 10, 12, 14]
+n_obs = 10
+# n_ints = [0, 2, 4, 6, 8, 10, 12, 14]
+n_ints = [10, 20, 30, 40, 50]
 # n_ints = [2, 4, 6, 8, 10, 12, 14]
 args = parse_args()
 
@@ -78,5 +79,5 @@ for n_int in n_ints:
     mean_acc, std_acc = test_method_accuracy(graph, n_int, n_obs)
     results_dict[f"Chain_20_{n_int}"] = {"mean": mean_acc, "std": std_acc}
 
-with open("results/dr_sweep/results_dict.pickle", "wb") as file:
+with open("results/dr_sweep/results_dict_int.pickle", "wb") as file:
     pickle.dump(results_dict, file)

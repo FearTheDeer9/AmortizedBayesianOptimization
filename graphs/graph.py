@@ -292,7 +292,7 @@ class GraphStructure:
         logging.warning(MESSAGE)
         interventional_range = OrderedDict()
         for var in self.variables:
-            interventional_range[var] = [-5, 5]
+            interventional_range[var] = [5, 10]
         return interventional_range
 
     @abc.abstractmethod

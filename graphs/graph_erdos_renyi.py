@@ -17,14 +17,12 @@ from graphs.graph_chain import define_SEM_causalenv
 
 class ErdosRenyiGraph(GraphStructure):
 
-    def __init__(self, num_nodes: int, seed: int = 17):
+    def __init__(self, num_nodes: int, seed: int = 17, nonlinear: bool = False):
         args = argparse.Namespace(scm_bias=0.0, noise_bias=0.0, old_er_logic=True)
         self.num_nodes = num_nodes
 
         self.causal_env: CausalEnvironment = ErdosRenyi(
-            args=args,
-            num_nodes=num_nodes,
-            binary_nodes=True,
+            args=args, num_nodes=num_nodes, binary_nodes=True, nonlinear=nonlinear
         )
         self._SEM = self.define_SEM()
         self._variables = [str(i) for i in range(num_nodes)]
@@ -70,3 +68,11 @@ class ErdosRenyiGraph(GraphStructure):
                 ).sample(1)
 
         return err_dist
+
+    def get_sets(self):
+        mis = []
+        pomis = []
+        manipulative_variables = [
+            (var,) for var in self.variables if var != self.target
+        ]
+        return mis, pomis, manipulative_variables

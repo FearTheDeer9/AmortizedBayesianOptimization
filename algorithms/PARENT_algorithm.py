@@ -19,7 +19,8 @@ from diffcbed.models.posterior_model import PosteriorModel
 from diffcbed.replay_buffer import ReplayBuffer
 from diffcbed.strategies.acquisition_strategy import AcquisitionStrategy
 from graphs.graph import GraphStructure
-from posterior_model.doubly_robust import DoublyRobustClassWrapper
+
+# from posterior_model.doubly_robust import DoublyRobustClassWrapper
 from posterior_model.model import DoublyRobustModel
 from utils.sem_sampling import (
     change_int_data_format_to_mi,

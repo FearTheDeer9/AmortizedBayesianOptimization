@@ -39,11 +39,19 @@ def define_SEM_causalenv(
 
 class ChainGraph(GraphStructure):
 
-    def __init__(self, num_nodes: int, noise_sigma: float = 1.0, seed: int = None):
+    def __init__(
+        self,
+        num_nodes: int,
+        noise_sigma: float = 1.0,
+        seed: int = None,
+        nonlinear: bool = False,
+    ):
         args = argparse.Namespace(scm_bias=1.0, noise_bias=1.0, old_er_logic=True)
         self.num_nodes = num_nodes
 
-        self.causal_env: CausalEnvironment = Chain(args=args, num_nodes=num_nodes)
+        self.causal_env: CausalEnvironment = Chain(
+            args=args, num_nodes=num_nodes, nonlinear=nonlinear
+        )
         self._SEM = self.define_SEM()
         self._variables = [str(i) for i in range(num_nodes)]
 

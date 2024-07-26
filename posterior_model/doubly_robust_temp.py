@@ -1,3 +1,5 @@
+# XXX going the change things, so I am going to change this file
+
 import argparse
 import math
 import os
@@ -343,6 +345,7 @@ def cross_fit(
     l2_reg,
     batch_size,
     closed_form,
+    leave_sample=False,  # this is just an additional argument as I am not sure where this is included
 ):
     global common_permutation
     # Shuffle the data using a random permutation
@@ -377,11 +380,11 @@ def cross_fit(
         train_y = torch.cat([f for j, f in enumerate(folds_y) if j != i])
 
         # XXX picking which samples to not include in the dataset
-        train_intervened_nodes = torch.cat(
-            [f for j, f in enumerate(folds_intervened_nodes) if j != i]
-        )
-        all_false_train = torch.all(train_intervened_nodes == False, dim=1)
-        all_false_test = torch.all(test_intervened_nodes == False, dim=1)
+        # train_intervened_nodes = torch.cat(
+        #     [f for j, f in enumerate(folds_intervened_nodes) if j != i]
+        # )
+        # all_false_train = torch.all(train_intervened_nodes == False, dim=1)
+        # all_false_test = torch.all(test_intervened_nodes == False, dim=1)
         # include_test_samples = (test_intervened_nodes[:, i] | all_false_test).reshape(
         #     -1
         # )
@@ -432,177 +435,16 @@ def cross_fit(
             net.eval()
             n_dim = test_X.shape[-1]
             means = test_X.mean(dim=0)
-            test_X = test_X.unsqueeze(1).expand(-1, n_dim, -1).clone()
-            for i in range(1, n_dim):
-                # test_X[:,i,i]=means[i]
-                test_X[:, i, i] = 0
+            # test_X = test_X.unsqueeze(1).expand(-1, n_dim, -1).clone()
+            # for i in range(1, n_dim):
+            #     # test_X[:,i,i]=means[i]
+            #     if leave_sample:
+            #         test_X[:, i, i] = 0
             y_pred = net(test_X)
             y_preds.append(y_pred)
 
     # Concatenate the predicted y values from each fold and return them
     return torch.cat(y_preds)[torch.argsort(perm)]
-
-
-# def infer_causal_parents(
-#     path,
-#     num_epochs,
-#     learning_rate,
-#     l1_reg,
-#     l2_reg,
-#     batch_size,
-#     train_double,
-#     N_data,
-#     closed_form,
-#     use_wandb,
-# ):
-#     global common_permutation
-
-#     # split the data into the features, the target
-#     # X, y, groundtruth, data_conf = get_data(path, N_data)
-#     X, y, groundtruth, data_conf = get_data_new(path, N_data)
-#     node_names = groundtruth.index
-
-#     experiment_config = {
-#         "train_double": train_double,
-#         "closed_form": closed_form,
-#         "num_epochs": num_epochs,
-#         "learning_rate": learning_rate,
-#         "l1_reg": l1_reg,
-#         "l2_reg": l2_reg,
-#         "batch_size": batch_size,
-#         "model_type": model_type,
-#         "algorithm": "SITF",
-#     }
-#     experiment_config.update(data_conf)
-#     if use_wandb:
-#         run = wandb.init(
-#             project="NEURIPS_DRCFS_TIMESERIES",
-#             name="SR"
-#             + experiment_config["model_type"]
-#             + "_"
-#             + experiment_config["dataset_type"]
-#             + "_"
-#             + experiment_config["dataset_transform_type"]
-#             + "_feat_"
-#             + str(experiment_config["N_feat"])
-#             + "_n_obs_"
-#             + str(X.shape[0])
-#             + "_a_"
-#             + str(experiment_config["data_coef_a"])
-#             + "_nsr_"
-#             + str(experiment_config["data_nsr"]),
-#             config=experiment_config,
-#         )
-
-#     # y_true=a*(X[:,list(np.nonzero(groundtruth.to_numpy())[0]+1)]).sum(dim=1).reshape(-1,1)
-#     # y_true=experiment_config['data_coef_a']*(X[:,list(groundtruth.to_numpy().nonzero()[0]+1)].exp().sum(dim=1)).log().reshape(-1,1)
-#     def mean_and_std(z):
-#         print(
-#             f"inference mean: {z.mean().item():.3f} inference std: {z.std().item():.3f}"
-#         )
-
-#     def calculate_accuracy(a, b):
-#         a, b = a.to_numpy()[0], b.to_numpy()
-#         z = a - b
-#         res = np.abs(z).sum() / len(z)
-#         return 1 - res
-
-#     def ttest(y, a0, r0, ai, ri, method):
-#         if method == "direct":
-#             z0, zi = y * r0, y * ri
-#         else:
-#             z0, zi = y * r0 - a0 * (r0 - y), y * ri - ai * (ri - y)
-#             z = zi - z0
-#             print(f"ttest mean: {z.mean().item():.3f} ttest std: {z.std().item():.3f}")
-#         return stats.ttest_rel(z0, zi)
-
-#     methods = ["direct", "dr"]
-#     causal_graph = {
-#         method: pd.DataFrame([{node_name: 0 for node_name in node_names}])
-#         for method in methods
-#     }
-#     pValues = {
-#         method: pd.DataFrame([{node_name: 0 for node_name in node_names}])
-#         for method in methods
-#     }
-#     confidence_level = 0.95
-#     Nfolds = 5
-#     common_permutation = torch.randperm(X.shape[0])
-#     a0 = cross_fit(
-#         X, y, Nfolds, num_epochs, learning_rate, l1_reg, l2_reg, batch_size, closed_form
-#     )
-#     r0 = (
-#         cross_fit(
-#             X,
-#             y,
-#             Nfolds,
-#             num_epochs,
-#             learning_rate,
-#             l1_reg,
-#             l2_reg,
-#             batch_size,
-#             closed_form,
-#         )
-#         if train_double
-#         else a0
-#     )
-#     z1, z2 = a0[:, 0] - y, r0[:, 0] - y
-#     print("y std:", y.std().item())
-#     # print('y_true std:',y_true.std().item())
-#     mean_and_std(z1)
-#     mean_and_std(z2)
-#     for i in range(1, X.shape[1]):
-#         print(node_names[i - 1], " groundtruth ", groundtruth.iloc[i - 1])
-#         # ai=cross_fit(torch.cat([X[:,0:i],X[:,i+1:]],dim=1),y,Nfolds,num_epochs, learning_rate, l1_reg,l2_reg, batch_size,closed_form)
-#         # ri=cross_fit(torch.cat([X[:,0:i],X[:,i+1:]],dim=1),y,Nfolds,num_epochs, learning_rate, l1_reg,l2_reg, batch_size,closed_form) if train_double else ai
-#         z1, z2 = a0[:, i] - y, r0[:, i] - y
-#         mean_and_std(z1)
-#         mean_and_std(z2)
-#         for method in methods:
-#             test_res = ttest(y, a0[:, 0], r0[:, 0], a0[:, i], r0[:, i], method)
-#             pValues[method][node_names[i - 1]] = (test_res[1]).item()
-#             if method == "dr":
-#                 print(node_names[i - 1], method, test_res)
-#     print("______Corrected p values______")
-#     for method in methods:
-#         pValues[method].iloc[0, :] = sm.stats.multipletests(
-#             pValues[method].iloc[0, :], alpha=1 - confidence_level, method="fdr_by"
-#         )[1]
-#         causal_graph[method] = pValues[method].applymap(
-#             lambda p: int(p < (1 - confidence_level))
-#         )
-#     df = (
-#         pd.DataFrame(groundtruth)
-#         .rename(columns={"Y": "groundtruth"})
-#         .join((causal_graph["dr"]).T.rename(columns={0: "dr_causal_graph"}))
-#         .join((pValues["dr"]).T.rename(columns={0: "dr_p_values"}))
-#         .join((causal_graph["direct"]).T.rename(columns={0: "direct_causal_graph"}))
-#         .join((pValues["direct"]).T.rename(columns={0: "direct_p_values"}))
-#     )
-#     print(df.to_string())
-#     acc = calculate_accuracy(causal_graph["dr"], groundtruth)
-#     false_positives, false_negatives = sum(
-#         ((causal_graph["dr"]).T)[0][groundtruth == 0]
-#     ), -sum(((causal_graph["dr"]).T)[0][groundtruth == 1] - 1)
-#     gdt_positives, gdt_negatives = sum(groundtruth == 1), sum(groundtruth == 0)
-
-#     print(
-#         f'N_features: {experiment_config["N_feat"]}, N_data: {experiment_config["N_obs"]}'
-#     )
-#     print("accuracy: ", acc)
-#     print(
-#         "groundtruth positives: ", gdt_positives, "false negatives: ", false_negatives
-#     )
-#     print(
-#         "groundtruth negatives: ", gdt_negatives, "false positives: ", false_positives
-#     )
-
-#     if use_wandb:
-#         wandb.log({"groundtruth_positives": gdt_positives})
-#         wandb.log({"groundtruth_negatives": gdt_negatives})
-#         wandb.log({"false_negatives": false_negatives})
-#         wandb.log({"false_positives": false_positives})
-#         run.finish()
 
 
 def infer_causal_parents_new(
@@ -721,10 +563,16 @@ def infer_causal_parents_new(
             l2_reg,
             batch_size,
             closed_form,
+            # leave_sample=True,
         )
         if train_double
         else a0
     )
+
+    # print("-----a0---------")
+    # print(a0.shape)
+    # print("-----r0---------")
+    # print(r0.shape)
     z1, z2 = a0[:, 0] - y, r0[:, 0] - y
     print("y std:", y.std().item())
     # print('y_true std:',y_true.std().item())
@@ -732,10 +580,36 @@ def infer_causal_parents_new(
     mean_and_std(z2)
     for i in range(1, X.shape[1]):
         print(node_names[i - 1], " groundtruth ", groundtruth.iloc[i - 1])
-        # ai=cross_fit(torch.cat([X[:,0:i],X[:,i+1:]],dim=1),y,Nfolds,num_epochs, learning_rate, l1_reg,l2_reg, batch_size,closed_form)
-        # ri=cross_fit(torch.cat([X[:,0:i],X[:,i+1:]],dim=1),y,Nfolds,num_epochs, learning_rate, l1_reg,l2_reg, batch_size,closed_form) if train_double else ai
+        ai = cross_fit(
+            torch.cat([X[:, 0:i], X[:, i + 1 :]], dim=1),
+            y,
+            intervened_nodes,
+            Nfolds,
+            num_epochs,
+            learning_rate,
+            l1_reg,
+            l2_reg,
+            batch_size,
+            closed_form,
+        )
+        ri = (
+            cross_fit(
+                torch.cat([X[:, 0:i], X[:, i + 1 :]], dim=1),
+                y,
+                intervened_nodes,
+                Nfolds,
+                num_epochs,
+                learning_rate,
+                l1_reg,
+                l2_reg,
+                batch_size,
+                closed_form,
+            )
+            if train_double
+            else a0
+        )
 
-        # XXX decipher a bit which values to look at
+        print(f"THE SHAPES {y.shape}, {a0.shape}, {ri.shape}, {ai.shape}")
         all_false = torch.all(intervened_nodes == False, dim=1)
         include_sample = (intervened_nodes[:, i - 1] | all_false).reshape(-1)
 
@@ -751,25 +625,25 @@ def infer_causal_parents_new(
         #         a0[include_sample, 0],
         #         r0[include_sample, 0],
         #         a0[include_sample, i],
-        #         r0[include_sample, i],
+        #         r0[include_sample, i],q
         #         method,
         #     )
         #     pValues[method][node_names[i - 1]] = (test_res[1]).item()
         #     if method == "dr":
         #         print(node_names[i - 1], method, test_res)
         z1, z2 = (
-            a0[:, i] - y,
-            r0[:, i] - y,
+            ai - y,
+            ri - y,
         )
         mean_and_std(z1)
         mean_and_std(z2)
         for method in methods:
             test_res = ttest(
                 y,
-                a0[:, 0],
-                r0[:, 0],
-                a0[:, i],
-                r0[:, i],
+                a0,
+                r0,
+                ai,
+                ri,
                 method,
             )
             pValues[method][node_names[i - 1]] = (test_res[1]).item()

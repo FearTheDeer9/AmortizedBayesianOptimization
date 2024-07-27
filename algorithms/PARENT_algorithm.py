@@ -21,7 +21,7 @@ from diffcbed.strategies.acquisition_strategy import AcquisitionStrategy
 from graphs.graph import GraphStructure
 
 # from posterior_model.doubly_robust import DoublyRobustClassWrapper
-from posterior_model.model import DoublyRobustModel
+from posterior_model.model import DoublyRobustModel, LinearSCMModel
 from utils.sem_sampling import (
     change_int_data_format_to_mi,
     change_obs_data_format_to_mi,

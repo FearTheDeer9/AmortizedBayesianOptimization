@@ -18,7 +18,7 @@ def reverse_standardize(data, mean, std):
     return (data * std) + mean
 
 
-graph = ChainGraph(num_nodes=5)
+graph = ErdosRenyiGraph(num_nodes=6, nonlinear=False)
 n_obs = 100
 n_int = 5
 manipulative_variables = graph.get_sets()[2]
@@ -29,7 +29,7 @@ D_O, D_I, exploration_set = setup_observational_interventional(
     graph_type=None, graph=graph, n_obs=n_obs, n_int=n_int
 )
 
-print(D_I[("3",)])
+# print(D_I[("0",)])
 # set everything up so that it works better with your calculated likelihood
 input_keys = [key for key in D_O.keys() if key != graph.target]
 means = {key: np.mean(D_O[key]) for key in input_keys}
@@ -62,18 +62,23 @@ for r in range(1, len(manipulative_variables) + 1):
 # print(D_O_scaled)
 
 prior_probabilities = {combo: 1 / len(combinations) for combo in combinations}
-model = LinearSCMModel(prior_probabilities)
+# print(prior_probabilities)
+model = LinearSCMModel(prior_probabilities, graph)
+model.set_data(D_O_scaled)
 
-for n in range(5):
-    x_dict = {key: D_O_scaled[key][n] for key in D_O}
-    y = D_O_scaled[graph.target][n]
-    model.update_all(x_dict, y)
-
-# intervention = ("3",)
 # for n in range(5):
-#     x_dict = {key: D_I_scaled[intervention][key][n] for key in D_O}
-#     y = D_I_scaled[intervention][graph.target][n]
+#     x_dict = {key: D_O_scaled[key][n] for key in D_O}
+#     y = D_O_scaled[graph.target][n]
 #     model.update_all(x_dict, y)
 
 
+intervention = ("3",)
+for n in range(5):
+    x_dict = {
+        key: D_I_scaled[intervention][key][n] for key in D_O if key != graph.target
+    }
+    y = D_I_scaled[intervention][graph.target][n]
+    model.update_all(x_dict, y)
+
+print(graph.parents[graph.target])
 # compare how it change for obs data vs int data

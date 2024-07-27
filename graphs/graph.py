@@ -292,7 +292,7 @@ class GraphStructure:
         logging.warning(MESSAGE)
         interventional_range = OrderedDict()
         for var in self.variables:
-            interventional_range[var] = [5, 10]
+            interventional_range[var] = [-2, 2]
         return interventional_range
 
     @abc.abstractmethod
@@ -356,13 +356,13 @@ class GraphStructure:
 
         # Create a new MultiDiGraph
         G = nx.MultiDiGraph()
-        
+
         # Add all nodes from the BayesianNetwork
         G.add_nodes_from(self.variables)
-        
+
         # Add all edges from the BayesianNetwork
         G.add_edges_from(model.edges())
-        
+
         return G
 
     @abc.abstractmethod

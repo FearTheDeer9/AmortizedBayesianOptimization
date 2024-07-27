@@ -72,7 +72,5 @@ class ErdosRenyiGraph(GraphStructure):
     def get_sets(self):
         mis = []
         pomis = []
-        manipulative_variables = [
-            (var,) for var in self.variables if var != self.target
-        ]
+        manipulative_variables = [var for var in self.variables if var != self.target]
         return mis, pomis, manipulative_variables

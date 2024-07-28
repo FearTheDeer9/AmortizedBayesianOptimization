@@ -15,11 +15,14 @@ from graphs.graph import GraphStructure
 from graphs.graph_functions import create_grid_interventions, graph_setup
 from utils.cbo_classes import DoFunctions, TargetClass
 from utils.ceo_acquisitions import evaluate_acquisition_ceo
-from utils.sem_sampling import (change_intervention_list_format,
-                                draw_interventional_samples_sem, sample_model)
+from utils.sem_sampling import (
+    change_intervention_list_format,
+    draw_interventional_samples_sem,
+    sample_model,
+)
 
 logging.basicConfig(
-    level=logging.DEBUG,  # Set the loggingand level
+    level=logging.INFO,  # Set the loggingand level
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Set the format of log messages
     datefmt="%m/%d/%Y %I:%M:%S %p",  # Set the date format
     filename="logfile.log",  # Specify the file to write the logs to

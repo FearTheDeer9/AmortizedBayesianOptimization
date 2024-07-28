@@ -1,16 +1,23 @@
 import itertools
+import logging
 from copy import deepcopy
-from typing import Dict, Tuple
+from typing import Dict, List, OrderedDict, Tuple
 
 import numpy as np
+from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
+from GPy.models.gp_regression import GPRegression
 
+import utils.cbo_functions as cbo_functions
+import utils.ceo_utils as ceo_utils
 from algorithms.BASE_algorithm import BASE
 from diffcbed.envs.causal_environment import CausalEnvironment
 from diffcbed.replay_buffer import ReplayBuffer
 from graphs.graph import GraphStructure
 from posterior_model.model import DoublyRobustModel, LinearSCMModel
+from utils.cbo_classes import DoFunctions, TargetClass
 from utils.sem_sampling import (
     change_int_data_format_to_mi,
+    change_intervention_list_format,
     change_obs_data_format_to_mi,
 )
 
@@ -30,7 +37,14 @@ class PARENT(BASE):
     This is the class of my developed methodology
     """
 
-    def __init__(self, graph: GraphStructure, graph_env: CausalEnvironment):
+    def __init__(
+        self,
+        graph: GraphStructure,
+        # graph_env: CausalEnvironment,
+        causal_prior: bool = True,
+        noiseless: bool = True,
+        cost_num: int = 1,
+    ):
         self.graph = graph
         self.num_nodes = len(self.graph.variables)
         self.variables = self.graph.variables
@@ -38,13 +52,19 @@ class PARENT(BASE):
         # self.acquisition_strategy = acquisition_strategy
 
         # setting up some more variables
-        self.graph_env = graph_env
+        # self.graph_env = graph_env
         self.buffer = ReplayBuffer(binary=True)
+
+        self.manipulative_variables = self.graph.get_sets()[2]
+        self.causal_prior = causal_prior
+        self.noiseless = noiseless
+        self.cost_num = cost_num
 
     def set_values(self, D_O, D_I, exploration_set):
         self.D_O = deepcopy(D_O)
         self.D_I = deepcopy(D_I)
-        self.topological_order = list(self.D_O_bo_format.keys())
+        self.topological_order = list(self.D_O.keys())
+        self.exploration_set = exploration_set
         # self.D_O = change_obs_data_format_to_mi(
         #     D_O,
         #     graph_variables=self.variables,
@@ -104,22 +124,212 @@ class PARENT(BASE):
         self.D_O_scaled = D_O_scaled
         self.D_I_scaled = D_I_scaled
 
-    def run_algorithm(self, T: int = 30):
-        self.prior_probabilities = self.determine_initial_probabilities()
-        self.posterior_model = LinearSCMModel(self.prior_probabilities, self.graph)
+        # setting data up to use for CBO algorithm
+        self.observational_samples = np.hstack(
+            ([self.D_O_scaled[var] for var in self.variables])
+        )
+
+        self.interventional_samples = change_intervention_list_format(
+            self.D_I, self.exploration_set, target=self.graph.target
+        )
+
+        self.do_function_list = cbo_functions.update_all_do_functions(
+            self.graph, self.observational_samples, self.exploration_set
+        )
+
+    def define_all_possible_graphs(self, error_tol=1e-5):
+        self.graphs: Dict[Tuple, GraphStructure] = {}
+        self.posterior: List[float] = []
+        for parents in self.prior_probabilities:
+            if self.prior_probabilities[parents] < error_tol:
+                continue
+
+            graph: GraphStructure = deepcopy(self.graph)
+            edges = [(parent, graph.target) for parent in parents]
+            graph.mispecify_graph(edges)
+            self.graphs[parents] = graph
+            self.posterior.append(self.prior_probabilities[parents])
+
+    def calculate_do_statistics(self):
+        do_effects_functions: List[List[DoFunctions]] = []
+        for i, graph_parents in enumerate(self.graphs):
+            # this is the mean and variance for each graph for each element in the exploration set
+            logging.info(f"----Computing do function for graph {i}------")
+            graph = self.graphs[graph_parents]
+            do_effects_functions.append(
+                cbo_functions.update_all_do_functions(
+                    graph, self.observational_samples, self.exploration_set
+                )
+            )
+        self.do_effects_functions: List[List[DoFunctions]] = do_effects_functions
+
+    def fit_samples_to_graphs(self):
+        sem_emit_fncs: List[OrderedDict[str, GPRegression]] = []
+        for key, graph in self.graphs.items():
+            graph.fit_samples_to_graph(self.D_O, set_priors=False)
+            sem_emit_fncs.append(graph.functions)
+        return sem_emit_fncs
+
+    def data_and_prior_setup(self):
 
         # normalize the datasets
         self.standardize_all_data()
+
+        self.prior_probabilities = self.determine_initial_probabilities()
+        self.posterior_model = LinearSCMModel(self.prior_probabilities, self.graph)
         self.posterior_model.set_data(self.D_O_scaled)
 
         # update the posterior probabilities now with the interventional data
         for key in self.D_I_scaled:
-            num_samples = len(self.D_I_scaled[key])
+
+            D_I_sample = self.D_I_scaled[key]
+            num_samples = len(D_I_sample[self.graph.target])
             for n in range(num_samples):
                 x_dict = {
-                    key: self.D_I_scaled[key][n]
-                    for key in self.D_I_scaled
-                    if key != self.graph.target
+                    obs_key: D_I_sample[obs_key][n]
+                    for obs_key in D_I_sample
+                    if obs_key != self.graph.target
                 }
-                y = self.D_I_scaled[key][self.graph.target][n]
+                y = D_I_sample[self.graph.target][n]
                 self.posterior_model.update_all(x_dict, y)
+
+        self.prior_probabilities = self.posterior_model.prior_probabilities.copy()
+
+    def run_algorithm(self, T: int = 30):
+
+        self.data_and_prior_setup()
+        self.define_all_possible_graphs()
+        self.fit_samples_to_graphs()
+
+        # starting the setup for the CBO algorithm
+        (
+            data_x_list,
+            data_y_list,
+            best_intervention_value,
+            current_global_min,
+            best_variable,
+        ) = cbo_functions.define_initial_data_CBO(
+            self.interventional_samples,
+            self.exploration_set,
+            self.manipulative_variables,
+            self.target,
+        )
+
+        input_space = [len(vars) for vars in self.exploration_set]
+        current_best_x = {
+            tuple(interventions): [] for interventions in self.exploration_set
+        }
+        current_best_y = {
+            tuple(interventions): [] for interventions in self.exploration_set
+        }
+        parameter_spaces = [None] * len(self.exploration_set)
+        target_classes: List[TargetClass] = [None] * len(self.exploration_set)
+        self.model_list_overall: List[GPyModelWrapper] = [None] * len(
+            self.exploration_set
+        )
+
+        for i in range(len(self.exploration_set)):
+            parameter_spaces[i] = self.graph.get_parameter_space(
+                self.exploration_set[i]
+            )
+            target_classes[i] = TargetClass(
+                sem_model=self.graph.SEM,
+                interventions=self.exploration_set[i],
+                variables=self.graph.variables,
+                graph=self.graph,
+                noiseless=self.noiseless,
+            )
+
+        # STARTING THE ALGORITHM
+        current_cost: List[int] = []
+        global_opt: List[float] = []
+        current_y: List[float] = []
+        average_uncertainty: List[float] = []
+        intervention_set: List[Tuple[str]] = []
+        intervention_values: List[Tuple[float]] = []
+        global_opt.append(current_global_min)
+        current_cost.append(0.0)
+        cost_functions = self.graph.get_cost_structure(self.cost_num)
+
+        # define the initial surrogate models
+        self.calculate_do_statistics()
+        self.model_list_overall = ceo_utils.update_posterior_model_aggregate(
+            self.exploration_set,
+            True,
+            self.model_list_overall,
+            data_x_list,
+            data_y_list,
+            self.causal_prior,
+            best_variable,
+            input_space,
+            self.do_effects_functions,
+            self.posterior,
+        )
+
+        for i in range(T):
+            logging.info(f"----------------------ITERATION {i}----------------------")
+
+            # get the next sample
+            y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
+                self.exploration_set,
+                self.graph,
+                current_global_min,
+                self.model_list_overall,
+                cost_functions,
+            )
+
+            # find the optimal intervention, which maximises the acquisition function
+            target_index = np.argmax(y_acquisition_list)
+            var_to_intervene = tuple(self.exploration_set[target_index])
+            intervention_set.append(var_to_intervene)
+
+            # find the optimal intervention, which maximises the acquisition function
+            target_index = np.argmax(y_acquisition_list)
+            var_to_intervene = tuple(self.exploration_set[target_index])
+            intervention_set.append(var_to_intervene)
+
+            # Setting the data after the new point was found
+            intervention_values.append(tuple(x_new_list[target_index][0]))
+            y_new = target_classes[target_index].compute_target(
+                x_new_list[target_index]
+            )
+
+            data_x_list[target_index] = np.vstack(
+                (data_x_list[target_index], x_new_list[target_index])
+            )
+
+            data_y_list[target_index] = np.concatenate(
+                (data_y_list[target_index], y_new.reshape(-1))
+            )
+            # set the new best variable
+            best_variable = target_index
+
+            ## Update the dict storing the current optimal solution
+            current_best_x[var_to_intervene].append(x_new_list[target_index][0][0])
+            current_best_y[var_to_intervene].append(y_new[0][0])
+
+            current_y.append(y_new[0][0])
+            best_y = global_opt[i]
+            all_values = [
+                value for values in current_best_y.values() for value in values
+            ]
+            min_y = np.min(all_values)
+            global_opt.append(min_y if min_y < best_y else best_y)
+
+            logging.info(
+                f"Selected intervention {var_to_intervene} at {x_new_list[target_index]} with y = {y_new}"
+            )
+            logging.info(f"Current global optimum {global_opt[i+1]}")
+
+            self.model_list_overall = ceo_utils.update_posterior_model_aggregate(
+                self.exploration_set,
+                False,
+                self.model_list_overall,
+                data_x_list,
+                data_y_list,
+                self.causal_prior,
+                best_variable,
+                input_space,
+                self.do_effects_functions,
+                self.posterior,
+            )

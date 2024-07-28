@@ -79,7 +79,7 @@ class DoFunctions:
                 mean_do[i] = self.xi_dict_mean[xi_str]
             else:
                 mean_do[i], _ = self.do_effects_function(
-                    self.observational_samples, x[i]
+                    observational_samples=self.observational_samples, value=x[i]
                 )
                 self.xi_dict_mean[xi_str] = mean_do[i]
         return np.float64(mean_do)
@@ -96,7 +96,7 @@ class DoFunctions:
                 var_do[i] = self.xi_dict_var[xi_str]
             else:
                 _, var_do[i] = self.do_effects_function(
-                    self.observational_samples, x[i]
+                    observational_samples=self.observational_samples, value=x[i]
                 )
                 self.xi_dict_var[xi_str] = var_do[i]
         return np.float64(var_do)
@@ -341,7 +341,7 @@ class TargetClass:
             sample_count=sample_count,
             graph=self.graph,
         )
-        return np.mean(new_samples["Y"]).reshape(1, 1)
+        return np.mean(new_samples[self.graph.target]).reshape(1, 1)
 
     def compute_all(self, value: np.ndarray):
         for i in range(self.num_interventions):

@@ -1,6 +1,7 @@
 import abc
 import logging
 from collections import OrderedDict, defaultdict, deque
+from functools import partial
 from typing import Callable, Dict, List, OrderedDict, Tuple
 
 import matplotlib.pyplot as plt
@@ -266,8 +267,8 @@ class GraphStructure:
 
     @abc.abstractmethod
     def get_exploration_set(self):
-        logging.warning(MESSAGE)
-        return [(var,) for var in self.variables if var != self.target]
+        variables = self.get_sets()[2]
+        return [(var,) for var in variables if var != self.target]
 
     @abc.abstractmethod
     def refit_models(self, observational_samples):
@@ -282,7 +283,16 @@ class GraphStructure:
         This assigns assigns the calculation of the interventional distribution
         to each of the variables in the SCM
         """
-        raise NotImplementedError(MESSAGE)
+        do_dict = {}
+        exploration_set = self.get_exploration_set()
+        for es in exploration_set:
+            key = "_".join(es)
+            do_function_name = f"compute_do_{key}"
+            do_dict[do_function_name] = partial(
+                self.compute_do_generic, intervention_nodes=es
+            )
+
+        return do_dict
 
     @abc.abstractmethod
     def get_interventional_range(self):
@@ -320,8 +330,14 @@ class GraphStructure:
         return costs
 
     @abc.abstractmethod
-    def get_fixed_equal_costs(self):
-        raise NotImplementedError(MESSAGE)
+    def get_fixed_equal_costs(self) -> OrderedDict[str, Callable]:
+        manipulative_variables = self.get_sets()[2]
+        costs = OrderedDict()
+        for var in manipulative_variables:
+            func = lambda intervention_value: 1.0
+            costs[var] = func
+
+        return costs
 
     @abc.abstractmethod
     def get_fixed_different_costs(self):
@@ -788,3 +804,10 @@ class GraphStructure:
     @abc.abstractmethod
     def set_err_distrbution(self, err_dist: Dict):
         pass
+
+    @abc.abstractmethod
+    def compute_do_generic(self, intervention_nodes, observational_samples, value):
+        mean_do, var_do = self.compute_do(
+            observational_samples, value, intervention_nodes
+        )
+        return mean_do, var_do

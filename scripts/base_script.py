@@ -357,7 +357,7 @@ def run_script(
         n_int=n_int,
     )
     # print(D_O)
-    print(D_I)
+    # print(D_I)
 
     if RUN_CEO:
         model: CEO = CEO(

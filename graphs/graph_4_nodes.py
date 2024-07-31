@@ -34,6 +34,7 @@ class Graph4Nodes(GraphStructure):
         self._parents, self._children = self.build_relationships()
         self._G = self.make_graphical_model()
         self._variables = ["X", "Z", "T", "Y"]
+        self._standardised = False
 
     def define_SEM(self):
         fx = lambda epsilon, sample: epsilon

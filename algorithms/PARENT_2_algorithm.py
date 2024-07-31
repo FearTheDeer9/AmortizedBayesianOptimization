@@ -13,12 +13,18 @@ from algorithms.BASE_algorithm import BASE
 from diffcbed.envs.causal_environment import CausalEnvironment
 from diffcbed.replay_buffer import ReplayBuffer
 from graphs.graph import GraphStructure
-from posterior_model.model import DoublyRobustModel, LinearSCMModel
+from posterior_model.model import (
+    DoublyRobustModel,
+    LinearSCMModel,
+    NonLinearSCMModel,
+    SCMModel,
+)
 from utils.cbo_classes import DoFunctions, TargetClass
 from utils.sem_sampling import (
     change_int_data_format_to_mi,
     change_intervention_list_format,
     change_obs_data_format_to_mi,
+    sample_model,
 )
 
 
@@ -41,14 +47,17 @@ class PARENT(BASE):
         self,
         graph: GraphStructure,
         # graph_env: CausalEnvironment,
+        nonlinear: bool = True,
         causal_prior: bool = True,
         noiseless: bool = True,
         cost_num: int = 1,
+        scale_data: bool = True,
     ):
         self.graph = graph
         self.num_nodes = len(self.graph.variables)
         self.variables = self.graph.variables
         self.target = self.graph.target
+        self.nonlinear = nonlinear
         # self.acquisition_strategy = acquisition_strategy
 
         # setting up some more variables
@@ -59,6 +68,7 @@ class PARENT(BASE):
         self.causal_prior = causal_prior
         self.noiseless = noiseless
         self.cost_num = cost_num
+        self.scale_data = scale_data
 
     def set_values(self, D_O, D_I, exploration_set):
         self.D_O = deepcopy(D_O)
@@ -86,11 +96,13 @@ class PARENT(BASE):
             """
             pass
         else:
-            manipulative_variables = self.graph.get_sets()[2]
+            variables = [
+                var for var in self.graph.variables if var != self.graph.target
+            ]
 
             combinations = []
-            for r in range(1, len(manipulative_variables) + 1):
-                combinations.extend(itertools.combinations(manipulative_variables, r))
+            for r in range(1, len(variables) + 1):
+                combinations.extend(itertools.combinations(variables, r))
 
             probabilities = {combo: 1 / len(combinations) for combo in combinations}
         return probabilities
@@ -100,13 +112,15 @@ class PARENT(BASE):
         This one just standardises the dataset
         """
         input_keys = [key for key in self.D_O.keys() if key != self.graph.target]
-        means = {key: np.mean(self.D_O[key]) for key in input_keys}
-        std = {key: np.std(self.D_O[key]) for key in input_keys}
+        self.means = {key: np.mean(self.D_O[key]) for key in input_keys}
+        self.stds = {key: np.std(self.D_O[key]) for key in input_keys}
 
         D_O_scaled = {}
         for key in self.D_O:
             if key in input_keys:
-                D_O_scaled[key] = standardize(self.D_O[key], means[key], std[key])
+                D_O_scaled[key] = standardize(
+                    self.D_O[key], self.means[key], self.stds[key]
+                )
             else:
                 D_O_scaled[key] = self.D_O[key]
 
@@ -116,30 +130,34 @@ class PARENT(BASE):
             for key in self.D_I[intervention]:
                 if key in input_keys:
                     D_I_scaled[intervention][key] = standardize(
-                        self.D_I[intervention][key], means[key], std[key]
+                        self.D_I[intervention][key], self.means[key], self.stds[key]
                     )
                 else:
                     D_I_scaled[intervention][key] = self.D_I[intervention][key]
 
-        self.D_O_scaled = D_O_scaled
-        self.D_I_scaled = D_I_scaled
+        if self.scale_data:
+            self.graph.set_data_standardised_flag(
+                standardised=True, means=self.means, stds=self.stds
+            )
+            self.D_O_scaled = D_O_scaled
+            self.D_I_scaled = D_I_scaled
+        else:
+            self.D_O_scaled = self.D_O
+            self.D_I_scaled = self.D_I
 
         # setting data up to use for CBO algorithm
         self.observational_samples = np.hstack(
-            ([self.D_O_scaled[var] for var in self.variables])
+            ([self.D_O[var] for var in self.variables])
         )
 
         self.interventional_samples = change_intervention_list_format(
             self.D_I, self.exploration_set, target=self.graph.target
         )
 
-        self.do_function_list = cbo_functions.update_all_do_functions(
-            self.graph, self.observational_samples, self.exploration_set
-        )
-
     def define_all_possible_graphs(self, error_tol=1e-5):
         self.graphs: Dict[Tuple, GraphStructure] = {}
         self.posterior: List[float] = []
+        parents_to_remove = []
         for parents in self.prior_probabilities:
             if self.prior_probabilities[parents] < error_tol:
                 continue
@@ -149,6 +167,20 @@ class PARENT(BASE):
             graph.mispecify_graph(edges)
             self.graphs[parents] = graph
             self.posterior.append(self.prior_probabilities[parents])
+
+    def redefine_all_possible_graphs(self, error_tol=1e-4):
+        self.posterior: List[float] = []
+        parents_to_remove = []
+        for parents in self.prior_probabilities:
+            if self.prior_probabilities[parents] < error_tol:
+                # remove from self.graphs[parents] from self.graphs
+                parents_to_remove.append(parents)
+                continue
+            self.posterior.append(self.prior_probabilities[parents])
+
+        for parents in parents_to_remove:
+            if parents in self.graphs:
+                del self.graphs[parents]
 
     def calculate_do_statistics(self):
         do_effects_functions: List[List[DoFunctions]] = []
@@ -166,7 +198,7 @@ class PARENT(BASE):
     def fit_samples_to_graphs(self):
         sem_emit_fncs: List[OrderedDict[str, GPRegression]] = []
         for key, graph in self.graphs.items():
-            graph.fit_samples_to_graph(self.D_O, set_priors=False)
+            graph.fit_samples_to_graph(self.D_O_scaled, set_priors=False)
             sem_emit_fncs.append(graph.functions)
         return sem_emit_fncs
 
@@ -176,13 +208,20 @@ class PARENT(BASE):
         self.standardize_all_data()
 
         self.prior_probabilities = self.determine_initial_probabilities()
-        self.posterior_model = LinearSCMModel(self.prior_probabilities, self.graph)
+        if self.nonlinear:
+            self.posterior_model: SCMModel = NonLinearSCMModel(
+                self.prior_probabilities, self.graph
+            )
+        else:
+            self.posterior_model: SCMModel = LinearSCMModel(
+                self.prior_probabilities, self.graph
+            )
         self.posterior_model.set_data(self.D_O_scaled)
 
         # update the posterior probabilities now with the interventional data
-        for key in self.D_I_scaled:
+        for intervention in self.D_I_scaled:
 
-            D_I_sample = self.D_I_scaled[key]
+            D_I_sample = self.D_I_scaled[intervention]
             num_samples = len(D_I_sample[self.graph.target])
             for n in range(num_samples):
                 x_dict = {
@@ -192,6 +231,8 @@ class PARENT(BASE):
                 }
                 y = D_I_sample[self.graph.target][n]
                 self.posterior_model.update_all(x_dict, y)
+                D_I = {key: np.array([D_I_sample[key][n]]) for key in D_I_sample}
+                self.posterior_model.add_data(D_I)
 
         self.prior_probabilities = self.posterior_model.prior_probabilities.copy()
 
@@ -247,13 +288,13 @@ class PARENT(BASE):
         average_uncertainty: List[float] = []
         intervention_set: List[Tuple[str]] = []
         intervention_values: List[Tuple[float]] = []
-        global_opt.append(current_global_min)
+        # global_opt.append(current_global_min)
         current_cost.append(0.0)
         cost_functions = self.graph.get_cost_structure(self.cost_num)
 
         # define the initial surrogate models
         self.calculate_do_statistics()
-        self.model_list_overall = ceo_utils.update_posterior_model_aggregate(
+        self.model_list_overall = ceo_utils.update_posterior_model_aggregate_2(
             self.exploration_set,
             True,
             self.model_list_overall,
@@ -268,6 +309,8 @@ class PARENT(BASE):
 
         for i in range(T):
             logging.info(f"----------------------ITERATION {i}----------------------")
+            logging.info(f"Updated posterior distribution {self.posterior}")
+            logging.info(f"The corresponding parents are {self.graphs.keys()}")
 
             # get the next sample
             y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
@@ -283,33 +326,66 @@ class PARENT(BASE):
             var_to_intervene = tuple(self.exploration_set[target_index])
             intervention_set.append(var_to_intervene)
 
-            # find the optimal intervention, which maximises the acquisition function
-            target_index = np.argmax(y_acquisition_list)
-            var_to_intervene = tuple(self.exploration_set[target_index])
-            intervention_set.append(var_to_intervene)
-
             # Setting the data after the new point was found
             intervention_values.append(tuple(x_new_list[target_index][0]))
-            y_new = target_classes[target_index].compute_target(
-                x_new_list[target_index]
-            )
 
+            print("------------RUN INFO---------------")
+            print(f"The acquisition values are {y_acquisition_list}")
+            print(f"The selected intervention {x_new_list[target_index][0]}")
+            if self.scale_data:
+                x_new_list_intervention = np.array(
+                    [
+                        reverse_standardize(
+                            x_new_list[target_index][0, j],
+                            self.means[var],
+                            self.stds[var],
+                        )
+                        for j, var in enumerate(var_to_intervene)
+                    ]
+                ).reshape(1, -1)
+            else:
+                x_new_list_intervention = np.array(
+                    [
+                        x_new_list[target_index][0, j]
+                        for j, var in enumerate(var_to_intervene)
+                    ]
+                ).reshape(1, -1)
+            print(f"Back to the original range {x_new_list_intervention}")
+            y_new = target_classes[target_index].compute_target(x_new_list_intervention)
+            print(f"The outcome is {y_new}")
             data_x_list[target_index] = np.vstack(
-                (data_x_list[target_index], x_new_list[target_index])
+                (data_x_list[target_index], x_new_list_intervention)
             )
 
             data_y_list[target_index] = np.concatenate(
                 (data_y_list[target_index], y_new.reshape(-1))
             )
+
+            print(data_x_list)
+            print(data_y_list)
             # set the new best variable
             best_variable = target_index
 
             ## Update the dict storing the current optimal solution
-            current_best_x[var_to_intervene].append(x_new_list[target_index][0][0])
+
+            intervention = {
+                var: x_new_list_intervention[0][j]
+                for j, var in enumerate(var_to_intervene)
+            }
+            sample = sample_model(
+                static_sem=self.graph.SEM,
+                interventions=intervention,
+                sample_count=1,
+                graph=self.graph,
+            )
+
+            sample[self.graph.target] = y_new
+            print(f"The interventional sample {sample}")
+            current_best_x[var_to_intervene].append(x_new_list_intervention[0])
             current_best_y[var_to_intervene].append(y_new[0][0])
 
             current_y.append(y_new[0][0])
-            best_y = global_opt[i]
+            best_y = global_opt[i - 1] if global_opt else y_new[0][0]
             all_values = [
                 value for values in current_best_y.values() for value in values
             ]
@@ -319,9 +395,38 @@ class PARENT(BASE):
             logging.info(
                 f"Selected intervention {var_to_intervene} at {x_new_list[target_index]} with y = {y_new}"
             )
-            logging.info(f"Current global optimum {global_opt[i+1]}")
+            logging.info(f"Current global optimum {global_opt[i]}")
 
-            self.model_list_overall = ceo_utils.update_posterior_model_aggregate(
+            total_cost = 0
+            for j, val in enumerate(self.exploration_set[target_index]):
+                total_cost += cost_functions[val](x_new_list[target_index][0, j])
+            current_cost.append(current_cost[i] + total_cost)
+
+            # now update the probabilities
+            if self.scale_data:
+                for key in sample:
+                    if key != self.graph.target:
+                        sample[key] = standardize(
+                            sample[key], self.means[key], self.stds[key]
+                        )
+            x_dict = {
+                key: val[0][0]
+                for key, val in sample.items()
+                if key != self.graph.target
+            }
+            y = sample[self.graph.target][0][0]
+            self.posterior_model.update_all(x_dict, y)
+            print(f"The standardized sample {sample}")
+            D_I = {key: val.reshape(-1) for key, val in sample.items()}
+            self.posterior_model.add_data(D_I)
+            self.prior_probabilities = self.posterior_model.prior_probabilities
+
+            self.redefine_all_possible_graphs()
+            self.calculate_do_statistics()
+            self.posterior = [
+                self.prior_probabilities[parents] for parents in self.graphs
+            ]
+            self.model_list_overall = ceo_utils.update_posterior_model_aggregate_2(
                 self.exploration_set,
                 False,
                 self.model_list_overall,
@@ -333,3 +438,13 @@ class PARENT(BASE):
                 self.do_effects_functions,
                 self.posterior,
             )
+            current_global_min = global_opt[i]
+
+        return (
+            global_opt,
+            current_y,
+            current_cost,
+            intervention_set,
+            intervention_values,
+            average_uncertainty,
+        )

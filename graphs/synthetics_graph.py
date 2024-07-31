@@ -52,6 +52,7 @@ class SyntheticGraph(GraphStructure):
         self._G = self.make_graphical_model()
         self._target = "Y"
         self.functions: Dict[str, GPRegression] = None
+        self._standardised = False
 
     def define_SEM(self):
         logging.info("Setting up the structural equation model for the Synthetic Graph")

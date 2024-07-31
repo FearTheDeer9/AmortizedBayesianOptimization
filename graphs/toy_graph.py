@@ -40,6 +40,7 @@ class ToyGraph(GraphStructure):
         self._G = self.make_graphical_model()
         self._target = "Y"
         self._functions: Optional[Dict[str, GPRegression]] = None
+        self._standardised = False
 
     def define_SEM(self) -> OrderedDict:
         # Define named functions within the method
@@ -114,6 +115,12 @@ class ToyGraph(GraphStructure):
 
         min_intervention_z = -5.5
         max_intervention_z = 13
+
+        if self.standardised:
+            min_intervention_x = (min_intervention_x - self.means["X"]) / self.stds["X"]
+            max_intervention_x = (max_intervention_x - self.means["X"]) / self.stds["X"]
+            min_intervention_z = (min_intervention_z - self.means["Z"]) / self.stds["Z"]
+            max_intervention_z = (max_intervention_z - self.means["Z"]) / self.stds["Z"]
 
         dict_ranges = OrderedDict(
             [

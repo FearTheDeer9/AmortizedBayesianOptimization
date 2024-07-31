@@ -213,6 +213,11 @@ class GraphStructure:
 
     @property
     @abc.abstractmethod
+    def standardised(self) -> bool:
+        return self._standardised
+
+    @property
+    @abc.abstractmethod
     def edges(self) -> List[Tuple[str, str]]:
         return self._edges
 
@@ -811,3 +816,17 @@ class GraphStructure:
             observational_samples, value, intervention_nodes
         )
         return mean_do, var_do
+
+    @abc.abstractmethod
+    def set_data_standardised_flag(
+        self,
+        standardised: bool = True,
+        means: Dict[str, np.ndarray] = None,
+        stds: Dict[str, np.ndarray] = None,
+    ):
+        if standardised:
+            self._standardised = standardised
+            self.means = means
+            self.stds = stds
+        else:
+            self._standardised = standardised

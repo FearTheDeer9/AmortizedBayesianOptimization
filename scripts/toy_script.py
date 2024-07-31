@@ -7,8 +7,7 @@ os.chdir("..")
 if os.getcwd() not in sys.path:
     sys.path.append(os.getcwd())
 
-from scripts.base_script import run_script, run_script_uncertainty
-from scripts.base_script import parse_args
+from scripts.base_script import parse_args, run_script, run_script_uncertainty
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the logging level
@@ -38,10 +37,7 @@ run_num = args.run_num
 noiseless = args.noiseless
 noisy_string = "" if noiseless else "_noisy"
 
-if run_num <= 5:
-    safe_optimization = False
-else:
-    safe_optimization = True
+
 # run the CEO method using all the edges and then the CBO for each of the e
 
 all_graph_edges = [

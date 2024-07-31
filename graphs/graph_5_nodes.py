@@ -44,6 +44,7 @@ class Graph5Nodes(GraphStructure):
         self._parents, self._children = self.build_relationships()
         self._target = "Y"
         self._functions: Optional[Dict[str, Callable]] = None
+        self._standardised = False
         
 
     def define_SEM(self):

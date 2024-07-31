@@ -4,24 +4,31 @@ import numpy as np
 
 from algorithms.PARENT_2_algorithm import PARENT
 from graphs.data_setup import setup_observational_interventional
+from graphs.graph_6_nodes import Graph6Nodes
 from graphs.graph_chain import ChainGraph
 from graphs.graph_erdos_renyi import ErdosRenyiGraph
-from posterior_model.model import LinearSCMModel
+from graphs.toy_graph import ToyGraph
+from posterior_model.model import LinearSCMModel, NonLinearSCMModel
+
 
 # Function to standardize data
-# def standardize(data, mean, std):
-#     return (data - mean) / std
+def standardize(data, mean, std):
+    return (data - mean) / std
 
 
-# # Function to reverse the standardization
-# def reverse_standardize(data, mean, std):
-#     return (data * std) + mean
+# Function to reverse the standardization
+def reverse_standardize(data, mean, std):
+    return (data * std) + mean
 
 
 # graph = ErdosRenyiGraph(num_nodes=6, nonlinear=False)
+# graph = ToyGraph()
+# graph = ChainGraph(num_nodes=5, nonlinear=False)
 # n_obs = 100
 # n_int = 5
 # manipulative_variables = graph.get_sets()[2]
+# manipulative_variables = graph.variables
+# manipulative_variables = [var for var in manipulative_variables if var != graph.target]
 # manipulative_variables = [item[0] for item in manipulative_variables]
 
 # random_seed = np.random.randint(1, 10000)
@@ -29,8 +36,7 @@ from posterior_model.model import LinearSCMModel
 #     graph_type=None, graph=graph, n_obs=n_obs, n_int=n_int
 # )
 
-# # print(D_I[("0",)])
-# # set everything up so that it works better with your calculated likelihood
+# set everything up so that it works better with your calculated likelihood
 # input_keys = [key for key in D_O.keys() if key != graph.target]
 # means = {key: np.mean(D_O[key]) for key in input_keys}
 # std = {key: np.std(D_O[key]) for key in input_keys}
@@ -39,6 +45,7 @@ from posterior_model.model import LinearSCMModel
 # for key in D_O:
 #     if key in input_keys:
 #         D_O_scaled[key] = standardize(D_O[key], means[key], std[key])
+#         # D_O_scaled[key] = D_O[key]
 #     else:
 #         D_O_scaled[key] = D_O[key]
 
@@ -50,6 +57,7 @@ from posterior_model.model import LinearSCMModel
 #             D_I_scaled[intervention][key] = standardize(
 #                 D_I[intervention][key], means[key], std[key]
 #             )
+#             # D_I_scaled[intervention][key] = D_I[intervention][key]
 #         else:
 #             D_I_scaled[intervention][key] = D_I[intervention][key]
 
@@ -63,6 +71,7 @@ from posterior_model.model import LinearSCMModel
 
 # prior_probabilities = {combo: 1 / len(combinations) for combo in combinations}
 # print(prior_probabilities)
+# model = NonLinearSCMModel(prior_probabilities, graph)
 # model = LinearSCMModel(prior_probabilities, graph)
 # model.set_data(D_O_scaled)
 
@@ -72,25 +81,36 @@ from posterior_model.model import LinearSCMModel
 #     model.update_all(x_dict, y)
 
 
-# intervention = ("3",)
-# for n in range(5):
-#     x_dict = {
-#         key: D_I_scaled[intervention][key][n] for key in D_O if key != graph.target
-#     }
-#     y = D_I_scaled[intervention][graph.target][n]
-#     model.update_all(x_dict, y)
+# intervention = ("Z",)
+# for intervention in D_I_scaled:
+#     print(f"-----------------{intervention}-------------------")
+#     for n in range(5):
+#         x_dict = {
+#             key: D_I_scaled[intervention][key][n] for key in D_O if key != graph.target
+#         }
+#         y = D_I_scaled[intervention][graph.target][n]
+#         model.update_all(x_dict, y)
+#         D_I = {
+#             key: np.array([D_I_scaled[intervention][key][n]])
+#             for key in D_I_scaled[intervention]
+#         }
+#         print(D_I)
+#         model.add_data(D_I)
+#         print(model.prior_probabilities)
 
 # print(graph.parents[graph.target])
 # compare how it change for obs data vs int data
 
 n_obs = 200
 n_int = 2
-seed = 50
+seed = np.random.randint(1, 10000)
 noiseless = True
-graph = ChainGraph(num_nodes=5, nonlinear=False)
+# graph = ChainGraph(num_nodes=5, nonlinear=False)
+graph = Graph6Nodes()
+# graph = ToyGraph()
 
 D_O, D_I, exploration_set = setup_observational_interventional(
-    graph_type="Chain",
+    graph_type="Toy",
     noiseless=noiseless,
     seed=seed,
     n_obs=n_obs,
@@ -98,6 +118,8 @@ D_O, D_I, exploration_set = setup_observational_interventional(
     graph=graph,
 )
 
-model = PARENT(graph)
+# exploration_set = [("X",), ("Z",)]
+# exploration_set = [("Z",)]
+model = PARENT(graph, scale_data=False)
 model.set_values(D_O, D_I, exploration_set)
 model.run_algorithm()

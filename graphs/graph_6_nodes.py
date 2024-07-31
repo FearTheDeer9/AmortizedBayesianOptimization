@@ -56,6 +56,7 @@ class Graph6Nodes(GraphStructure):
         self._G = self.make_graphical_model()
         self._target = "Y"
         self._functions: Optional[Dict[str, Callable]] = None
+        self._standardised = False
 
     def define_SEM(self):
         fa = lambda epsilon, sample: epsilon
@@ -114,12 +115,23 @@ class Graph6Nodes(GraphStructure):
         min_intervention_S = 0.0
         max_intervention_S = 1.0
 
+        if self.standardised:
+            min_intervention_As = (min_intervention_As - self.means["As"]) / self.stds[
+                "As"
+            ]
+            max_intervention_As = (max_intervention_As - self.means["As"]) / self.stds[
+                "As"
+            ]
+            min_intervention_S = (min_intervention_S - self.means["S"]) / self.stds["S"]
+            max_intervention_S = (max_intervention_S - self.means["S"]) / self.stds["S"]
+
         dict_ranges = OrderedDict(
             [
                 ("As", [min_intervention_As, max_intervention_As]),
                 ("S", [min_intervention_S, max_intervention_S]),
             ]
         )
+        print(dict_ranges)
         return dict_ranges
 
     def get_sets(self):

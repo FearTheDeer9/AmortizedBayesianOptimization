@@ -12,13 +12,9 @@ from GPy.kern.src.rbf import RBF
 from GPy.models.gp_regression import GPRegression
 
 from graphs.graph import GraphStructure
-from utils.cbo_classes import (
-    CausalExpectedImprovement,
-    CausalGradientAcquisitionOptimizer,
-    CausalRBF,
-    Cost,
-    DoFunctions,
-)
+from utils.cbo_classes import (CausalExpectedImprovement,
+                               CausalGradientAcquisitionOptimizer, CausalRBF,
+                               Cost, DoFunctions)
 
 
 def set_up_GP(
@@ -230,11 +226,11 @@ def get_new_x_y_list(
             CausalExpectedImprovement(current_global_min, task, model_list[j]) / cost
         )
         x_new, _ = optimizer.optimize(acquisition)
-        y_acquisition = acquisition.evaluate(x_new)
+        y_acquisition = acquisition.evaluate(x_new).flatten()
         y_acquisition_list[j] = y_acquisition
         x_new_list[j] = x_new
 
-    return np.array(y_acquisition_list), x_new_list
+    return y_acquisition_list, x_new_list
 
 
 def define_initial_data_CBO(

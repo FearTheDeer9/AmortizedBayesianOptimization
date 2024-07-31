@@ -1,3 +1,4 @@
+import abc
 import logging
 from collections import Counter, namedtuple
 from typing import Dict, List, Tuple
@@ -10,6 +11,18 @@ from graphs.graph import GraphStructure
 from posterior_model.doubly_robust_temp import DoublyRobustClassWrapper
 
 Data = namedtuple("Data", ["samples", "nodes"])
+
+
+class RandomFourierFeatures:
+    def __init__(self, input_dim: int, D: int, sigma: float = 1.0):
+        self.D = D
+        self.sigma = sigma
+        self.omega = np.random.normal(scale=1 / sigma, size=(input_dim, D))
+        self.b = np.random.uniform(0, 2 * np.pi, size=D)
+
+    def transform(self, X) -> np.ndarray:
+        projection = X @ self.omega + self.b
+        return np.sqrt(2 / self.D) * np.cos(projection)
 
 
 class DoublyRobustModel:
@@ -90,15 +103,42 @@ class DoublyRobustModel:
         return estimate
 
 
-class LinearSCMModel:
+MESSAGE = "Subclass should implement this"
+
+
+class SCMModel:
+    __metaclass__ = abc.ABCMeta
+
+    @property
+    def prior_probabilities(self):
+        return self._prior_probabilities
+
+    def update_all(self, x_dict: Dict[str, float], y: float):
+        raise NotImplementedError(MESSAGE)
+
+    def set_data(self, D_O_scaled: Dict[str, np.ndarray]):
+        raise NotImplementedError(MESSAGE)
+
+    def add_data(self, D_I: Dict[str, np.ndarray]):
+        raise NotImplementedError(MESSAGE)
+
+    def log_unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
+        raise NotImplementedError(MESSAGE)
+
+    def unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
+        log_posterior = self.log_unnormalized_posterior(y, x, pg)
+        return np.exp(log_posterior)
+
+
+class LinearSCMModel(SCMModel):
     def __init__(
         self,
         prior_probabilities: Dict[Tuple, float],
         graph: GraphStructure,
         sigma_y: float = 1.0,
-        sigma_theta: float = 5.0,
+        sigma_theta: float = 1.0,
     ):
-        self.prior_probabilities = prior_probabilities
+        self._prior_probabilities = prior_probabilities
         self.graph = graph
         self.sigma_y = sigma_y
         self.sigma_theta = sigma_theta
@@ -107,35 +147,25 @@ class LinearSCMModel:
         # suppose we observed a new sample, update all probabilities
         updated_posterior = {}
         total_prob = 0
-        print("-------------------------------------")
-        print(self.prior_probabilities)
-        for parents in self.prior_probabilities:
+        for parents in self._prior_probabilities:
             x_vec = np.array([x_dict[parent] for parent in parents])
-            # print("----------------------")
-            # print(parents)
             N = self.X_dict[parents].shape[1]
             self.X_obs = self.X_dict[parents]
-            # self.X_obs = (1 / np.sqrt(N)) * self.X_dict[parents]
             updated_posterior[parents] = self.unnormalized_posterior(
-                y, x_vec, self.prior_probabilities[parents]
+                y, x_vec, self._prior_probabilities[parents]
             )
-            print(updated_posterior[parents])
+
             total_prob += updated_posterior[parents]
 
-        # print("UNNORMALIZED")
-        # print(updated_posterior)
-        self.prior_probabilities = {
+        self._prior_probabilities = {
             parents: updated_posterior[parents] / total_prob
-            for parents in self.prior_probabilities
+            for parents in self._prior_probabilities
         }
-
-        # print("NORMALIZED")
-        print(self.prior_probabilities)
 
     def set_data(self, D_O_scaled: Dict[str, np.ndarray]):
         X_dict = {}
         self.y_obs = D_O_scaled[self.graph.target].reshape(-1)
-        for parents in self.prior_probabilities:
+        for parents in self._prior_probabilities:
             X_dict[parents] = np.vstack(
                 [D_O_scaled[key].reshape(1, -1) for key in parents]
             )
@@ -144,11 +174,11 @@ class LinearSCMModel:
 
     def add_data(self, D_I: Dict[str, np.ndarray]):
         X_dict = {}
-        self.y_obs = np.stack(self.y_obs, D_I[self.graph.target].reshape(-1))
-        for parents in self.prior_probabilities:
-            X_dict[parents] = np.vstack(
-                [X_dict[parents], [D_I[key] for key in parents]]
-            )
+        self.y_obs = np.hstack([self.y_obs, D_I[self.graph.target].reshape(-1)])
+        for parents in self._prior_probabilities:
+            X_key = np.array([D_I[key] for key in parents])
+            X_temp = np.hstack([self.X_dict[parents], X_key])
+            X_dict[parents] = X_temp
 
         self.X_dict = X_dict.copy()
 
@@ -195,71 +225,166 @@ class LinearSCMModel:
 
         return log_posterior
 
-    # def log_unnormalized_posterior_2(self, y: float, x: np.ndarray, pg: float):
-    #     p = len(x)
-    #     # added this N here as well
-    #     N = self.X_obs.shape[1]
-    #     A = self.X_obs @ self.X_obs.T / (self.sigma_y**2) + np.eye(p) / (
-    #         self.sigma_y**2
-    #     )
-    #     b = y * x + self.X_obs @ self.y_obs
-    #     Sigma_inv = np.outer(x, x) / self.sigma_y**2 + A
-    #     Sigma = np.linalg.inv(Sigma_inv)
+    def unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
+        log_posterior = self.log_unnormalized_posterior(y, x, pg)
+        return np.exp(log_posterior)
 
-    #     # trying to understand what is wrong
-    #     print("-----------------------------------")
+
+class NonLinearSCMModel(SCMModel):
+    # extending the class so that it works with Gaussian Processes
+    def __init__(
+        self,
+        prior_probabilities: Dict[Tuple, float],
+        graph: GraphStructure,
+        sigma_y: float = 1.0,
+        sigma_theta: float = 1.0,
+        D: int = 1000,  # this is the dimension we are projecting towards
+    ):
+        self._prior_probabilities = prior_probabilities
+        self.graph = graph
+        self.sigma_y = sigma_y
+        self.sigma_theta = sigma_theta
+        self.D = D
+
+        # setting up the fourier series
+        self.fourier_series: Dict[Tuple, RandomFourierFeatures] = {}
+        for parents in self._prior_probabilities:
+            input_dim = len(parents)
+            fourier_series = RandomFourierFeatures(input_dim, self.D)
+            self.fourier_series[parents] = fourier_series
+
+    def set_data(self, D_O_scaled: Dict[str, np.ndarray]):
+        X_dict = {}
+        self.y_obs = D_O_scaled[self.graph.target].reshape(-1)
+        for parents in self._prior_probabilities:
+            X_temp = np.vstack([D_O_scaled[key].reshape(1, -1) for key in parents]).T
+            # Transform the data as if we are using a radial basis kernel
+            X_dict[parents] = self.fourier_series[parents].transform(X_temp).T
+
+        self.X_dict_transform = X_dict.copy()
+
+    def add_data(self, D_I: Dict[str, np.ndarray]):
+        X_dict = {}
+        self.y_obs = np.hstack([self.y_obs, D_I[self.graph.target].reshape(-1)])
+        for parents in self._prior_probabilities:
+            X_key = np.array([D_I[key] for key in parents]).T
+            X_key_transform = self.fourier_series[parents].transform(X_key).T
+            X_temp = np.hstack([self.X_dict_transform[parents], X_key_transform])
+            X_dict[parents] = X_temp
+
+        self.X_dict_transform = X_dict.copy()
+
+    def update_all(self, x_dict: Dict[str, float], y: float):
+        # suppose we observed a new sample, update all probabilities
+        updated_posterior = {}
+        total_prob = 0
+        for parents in self._prior_probabilities:
+            x_vec = np.array([x_dict[parent] for parent in parents])
+            x_vec = self.fourier_series[parents].transform(x_vec)
+            # N = self.X_dict_transform[parents].shape[1]
+            self.X_obs = self.X_dict_transform[parents]
+            updated_posterior[parents] = self.unnormalized_posterior(
+                y, x_vec, self._prior_probabilities[parents]
+            )
+
+            total_prob += updated_posterior[parents]
+
+        self._prior_probabilities = {
+            parents: updated_posterior[parents] / total_prob
+            for parents in self._prior_probabilities
+        }
+
+    # def log_unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
+    #     p = len(x)
+    #     N = self.X_obs.shape[1]
+
+    #     # Regularization parameter for numerical stability
+    #     epsilon = 1e-6
+
+    #     A = self.X_obs @ self.X_obs.T / (N * self.sigma_y**2) + np.eye(p) / (N * self.sigma_y**2)
+    #     b = y * x + 1 / N * self.X_obs @ self.y_obs
+
+    #     # Add small regularization term to A for stability
+    #     A_reg = A + epsilon * np.eye(p)
+    #     term1 = np.outer(x, x) / (self.sigma_y**2)
+
+    #     # Use Cholesky decomposition for stability
+    #     try:
+    #         L = np.linalg.cholesky(term1 + A_reg)
+    #         L_inv = np.linalg.inv(L)
+    #         Sigma = L_inv.T @ L_inv
+    #     except np.linalg.LinAlgError:
+    #         # In case the matrix is not positive definite, add more regularization
+    #         A_reg += epsilon * np.eye(p)
+    #         L = np.linalg.cholesky(term1 + A_reg)
+    #         L_inv = np.linalg.inv(L)
+    #         Sigma = L_inv.T @ L_inv
+
+    #     # Log determinant using Cholesky factor L
+    #     log_det = 2 * np.sum(np.log(np.diag(L)))
 
     #     # Log of part1
     #     log_part1 = (
     #         np.log(pg)
     #         - 0.5 * np.log(2 * np.pi * self.sigma_y**2)
-    #         + 1 / 2 * np.linalg.slogdet(A)[1]
+    #         + 0.5 * np.linalg.slogdet(A_reg)[1]
     #     )
 
-    #     # print(pg)
-    #     # print(np.log(2 * np.pi * self.sigma_y**2))
-    #     # print(np.linalg.slogdet(A)[1])
-    #     # print(Sigma)
-    #     # print(log_part1)
-    #     # The term inside the exponent
-    #     x_T = x.T
-    #     # print(x)
-    #     # print(np.outer(x, x))
-    #     term1 = np.outer(x, x) / (self.sigma_y**2)
     #     I = np.eye(p)
     #     term2 = I / (self.sigma_theta**2)
-    #     matrix_sum = term1 + term2
-    #     quadratic = x_T @ matrix_sum @ x
-    #     # print(quadratic)
 
     #     # Log of part2
     #     log_part2 = (
     #         -1 / (2 * self.sigma_y**2) * y**2
-    #         - (1 / (2 * self.sigma_y**4))
+    #         - (1 / (2 * self.sigma_y**4 * N**2))
     #         * self.y_obs.T
     #         @ self.X_obs.T
-    #         @ A
+    #         @ A_reg
     #         @ self.X_obs
     #         @ self.y_obs
     #         + 1 / (2 * self.sigma_y**2) * b.T @ Sigma @ b
     #     )
 
-    #     # print(A)
-    #     print(self.y_obs.T @ self.X_obs.T @ A @ self.X_obs @ self.y_obs)
-    #     print(b.T @ Sigma @ b)
-    #     print(log_part2)
-    #     log_det = np.linalg.slogdet((np.outer(x, x) / self.sigma_y**2 + A))[1]
     #     log_part3 = -0.5 * log_det
-    #     # print(log_part3)
 
     #     log_posterior = log_part1 + log_part2 + log_part3
 
     #     return log_posterior
 
-    def unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
-        log_posterior = self.log_unnormalized_posterior(y, x, pg)
-        return np.exp(log_posterior)
+    def log_unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
+        p = len(x)
+        # added this N here as well
+        N = self.X_obs.shape[1]
+        A = self.X_obs @ self.X_obs.T / (N * self.sigma_y**2) + np.eye(p) / (
+            N * self.sigma_y**2
+        )
+        b = y * x + 1 / N * self.X_obs @ self.y_obs
+        Sigma_inv = np.outer(x, x) / self.sigma_y**2 + A
+        Sigma = np.linalg.inv(Sigma_inv)
 
-    # def unnormalized_posterior_2(self, y: float, x: np.ndarray, pg: float):
-    #     log_posterior = self.log_unnormalized_posterior_2(y, x, pg)
-    #     return np.exp(log_posterior)
+        # Log of part1
+        log_part1 = (
+            np.log(pg)
+            - 0.5 * np.log(2 * np.pi * self.sigma_y**2)
+            + 1 / 2 * np.linalg.slogdet(A)[1]
+        )
+        I = np.eye(p)
+
+        # Log of part2
+        log_part2 = (
+            -1 / (2 * self.sigma_y**2) * y**2
+            - (1 / (2 * self.sigma_y**4 * N**2))
+            * self.y_obs.T
+            @ self.X_obs.T
+            @ A
+            @ self.X_obs
+            @ self.y_obs
+            + 1 / (2 * self.sigma_y**2) * b.T @ Sigma @ b
+        )
+
+        log_det = np.linalg.slogdet((np.outer(x, x) / self.sigma_y**2 + A))[1]
+        log_part3 = -0.5 * log_det
+
+        log_posterior = log_part1 + log_part2 + log_part3
+
+        return log_posterior

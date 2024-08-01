@@ -147,11 +147,11 @@ class PARENT(BASE):
 
         # setting data up to use for CBO algorithm
         self.observational_samples = np.hstack(
-            ([self.D_O[var] for var in self.variables])
+            ([self.D_O_scaled[var] for var in self.variables])
         )
 
         self.interventional_samples = change_intervention_list_format(
-            self.D_I, self.exploration_set, target=self.graph.target
+            self.D_I_scaled, self.exploration_set, target=self.graph.target
         )
 
     def define_all_possible_graphs(self, error_tol=1e-5):
@@ -354,7 +354,7 @@ class PARENT(BASE):
             y_new = target_classes[target_index].compute_target(x_new_list_intervention)
             print(f"The outcome is {y_new}")
             data_x_list[target_index] = np.vstack(
-                (data_x_list[target_index], x_new_list_intervention)
+                (data_x_list[target_index], x_new_list[target_index])
             )
 
             data_y_list[target_index] = np.concatenate(
@@ -422,6 +422,8 @@ class PARENT(BASE):
             self.prior_probabilities = self.posterior_model.prior_probabilities
 
             self.redefine_all_possible_graphs()
+            non_null_parents = list(self.graphs.keys())
+            self.posterior_model.update_probabilities(non_null_parents)
             self.calculate_do_statistics()
             self.posterior = [
                 self.prior_probabilities[parents] for parents in self.graphs

@@ -129,6 +129,18 @@ class SCMModel:
         log_posterior = self.log_unnormalized_posterior(y, x, pg)
         return np.exp(log_posterior)
 
+    def update_probabilities(self, non_null_parents):
+        # Create a list of keys to be deleted
+        keys_to_delete = [
+            parents
+            for parents in self._prior_probabilities
+            if parents not in non_null_parents
+        ]
+
+        # Delete the keys
+        for parents in keys_to_delete:
+            del self._prior_probabilities[parents]
+
 
 class LinearSCMModel(SCMModel):
     def __init__(

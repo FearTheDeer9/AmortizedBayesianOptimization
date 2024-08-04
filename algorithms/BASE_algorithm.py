@@ -76,7 +76,7 @@ class BASE:
         interventions = {}
 
         # Getting the number of entries in the exploration set
-        intervention_domain = self.graph.get_interventional_range()
+        intervention_domain = self.graph.get_original_interventional_range()
         min_intervention, max_intervention = intervention_domain[es[0]]
         intervention_vals = np.linspace(
             start=min_intervention, stop=max_intervention, num=size

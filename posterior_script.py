@@ -3,12 +3,17 @@ import itertools
 import numpy as np
 
 from algorithms.PARENT_2_algorithm import PARENT
+from diffcbed.replay_buffer import ReplayBuffer
 from graphs.data_setup import setup_observational_interventional
 from graphs.graph_6_nodes import Graph6Nodes
 from graphs.graph_chain import ChainGraph
 from graphs.graph_erdos_renyi import ErdosRenyiGraph
 from graphs.toy_graph import ToyGraph
-from posterior_model.model import LinearSCMModel, NonLinearSCMModel
+from posterior_model.model import DoublyRobustModel, LinearSCMModel, NonLinearSCMModel
+from utils.sem_sampling import (
+    change_int_data_format_to_mi,
+    change_obs_data_format_to_mi,
+)
 
 
 # Function to standardize data
@@ -22,21 +27,21 @@ def reverse_standardize(data, mean, std):
 
 
 # graph = ErdosRenyiGraph(num_nodes=6, nonlinear=False)
-# graph = ToyGraph()
-# graph = ChainGraph(num_nodes=5, nonlinear=False)
-# n_obs = 100
-# n_int = 5
+# graph = Graph6Nodes()
+# # graph = ChainGraph(num_nodes=5, nonlinear=False)
+# n_obs = 200
+# n_int = 3
 # manipulative_variables = graph.get_sets()[2]
 # manipulative_variables = graph.variables
 # manipulative_variables = [var for var in manipulative_variables if var != graph.target]
 # manipulative_variables = [item[0] for item in manipulative_variables]
 
-# random_seed = np.random.randint(1, 10000)
+# # random_seed = np.random.randint(1, 10000)
 # D_O, D_I, exploration_set = setup_observational_interventional(
 #     graph_type=None, graph=graph, n_obs=n_obs, n_int=n_int
 # )
 
-# set everything up so that it works better with your calculated likelihood
+# # set everything up so that it works better with your calculated likelihood
 # input_keys = [key for key in D_O.keys() if key != graph.target]
 # means = {key: np.mean(D_O[key]) for key in input_keys}
 # std = {key: np.std(D_O[key]) for key in input_keys}
@@ -72,7 +77,6 @@ def reverse_standardize(data, mean, std):
 # prior_probabilities = {combo: 1 / len(combinations) for combo in combinations}
 # print(prior_probabilities)
 # model = NonLinearSCMModel(prior_probabilities, graph)
-# model = LinearSCMModel(prior_probabilities, graph)
 # model.set_data(D_O_scaled)
 
 # for n in range(5):
@@ -84,7 +88,7 @@ def reverse_standardize(data, mean, std):
 # intervention = ("Z",)
 # for intervention in D_I_scaled:
 #     print(f"-----------------{intervention}-------------------")
-#     for n in range(5):
+#     for n in range(n_int):
 #         x_dict = {
 #             key: D_I_scaled[intervention][key][n] for key in D_O if key != graph.target
 #         }
@@ -101,25 +105,57 @@ def reverse_standardize(data, mean, std):
 # print(graph.parents[graph.target])
 # compare how it change for obs data vs int data
 
+# n_obs = 200
+# n_int = 2
+# seed = np.random.randint(1, 10000)
+# noiseless = True
+# graph = ChainGraph(num_nodes=5, nonlinear=False)
+# graph = Graph6Nodes()
+# graph = ToyGraph()
+
+# D_O, D_I, exploration_set = setup_observational_interventional(
+#     graph_type="Toy",
+#     noiseless=noiseless,
+#     seed=seed,
+#     n_obs=n_obs,
+#     n_int=n_int,
+#     graph=graph,
+# )
+
+# exploration_set = [("X",), ("Z",)]
+# exploration_set = [("Z",)]
+# model = PARENT(graph, scale_data=False)
+# model.set_values(D_O, D_I, exploration_set)
+# model.run_algorithm()
+
 n_obs = 200
 n_int = 2
 seed = np.random.randint(1, 10000)
 noiseless = True
-# graph = ChainGraph(num_nodes=5, nonlinear=False)
-graph = Graph6Nodes()
-# graph = ToyGraph()
-
+graph = ToyGraph()
+buffer = ReplayBuffer(binary=True)
 D_O, D_I, exploration_set = setup_observational_interventional(
-    graph_type="Toy",
+    graph_type="Graph6",
     noiseless=noiseless,
     seed=seed,
     n_obs=n_obs,
     n_int=n_int,
     graph=graph,
 )
+topological_order = list(D_O.keys())
+D_O = change_obs_data_format_to_mi(
+    D_O,
+    graph_variables=graph.variables,
+    intervention_node=np.zeros(shape=len(graph.variables)),
+)
 
-# exploration_set = [("X",), ("Z",)]
-# exploration_set = [("Z",)]
-model = PARENT(graph, scale_data=False)
-model.set_values(D_O, D_I, exploration_set)
-model.run_algorithm()
+robust_model = DoublyRobustModel(
+    graph=graph,
+    topological_order=topological_order,
+    target=graph.target,
+    num_bootstraps=30,
+)
+
+robust_model.covariance_matrix = np.cov(D_O.samples.T)
+buffer.update(D_O)
+robust_model.run_method(buffer.data())

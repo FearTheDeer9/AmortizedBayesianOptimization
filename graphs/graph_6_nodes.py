@@ -38,21 +38,21 @@ class Graph6Nodes(GraphStructure):
             ("A", "B"),
             ("A", "C"),
             ("A", "S"),
-            ("A", "As"),
+            ("A", "a"),
             ("A", "Y"),
-            ("B", "As"),
+            ("B", "a"),
             ("B", "C"),
             ("B", "S"),
             ("B", "Y"),
-            ("As", "C"),
-            ("As", "Y"),
+            ("a", "C"),
+            ("a", "Y"),
             ("S", "C"),
             ("S", "Y"),
             ("C", "Y"),
         ]
         self._nodes = set(chain(*self.edges))
         self._parents, self._children = self.build_relationships()
-        self._variables = ["A", "B", "As", "S", "C", "Y"]
+        self._variables = ["A", "B", "a", "S", "C", "Y"]
         self._G = self.make_graphical_model()
         self._target = "Y"
         self._functions: Optional[Dict[str, Callable]] = None
@@ -72,7 +72,7 @@ class Graph6Nodes(GraphStructure):
             - 0.05 * sample["A"]
             + 0.01 * sample["B"]
             - 0.04 * sample["S"]
-            + 0.02 * sample["As"]
+            + 0.02 * sample["a"]
         )
         # this is different for the text and the code
         fy = (
@@ -80,12 +80,12 @@ class Graph6Nodes(GraphStructure):
             + 0.04 * sample["A"]
             + 0.15 * sample["B"]
             - 0.6 * sample["S"]
-            + 0.55 * sample["As"]
+            + 0.55 * sample["a"]
             + sample["C"]
             + epsilon
         )
         graph = OrderedDict(
-            [("A", fa), ("B", fb), ("As", fas), ("S", fs), ("C", fc), ("Y", fy)]
+            [("A", fa), ("B", fb), ("a", fas), ("S", fs), ("C", fc), ("Y", fy)]
         )
         return graph
 
@@ -93,7 +93,7 @@ class Graph6Nodes(GraphStructure):
         samples = {
             "A": self.A,
             "B": self.B,
-            "As": self.As,
+            "a": self.As,
             "S": self.S,
             "C": self.C,
             "Y": self.Y,
@@ -102,9 +102,9 @@ class Graph6Nodes(GraphStructure):
 
     def get_all_do(self):
         do_dict = {}
-        do_dict["compute_do_As"] = self.compute_do_As
+        do_dict["compute_do_a"] = self.compute_do_a
         do_dict["compute_do_S"] = self.compute_do_S
-        do_dict["compute_do_AsS"] = self.compute_do_As_S
+        do_dict["compute_do_aS"] = self.compute_do_a_S
         return do_dict
 
     def get_interventional_range(self):
@@ -116,18 +116,18 @@ class Graph6Nodes(GraphStructure):
         max_intervention_S = 1.0
 
         if self.standardised:
-            min_intervention_As = (min_intervention_As - self.means["As"]) / self.stds[
-                "As"
+            min_intervention_As = (min_intervention_As - self.means["a"]) / self.stds[
+                "a"
             ]
-            max_intervention_As = (max_intervention_As - self.means["As"]) / self.stds[
-                "As"
+            max_intervention_As = (max_intervention_As - self.means["a"]) / self.stds[
+                "a"
             ]
             min_intervention_S = (min_intervention_S - self.means["S"]) / self.stds["S"]
             max_intervention_S = (max_intervention_S - self.means["S"]) / self.stds["S"]
 
         dict_ranges = OrderedDict(
             [
-                ("As", [min_intervention_As, max_intervention_As]),
+                ("a", [min_intervention_As, max_intervention_As]),
                 ("S", [min_intervention_S, max_intervention_S]),
             ]
         )
@@ -135,9 +135,9 @@ class Graph6Nodes(GraphStructure):
         return dict_ranges
 
     def get_sets(self):
-        mis = [["As"], ["S"], ["As", "S"]]
-        pomis = [["As", "S"]]
-        manipulative_variables = ["As", "S"]
+        mis = [["a"], ["S"], ["a", "S"]]
+        pomis = [["a", "S"]]
+        manipulative_variables = ["a", "S"]
         return mis, pomis, manipulative_variables
 
     def get_variable_equal_costs(self):
@@ -150,7 +150,7 @@ class Graph6Nodes(GraphStructure):
         )
         costs = OrderedDict(
             [
-                ("As", cost_variable_As_equal),
+                ("a", cost_variable_As_equal),
                 ("S", cost_variable_S_equal),
             ]
         )
@@ -160,7 +160,7 @@ class Graph6Nodes(GraphStructure):
         logging.info("Using the fixed equal cost structure")
         cost_fix_As_equal = lambda intervention_value: 1.0
         cost_fix_S_equal = lambda intervention_value: 1.0
-        costs = OrderedDict([("As", cost_fix_As_equal), ("S", cost_fix_S_equal)])
+        costs = OrderedDict([("a", cost_fix_As_equal), ("S", cost_fix_S_equal)])
         return costs
 
     def get_fixed_different_costs(self):
@@ -169,7 +169,7 @@ class Graph6Nodes(GraphStructure):
         cost_fix_S_different = lambda intervention_value: 3.0
         costs = OrderedDict(
             [
-                ("As", cost_fix_As_different),
+                ("a", cost_fix_As_different),
                 ("S", cost_fix_S_different),
             ]
         )
@@ -185,14 +185,14 @@ class Graph6Nodes(GraphStructure):
         )
         costs = OrderedDict(
             [
-                ("As", cost_variable_As_different),
+                ("a", cost_variable_As_different),
                 ("S", cost_variable_S_different),
             ]
         )
         return costs
 
-    def compute_do_As(self, observational_samples, value):
-        interventions_nodes = ["As"]
+    def compute_do_a(self, observational_samples, value):
+        interventions_nodes = ["a"]
         mean_do, var_do = self.compute_do(
             observational_samples, value, interventions_nodes
         )
@@ -207,8 +207,8 @@ class Graph6Nodes(GraphStructure):
 
         return mean_do, var_do
 
-    def compute_do_As_S(self, observational_samples, value):
-        interventions_nodes = ["As", "S"]
+    def compute_do_a_S(self, observational_samples, value):
+        interventions_nodes = ["a", "S"]
         mean_do, var_do = self.compute_do(
             observational_samples, value, interventions_nodes
         )
@@ -216,13 +216,13 @@ class Graph6Nodes(GraphStructure):
         return mean_do, var_do
 
     def get_exploration_set(self):
-        return [("As",), ("S",), ("As", "S")]
+        return [("a",), ("S",), ("a", "S")]
 
     def get_error_distribution(self, noiseless: bool = False):
         err_dist = {}
         err_dist["A"] = np.random.uniform(55, 75)
         err_dist["B"] = np.random.normal(scale=np.sqrt(0.7))
-        err_dist["As"] = 0
+        err_dist["a"] = 0
         err_dist["S"] = 0
         err_dist["C"] = 0
         err_dist["Y"] = np.random.normal(scale=np.sqrt(0.4))

@@ -309,6 +309,10 @@ class GraphStructure:
         for var in self.variables:
             interventional_range[var] = [-2, 2]
         return interventional_range
+    
+    @abc.abstractmethod
+    def get_original_interventional_range(self):
+        return self.get_interventional_range()
 
     @abc.abstractmethod
     def get_set_BO(self):

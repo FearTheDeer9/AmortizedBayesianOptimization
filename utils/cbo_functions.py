@@ -12,9 +12,16 @@ from GPy.kern.src.rbf import RBF
 from GPy.models.gp_regression import GPRegression
 
 from graphs.graph import GraphStructure
-from utils.cbo_classes import (CausalExpectedImprovement,
-                               CausalGradientAcquisitionOptimizer, CausalRBF,
-                               Cost, DoFunctions)
+from utils.cbo_classes import (
+    CausalExpectedImprovement,
+    CausalGradientAcquisitionOptimizer,
+    CausalRBF,
+    Cost,
+    DoFunctions,
+)
+
+# from GPyOpt.acquisitions import AcquisitionEntropySearch
+# from GPyOpt.optimization import AcquisitionOptimizer
 
 
 def set_up_GP(
@@ -63,7 +70,8 @@ def set_up_GP(
         # gpy_model.optimize_restarts(num_restarts=5)
         gpy_model.optimize()
         emukit_model = GPyModelWrapper(gpy_model)
-    gpy_model = safe_optimization(emukit_model.model)
+
+    # gpy_model = safe_optimization(emukit_model.model)
     emukit_model = GPyModelWrapper(gpy_model)
     return emukit_model
 
@@ -225,6 +233,34 @@ def get_new_x_y_list(
         acquisition = (
             CausalExpectedImprovement(current_global_min, task, model_list[j]) / cost
         )
+        x_new, _ = optimizer.optimize(acquisition)
+        y_acquisition = acquisition.evaluate(x_new).flatten()
+        y_acquisition_list[j] = y_acquisition
+        x_new_list[j] = x_new
+
+    return y_acquisition_list, x_new_list
+
+
+def get_new_x_y_list_entropy(
+    exploration_set: List[List[str]],
+    graph: GraphStructure,
+    current_global_min: float,
+    model_list: List,
+    cost_functions: OrderedDict,
+    task: str = "min",
+) -> Tuple[np.ndarray, List[List[float]]]:
+    """
+    Get the new acquisitions for all the elements in the exploration set using Predictive Entropy Search (PES).
+    """
+    y_acquisition_list = [None] * len(exploration_set)
+    x_new_list = [None] * len(exploration_set)
+
+    for j, vars in enumerate(exploration_set):
+        space = graph.get_parameter_space(vars)
+        cost = Cost(cost_functions, vars)
+        optimizer = AcquisitionOptimizer(space)
+        acquisition = PredictiveEntropySearch(model_list[j])
+
         x_new, _ = optimizer.optimize(acquisition)
         y_acquisition = acquisition.evaluate(x_new).flatten()
         y_acquisition_list[j] = y_acquisition

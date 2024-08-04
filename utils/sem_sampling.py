@@ -342,8 +342,7 @@ def draw_interventional_samples_sem(
         np.random.seed(seed=seed)
 
     interventional_data = {
-        tuple(sorted(es)): {var: [] for var in graph.variables}
-        for es in exploration_set
+        tuple(es): {var: [] for var in graph.variables} for es in exploration_set
     }
 
     interventional_range = graph.get_interventional_range()

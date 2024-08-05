@@ -66,13 +66,13 @@ def reverse_standardize(data, mean, std):
 #         else:
 #             D_I_scaled[intervention][key] = D_I[intervention][key]
 
-# Generate all unique combinations
+# # Generate all unique combinations
 # combinations = []
 # for r in range(1, len(manipulative_variables) + 1):
 #     combinations.extend(itertools.combinations(manipulative_variables, r))
 
-# Print the combinations
-# print(D_O_scaled)
+# # Print the combinations
+# # print(D_O_scaled)
 
 # prior_probabilities = {combo: 1 / len(combinations) for combo in combinations}
 # print(prior_probabilities)
@@ -98,64 +98,65 @@ def reverse_standardize(data, mean, std):
 #             key: np.array([D_I_scaled[intervention][key][n]])
 #             for key in D_I_scaled[intervention]
 #         }
-#         print(D_I)
-#         model.add_data(D_I)
-#         print(model.prior_probabilities)
+# print(D_I)
+# model.add_data(D_I)
+# print(model.prior_probabilities)
 
 # print(graph.parents[graph.target])
 # compare how it change for obs data vs int data
-
-# n_obs = 200
-# n_int = 2
-# seed = np.random.randint(1, 10000)
-# noiseless = True
-# graph = ChainGraph(num_nodes=5, nonlinear=False)
-# graph = Graph6Nodes()
-# graph = ToyGraph()
-
-# D_O, D_I, exploration_set = setup_observational_interventional(
-#     graph_type="Toy",
-#     noiseless=noiseless,
-#     seed=seed,
-#     n_obs=n_obs,
-#     n_int=n_int,
-#     graph=graph,
-# )
-
-# exploration_set = [("X",), ("Z",)]
-# exploration_set = [("Z",)]
-# model = PARENT(graph, scale_data=False)
-# model.set_values(D_O, D_I, exploration_set)
-# model.run_algorithm()
 
 n_obs = 200
 n_int = 2
 seed = np.random.randint(1, 10000)
 noiseless = True
+# graph = ChainGraph(num_nodes=5, nonlinear=False)
+# graph = Graph6Nodes()
 graph = ToyGraph()
-buffer = ReplayBuffer(binary=True)
+
 D_O, D_I, exploration_set = setup_observational_interventional(
-    graph_type="Graph6",
+    graph_type="Toy",
     noiseless=noiseless,
     seed=seed,
     n_obs=n_obs,
     n_int=n_int,
     graph=graph,
 )
-topological_order = list(D_O.keys())
-D_O = change_obs_data_format_to_mi(
-    D_O,
-    graph_variables=graph.variables,
-    intervention_node=np.zeros(shape=len(graph.variables)),
-)
 
-robust_model = DoublyRobustModel(
-    graph=graph,
-    topological_order=topological_order,
-    target=graph.target,
-    num_bootstraps=30,
-)
+# exploration_set = [("X",), ("Z",)]
+# exploration_set = [("Z",)]
+model = PARENT(graph, scale_data=False)
+model.set_values(D_O, D_I, exploration_set)
+model.run_algorithm()
 
-robust_model.covariance_matrix = np.cov(D_O.samples.T)
-buffer.update(D_O)
-robust_model.run_method(buffer.data())
+# THE DOUBLY ROBUST METHOD
+# n_obs = 200
+# n_int = 2
+# seed = np.random.randint(1, 10000)
+# noiseless = True
+# graph = ToyGraph()
+# buffer = ReplayBuffer(binary=True)
+# D_O, D_I, exploration_set = setup_observational_interventional(
+#     graph_type="Graph6",
+#     noiseless=noiseless,
+#     seed=seed,
+#     n_obs=n_obs,
+#     n_int=n_int,
+#     graph=graph,
+# )
+# topological_order = list(D_O.keys())
+# D_O = change_obs_data_format_to_mi(
+#     D_O,
+#     graph_variables=graph.variables,
+#     intervention_node=np.zeros(shape=len(graph.variables)),
+# )
+
+# robust_model = DoublyRobustModel(
+#     graph=graph,
+#     topological_order=topological_order,
+#     target=graph.target,
+#     num_bootstraps=30,
+# )
+
+# robust_model.covariance_matrix = np.cov(D_O.samples.T)
+# buffer.update(D_O)
+# robust_model.run_method(buffer.data())

@@ -141,209 +141,6 @@ class SCMModel:
             del self._prior_probabilities[parents]
 
 
-# class LinearSCMModel(SCMModel):
-#     def __init__(
-#         self,
-#         prior_probabilities: Dict[Tuple, float],
-#         graph: GraphStructure,
-#         sigma_y: float = 1.0,
-#         sigma_theta: float = 1.0,
-#     ):
-#         self._prior_probabilities = prior_probabilities
-#         self.graph = graph
-#         self.sigma_y = sigma_y
-#         self.sigma_theta = sigma_theta
-
-#     def update_all(self, x_dict: Dict[str, float], y: float):
-#         # suppose we observed a new sample, update all probabilities
-#         updated_posterior = {}
-#         total_prob = 0
-#         for parents in self._prior_probabilities:
-#             x_vec = np.array([x_dict[parent] for parent in parents])
-#             N = self.X_dict[parents].shape[1]
-#             self.X_obs = self.X_dict[parents]
-#             updated_posterior[parents] = self.unnormalized_posterior(
-#                 y, x_vec, self._prior_probabilities[parents]
-#             )
-
-#             total_prob += updated_posterior[parents]
-
-#         self._prior_probabilities = {
-#             parents: updated_posterior[parents] / total_prob
-#             for parents in self._prior_probabilities
-#         }
-
-#     def set_data(self, D_O_scaled: Dict[str, np.ndarray]):
-#         X_dict = {}
-#         self.y_obs = D_O_scaled[self.graph.target].reshape(-1)
-#         for parents in self._prior_probabilities:
-#             X_dict[parents] = np.vstack(
-#                 [D_O_scaled[key].reshape(1, -1) for key in parents]
-#             )
-
-#         self.X_dict = X_dict.copy()
-
-#     def add_data(self, D_I: Dict[str, np.ndarray]):
-#         X_dict = {}
-#         self.y_obs = np.hstack([self.y_obs, D_I[self.graph.target].reshape(-1)])
-#         for parents in self._prior_probabilities:
-#             X_key = np.array([D_I[key] for key in parents])
-#             X_temp = np.hstack([self.X_dict[parents], X_key])
-#             X_dict[parents] = X_temp
-
-#         self.X_dict = X_dict.copy()
-
-#     def log_unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
-#         p = len(x)
-#         # added this N here as well
-#         N = self.X_obs.shape[1]
-#         A = self.X_obs @ self.X_obs.T / (N * self.sigma_y**2) + np.eye(p) / (
-#             N * self.sigma_y**2
-#         )
-#         b = y * x + 1 / N * self.X_obs @ self.y_obs
-#         Sigma_inv = np.outer(x, x) / self.sigma_y**2 + A
-#         Sigma = np.linalg.inv(Sigma_inv)
-
-#         # Log of part1
-#         log_part1 = (
-#             np.log(pg)
-#             - 0.5 * np.log(2 * np.pi * self.sigma_y**2)
-#             + 1 / 2 * np.linalg.slogdet(A)[1]
-#         )
-
-#         x_T = x.T
-#         term1 = np.outer(x, x) / (self.sigma_y**2)
-#         I = np.eye(p)
-#         term2 = I / (self.sigma_theta**2)
-#         matrix_sum = term1 + term2
-
-#         # Log of part2
-#         log_part2 = (
-#             -1 / (2 * self.sigma_y**2) * y**2
-#             - (1 / (2 * self.sigma_y**4 * N**2))
-#             * self.y_obs.T
-#             @ self.X_obs.T
-#             @ A
-#             @ self.X_obs
-#             @ self.y_obs
-#             + 1 / (2 * self.sigma_y**2) * b.T @ Sigma @ b
-#         )
-
-#         log_det = np.linalg.slogdet((np.outer(x, x) / self.sigma_y**2 + A))[1]
-#         log_part3 = -0.5 * log_det
-
-#         log_posterior = log_part1 + log_part2 + log_part3
-
-#         return log_posterior
-
-#     def unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
-#         log_posterior = self.log_unnormalized_posterior(y, x, pg)
-#         return np.exp(log_posterior)
-
-
-# class NonLinearSCMModel(SCMModel):
-#     # extending the class so that it works with Gaussian Processes
-#     def __init__(
-#         self,
-#         prior_probabilities: Dict[Tuple, float],
-#         graph: GraphStructure,
-#         sigma_y: float = 1.0,
-#         sigma_theta: float = 1.0,
-#         D: int = 1000,  # this is the dimension we are projecting towards
-#     ):
-#         self._prior_probabilities = prior_probabilities
-#         self.graph = graph
-#         self.sigma_y = sigma_y
-#         self.sigma_theta = sigma_theta
-#         self.D = D
-
-#         # setting up the fourier series
-#         self.fourier_series: Dict[Tuple, RandomFourierFeatures] = {}
-#         for parents in self._prior_probabilities:
-#             input_dim = len(parents)
-#             fourier_series = RandomFourierFeatures(input_dim, self.D)
-#             self.fourier_series[parents] = fourier_series
-
-#     def set_data(self, D_O_scaled: Dict[str, np.ndarray]):
-#         X_dict = {}
-#         self.y_obs = D_O_scaled[self.graph.target].reshape(-1)
-#         for parents in self._prior_probabilities:
-#             X_temp = np.vstack([D_O_scaled[key].reshape(1, -1) for key in parents]).T
-#             # Transform the data as if we are using a radial basis kernel
-#             X_dict[parents] = self.fourier_series[parents].transform(X_temp).T
-
-#         self.X_dict_transform = X_dict.copy()
-
-#     def add_data(self, D_I: Dict[str, np.ndarray]):
-#         X_dict = {}
-#         self.y_obs = np.hstack([self.y_obs, D_I[self.graph.target].reshape(-1)])
-#         for parents in self._prior_probabilities:
-#             X_key = np.array([D_I[key] for key in parents]).T
-#             X_key_transform = self.fourier_series[parents].transform(X_key).T
-#             X_temp = np.hstack([self.X_dict_transform[parents], X_key_transform])
-#             X_dict[parents] = X_temp
-
-#         self.X_dict_transform = X_dict.copy()
-
-#     def update_all(self, x_dict: Dict[str, float], y: float):
-#         # suppose we observed a new sample, update all probabilities
-#         updated_posterior = {}
-#         total_prob = 0
-#         for parents in self._prior_probabilities:
-#             x_vec = np.array([x_dict[parent] for parent in parents])
-#             x_vec = self.fourier_series[parents].transform(x_vec)
-#             # N = self.X_dict_transform[parents].shape[1]
-#             self.X_obs = self.X_dict_transform[parents]
-#             updated_posterior[parents] = self.unnormalized_posterior(
-#                 y, x_vec, self._prior_probabilities[parents]
-#             )
-
-#             total_prob += updated_posterior[parents]
-
-#         self._prior_probabilities = {
-#             parents: updated_posterior[parents] / total_prob
-#             for parents in self._prior_probabilities
-#         }
-
-#     def log_unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
-#         p = len(x)
-#         # added this N here as well
-#         N = self.X_obs.shape[1]
-#         A = self.X_obs @ self.X_obs.T / (N * self.sigma_y**2) + np.eye(p) / (
-#             N * self.sigma_y**2
-#         )
-#         b = y * x + 1 / N * self.X_obs @ self.y_obs
-#         Sigma_inv = np.outer(x, x) / self.sigma_y**2 + A
-#         Sigma = np.linalg.inv(Sigma_inv)
-
-#         # Log of part1
-#         log_part1 = (
-#             np.log(pg)
-#             - 0.5 * np.log(2 * np.pi * self.sigma_y**2)
-#             + 1 / 2 * np.linalg.slogdet(A)[1]
-#         )
-#         I = np.eye(p)
-
-#         # Log of part2
-#         log_part2 = (
-#             -1 / (2 * self.sigma_y**2) * y**2
-#             - (1 / (2 * self.sigma_y**4 * N**2))
-#             * self.y_obs.T
-#             @ self.X_obs.T
-#             @ A
-#             @ self.X_obs
-#             @ self.y_obs
-#             + 1 / (2 * self.sigma_y**2) * b.T @ Sigma @ b
-#         )
-
-#         log_det = np.linalg.slogdet((np.outer(x, x) / self.sigma_y**2 + A))[1]
-#         log_part3 = -0.5 * log_det
-
-#         log_posterior = log_part1 + log_part2 + log_part3
-
-#         return log_posterior
-
-
 class LinearSCMModel(SCMModel):
     def __init__(
         self,
@@ -367,15 +164,21 @@ class LinearSCMModel(SCMModel):
             mu_prior = self.mu_dict[parents]
             # getting the correct format for the data
             x_vec = np.array([x_dict[parent] for parent in parents])
+
+            self.Sigma_post = Sigma_prior_inv
+            self.mu_post = mu_prior
+
+            # update the probabilities
+            updated_posterior[parents] = self.unnormalized_posterior(
+                y, x_vec, self._prior_probabilities[parents]
+            )
+
+            # update for the Bayesian Linear Regression
             self.Sigma_post = np.linalg.inv(
                 Sigma_prior_inv + 1 / (self.sigma_y**2) * np.outer(x_vec, x_vec)
             )
             self.mu_post = self.Sigma_post @ (
                 Sigma_prior_inv @ mu_prior + 1 / (self.sigma_y**2) * y * x_vec
-            )
-
-            updated_posterior[parents] = self.unnormalized_posterior(
-                y, x_vec, self._prior_probabilities[parents]
             )
 
             self.Sigma_dict[parents] = self.Sigma_post

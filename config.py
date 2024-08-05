@@ -1,4 +1,4 @@
-SHOW_GRAPHICS = False
+SHOW_GRAPHICS = True
 RUN_CEO = False
 RUN_CBO = True
 RUN_BO = False

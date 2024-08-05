@@ -211,6 +211,7 @@ class PARENT(BASE):
 
             graph: GraphStructure = deepcopy(self.graph)
             edges = [(parent, graph.target) for parent in parents]
+            print(edges)
             graph.mispecify_graph(edges)
             self.graphs[parents] = graph
             self.posterior.append(self.prior_probabilities[parents])
@@ -245,7 +246,7 @@ class PARENT(BASE):
     def fit_samples_to_graphs(self):
         sem_emit_fncs: List[OrderedDict[str, GPRegression]] = []
         for key, graph in self.graphs.items():
-            graph.fit_samples_to_graph(self.D_O_scaled, set_priors=False)
+            graph.fit_samples_to_graph(self.D_O, set_priors=False)
             sem_emit_fncs.append(graph.functions)
         return sem_emit_fncs
 
@@ -357,7 +358,7 @@ class PARENT(BASE):
         for i in range(T):
             logging.info(f"----------------------ITERATION {i}----------------------")
             logging.info(f"Updated posterior distribution {self.posterior}")
-            logging.info(f"The corresponding parents are {self.graphs.keys()}")
+            logging.info(f"The corresponding parents are {list(self.graphs.keys())}")
 
             # get the next sample
             y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
@@ -367,14 +368,6 @@ class PARENT(BASE):
                 self.model_list_overall,
                 cost_functions,
             )
-
-            # y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list_entropy(
-            #     self.exploration_set,
-            #     self.graph,
-            #     current_global_min,
-            #     self.model_list_overall,
-            #     cost_functions,
-            # )
 
             # find the optimal intervention, which maximises the acquisition function
             target_index = np.argmax(y_acquisition_list)

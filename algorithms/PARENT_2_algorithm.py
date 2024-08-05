@@ -47,12 +47,12 @@ class PARENT(BASE):
     def __init__(
         self,
         graph: GraphStructure,
-        # graph_env: CausalEnvironment,
         nonlinear: bool = True,
         causal_prior: bool = True,
         noiseless: bool = True,
         cost_num: int = 1,
         scale_data: bool = True,
+        use_doubly_robust: bool = True,
     ):
         self.graph = graph
         self.num_nodes = len(self.graph.variables)
@@ -70,6 +70,7 @@ class PARENT(BASE):
         self.noiseless = noiseless
         self.cost_num = cost_num
         self.scale_data = scale_data
+        self.use_doubly_robust = use_doubly_robust
 
     def set_values(self, D_O, D_I, exploration_set):
         self.D_O = deepcopy(D_O)
@@ -129,10 +130,8 @@ class PARENT(BASE):
         plt.legend()
         plt.show()
 
-    def determine_initial_probabilities(
-        self, use_doubly_robust: bool = True
-    ) -> Dict[Tuple, float]:
-        if use_doubly_robust:
+    def determine_initial_probabilities(self) -> Dict[Tuple, float]:
+        if self.use_doubly_robust:
             topological_order = list(self.D_O.keys())
             D_O_mi = change_obs_data_format_to_mi(
                 self.D_O,
@@ -149,6 +148,8 @@ class PARENT(BASE):
             buffer.update(D_O_mi)
             robust_model.run_method(buffer.data())
             probabilities = robust_model.prob_estimate
+            if () in probabilities:
+                del probabilities[()]
         else:
             variables = [
                 var for var in self.graph.variables if var != self.graph.target
@@ -189,15 +190,6 @@ class PARENT(BASE):
                 else:
                     D_I_scaled[intervention][key] = self.D_I[intervention][key]
 
-        # if self.scale_data:
-        #     self.graph.set_data_standardised_flag(
-        #         standardised=True, means=self.means, stds=self.stds
-        #     )
-        #     self.D_O_scaled = D_O_scaled
-        #     self.D_I_scaled = D_I_scaled
-        # else:
-        #     self.D_O_scaled = self.D_O
-        #     self.D_I_scaled = self.D_I
         self.D_O_scaled = D_O_scaled
         self.D_I_scaled = D_I_scaled
 
@@ -213,7 +205,6 @@ class PARENT(BASE):
     def define_all_possible_graphs(self, error_tol=1e-5):
         self.graphs: Dict[Tuple, GraphStructure] = {}
         self.posterior: List[float] = []
-        parents_to_remove = []
         for parents in self.prior_probabilities:
             if self.prior_probabilities[parents] < error_tol:
                 continue
@@ -392,24 +383,6 @@ class PARENT(BASE):
 
             # Setting the data after the new point was found
             intervention_values.append(tuple(x_new_list[target_index][0]))
-            # if self.scale_data:
-            #     x_new_list_intervention = np.array(
-            #         [
-            #             reverse_standardize(
-            #                 x_new_list[target_index][0, j],
-            #                 self.means[var],
-            #                 self.stds[var],
-            #             )
-            #             for j, var in enumerate(var_to_intervene)
-            #         ]
-            #     ).reshape(1, -1)
-            # else:
-            #     x_new_list_intervention = np.array(
-            #         [
-            #             x_new_list[target_index][0, j]
-            #             for j, var in enumerate(var_to_intervene)
-            #         ]
-            #     ).reshape(1, -1)
 
             x_new_list_intervention = np.array(
                 [

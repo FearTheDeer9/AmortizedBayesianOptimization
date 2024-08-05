@@ -44,16 +44,18 @@ def run_script_unknown(
     filename: str,
     scale_data: bool = False,
 ):
+
+    graph = set_graph(graph_type)
     D_O, D_I, exploration_set = setup_observational_interventional(
-        graph_type=graph_type,
+        graph_type=None,
         noiseless=noiseless,
         seed=seeds_int_data,
         n_obs=n_obs,
         n_int=n_int,
+        graph=graph,
     )
 
-    graph = set_graph(graph_type)
-    model = PARENT(graph=graph, scale_data=scale_data)
+    model = PARENT(graph=graph, nonlinear=True)
     model.set_values(D_O, D_I, exploration_set)
     (
         best_y_array,
@@ -62,7 +64,7 @@ def run_script_unknown(
         intervention_set,
         intervention_value,
         average_uncertainty,
-    ) = model.run_algorithm(T=n_trials)
+    ) = model.run_algorithm(T=n_trials, show_graphics=False)
 
     cbo_unknown_results_dict = {
         "Best_Y": best_y_array,

@@ -300,16 +300,24 @@ class GraphStructure:
         return do_dict
 
     @abc.abstractmethod
-    def get_interventional_range(self):
+    def set_interventional_range_data(self, D_O):
+        interventional_range = OrderedDict()
+        for var in self.variables:
+            interventional_range[var] = [D_O[var].min(), D_O[var].max()]
+        self.use_intervention_range_data = True
+        self.interventional_range_data = interventional_range
+
+    @abc.abstractmethod
+    def get_interventional_range(self, D_O: Dict = None):
         """
         Sets the range of the variables we can intervene upon
         """
         logging.warning(MESSAGE)
         interventional_range = OrderedDict()
         for var in self.variables:
-            interventional_range[var] = [-2, 2]
+            interventional_range[var] = [-5, 5]
         return interventional_range
-    
+
     @abc.abstractmethod
     def get_original_interventional_range(self):
         return self.get_interventional_range()
@@ -362,7 +370,10 @@ class GraphStructure:
 
     @abc.abstractmethod
     def get_parameter_space(self, exploration_set) -> ParameterSpace:
-        interventional_range = self.get_interventional_range()
+        if self.use_intervention_range_data:
+            interventional_range = self.interventional_range_data
+        else:
+            interventional_range = self.get_interventional_range()
         space = {}
 
         # Create ContinuousParameter objects dynamically for all variables in the interventional range

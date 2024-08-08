@@ -130,7 +130,7 @@ class ToyGraph(GraphStructure):
         )
         return dict_ranges
 
-    def get_original_interventional_range(self) -> OrderedDict:
+    def get_original_interventional_range(self, D_O=None) -> OrderedDict:
         min_intervention_x = -5
         max_intervention_x = 5
 

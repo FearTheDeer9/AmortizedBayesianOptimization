@@ -4,7 +4,6 @@ from itertools import chain
 from typing import Any, Callable, Dict, List, Optional, OrderedDict, Tuple
 
 import numpy as np
-from GPy.models.gp_regression import GPRegression
 
 from graphs.graph import GraphStructure
 
@@ -57,6 +56,7 @@ class Graph6Nodes(GraphStructure):
         self._target = "Y"
         self._functions: Optional[Dict[str, Callable]] = None
         self._standardised = False
+        self.use_intervention_range_data = False
 
     def define_SEM(self):
         fa = lambda epsilon, sample: epsilon

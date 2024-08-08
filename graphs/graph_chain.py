@@ -67,6 +67,7 @@ class ChainGraph(GraphStructure):
         self.rng = np.random.default_rng(seed)
         self._G = self.make_graphical_model()
         self._standardised = False
+        self.use_intervention_range_data = False
 
     def define_SEM(self):
         sem_functions = define_SEM_causalenv(

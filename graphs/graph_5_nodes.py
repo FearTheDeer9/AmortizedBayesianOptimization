@@ -45,7 +45,7 @@ class Graph5Nodes(GraphStructure):
         self._target = "Y"
         self._functions: Optional[Dict[str, Callable]] = None
         self._standardised = False
-        
+        self.use_intervention_range_data = False
 
     def define_SEM(self):
         fb = lambda epsilon, sample: epsilon
@@ -70,7 +70,6 @@ class Graph5Nodes(GraphStructure):
         min_intervention_t = 4
         max_intervention_t = 8
 
-        # XXX This was not checked yet
         min_intervention_r = 5
         max_intervention_r = 15
 
@@ -135,8 +134,8 @@ class Graph5Nodes(GraphStructure):
         err_dist = {}
         err_dist["B"] = np.random.uniform(-1, 1)
         err_dist["T"] = np.random.uniform(4, 8)
-        err_dist["L"] = np.random.normal()
-        err_dist["R"] = np.random.normal()
+        err_dist["L"] = 0
+        err_dist["R"] = 0
         err_dist["Y"] = np.random.normal()
         return err_dist
 

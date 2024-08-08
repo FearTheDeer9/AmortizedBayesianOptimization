@@ -1,16 +1,23 @@
-import argparse
 import logging
+import os
 import pickle
+import sys
 from copy import deepcopy
 from typing import List, Tuple
 
-from algorithms.PARENT_2_algorithm import PARENT
+os.chdir("..")
+if os.getcwd() not in sys.path:
+    sys.path.append(os.getcwd())
+
+from algorithms.PARENT_SCALE_algorithm import PARENT_SCALE
 from graphs.data_setup import setup_observational_interventional
 from graphs.graph import GraphStructure
 from graphs.graph_4_nodes import Graph4Nodes
 from graphs.graph_5_nodes import Graph5Nodes
 from graphs.graph_6_nodes import Graph6Nodes
+from graphs.graph_chain import ChainGraph
 from graphs.toy_graph import ToyGraph
+from scripts.base_script import parse_args
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the logging level
@@ -20,7 +27,7 @@ logging.basicConfig(
 
 
 def set_graph(graph_type: str) -> GraphStructure:
-    assert graph_type in ["Toy", "Graph4", "Graph5", "Graph6"]
+    assert graph_type in ["Toy", "Graph4", "Graph5", "Graph6", "Graph10"]
     if graph_type == "Toy":
         graph = ToyGraph()
     elif graph_type == "Graph4":
@@ -29,6 +36,8 @@ def set_graph(graph_type: str) -> GraphStructure:
         graph = Graph5Nodes()
     elif graph_type == "Graph6":
         graph = Graph6Nodes()
+    elif graph_type == "Graph10":
+        graph = ChainGraph(num_nodes=10)
     return graph
 
 
@@ -41,6 +50,7 @@ def run_script_unknown(
     n_obs: int,
     n_int: int,
     n_trials: int,
+    nonlinear: bool,
     filename: str,
 ):
 
@@ -54,7 +64,7 @@ def run_script_unknown(
         graph=graph,
     )
 
-    model = PARENT(graph=graph, nonlinear=True)
+    model = PARENT_SCALE(graph=graph, nonlinear=nonlinear)
     model.set_values(D_O, D_I, exploration_set)
     (
         best_y_array,
@@ -76,3 +86,28 @@ def run_script_unknown(
     filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_results_{n_obs}_{n_int}{noisy_string}.pickle"
     with open(filename_cbo_unknown, "wb") as file:
         pickle.dump(cbo_unknown_results_dict, file)
+
+
+args = parse_args()
+n_int = 2
+seeds_int_data = args.seeds_replicate
+
+n_anchor_points = args.n_anchor_points
+n_trials = args.n_trials
+n_obs = args.n_observational
+run_num = args.run_num
+noiseless = args.noiseless
+noisy_string = "" if noiseless else "_noisy"
+
+run_script_unknown(
+    graph_type="Graph10",
+    run_num=run_num,
+    noiseless=noiseless,
+    noisy_string=noisy_string,
+    seeds_int_data=seeds_int_data,
+    n_obs=n_obs,
+    n_int=n_int,
+    n_trials=n_trials,
+    nonlinear=False,
+    filename="Graph10Unknown",
+)

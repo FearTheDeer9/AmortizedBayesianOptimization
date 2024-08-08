@@ -12,9 +12,13 @@ from GPy.kern.src.rbf import RBF
 from GPy.models.gp_regression import GPRegression
 
 from graphs.graph import GraphStructure
-from utils.cbo_classes import (CausalExpectedImprovement,
-                               CausalGradientAcquisitionOptimizer, CausalRBF,
-                               Cost, DoFunctions)
+from utils.cbo_classes import (
+    CausalExpectedImprovement,
+    CausalGradientAcquisitionOptimizer,
+    CausalRBF,
+    Cost,
+    DoFunctions,
+)
 
 # from GPyOpt.acquisitions import AcquisitionEntropySearch
 # from GPyOpt.optimization import AcquisitionOptimizer

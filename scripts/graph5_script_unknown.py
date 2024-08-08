@@ -20,7 +20,7 @@ noiseless = args.noiseless
 noisy_string = "" if noiseless else "_noisy"
 
 run_script_unknown(
-    graph_type="Toy",
+    graph_type="Graph5",
     run_num=run_num,
     noiseless=noiseless,
     noisy_string=noisy_string,
@@ -28,5 +28,5 @@ run_script_unknown(
     n_obs=n_obs,
     n_int=n_int,
     n_trials=n_trials,
-    filename="ToyGraphUnknown",
+    filename="Graph5Unknown",
 )

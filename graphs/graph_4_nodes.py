@@ -35,6 +35,7 @@ class Graph4Nodes(GraphStructure):
         self._G = self.make_graphical_model()
         self._variables = ["X", "Z", "T", "Y"]
         self._standardised = False
+        self.use_intervention_range_data = False
 
     def define_SEM(self):
         fx = lambda epsilon, sample: epsilon

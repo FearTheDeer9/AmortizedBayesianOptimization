@@ -30,7 +30,7 @@ def reverse_standardize(data, mean, std):
 # graph = Graph6Nodes()
 # # graph = ChainGraph(num_nodes=5, nonlinear=False)
 # n_obs = 200
-# n_int = 3
+# n_int = 2
 # manipulative_variables = graph.get_sets()[2]
 # manipulative_variables = graph.variables
 # manipulative_variables = [var for var in manipulative_variables if var != graph.target]
@@ -41,7 +41,7 @@ def reverse_standardize(data, mean, std):
 #     graph_type=None, graph=graph, n_obs=n_obs, n_int=n_int
 # )
 
-# # set everything up so that it works better with your calculated likelihood
+# # # set everything up so that it works better with your calculated likelihood
 # input_keys = [key for key in D_O.keys() if key != graph.target]
 # means = {key: np.mean(D_O[key]) for key in input_keys}
 # std = {key: np.std(D_O[key]) for key in input_keys}
@@ -66,26 +66,26 @@ def reverse_standardize(data, mean, std):
 #         else:
 #             D_I_scaled[intervention][key] = D_I[intervention][key]
 
-# # Generate all unique combinations
+# # # Generate all unique combinations
 # combinations = []
 # for r in range(1, len(manipulative_variables) + 1):
 #     combinations.extend(itertools.combinations(manipulative_variables, r))
 
-# # Print the combinations
-# # print(D_O_scaled)
+# # # Print the combinations
+# # # print(D_O_scaled)
 
 # prior_probabilities = {combo: 1 / len(combinations) for combo in combinations}
 # print(prior_probabilities)
 # model = NonLinearSCMModel(prior_probabilities, graph)
 # model.set_data(D_O_scaled)
 
-# for n in range(5):
-#     x_dict = {key: D_O_scaled[key][n] for key in D_O}
-#     y = D_O_scaled[graph.target][n]
-#     model.update_all(x_dict, y)
+# # for n in range(5):
+# #     x_dict = {key: D_O_scaled[key][n] for key in D_O}
+# #     y = D_O_scaled[graph.target][n]
+# #     model.update_all(x_dict, y)
 
 
-# intervention = ("Z",)
+# # intervention = ("Z",)
 # for intervention in D_I_scaled:
 #     print(f"-----------------{intervention}-------------------")
 #     for n in range(n_int):
@@ -98,6 +98,7 @@ def reverse_standardize(data, mean, std):
 #             key: np.array([D_I_scaled[intervention][key][n]])
 #             for key in D_I_scaled[intervention]
 #         }
+#         print(model.prior_probabilities)
 # print(D_I)
 # model.add_data(D_I)
 # print(model.prior_probabilities)
@@ -105,28 +106,28 @@ def reverse_standardize(data, mean, std):
 # print(graph.parents[graph.target])
 # compare how it change for obs data vs int data
 
-n_obs = 200
-n_int = 2
-seed = np.random.randint(1, 10000)
-noiseless = True
+# n_obs = 200
+# n_int = 2
+# seed = np.random.randint(1, 10000)
+# noiseless = True
 # graph = ChainGraph(num_nodes=5, nonlinear=False)
 # graph = Graph6Nodes()
-graph = ToyGraph()
+# graph = ToyGraph()
 
-D_O, D_I, exploration_set = setup_observational_interventional(
-    graph_type="Toy",
-    noiseless=noiseless,
-    seed=seed,
-    n_obs=n_obs,
-    n_int=n_int,
-    graph=graph,
-)
+# D_O, D_I, exploration_set = setup_observational_interventional(
+#     graph_type=None,
+#     noiseless=noiseless,
+#     seed=seed,
+#     n_obs=n_obs,
+#     n_int=n_int,
+#     graph=graph,
+# )
 
 # exploration_set = [("X",), ("Z",)]
 # exploration_set = [("Z",)]
-model = PARENT(graph, scale_data=False)
-model.set_values(D_O, D_I, exploration_set)
-model.run_algorithm()
+# model = PARENT(graph, scale_data=False)
+# model.set_values(D_O, D_I, exploration_set)
+# model.run_algorithm()
 
 # THE DOUBLY ROBUST METHOD
 # n_obs = 200

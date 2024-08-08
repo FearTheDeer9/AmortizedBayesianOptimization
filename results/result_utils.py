@@ -94,7 +94,15 @@ def plot_everything(
 
 
 def all_means(
-    base_path, num_cbo_graphs, n_obs=200, n_int=2, noiseless=True, graph_idxs=None
+    base_path,
+    num_cbo_graphs,
+    n_obs=200,
+    n_int=2,
+    noiseless=True,
+    graph_idxs=None,
+    has_ceo: bool = True,
+    has_bo: bool = True,
+    has_cbo: bool = True,
 ):
 
     if graph_idxs is None:
@@ -105,39 +113,58 @@ def all_means(
     noisy_string = "" if noiseless else "_noisy"
 
     # Load and aggregate results for CEO
-    ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
-    ceo_results = load_results(base_path, ceo_string)
-    ceo_results = np.hstack([ceo_result["Per_trial_Y"] for ceo_result in ceo_results])
-    ceo_mean = np.mean(ceo_results)
-    ceo_std = np.std(ceo_results)
-    mean_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
+    if has_ceo:
+        ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
+        ceo_results = load_results(base_path, ceo_string)
+        ceo_results = np.hstack(
+            [ceo_result["Per_trial_Y"] for ceo_result in ceo_results]
+        )
+        ceo_mean = np.mean(ceo_results)
+        ceo_std = np.std(ceo_results)
+        mean_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
 
     # Load and aggregate results for BO
     # Load and aggregate results for CEO
-    bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
-    bo_results = load_results(base_path, bo_string)
-    bo_results = np.hstack([bo_result["Per_trial_Y"] for bo_result in bo_results])
-    bo_mean = np.mean(bo_results)
-    bo_std = np.std(bo_results)
-    mean_results["bo"] = {"mean": bo_mean, "std": bo_std}
+    if has_bo:
+        bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+        bo_results = load_results(base_path, bo_string)
+        bo_results = np.hstack([bo_result["Per_trial_Y"] for bo_result in bo_results])
+        bo_mean = np.mean(bo_results)
+        bo_std = np.std(bo_results)
+        mean_results["bo"] = {"mean": bo_mean, "std": bo_std}
 
-    for graph_index in range(num_cbo_graphs):
-        cbo_string = (
-            rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
-        )
-        cbo_results = load_results(base_path, cbo_string)
-        cbo_results = np.hstack(
-            [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
-        )
-        cbo_mean = np.mean(cbo_results)
-        cbo_std = np.std(cbo_results)
-        mean_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
+    if has_cbo:
+        for graph_index in range(num_cbo_graphs):
+            cbo_string = (
+                rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
+            )
+            cbo_results = load_results(base_path, cbo_string)
+            cbo_results = np.hstack(
+                [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
+            )
+            cbo_mean = np.mean(cbo_results)
+            cbo_std = np.std(cbo_results)
+            mean_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
 
+    cbo_string = rf".*_cbo_unknown_results_{n_obs}_{n_int}{noisy_suffix}"
+    cbo_results = load_results(base_path, cbo_string)
+    cbo_results = np.hstack([cbo_result["Per_trial_Y"] for cbo_result in cbo_results])
+    cbo_mean = np.mean(cbo_results)
+    cbo_std = np.std(cbo_results)
+    mean_results["cbo_unknown"] = {"mean": cbo_mean, "std": cbo_std}
     return mean_results
 
 
 def all_best(
-    base_path, num_cbo_graphs, n_obs=200, n_int=2, noiseless=True, graph_idxs=None
+    base_path,
+    num_cbo_graphs,
+    n_obs=200,
+    n_int=2,
+    noiseless=True,
+    graph_idxs=None,
+    has_ceo: bool = True,
+    has_bo: bool = True,
+    has_cbo: bool = True,
 ):
     if graph_idxs is None:
         graph_idxs = range(num_cbo_graphs)
@@ -147,81 +174,88 @@ def all_best(
     noisy_string = "" if noiseless else "_noisy"
 
     # Load and aggregate results for CEO
-    ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
-    ceo_results = load_results(base_path, ceo_string)
-    ceo_results = np.vstack([ceo_result["Best_Y"] for ceo_result in ceo_results])
-    ceo_best_results = ceo_results.min(axis=1)
-    ceo_mean = np.mean(ceo_best_results)
-    ceo_std = np.std(ceo_best_results)
-    min_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
+    if has_ceo:
+        ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
+        ceo_results = load_results(base_path, ceo_string)
+        ceo_results = np.vstack([ceo_result["Best_Y"] for ceo_result in ceo_results])
+        ceo_best_results = ceo_results.min(axis=1)
+        ceo_mean = np.mean(ceo_best_results)
+        ceo_std = np.std(ceo_best_results)
+        min_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
 
     # Load and aggregate results for BO
     # Load and aggregate results for CEO
-    bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
-    bo_results = load_results(base_path, bo_string)
-    bo_results = np.vstack([bo_result["Best_Y"] for bo_result in bo_results])
-    bo_best_results = bo_results.min(axis=1)
-    bo_mean = np.mean(bo_best_results)
-    bo_std = np.std(bo_best_results)
-    min_results["bo"] = {"mean": bo_mean, "std": bo_std}
+    if has_bo:
+        bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+        bo_results = load_results(base_path, bo_string)
+        bo_results = np.vstack([bo_result["Best_Y"] for bo_result in bo_results])
+        bo_best_results = bo_results.min(axis=1)
+        bo_mean = np.mean(bo_best_results)
+        bo_std = np.std(bo_best_results)
+        min_results["bo"] = {"mean": bo_mean, "std": bo_std}
 
-    for graph_index in range(num_cbo_graphs):
-        cbo_string = (
-            rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
-        )
-        cbo_results = load_results(base_path, cbo_string)
-        cbo_results = np.vstack(
-            [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
-        )
-        cbo_best_results = cbo_results.min(axis=1)
-        cbo_mean = np.mean(cbo_best_results)
-        cbo_std = np.std(cbo_best_results)
-        min_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
+    if has_cbo:
+        for graph_index in range(num_cbo_graphs):
+            cbo_string = (
+                rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
+            )
+            cbo_results = load_results(base_path, cbo_string)
+            cbo_results = np.vstack(
+                [cbo_result["Best_Y"] for cbo_result in cbo_results]
+            )
+            cbo_best_results = cbo_results.min(axis=1)
+            cbo_mean = np.mean(cbo_best_results)
+            cbo_std = np.std(cbo_best_results)
+            min_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
 
+    cbo_string = rf".*_cbo_unknown_results_{n_obs}_{n_int}{noisy_suffix}"
+    cbo_results = load_results(base_path, cbo_string)
+    cbo_results = np.hstack([cbo_result["Best_Y"] for cbo_result in cbo_results])
+    cbo_mean = np.mean(cbo_results)
+    cbo_std = np.std(cbo_results)
+    min_results["cbo_unknown"] = {"mean": cbo_mean, "std": cbo_std}
     return min_results
 
 
-def all_best(
-    base_path, num_cbo_graphs, n_obs=200, n_int=2, noiseless=True, graph_idxs=None
-):
+# def all_best(
+#     base_path, num_cbo_graphs, n_obs=200, n_int=2, noiseless=True, graph_idxs=None
+# ):
 
-    min_results = {}
-    noisy_suffix = r"\.pickle" if noiseless else r"noisy\.pickle"
-    noisy_string = "" if noiseless else "_noisy"
+#     min_results = {}
+#     noisy_suffix = r"\.pickle" if noiseless else r"noisy\.pickle"
+#     noisy_string = "" if noiseless else "_noisy"
 
-    # Load and aggregate results for CEO
-    ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
-    ceo_results = load_results(base_path, ceo_string)
-    ceo_results = np.vstack([ceo_result["Best_Y"] for ceo_result in ceo_results])
-    ceo_best_results = ceo_results.min(axis=1)
-    ceo_mean = np.mean(ceo_best_results)
-    ceo_std = np.std(ceo_best_results)
-    min_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
+#     # Load and aggregate results for CEO
+#     ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
+#     ceo_results = load_results(base_path, ceo_string)
+#     ceo_results = np.vstack([ceo_result["Best_Y"] for ceo_result in ceo_results])
+#     ceo_best_results = ceo_results.min(axis=1)
+#     ceo_mean = np.mean(ceo_best_results)
+#     ceo_std = np.std(ceo_best_results)
+#     min_results["ceo"] = {"mean": ceo_mean, "std": ceo_std}
 
-    # Load and aggregate results for BO
-    # Load and aggregate results for CEO
-    bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
-    bo_results = load_results(base_path, bo_string)
-    bo_results = np.vstack([bo_result["Best_Y"] for bo_result in bo_results])
-    bo_best_results = bo_results.min(axis=1)
-    bo_mean = np.mean(bo_best_results)
-    bo_std = np.std(bo_best_results)
-    min_results["bo"] = {"mean": bo_mean, "std": bo_std}
+#     # Load and aggregate results for BO
+#     # Load and aggregate results for CEO
+#     bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+#     bo_results = load_results(base_path, bo_string)
+#     bo_results = np.vstack([bo_result["Best_Y"] for bo_result in bo_results])
+#     bo_best_results = bo_results.min(axis=1)
+#     bo_mean = np.mean(bo_best_results)
+#     bo_std = np.std(bo_best_results)
+#     min_results["bo"] = {"mean": bo_mean, "std": bo_std}
 
-    for graph_index in range(num_cbo_graphs):
-        cbo_string = (
-            rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
-        )
-        cbo_results = load_results(base_path, cbo_string)
-        cbo_results = np.vstack(
-            [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
-        )
-        cbo_best_results = cbo_results.min(axis=1)
-        cbo_mean = np.mean(cbo_best_results)
-        cbo_std = np.std(cbo_best_results)
-        min_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
+#     for graph_index in range(num_cbo_graphs):
+#         cbo_string = (
+#             rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
+#         )
+#         cbo_results = load_results(base_path, cbo_string)
+#         cbo_results = np.vstack([cbo_result["Best_Y"] for cbo_result in cbo_results])
+#         cbo_best_results = cbo_results.min(axis=1)
+#         cbo_mean = np.mean(cbo_best_results)
+#         cbo_std = np.std(cbo_best_results)
+#         min_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
 
-    return min_results
+#     return min_results
 
 
 def iterations_to_min(

@@ -41,6 +41,10 @@ class ErdosRenyiGraph(GraphStructure):
         self._standardised = False
         self.use_intervention_range_data = False
 
+    def set_target(self, target: str):
+        # choose the variable that is the best one to optimize for the ErdosRenyi graph
+        self._target = target
+
     def define_SEM(self):
         sem_functions = define_SEM_causalenv(
             self.causal_env.graph, self.causal_env.weighted_adjacency_matrix
@@ -58,7 +62,6 @@ class ErdosRenyiGraph(GraphStructure):
             elif noise_type == "gaussian":
                 self._noise_std = np.linspace(0.1, 1.0, len(self.nodes))
             for i in range(len(self.nodes)):
-                print(i, self.nodes[i], self.nodes)
                 err_dist[self.nodes[i]] = D(
                     self.rng.normal, loc=0.0, scale=self._noise_std[i]
                 ).sample(1)

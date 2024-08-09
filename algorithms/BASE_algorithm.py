@@ -94,7 +94,7 @@ class BASE:
                     interventions=interventions,
                     sample_count=500,
                     graph=self.graph,
-                )["Y"]
+                )[self.graph.target]
             )
             value = np.array([interventions[var] for var in es]).reshape(1, -1)
             predictions[i], var[i] = model_list[es_num].model.predict(value)

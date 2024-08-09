@@ -13,7 +13,7 @@ class ErdosRenyi(CausalEnvironment):
     exp_edges - Expected Number of edges in Erdos Renyi graph
     noise_type - Type of exogenous variables
     noise_sigma - Std of the noise type
-    num_sampels - number of observations
+    num_samples - number of observations
     mu_prior - prior of weights mean(gaussian)
     sigma_prior - prior of weights sigma (gaussian)
     seed - random seed for data

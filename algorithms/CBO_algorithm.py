@@ -74,7 +74,7 @@ class CBO(BASE):
         self.graph.fit_samples_to_graph(self.D_O)
         self.D_I = D_I
         self.interventional_samples = change_intervention_list_format(
-            self.D_I, self.exploration_set
+            self.D_I, self.exploration_set, target=self.graph.target
         )
 
         self.do_function_list = cbo_functions.update_all_do_functions(
@@ -291,8 +291,8 @@ class CBO(BASE):
                     )
                 )
                 self.model_list_overall = model_list[-1]
-                uncertainties = self.quantify_total_uncertainty()
-                average_uncertainty.append(uncertainties["average"])
+                # uncertainties = self.quantify_total_uncertainty()
+                # average_uncertainty.append(uncertainties["average"])
 
                 if SHOW_GRAPHICS:
                     for es in self.exploration_set:

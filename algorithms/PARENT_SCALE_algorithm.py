@@ -145,7 +145,7 @@ class PARENT_SCALE(BASE):
                 graph=self.graph,
                 topological_order=topological_order,
                 target=self.graph.target,
-                num_bootstraps=10,
+                num_bootstraps=30,
             )
             buffer = ReplayBuffer(binary=True)
             buffer.update(D_O_mi)
@@ -234,8 +234,12 @@ class PARENT_SCALE(BASE):
 
     def redefine_exploration_set(self):
         # start with individual interventions
-        flattened_list = [tuple(item) for sublist in self.graphs for item in sublist]
-
+        print(f"The flattened list {list(self.graphs.keys())}")
+        # flattened_list = [tuple(item) for sublist in self.graphs for item in sublist]
+        flattened_list = []
+        for sublist in self.graphs:
+            for item in sublist:
+                flattened_list.append((item,))
         unique_set = set(flattened_list)
         unique_list = list(unique_set)
         self.exploration_set = unique_list
@@ -244,7 +248,7 @@ class PARENT_SCALE(BASE):
         do_effects_functions: List[List[DoFunctions]] = []
         for i, graph_parents in enumerate(self.graphs):
             # this is the mean and variance for each graph for each element in the exploration set
-            logging.info(f"----Computing do function for graph {i}------")
+
             graph = self.graphs[graph_parents]
             do_effects_functions.append(
                 cbo_functions.update_all_do_functions(

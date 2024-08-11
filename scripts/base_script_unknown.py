@@ -41,9 +41,10 @@ def run_script_unknown(
     n_obs: int,
     n_int: int,
     n_trials: int,
+    doubly_robust: bool,
     filename: str,
 ):
-
+    dr_string = "_dr" if doubly_robust else ""
     graph = set_graph(graph_type)
     D_O, D_I, exploration_set = setup_observational_interventional(
         graph_type=None,
@@ -54,7 +55,7 @@ def run_script_unknown(
         graph=graph,
     )
 
-    model = PARENT(graph=graph, nonlinear=True)
+    model = PARENT(graph=graph, nonlinear=True, use_doubly_robust=doubly_robust)
     model.set_values(D_O, D_I, exploration_set)
     (
         best_y_array,
@@ -73,6 +74,6 @@ def run_script_unknown(
         "Intervention_Value": intervention_value,
         "Uncertainty": average_uncertainty,
     }
-    filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_results_{n_obs}_{n_int}{noisy_string}.pickle"
+    filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_results_{n_obs}_{n_int}{noisy_string}{dr_string}.pickle"
     with open(filename_cbo_unknown, "wb") as file:
         pickle.dump(cbo_unknown_results_dict, file)

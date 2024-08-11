@@ -1,5 +1,3 @@
-import argparse
-import logging
 import os
 import sys
 
@@ -19,6 +17,7 @@ n_trials = args.n_trials
 n_obs = args.n_observational
 run_num = args.run_num
 noiseless = args.noiseless
+doubly_robust = args.doubly_robust
 noisy_string = "" if noiseless else "_noisy"
 
 run_script_unknown(
@@ -30,6 +29,6 @@ run_script_unknown(
     n_obs=n_obs,
     n_int=n_int,
     n_trials=n_trials,
-    filename="ToyGraphUnknownScaled",
-    scale_data=True,
+    doubly_robust=doubly_robust,
+    filename="ToyGraphUnknown",
 )

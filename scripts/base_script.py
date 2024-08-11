@@ -114,6 +114,9 @@ def parse_args():
     parser.add_argument("--n_trials", type=int)
     parser.add_argument("--n_anchor_points", type=int)
     parser.add_argument("--run_num", type=int)
+    parser.add_argument(
+        "--doubly_robust", action="store_true", help="Include doubly robust methodology"
+    )
     parser.add_argument("--noiseless", action="store_true", help="Run without noise")
 
     parser.add_argument(

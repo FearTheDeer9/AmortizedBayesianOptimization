@@ -1,5 +1,3 @@
-import argparse
-import logging
 import os
 import sys
 
@@ -19,10 +17,11 @@ n_trials = args.n_trials
 n_obs = args.n_observational
 run_num = args.run_num
 noiseless = args.noiseless
+doubly_robust = args.doubly_robust
 noisy_string = "" if noiseless else "_noisy"
 
 run_script_unknown(
-    graph_type="Graph6",
+    graph_type="Graph5",
     run_num=run_num,
     noiseless=noiseless,
     noisy_string=noisy_string,
@@ -30,5 +29,6 @@ run_script_unknown(
     n_obs=n_obs,
     n_int=n_int,
     n_trials=n_trials,
-    filename="Graph6Unknown",
+    doubly_robust=doubly_robust,
+    filename="Graph5Unknown",
 )

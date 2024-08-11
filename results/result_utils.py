@@ -2,6 +2,7 @@ import os
 import pickle
 import re
 
+import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -35,8 +36,28 @@ def plot_everything(
     plot_ceo=True,
     plot_cbo=True,
     plot_bo=True,
+    plot_cbo_unknown=True,
     graph_idxs=None,
 ):
+    inferno = cm.get_cmap("plasma")
+    colors = inferno(np.linspace(0, 1, num_cbo_graphs + 3))
+    colors = [
+        "#1b9e77",  # Teal
+        "#d95f02",  # Orange
+        "#7570b3",  # Purple
+        "#e7298a",  # Pink
+        # "#66a61e",  # Green
+        "#e6ab02",  # Yellow
+        "#a6761d",  # Brown
+        "#666666",  # Gray
+        "#8c564b",  # Brownish Red
+        # "#2ca02c",  # Green
+        "#ff7f0e",  # Orange
+        "#1f77b4",  # Blue
+        "#aec7e8",  # Black
+        "#ffbb78",  # Light Orange
+        # "#98df8a",  # Light Green
+    ]
     if graph_idxs is None:
         graph_idxs = range(num_cbo_graphs)
     # Determine the string suffix based on the noiseless flag
@@ -57,33 +78,67 @@ def plot_everything(
     # Initialize plot for CEO results
     if plot_ceo:
         x_values = range(len(ceo_mean))
-        plt.fill_between(x_values, ceo_mean - ceo_std, ceo_mean + ceo_std, alpha=0.2)
-        plt.plot(x_values, ceo_mean, label="CEO Mean")
+        plt.fill_between(
+            x_values, ceo_mean - ceo_std, ceo_mean + ceo_std, alpha=0.2, color=colors[0]
+        )
+        plt.plot(x_values, ceo_mean, label="CEO Mean", color=colors[0])
 
     if plot_bo:
         x_values = range(len(bo_mean))
-        plt.fill_between(x_values, bo_mean - bo_std, bo_mean + bo_std, alpha=0.2)
-        plt.plot(x_values, bo_mean, label="BO Mean")
+        plt.fill_between(
+            x_values, bo_mean - bo_std, bo_mean + bo_std, alpha=0.2, color=colors[1]
+        )
+        plt.plot(x_values, bo_mean, label="BO Mean", color=colors[1])
 
     # Process each CBO graph dynamically
-    for graph_index in range(num_cbo_graphs):
-        cbo_string = (
-            rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
-        )
-        cbo_results = load_results(base_path, cbo_string)
-        cbo_mean, cbo_std = aggregate_results(cbo_results, experiment)
-
-        # Plotting results for each CBO graph
-        if graph_index in graph_idxs:
-            x_values = range(len(cbo_mean))
-            plt.fill_between(
-                x_values, cbo_mean - cbo_std, cbo_mean + cbo_std, alpha=0.2
+    if plot_cbo:
+        for graph_index in range(num_cbo_graphs):
+            cbo_string = (
+                rf".*_cbo_results_{n_obs}_{n_int}_graph_{graph_index}{noisy_suffix}"
             )
-            plt.plot(x_values, cbo_mean, label=f"CBO Graph {graph_index}")
+            cbo_results = load_results(base_path, cbo_string)
+            cbo_mean, cbo_std = aggregate_results(cbo_results, experiment)
+
+            # Plotting results for each CBO graph
+            if graph_index in graph_idxs:
+                x_values = range(len(cbo_mean))
+                plt.fill_between(
+                    x_values,
+                    cbo_mean - cbo_std,
+                    cbo_mean + cbo_std,
+                    alpha=0.2,
+                    color=colors[graph_index + 2],
+                )
+                if graph_index == 0:
+                    label = "True Graph"
+                else:
+                    label = f"CBO Graph {graph_index}"
+                plt.plot(
+                    x_values,
+                    cbo_mean,
+                    label=label,
+                    color=colors[graph_index + 2],
+                )
+
+    if plot_cbo_unknown:
+        cbo_string = rf".*_cbo_unknown_results_{n_obs}_{n_int}{noisy_suffix}"
+        cbo_results = load_results(f"{base_path}Unknown", cbo_string)
+        cbo_mean, cbo_std = aggregate_results(cbo_results, experiment)
+        print(cbo_mean, cbo_std)
+        x_values = range(len(cbo_mean))
+        plt.fill_between(
+            x_values,
+            cbo_mean - cbo_std,
+            cbo_mean + cbo_std,
+            alpha=0.2,
+            color=colors[-1],
+        )
+        plt.plot(x_values, cbo_mean, label=f"CBO Graph Unknown", color=colors[-1])
 
     # Final plot adjustments
     plt.xlabel("Trial")
     plt.ylabel("Y value")
+    plt.grid(True)
     plt.legend()
 
     if save_file:
@@ -103,6 +158,7 @@ def all_means(
     has_ceo: bool = True,
     has_bo: bool = True,
     has_cbo: bool = True,
+    has_cbo_unknown: bool = True,
 ):
 
     if graph_idxs is None:
@@ -146,12 +202,15 @@ def all_means(
             cbo_std = np.std(cbo_results)
             mean_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
 
-    cbo_string = rf".*_cbo_unknown_results_{n_obs}_{n_int}{noisy_suffix}"
-    cbo_results = load_results(base_path, cbo_string)
-    cbo_results = np.hstack([cbo_result["Per_trial_Y"] for cbo_result in cbo_results])
-    cbo_mean = np.mean(cbo_results)
-    cbo_std = np.std(cbo_results)
-    mean_results["cbo_unknown"] = {"mean": cbo_mean, "std": cbo_std}
+    if has_cbo_unknown:
+        cbo_string = rf".*_cbo_unknown_results_{n_obs}_{n_int}{noisy_suffix}"
+        cbo_results = load_results(base_path, cbo_string)
+        cbo_results = np.hstack(
+            [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
+        )
+        cbo_mean = np.mean(cbo_results)
+        cbo_std = np.std(cbo_results)
+        mean_results["cbo_unknown"] = {"mean": cbo_mean, "std": cbo_std}
     return mean_results
 
 
@@ -165,6 +224,7 @@ def all_best(
     has_ceo: bool = True,
     has_bo: bool = True,
     has_cbo: bool = True,
+    has_cbo_unknown: bool = False,
 ):
     if graph_idxs is None:
         graph_idxs = range(num_cbo_graphs)
@@ -208,12 +268,13 @@ def all_best(
             cbo_std = np.std(cbo_best_results)
             min_results[f"cbo_{graph_index}"] = {"mean": cbo_mean, "std": cbo_std}
 
-    cbo_string = rf".*_cbo_unknown_results_{n_obs}_{n_int}{noisy_suffix}"
-    cbo_results = load_results(base_path, cbo_string)
-    cbo_results = np.hstack([cbo_result["Best_Y"] for cbo_result in cbo_results])
-    cbo_mean = np.mean(cbo_results)
-    cbo_std = np.std(cbo_results)
-    min_results["cbo_unknown"] = {"mean": cbo_mean, "std": cbo_std}
+    if has_cbo_unknown:
+        cbo_string = rf".*_cbo_unknown_results_{n_obs}_{n_int}{noisy_suffix}"
+        cbo_results = load_results(base_path, cbo_string)
+        cbo_results = np.hstack([cbo_result["Best_Y"] for cbo_result in cbo_results])
+        cbo_mean = np.mean(cbo_results)
+        cbo_std = np.std(cbo_results)
+        min_results["cbo_unknown"] = {"mean": cbo_mean, "std": cbo_std}
     return min_results
 
 

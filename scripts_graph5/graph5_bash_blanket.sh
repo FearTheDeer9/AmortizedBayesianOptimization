@@ -5,6 +5,6 @@ python3 graph5_script_blanket.py --seeds_replicate 69 --n_observational 200 --n_
 python3 graph5_script_blanket.py --seeds_replicate 7 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 5 --noiseless
 python3 graph5_script_blanket.py --seeds_replicate 50 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 6 --noiseless
 python3 graph5_script_blanket.py --seeds_replicate 100 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 7 --noiseless
-python3 graph5_script_blanket.py --seeds_replicate 111 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 8 --noiseless
+python3 graph5_script_blanket.py --seeds_replicate 21 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 8 --noiseless
 python3 graph5_script_blanket.py --seeds_replicate 619 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 9 --noiseless
 python3 graph5_script_blanket.py --seeds_replicate 77 --n_observational 200 --n_trials 50 --n_anchor_points 35 --run_num 10 --noiseless

@@ -230,9 +230,10 @@ def get_new_x_y_list(
         space = graph.get_parameter_space(vars)
         cost = Cost(cost_functions, vars)
         optimizer = CausalGradientAcquisitionOptimizer(space)
-        acquisition = (
-            CausalExpectedImprovement(current_global_min, task, model_list[j]) / cost
-        )
+        # acquisition = (
+        #     CausalExpectedImprovement(current_global_min, task, model_list[j]) / cost
+        # )
+        acquisition = CausalExpectedImprovement(current_global_min, task, model_list[j])
         x_new, _ = optimizer.optimize(acquisition)
         y_acquisition = acquisition.evaluate(x_new).flatten()
         y_acquisition_list[j] = y_acquisition

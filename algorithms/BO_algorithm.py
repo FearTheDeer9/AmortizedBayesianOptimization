@@ -125,8 +125,8 @@ class BO(BASE):
             emukit_model.optimize()
             model_list = [emukit_model]
             self.model_list_overall = model_list
-            total_uncertainty = self.quantify_total_uncertainty()
-            average_uncertainty.append(total_uncertainty["average"])
+            # total_uncertainty = self.quantify_total_uncertainty()
+            # average_uncertainty.append(total_uncertainty["average"])
 
             if SHOW_GRAPHICS:
                 self.plot_model_list(model_list, tuple(self.manipulative_variables))

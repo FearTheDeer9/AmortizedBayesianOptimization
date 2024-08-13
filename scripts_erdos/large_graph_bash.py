@@ -14,7 +14,6 @@ n_observational = 200
 n_trials = 50
 n_anchor_points = 35
 noiseless = "--noiseless"
-# graph_type = "Erdos10"
 
 # Define the varying parameters
 seeds_replicate = [71, 11, 89, 69, 7, 50, 100, 111, 619, 77]

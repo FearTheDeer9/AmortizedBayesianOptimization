@@ -11,6 +11,7 @@ if os.getcwd() not in sys.path:
 
 from algorithms.CBO_algorithm import CBO
 from algorithms.PARENT_SCALE_algorithm import PARENT_SCALE
+from algorithms.RANDOM_SCALE_algorithm import RANDOM_SCALE
 from graphs.data_setup import setup_observational_interventional
 from graphs.graph import GraphStructure
 from graphs.graph_4_nodes import Graph4Nodes
@@ -26,12 +27,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Set the format of log messages
     datefmt="%m/%d/%Y %I:%M:%S %p",  # Set the date format
 )
-
-# set some global variables here
-# RUN_CBO_UNKNOWN_DR_1 = True
-# RUN_CBO_UNKNOWN_DR_2 = True
-# RUN_CBO_UNKNOWN_DR_ALL = True
-# RUN_CBO_PARENTS = True
 
 
 def set_graph(graph_type: str) -> GraphStructure:
@@ -82,6 +77,7 @@ def run_script_unknown(
     run_cbo_unknown_dr_2: bool = False,
     run_cbo_unknown_all: bool = False,
     run_cbo_parents: bool = True,
+    run_random: bool = False,
 ):
 
     graph = set_graph(graph_type)
@@ -116,30 +112,7 @@ def run_script_unknown(
             "Intervention_Value": intervention_value,
             "Uncertainty": average_uncertainty,
         }
-        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_results_{n_obs}_{n_int}.pickle"
-        with open(filename_cbo_unknown, "wb") as file:
-            pickle.dump(cbo_unknown_results_dict, file)
-
-        model = PARENT_SCALE(graph=graph, nonlinear=nonlinear)
-        model.set_values(D_O, D_I, exploration_set)
-        (
-            best_y_array,
-            current_y_array,
-            cost_array,
-            intervention_set,
-            intervention_value,
-            average_uncertainty,
-        ) = model.run_algorithm(T=n_trials, show_graphics=False)
-
-        cbo_unknown_results_dict = {
-            "Best_Y": best_y_array,
-            "Per_trial_Y": current_y_array,
-            "Cost": cost_array,
-            "Intervention_Set": intervention_set,
-            "Intervention_Value": intervention_value,
-            "Uncertainty": average_uncertainty,
-        }
-        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_results_{n_obs}_{n_int}.pickle"
+        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_dr1_results_{n_obs}_{n_int}.pickle"
         with open(filename_cbo_unknown, "wb") as file:
             pickle.dump(cbo_unknown_results_dict, file)
 
@@ -147,29 +120,6 @@ def run_script_unknown(
         model = PARENT_SCALE(
             graph=graph, nonlinear=nonlinear, individual=True, use_doubly_robust=True
         )
-        model.set_values(D_O, D_I, exploration_set)
-        (
-            best_y_array,
-            current_y_array,
-            cost_array,
-            intervention_set,
-            intervention_value,
-            average_uncertainty,
-        ) = model.run_algorithm(T=n_trials, show_graphics=False)
-
-        cbo_unknown_results_dict = {
-            "Best_Y": best_y_array,
-            "Per_trial_Y": current_y_array,
-            "Cost": cost_array,
-            "Intervention_Set": intervention_set,
-            "Intervention_Value": intervention_value,
-            "Uncertainty": average_uncertainty,
-        }
-        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_dr1_results_{n_obs}_{n_int}.pickle"
-        with open(filename_cbo_unknown, "wb") as file:
-            pickle.dump(cbo_unknown_results_dict, file)
-
-        model = PARENT_SCALE(graph=graph, nonlinear=nonlinear)
         model.set_values(D_O, D_I, exploration_set)
         (
             best_y_array,
@@ -216,29 +166,6 @@ def run_script_unknown(
         with open(filename_cbo_unknown, "wb") as file:
             pickle.dump(cbo_unknown_results_dict, file)
 
-        model = PARENT_SCALE(graph=graph, nonlinear=nonlinear)
-        model.set_values(D_O, D_I, exploration_set)
-        (
-            best_y_array,
-            current_y_array,
-            cost_array,
-            intervention_set,
-            intervention_value,
-            average_uncertainty,
-        ) = model.run_algorithm(T=n_trials, show_graphics=False)
-
-        cbo_unknown_results_dict = {
-            "Best_Y": best_y_array,
-            "Per_trial_Y": current_y_array,
-            "Cost": cost_array,
-            "Intervention_Set": intervention_set,
-            "Intervention_Value": intervention_value,
-            "Uncertainty": average_uncertainty,
-        }
-        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_results_{n_obs}_{n_int}{noisy_string}.pickle"
-        with open(filename_cbo_unknown, "wb") as file:
-            pickle.dump(cbo_unknown_results_dict, file)
-
     if run_cbo_parents:
         parents = graph.parents[graph.target]
         edges = [(parent, graph.target) for parent in parents]
@@ -258,6 +185,31 @@ def run_script_unknown(
         ) = model.run_algorithm(T=n_trials)
         filename_cbo = (
             f"results/{filename}/run{run_num}_cbo_results_{n_obs}_{n_int}.pickle"
+        )
+        cbo_results_dict = {
+            "Best_Y": best_y_array,
+            "Per_trial_Y": current_y_array,
+            "Cost": cost_array,
+            "Intervention_Set": intervention_set,
+            "Intervention_Value": intervention_value,
+            "Uncertainty": average_uncertainty,
+        }
+        with open(filename_cbo, "wb") as file:
+            pickle.dump(cbo_results_dict, file)
+
+    if run_random:
+        model = RANDOM_SCALE(graph)
+        model.set_values(D_O, D_I, exploration_set)
+        (
+            best_y_array,
+            current_y_array,
+            cost_array,
+            intervention_set,
+            intervention_value,
+            average_uncertainty,
+        ) = model.run_algorithm(T=n_trials)
+        filename_cbo = (
+            f"results/{filename}/run{run_num}_cbo_results_random_{n_obs}_{n_int}.pickle"
         )
         cbo_results_dict = {
             "Best_Y": best_y_array,
@@ -325,4 +277,19 @@ elif parent_method == "all":
         nonlinear=False,
         filename=graph_type,
         run_cbo_unknown_all=True,
+    )
+elif parent_method == "random":
+    run_script_unknown(
+        graph_type=graph_type,
+        run_num=run_num,
+        noiseless=noiseless,
+        noisy_string=noisy_string,
+        seeds_int_data=seeds_int_data,
+        n_obs=n_obs,
+        n_int=n_int,
+        n_trials=n_trials,
+        nonlinear=False,
+        filename=graph_type,
+        run_cbo_parents=False,
+        run_random=True,
     )

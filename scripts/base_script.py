@@ -118,6 +118,13 @@ def parse_args():
         "--doubly_robust", action="store_true", help="Include doubly robust methodology"
     )
     parser.add_argument("--noiseless", action="store_true", help="Run without noise")
+    parser.add_argument(
+        "--parent_method",
+        type=str,
+        default="dr1",
+        help="This argument determines how we are learning the parent method",
+    )
+    parser.add_argument("--graph_type", type=str, default="Erdos10")
 
     parser.add_argument(
         "--save_path", type=str, default="results/", help="Path to save result files"

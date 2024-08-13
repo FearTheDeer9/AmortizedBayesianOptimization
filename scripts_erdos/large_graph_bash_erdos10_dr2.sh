@@ -1,0 +1,1 @@
+python3 large_graph_bash.py "Erdos10" "dr2"

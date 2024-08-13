@@ -53,6 +53,7 @@ class PARENT_SCALE(BASE):
         noiseless: bool = True,
         cost_num: int = 1,
         scale_data: bool = True,
+        individual: bool = False,
         use_doubly_robust: bool = True,
     ):
         self.graph = graph
@@ -71,6 +72,7 @@ class PARENT_SCALE(BASE):
         self.noiseless = noiseless
         self.cost_num = cost_num
         self.scale_data = scale_data
+        self.individual = individual
         self.use_doubly_robust = use_doubly_robust
 
     def set_values(self, D_O, D_I, exploration_set):
@@ -145,6 +147,7 @@ class PARENT_SCALE(BASE):
                 graph=self.graph,
                 topological_order=topological_order,
                 target=self.graph.target,
+                indivdual=self.individual,
                 num_bootstraps=30,
             )
             buffer = ReplayBuffer(binary=True)
@@ -159,7 +162,8 @@ class PARENT_SCALE(BASE):
             ]
 
             combinations = []
-            for r in range(1, len(variables) + 1):
+            max_vars = max(10, len(variables) + 1)
+            for r in range(1, max_vars):
                 combinations.extend(itertools.combinations(variables, r))
 
             probabilities = {combo: 1 / len(combinations) for combo in combinations}

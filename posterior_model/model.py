@@ -9,6 +9,9 @@ import tqdm
 
 from graphs.graph import GraphStructure
 from posterior_model.doubly_robust import DoublyRobustClassWrapper
+from posterior_model.doubly_robust_temp import (
+    DoublyRobustClassWrapper as DoublyRobustClassWrapperIndividual,
+)
 
 Data = namedtuple("Data", ["samples", "nodes"])
 
@@ -32,6 +35,7 @@ class DoublyRobustModel:
         topological_order: List,
         target: str,
         num_bootstraps: int = 30,
+        indivdual: bool = False,
     ):
         self.graph = graph
         self.topological_order = topological_order
@@ -41,6 +45,7 @@ class DoublyRobustModel:
         self.markov_dags = []
         # probability estimate
         self.prob_estimate = None
+        self.individual = indivdual
 
     def run_method(self, data: Data):
         data_samples = data.samples
@@ -80,9 +85,22 @@ class DoublyRobustModel:
                 nodes=data_nodes[combined_indices],
             )
 
-            doubly_robust_method = DoublyRobustClassWrapper(
-                data_use, groundtruth, data_conf, self.topological_order, self.target
-            )
+            if not self.individual:
+                doubly_robust_method = DoublyRobustClassWrapper(
+                    data_use,
+                    groundtruth,
+                    data_conf,
+                    self.topological_order,
+                    self.target,
+                )
+            else:
+                doubly_robust_method = DoublyRobustClassWrapperIndividual(
+                    data_use,
+                    groundtruth,
+                    data_conf,
+                    self.topological_order,
+                    self.target,
+                )
             estimate = doubly_robust_method.infer_causal_parents()
             parents_estimate = tuple(estimate[estimate == 1].index)
             self.markov_dags.append(parents_estimate)
@@ -329,13 +347,15 @@ class NonLinearSCMModel(SCMModel):
                 Sigma_prior_inv @ mu_prior + 1 / (self.sigma_y**2) * y * x_vec
             )
 
-            updated_posterior[parents] = self.unnormalized_posterior(
+            unnormalized_prob = self.unnormalized_posterior(
                 y, x_vec, self._prior_probabilities[parents]
             )
+            if not np.isnan(unnormalized_prob):
+                updated_posterior[parents] = unnormalized_prob
 
-            self.Sigma_dict[parents] = self.Sigma_post
-            self.mu_dict[parents] = self.mu_post
-            total_prob += updated_posterior[parents]
+                self.Sigma_dict[parents] = self.Sigma_post
+                self.mu_dict[parents] = self.mu_post
+                total_prob += updated_posterior[parents]
 
         self._prior_probabilities = {
             parents: updated_posterior[parents] / total_prob

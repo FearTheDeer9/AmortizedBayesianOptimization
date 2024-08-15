@@ -6,6 +6,7 @@ from copy import deepcopy
 from typing import List, Tuple
 
 os.chdir("..")
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.3"
 if os.getcwd() not in sys.path:
     sys.path.append(os.getcwd())
 

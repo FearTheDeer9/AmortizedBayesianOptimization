@@ -5,7 +5,9 @@ from typing import Callable, List, OrderedDict, Tuple
 import numpy as np
 import scipy
 import scipy.spatial
+from emukit.bayesian_optimization.acquisitions import MaxValueEntropySearch
 from emukit.core import ParameterSpace
+from emukit.core.optimization import GradientAcquisitionOptimizer
 from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
 from GPy.core import Mapping
 from GPy.kern.src.rbf import RBF
@@ -19,9 +21,6 @@ from utils.cbo_classes import (
     Cost,
     DoFunctions,
 )
-
-# from GPyOpt.acquisitions import AcquisitionEntropySearch
-# from GPyOpt.optimization import AcquisitionOptimizer
 
 
 def set_up_GP(
@@ -258,9 +257,9 @@ def get_new_x_y_list_entropy(
 
     for j, vars in enumerate(exploration_set):
         space = graph.get_parameter_space(vars)
-        cost = Cost(cost_functions, vars)
-        optimizer = AcquisitionOptimizer(space)
-        acquisition = PredictiveEntropySearch(model_list[j])
+        # cost = Cost(cost_functions, vars)
+        optimizer = GradientAcquisitionOptimizer(space)
+        acquisition = MaxValueEntropySearch(model_list[j], space=space)
 
         x_new, _ = optimizer.optimize(acquisition)
         y_acquisition = acquisition.evaluate(x_new).flatten()

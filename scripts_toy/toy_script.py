@@ -36,6 +36,7 @@ n_obs = args.n_observational
 run_num = args.run_num
 noiseless = args.noiseless
 noisy_string = "" if noiseless else "_noisy"
+acquisition = args.acquisition
 
 
 # run the CEO method using all the edges and then the CBO for each of the e
@@ -62,6 +63,7 @@ run_script(
     n_anchor_points=n_anchor_points,
     n_trials=n_trials,
     filename="ToyGraph",
+    acquisition=acquisition,
 )
 
 run_script_uncertainty(

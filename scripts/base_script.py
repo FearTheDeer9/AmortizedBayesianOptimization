@@ -1,8 +1,11 @@
 import argparse
 import logging
+import os
 import pickle
 from copy import deepcopy
 from typing import List, Tuple
+
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.3"
 
 from algorithms.BO_algorithm import BO
 from algorithms.BOED_algorithm import BOED
@@ -125,6 +128,7 @@ def parse_args():
         help="This argument determines how we are learning the parent method",
     )
     parser.add_argument("--graph_type", type=str, default="Erdos10")
+    parser.add_argument("--acquisition", type=str, default="EI")
 
     parser.add_argument(
         "--save_path", type=str, default="results/", help="Path to save result files"
@@ -356,6 +360,7 @@ def run_script(
     n_anchor_points: int,
     n_trials: int,
     filename: str,
+    acquisition: str = "EI",
 ):
 
     # using this as the interventional and observational data
@@ -406,11 +411,17 @@ def run_script(
                 pickle.dump(ceo_result_dict, file)
 
     if RUN_CBO:
+        print(f"The acquisition is {acquisition}")
         # now for the CBO algorithm
         for i, edges in enumerate(all_graph_edges):
             graph = set_graph(graph_type)
             graph.mispecify_graph(edges)
-            cbo_model = CBO(graph=graph, noiseless=noiseless)
+            cbo_model = CBO(
+                graph=graph,
+                noiseless=noiseless,
+                acquisition=acquisition,
+                n_anchor_points=n_anchor_points,
+            )
             cbo_model.set_values(deepcopy(D_O), deepcopy(D_I), exploration_set)
 
             (

@@ -1,8 +1,11 @@
 import argparse
 import logging
+import os
 import pickle
 from copy import deepcopy
 from typing import List, Tuple
+
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.3"
 
 from algorithms.PARENT_2_algorithm import PARENT
 from graphs.data_setup import setup_observational_interventional

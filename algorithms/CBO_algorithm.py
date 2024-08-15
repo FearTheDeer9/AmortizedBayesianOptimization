@@ -13,6 +13,7 @@ from config import SHOW_GRAPHICS
 from graphs.graph import GraphStructure
 from graphs.graph_functions import graph_setup
 from utils.cbo_classes import TargetClass
+from utils.ceo_acquisitions import get_new_x_y_list_ceo
 from utils.sem_sampling import (
     change_intervention_list_format,
     draw_interventional_samples_sem,
@@ -38,7 +39,11 @@ class CBO(BASE):
         cost_num: int = 1,
         task: str = "min",
         noiseless: bool = True,
+        acquisition: str = "EI",
+        n_anchor_points: int = 35,
     ):
+        assert acquisition in ["EI", "PES", "CEO"]
+        self.acquisition = acquisition
         self._graph_type = graph_type
         self.noiseless = noiseless
         if graph is not None:
@@ -58,6 +63,7 @@ class CBO(BASE):
         self.causal_prior = causal_prior
         self.cost_num = cost_num
         self.task = task
+        self.n_anchor_points = n_anchor_points
 
     def set_values(self, D_O: Dict, D_I: Dict, exploration_set: List[List[str]]):
         logging.info("Using predefined values for the optimization algorithm")
@@ -79,6 +85,10 @@ class CBO(BASE):
 
         self.do_function_list = cbo_functions.update_all_do_functions(
             self.graph, self.observational_samples, self.exploration_set
+        )
+
+        self.arm_distribution = np.array(
+            [1 / len(self.exploration_set)] * len(self.exploration_set)
         )
 
     def do_function_graph(
@@ -201,16 +211,8 @@ class CBO(BASE):
                 noiseless=self.noiseless,
             )
 
-        # defining some variables necessary for the algorithm
-        # alpha_coverage, hull_obs, coverage_total = cbo_functions.compute_coverage(
-        #     self.D_O,
-        #     self.manipulative_variables,
-        #     self.graph.get_interventional_range(),
-        # )
-
         current_global_min = np.mean(self.D_O[self.target])
         # some counters for the algorithm
-        observed = 0
         intervened = 0
 
         # STARTING THE ALGORITHM
@@ -225,95 +227,52 @@ class CBO(BASE):
         cost_functions = self.graph.get_cost_structure(self.cost_num)
 
         for i in range(T):
-            # coverage_obs = cbo_functions.update_hull(
-            #     self.observational_samples, self.manipulative_variables
-            # )
-            # rescale = self.observational_samples.shape[0] / max_N
-            # epsilon_coverage = (coverage_obs / coverage_total) / rescale
-            # u = np.random.uniform()
 
-            # ensure one observation and one intervention (at least)
-            u = 0 if i == 0 else u
-            u = 1 if i == 1 else u
-            # observe = u < epsilon_coverage
+            intervened += 1
+            logging.info(
+                f"------ Iteration {i}: Intervened {intervened} where epsilon =  ------"
+            )
+            trial_observed[i] = False
 
-            # this is changed to make it more comparable to the CEO method
-            if i == 0:
-                observed += 1
-                logging.info(
-                    f"------ Iteration {i}: Observed {observed}, where epsilon =  ------"
+            # updating the model based on the previous trial
+            model_list.append(
+                cbo_functions.update_posterior_model(
+                    self.exploration_set,
+                    trial_observed[i - 1],
+                    model_list[-1],
+                    data_x_list,
+                    data_y_list,
+                    self.causal_prior,
+                    best_variable,
+                    input_space,
+                    self.do_function_list,
                 )
-                trial_observed[i] = True
-                # 1. Observe new observations (xt, ct, yt)
-                observed_sample = sample_model(self.graph.SEM, sample_count=1)
-                # 2. Augment D_O
-                self.observational_samples = np.vstack(
-                    (
-                        self.observational_samples,
-                        [observed_sample[var][0, 0] for var in self.graph.variables],
-                    )
-                )
+            )
+            self.model_list_overall = model_list[-1]
+            # uncertainties = self.quantify_total_uncertainty()
+            # average_uncertainty.append(uncertainties["average"])
 
-                # 3. Update the prior of the causal GP
-                # update the interventional expectation and the interventional variance
-                self.do_function_list = cbo_functions.update_all_do_functions(
-                    self.graph, self.observational_samples, self.exploration_set
-                )
+            if SHOW_GRAPHICS:
+                for es in self.exploration_set:
+                    fig, ax = self.plot_model_list(model_list[-1], es)
+                    for i, intervention in enumerate(intervention_set):
+                        if intervention == es:
+                            ax.scatter(
+                                intervention_values[i],
+                                current_y[i],
+                                marker="x",
+                                color="black",
+                                s=100,
+                                label="Intervention Points",
+                            )
+                    if file:
+                        filename = f"{file}_{es[0]}_iter_{i+1}"
+                        plt.savefig(filename, bbox_inches="tight")
+                    else:
+                        plt.show()
 
-                # update the optimal values, if observed, it is the same as the previous round
-                if global_opt:
-                    global_opt.append(global_opt[i])
-                    current_cost.append(current_cost[i])
-            else:
-                # intervene
-                # 1. compute the expected improvement for each element in the exploration set
-                # 2. obtain the optimal interventional set-value pair
-                # 3. intervene on the system
-                # 4. Update the posterior of the causal GP
-                intervened += 1
-                logging.info(
-                    f"------ Iteration {i}: Intervened {intervened} where epsilon =  ------"
-                )
-                trial_observed[i] = False
-
-                # updating the model based on the previous trial
-                model_list.append(
-                    cbo_functions.update_posterior_model(
-                        self.exploration_set,
-                        trial_observed[i - 1],
-                        model_list[-1],
-                        data_x_list,
-                        data_y_list,
-                        self.causal_prior,
-                        best_variable,
-                        input_space,
-                        self.do_function_list,
-                    )
-                )
-                self.model_list_overall = model_list[-1]
-                # uncertainties = self.quantify_total_uncertainty()
-                # average_uncertainty.append(uncertainties["average"])
-
-                if SHOW_GRAPHICS:
-                    for es in self.exploration_set:
-                        fig, ax = self.plot_model_list(model_list[-1], es)
-                        for i, intervention in enumerate(intervention_set):
-                            if intervention == es:
-                                ax.scatter(
-                                    intervention_values[i],
-                                    current_y[i],
-                                    marker="x",
-                                    color="black",
-                                    s=100,
-                                    label="Intervention Points",
-                                )
-                        if file:
-                            filename = f"{file}_{es[0]}_iter_{i+1}"
-                            plt.savefig(filename, bbox_inches="tight")
-                        else:
-                            plt.show()
-
-                # get the new optimal value based on all the elements in the exploration set
+            # get the new optimal value based on all the elements in the exploration set
+            if self.acquisition == "EI":
                 y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
                     self.exploration_set,
                     self.graph,
@@ -321,53 +280,79 @@ class CBO(BASE):
                     model_list[-1],
                     cost_functions,
                 )
-
-                # find the optimal intervention, which maximises the acquisition function
-                target_index = np.argmax(y_acquisition_list)
-                var_to_intervene = tuple(self.exploration_set[target_index])
-                intervention_set.append(var_to_intervene)
-
-                # Setting the data after the new point was found
-                intervention_values.append(tuple(x_new_list[target_index][0]))
-                y_new = target_classes[target_index].compute_target(
-                    x_new_list[target_index]
+            elif self.acquisition == "PES":
+                y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list_entropy(
+                    self.exploration_set,
+                    self.graph,
+                    current_global_min,
+                    model_list[-1],
+                    cost_functions,
+                )
+            elif self.acquisition == "CEO":
+                graphs = [self.graph]
+                all_sem_hat = [self.graph.functions]
+                posteriors = [1]
+                y_acquisition_list, x_new_list, self.arm_distribution = (
+                    get_new_x_y_list_ceo(
+                        graphs,
+                        model_list[-1],
+                        self.exploration_set,
+                        self.arm_distribution,
+                        cost_functions,
+                        posteriors,
+                        data_x_list,
+                        data_y_list,
+                        all_sem_hat,
+                        self.n_anchor_points,
+                    )
                 )
 
-                data_x_list[target_index] = np.vstack(
-                    (data_x_list[target_index], x_new_list[target_index])
-                )
+            # find the optimal intervention, which maximises the acquisition function
+            target_index = np.argmax(y_acquisition_list)
+            var_to_intervene = tuple(self.exploration_set[target_index])
+            intervention_set.append(var_to_intervene)
 
-                data_y_list[target_index] = np.concatenate(
-                    (data_y_list[target_index], y_new.reshape(-1))
-                )
-                # set the new best variable
-                best_variable = target_index
+            # Setting the data after the new point was found
+            intervention_values.append(tuple(x_new_list[target_index][0]))
+            y_new = target_classes[target_index].compute_target(
+                x_new_list[target_index]
+            )
 
-                ## Update the dict storing the current optimal solution
-                current_best_x[var_to_intervene].append(x_new_list[target_index][0][0])
-                current_best_y[var_to_intervene].append(y_new[0][0])
-                # maybe need to update the model -> i don't think so as this is done at the start of each intervention loop
+            data_x_list[target_index] = np.vstack(
+                (data_x_list[target_index], x_new_list[target_index])
+            )
 
-                current_y.append(y_new[0][0])
-                best_y = global_opt[i]
-                all_values = [
-                    value for values in current_best_y.values() for value in values
-                ]
-                min_y = np.min(all_values)
-                global_opt.append(min_y if min_y < best_y else best_y)
+            data_y_list[target_index] = np.concatenate(
+                (data_y_list[target_index], y_new.reshape(-1))
+            )
+            # set the new best variable
+            best_variable = target_index
 
-                # compute the cost of the intervention
-                # get the of the current intervention
-                total_cost = 0
-                for j, val in enumerate(self.exploration_set[target_index]):
-                    total_cost += cost_functions[val](x_new_list[target_index][0, j])
+            ## Update the dict storing the current optimal solution
+            current_best_x[var_to_intervene].append(x_new_list[target_index][0][0])
+            current_best_y[var_to_intervene].append(y_new[0][0])
+            # maybe need to update the model -> i don't think so as this is done at the start of each intervention loop
 
-                current_cost.append(current_cost[i] + total_cost)
+            current_y.append(y_new[0][0])
+            best_y = global_opt[i]
+            all_values = [
+                value for values in current_best_y.values() for value in values
+            ]
+            min_y = np.min(all_values)
+            global_opt.append(min_y if min_y < best_y else best_y)
 
-                logging.info(
-                    f"Selected intervention {var_to_intervene} at {x_new_list[target_index]} with y = {y_new}"
-                )
-                logging.info(f"Current global optimum {global_opt[i+1]}")
+            # compute the cost of the intervention
+            # get the of the current intervention
+            total_cost = 0
+            for j, val in enumerate(self.exploration_set[target_index]):
+                total_cost += cost_functions[val](x_new_list[target_index][0, j])
+
+            current_cost.append(current_cost[i] + total_cost)
+
+            logging.info(
+                f"Selected intervention {var_to_intervene} at {x_new_list[target_index]} with y = {y_new}"
+            )
+            logging.info(f"Current global optimum {global_opt[i+1]}")
 
         return (
             global_opt,

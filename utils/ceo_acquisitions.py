@@ -11,11 +11,13 @@ from emukit.core import ParameterSpace
 from emukit.core.acquisition import Acquisition
 from emukit.core.interfaces import IDifferentiable, IModel
 from emukit.model_wrappers.gpy_model_wrappers import GPyModelWrapper
+from GPy.models.gp_regression import GPRegression
 from scipy.stats import entropy
 from tqdm import tqdm
 
 import utils.ceo_utils as ceo_utils
 from graphs.graph import GraphStructure
+from graphs.graph_functions import create_grid_interventions
 from utils.cbo_classes import Cost, DoFunctions
 from utils.cbo_functions import set_up_GP
 
@@ -107,6 +109,84 @@ def evaluate_acquisition_ceo(
 
     logging.debug(f"Found {x_new} with acquisition value of {y_acquisition}")
     return y_acquisition, x_new, inputs, improvements
+
+
+def get_new_x_y_list_ceo(
+    graphs: List[GraphStructure],
+    model_list: List[GPyModelWrapper],
+    exploration_set: List[List[str]],
+    arm_distribution: np.ndarray,
+    cost_functions,
+    posteriors,
+    data_x_list,
+    data_y_list,
+    all_sem_hat: List[OrderedDict[str, GPRegression]],
+    n_anchor_points: int,
+) -> Tuple[np.ndarray, List[List[float]], np.ndarray]:
+    """
+    Use the acquisition of the CEO method
+    """
+    arm_n_es_mapping = {i: es for i, es in enumerate(exploration_set)}
+    arm_es_n_mapping = {es: i for i, es in enumerate(exploration_set)}
+    graph = graphs[0]  # just to get some properties from the graph
+    interventional_range = graph.get_interventional_range()
+    intervention_grid = create_grid_interventions(
+        interventional_range, get_list_format=True, num_points=n_anchor_points
+    )
+
+    arm_distribution = ceo_utils.update_arm_distribution(
+        arm_distribution, model_list, data_x_list, arm_n_es_mapping
+    )
+
+    py_star_samples, p_x_star_samples = ceo_utils.build_p_y_star(
+        exploration_set,
+        model_list,
+        interventional_range,
+        intervention_grid,
+    )
+
+    samples_global_ystar, samples_global_xstar = ceo_utils.sample_global_xystar(
+        n_samples_mixture=1000,
+        all_ystar=py_star_samples,
+        arm_dist=arm_distribution,
+    )
+
+    logging.info("Fitting the global KDE estimate")
+    kde_global = ceo_utils.MyKDENew(samples_global_ystar)
+    try:
+        kde_global.fit()
+    except RuntimeError:
+        kde_global.fit(bw=0.5)
+
+    y_acquisition_list = [None] * len(exploration_set)
+    x_new_list = [None] * len(exploration_set)
+    inputs = [None] * len(exploration_set)
+    improvements = [None] * len(exploration_set)
+    logging.info("Starting with the entropy search")
+    for s, es in enumerate(exploration_set):
+        # figure out the sem_hat and sem_ems_fncs
+        # not sure what to do with inputs and improvements
+        y_acquisition_list[s], x_new_list[s], inputs[s], improvements[s] = (
+            evaluate_acquisition_ceo(
+                graphs=graphs,
+                bo_model=model_list[s],
+                exploration_set=es,
+                cost_functions=cost_functions,
+                posterior=posteriors,
+                arm_distribution=arm_distribution,
+                pystar_samples=py_star_samples,
+                pxstar_samples=p_x_star_samples,
+                samples_global_ystar=samples_global_ystar,
+                samples_global_xstar=samples_global_xstar,
+                kde_globalystar=kde_global,
+                arm_mapping_es_to_num=arm_es_n_mapping,
+                arm_mapping_num_to_es=arm_n_es_mapping,
+                interventional_grid=intervention_grid,
+                all_sem_hat=all_sem_hat,
+            )
+        )
+
+    return y_acquisition_list, x_new_list, arm_distribution
 
 
 class CausalEntropySearch(Acquisition):
@@ -227,7 +307,7 @@ class CausalEntropySearch(Acquisition):
                 for n_fantasy, fantasy_y in enumerate(fantasy_ys):
 
                     updated_model = deepcopy(self.model)
-                    prevx, prevy = updated_model.get_X(), updated_model.get_Y()
+                    prevx, prevy = updated_model.X, updated_model.Y
 
                     tempx = np.concatenate([prevx, x_inp])
 
@@ -235,7 +315,7 @@ class CausalEntropySearch(Acquisition):
 
                     tempy = np.vstack([prevy, fantasy_y])
 
-                    updated_model.set_XY(tempx, tempy)
+                    updated_model.model.set_XY(tempx, tempy)
 
                     # Keeping track of them just for plotting ie. debugging reasons
                     updated_models_list[id_acquisition].append(updated_model)

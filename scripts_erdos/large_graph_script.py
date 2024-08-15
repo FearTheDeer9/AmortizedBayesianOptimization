@@ -29,7 +29,7 @@ logging.basicConfig(
 )
 
 
-def set_graph(graph_type: str) -> GraphStructure:
+def set_graph(graph_type: str, nonlinear: bool = False) -> GraphStructure:
     assert graph_type in [
         "Toy",
         "Graph4",
@@ -49,16 +49,16 @@ def set_graph(graph_type: str) -> GraphStructure:
     elif graph_type == "Graph6":
         graph = Graph6Nodes()
     elif graph_type == "Graph10":
-        graph = ChainGraph(num_nodes=10)
+        graph = ChainGraph(num_nodes=10, nonlinear=nonlinear)
     elif graph_type == "Erdos10":
-        graph = ErdosRenyiGraph(num_nodes=10)
+        graph = ErdosRenyiGraph(num_nodes=10, nonlinear=nonlinear)
         graph.set_target("1")
     elif graph_type == "Erdos15":
-        graph = ErdosRenyiGraph(num_nodes=15)
+        graph = ErdosRenyiGraph(num_nodes=15, nonlinear=nonlinear)
         graph.set_target("8")
     elif graph_type == "Erdos20":
-        graph = ErdosRenyiGraph(num_nodes=20)
-        graph.set_target("9")
+        graph = ErdosRenyiGraph(num_nodes=20, nonlinear=nonlinear)
+        graph.set_target("14")
     return graph
 
 
@@ -76,11 +76,11 @@ def run_script_unknown(
     run_cbo_unknown_dr_1: bool = False,
     run_cbo_unknown_dr_2: bool = False,
     run_cbo_unknown_all: bool = False,
-    run_cbo_parents: bool = True,
+    run_cbo_parents: bool = False,
     run_random: bool = False,
 ):
-
-    graph = set_graph(graph_type)
+    nonlinear_string = "_nonlinear" if nonlinear else ""
+    graph = set_graph(graph_type, nonlinear=nonlinear)
     D_O, D_I, exploration_set = setup_observational_interventional(
         graph_type=None,
         noiseless=noiseless,
@@ -92,7 +92,10 @@ def run_script_unknown(
 
     if run_cbo_unknown_dr_1:
         model = PARENT_SCALE(
-            graph=graph, nonlinear=nonlinear, individual=False, use_doubly_robust=True
+            graph=graph,
+            nonlinear=nonlinear,
+            individual=False,
+            use_doubly_robust=True,
         )
         model.set_values(D_O, D_I, exploration_set)
         (
@@ -112,13 +115,16 @@ def run_script_unknown(
             "Intervention_Value": intervention_value,
             "Uncertainty": average_uncertainty,
         }
-        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_dr1_results_{n_obs}_{n_int}.pickle"
+        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_dr1_results_{n_obs}_{n_int}{nonlinear_string}.pickle"
         with open(filename_cbo_unknown, "wb") as file:
             pickle.dump(cbo_unknown_results_dict, file)
 
     if run_cbo_unknown_dr_2:
         model = PARENT_SCALE(
-            graph=graph, nonlinear=nonlinear, individual=True, use_doubly_robust=True
+            graph=graph,
+            nonlinear=nonlinear,
+            individual=True,
+            use_doubly_robust=True,
         )
         model.set_values(D_O, D_I, exploration_set)
         (
@@ -138,12 +144,16 @@ def run_script_unknown(
             "Intervention_Value": intervention_value,
             "Uncertainty": average_uncertainty,
         }
-        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_dr2_results_{n_obs}_{n_int}.pickle"
+        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_dr2_results_{n_obs}_{n_int}{nonlinear_string}.pickle"
         with open(filename_cbo_unknown, "wb") as file:
             pickle.dump(cbo_unknown_results_dict, file)
 
     if run_cbo_unknown_all:
-        model = PARENT_SCALE(graph=graph, nonlinear=nonlinear, use_doubly_robust=False)
+        model = PARENT_SCALE(
+            graph=graph,
+            nonlinear=nonlinear,
+            use_doubly_robust=False,
+        )
         model.set_values(D_O, D_I, exploration_set)
         (
             best_y_array,
@@ -162,7 +172,7 @@ def run_script_unknown(
             "Intervention_Value": intervention_value,
             "Uncertainty": average_uncertainty,
         }
-        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_results_all_{n_obs}_{n_int}.pickle"
+        filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_results_all_{n_obs}_{n_int}{nonlinear_string}.pickle"
         with open(filename_cbo_unknown, "wb") as file:
             pickle.dump(cbo_unknown_results_dict, file)
 
@@ -171,7 +181,7 @@ def run_script_unknown(
         edges = [(parent, graph.target) for parent in parents]
         graph.mispecify_graph(edges)
         graph.set_interventional_range_data(D_O)
-        exploration_set = [tuple(parent) for parent in parents]
+        exploration_set = [(parent,) for parent in parents]
         model = CBO(graph=graph)
         model.set_values(D_O, D_I, exploration_set)
         model.run_algorithm(T=n_trials)
@@ -183,9 +193,7 @@ def run_script_unknown(
             intervention_value,
             average_uncertainty,
         ) = model.run_algorithm(T=n_trials)
-        filename_cbo = (
-            f"results/{filename}/run{run_num}_cbo_results_{n_obs}_{n_int}.pickle"
-        )
+        filename_cbo = f"results/{filename}/run{run_num}_cbo_results_{n_obs}_{n_int}{nonlinear_string}.pickle"
         cbo_results_dict = {
             "Best_Y": best_y_array,
             "Per_trial_Y": current_y_array,
@@ -208,9 +216,7 @@ def run_script_unknown(
             intervention_value,
             average_uncertainty,
         ) = model.run_algorithm(T=n_trials)
-        filename_cbo = (
-            f"results/{filename}/run{run_num}_cbo_results_random_{n_obs}_{n_int}.pickle"
-        )
+        filename_cbo = f"results/{filename}/run{run_num}_cbo_results_random_{n_obs}_{n_int}{nonlinear_string}.pickle"
         cbo_results_dict = {
             "Best_Y": best_y_array,
             "Per_trial_Y": current_y_array,
@@ -232,10 +238,13 @@ n_trials = args.n_trials
 n_obs = args.n_observational
 run_num = args.run_num
 noiseless = args.noiseless
+nonlinear = args.nonlinear
 noisy_string = "" if noiseless else "_noisy"
 
 parent_method = args.parent_method
 graph_type = args.graph_type
+
+print(graph_type, parent_method, nonlinear)
 if parent_method == "dr1":
     run_script_unknown(
         graph_type=graph_type,
@@ -246,9 +255,11 @@ if parent_method == "dr1":
         n_obs=n_obs,
         n_int=n_int,
         n_trials=n_trials,
-        nonlinear=False,
+        nonlinear=nonlinear,
         filename=graph_type,
         run_cbo_unknown_dr_1=True,
+        run_random=True,
+        run_cbo_parents=True,
     )
 elif parent_method == "dr2":
     run_script_unknown(
@@ -260,7 +271,7 @@ elif parent_method == "dr2":
         n_obs=n_obs,
         n_int=n_int,
         n_trials=n_trials,
-        nonlinear=False,
+        nonlinear=nonlinear,
         filename=graph_type,
         run_cbo_unknown_dr_2=True,
     )
@@ -274,7 +285,7 @@ elif parent_method == "all":
         n_obs=n_obs,
         n_int=n_int,
         n_trials=n_trials,
-        nonlinear=False,
+        nonlinear=nonlinear,
         filename=graph_type,
         run_cbo_unknown_all=True,
     )
@@ -288,8 +299,8 @@ elif parent_method == "random":
         n_obs=n_obs,
         n_int=n_int,
         n_trials=n_trials,
-        nonlinear=False,
+        nonlinear=nonlinear,
         filename=graph_type,
-        run_cbo_parents=False,
-        run_random=True,
+        run_cbo_parents=True,
+        run_random=False,
     )

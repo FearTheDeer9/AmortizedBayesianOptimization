@@ -924,7 +924,7 @@ class DoublyRobustClassWrapper:
         self.data_conf = data_conf.copy()
 
     def infer_causal_parents(self):
-        num_epochs, learning_rate, l1_reg, l2_reg, batch_size = 500, 0.01, 0, 0, 32
+        num_epochs, learning_rate, l1_reg, l2_reg, batch_size = 500, 0.001, 0, 0, 32
         train_double = True
         N_obs = self.data_conf["N_obs"]
         direct_parents = infer_causal_parents_new(
@@ -948,7 +948,7 @@ class DoublyRobustClassWrapper:
 
 
 model_type = "MLP"
-num_epochs, learning_rate, l1_reg, l2_reg, batch_size = 500, 0.01, 0, 0, 32
+num_epochs, learning_rate, l1_reg, l2_reg, batch_size = 500, 0.0001, 0, 0, 32
 train_double = True
 
 print("cuda is available", torch.cuda.is_available())

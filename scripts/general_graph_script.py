@@ -44,6 +44,9 @@ def parse_args():
     parser.add_argument("--n_anchor_points", type=int)
     parser.add_argument("--run_num", type=int)
     parser.add_argument("--noiseless", action="store_true", help="Run without noise")
+    parser.add_argument(
+        "--nonlinear", action="store_true", help="Use the nonlinear graphs"
+    )
 
     parser.add_argument(
         "--save_path", type=str, default="results/", help="Path to save result files"

@@ -2,6 +2,7 @@ from collections import namedtuple
 
 import causaldag as cd
 import cdt
+import igraph as ig
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
@@ -12,6 +13,13 @@ from scipy.special import logsumexp
 from scipy.stats import norm
 from sklearn.gaussian_process.kernels import RBF
 from sklearn.metrics import f1_score
+
+try:
+    from jax import random
+
+    from diffcbed.models.dibs.models.nonlinearGaussian import DenseNonlinearGaussianJAX
+except:
+    print("jax is not installed")
 
 from config import NOISE_TYPES, PRESETS, VARIABLE_TYPES
 from diffcbed.envs.samplers import D
@@ -88,7 +96,13 @@ class CausalEnvironment(torch.utils.data.Dataset):
         self.init_sampler()
 
         if nonlinear:
-            raise NotImplementedError
+            self.conditionals = DenseNonlinearGaussianJAX(
+                obs_noise=self._noise_std,
+                sig_param=1.0,
+                hidden_layers=[
+                    5,
+                ],
+            )
 
         self.sample_weights()
         self.build_graph()
@@ -129,6 +143,10 @@ class CausalEnvironment(torch.utils.data.Dataset):
 
     def reseed(self, seed=None):
         self.rng = np.random.default_rng(seed)
+        try:
+            self.rng_jax = random.PRNGKey(seed)
+        except:
+            print("No JAX")
 
     def __getitem__(self, index):
         raise NotImplementedError
@@ -181,19 +199,25 @@ class CausalEnvironment(torch.utils.data.Dataset):
 
     def sample_weights(self):
         """Sample the edge weights"""
-        if self.mu_prior is not None:
-            # self.weights = torch.distributions.normal.Normal(self.mu_prior, self.sigma_prior).sample([self.num_edges])
-            self.weights = D(self.rng.normal, self.mu_prior, self.sigma_prior).sample(
-                size=self.num_edges
+        if self.nonlinear:
+            self.rng_jax, subk = random.split(self.rng_jax)
+            self.weights = self.conditionals.sample_parameters(
+                key=subk, n_vars=self.num_nodes
             )
         else:
-            dist = D(self.rng.uniform, -5, 5)
-            self.weights = torch.zeros(self.num_edges)
-            for k in range(self.num_edges):
-                sample = 0.0
-                while sample > -0.5 and sample < 0.5:
-                    sample = dist.sample(size=1)
-                    self.weights[k] = sample
+            if self.mu_prior is not None:
+                # self.weights = torch.distributions.normal.Normal(self.mu_prior, self.sigma_prior).sample([self.num_edges])
+                self.weights = D(
+                    self.rng.normal, self.mu_prior, self.sigma_prior
+                ).sample(size=self.num_edges)
+            else:
+                dist = D(self.rng.uniform, -5, 5)
+                self.weights = torch.zeros(self.num_edges)
+                for k in range(self.num_edges):
+                    sample = 0.0
+                    while sample > -0.5 and sample < 0.5:
+                        sample = dist.sample(size=1)
+                        self.weights[k] = sample
 
     def sample_linear(
         self, num_samples, graph=None, node=None, values=None, onehot=False
@@ -234,36 +258,62 @@ class CausalEnvironment(torch.utils.data.Dataset):
                 samples[:, i] = curr
         return Data(samples=samples, intervention_node=-1)
 
+    def sample_nonlinear(self, num_samples, graph=None, node=None, values=None):
+        self.rng_jax, subk = random.split(self.rng_jax)
+        if graph is None:
+            graph = self.graph
+        mat = nx.to_numpy_array(graph)
+        g = ig.Graph.Weighted_Adjacency(mat.tolist())
+        samples = self.conditionals.sample_obs(
+            key=subk,
+            n_samples=num_samples,
+            g=g,
+            theta=self.weights,
+            node=node,
+            # value_sampler=value_sampler,
+            values=values,
+        )
+        return Data(samples=samples, intervention_node=-1)
+
     def intervene(self, iteration, num_samples, nodes, values, _log=True):
         """Perform intervention to obtain a mutilated graph"""
-
         mutated_graph = self.adjacency_matrix.copy()
         if self.binary_nodes:
             mutated_graph[:, nodes.astype(np.bool_)] = 0
         else:
             mutated_graph[:, nodes] = 0
+        if self.nonlinear:
+            samples = self.sample_nonlinear(
+                num_samples,
+                self.init_sampler(nx.DiGraph(mutated_graph)),
+                nodes,
+                values,
+            ).samples
+        else:
+            samples = self.sample_linear(
+                num_samples,
+                self.init_sampler(nx.DiGraph(mutated_graph)),
+                nodes,
+                values,
+                onehot=self.binary_nodes,
+            ).samples
 
-        samples = self.sample_linear(
-            num_samples,
-            self.init_sampler(nx.DiGraph(mutated_graph)),
-            nodes,
-            values,
-            onehot=self.binary_nodes,
-        ).samples
-
-        if _log:
-            self.logger.log_interventions(iteration, nodes, samples)
+        # if _log:
+        #     self.logger.log_interventions(iteration, nodes, samples)
 
         return Data(samples=samples, intervention_node=nodes)
 
     def sample(self, num_samples):
-        _sample = self.sample_linear(num_samples)
+        if self.nonlinear:
+            return self.sample_nonlinear(num_samples)
+        else:
+            _sample = self.sample_linear(num_samples)
 
-        if self.binary_nodes:
-            b = np.zeros(self.num_nodes)
-            if _sample.intervention_node != -1:
-                b[_sample.intervention_node] = 1
-            _sample = Data(samples=_sample.samples, intervention_node=b)
+            if self.binary_nodes:
+                b = np.zeros(self.num_nodes)
+                if _sample.intervention_node != -1:
+                    b[_sample.intervention_node] = 1
+                _sample = Data(samples=_sample.samples, intervention_node=b)
 
         return _sample
 

@@ -272,7 +272,7 @@ class GraphStructure:
 
     @abc.abstractmethod
     def get_exploration_set(self):
-        variables = self.get_sets()[2]
+        variables = self.variables
         return [(var,) for var in variables if var != self.target]
 
     @abc.abstractmethod

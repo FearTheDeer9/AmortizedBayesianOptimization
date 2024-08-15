@@ -4,6 +4,7 @@ from collections import OrderedDict
 from itertools import chain
 from typing import Any, Callable, Dict, List, Optional, OrderedDict, Tuple
 
+import jax.numpy as jnp
 import networkx as nx
 import numpy as np
 from GPy.models.gp_regression import GPRegression
@@ -13,10 +14,11 @@ from config import NOISE_TYPE_INDEX, NOISE_TYPES
 from diffcbed.envs.causal_environment import CausalEnvironment
 from diffcbed.envs.chain import Chain
 from diffcbed.envs.samplers import D
+from diffcbed.models.dibs.models.nonlinearGaussian import DenseNonlinearGaussianJAX
 from graphs.graph import GraphStructure
 
 
-def define_SEM_causalenv(
+def define_SEM_causalenv_linear(
     graph: nx.MultiDiGraph, weighted_adjacency_matrix: np.ndarray
 ) -> OrderedDict[str, Callable]:
 
@@ -32,6 +34,37 @@ def define_SEM_causalenv(
                     for parent in parents
                 )
                 + epsilon
+            )
+
+    return sem_functions
+
+
+def define_SEM_causalenv_nonlinear(
+    causal_env: CausalEnvironment, conditionals: DenseNonlinearGaussianJAX
+) -> OrderedDict[str, Callable]:
+
+    graph = causal_env.graph
+    topological_list = list(nx.topological_sort(graph))
+    num_variables = len(topological_list)
+    theta = causal_env.weights
+    sem_functions = OrderedDict()
+
+    def nn_forward(node, parents, sample, theta, epsilon):
+        N = len(epsilon)
+        parent_values = jnp.zeros(shape=(N, num_variables))
+        for i, parent in enumerate(parents):
+            parent_values = parent_values.at[:, i].set(sample[str(parent)])
+        return conditionals.eltwise_nn_forward(theta, parent_values)[:, node] + epsilon
+
+    for node in topological_list:
+        parents = list(graph.predecessors(node))
+        if not parents:
+            sem_functions[str(node)] = lambda epsilon, sample, node=node: epsilon
+        else:
+            sem_functions[str(node)] = (
+                lambda epsilon, sample, node=node, parents=parents: nn_forward(
+                    node, parents, sample, theta, epsilon
+                )
             )
 
     return sem_functions
@@ -58,7 +91,7 @@ class ChainGraph(GraphStructure):
         self._edges = [
             (str(edge[0]), str(edge[1])) for edge in self.causal_env.graph.edges
         ]
-
+        self.nonlinear = nonlinear
         self._nodes = sorted(set(chain(*self.edges)))
         self._parents, self._children = self.build_relationships()
         self._target = f"{num_nodes - 1}"
@@ -70,9 +103,12 @@ class ChainGraph(GraphStructure):
         self.use_intervention_range_data = False
 
     def define_SEM(self):
-        sem_functions = define_SEM_causalenv(
-            self.causal_env.graph, self.causal_env.weighted_adjacency_matrix
-        )
+        if self.nonlinear:
+            pass
+        else:
+            sem_functions = define_SEM_causalenv_linear(
+                self.causal_env.graph, self.causal_env.weighted_adjacency_matrix
+            )
         return sem_functions
 
     def get_error_distribution(self, noiseless=False):

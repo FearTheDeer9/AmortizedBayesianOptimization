@@ -411,7 +411,6 @@ class PARENT(BASE):
                 graph=self.graph,
             )
 
-            sample[self.graph.target] = y_new
             print(f"The interventional sample {sample}")
             current_best_x[var_to_intervene].append(x_new_list_intervention[0])
             current_best_y[var_to_intervene].append(y_new[0][0])

@@ -12,17 +12,25 @@ from diffcbed.envs.causal_environment import CausalEnvironment
 from diffcbed.envs.erdos_renyi import ErdosRenyi
 from diffcbed.envs.samplers import D
 from graphs.graph import GraphStructure
-from graphs.graph_chain import define_SEM_causalenv
+from graphs.graph_chain import (
+    define_SEM_causalenv_linear,
+    define_SEM_causalenv_nonlinear,
+)
 
 
 class ErdosRenyiGraph(GraphStructure):
 
     def __init__(self, num_nodes: int, seed: int = 17, nonlinear: bool = False):
         args = argparse.Namespace(scm_bias=0.0, noise_bias=0.0, old_er_logic=True)
+        self.nonlinear = nonlinear
         self.num_nodes = num_nodes
 
         self.causal_env: CausalEnvironment = ErdosRenyi(
-            args=args, num_nodes=num_nodes, binary_nodes=True, nonlinear=nonlinear
+            args=args,
+            num_nodes=num_nodes,
+            binary_nodes=True,
+            nonlinear=nonlinear,
+            seed=seed,
         )
         self._SEM = self.define_SEM()
         self._variables = [str(i) for i in range(num_nodes)]
@@ -46,9 +54,14 @@ class ErdosRenyiGraph(GraphStructure):
         self._target = target
 
     def define_SEM(self):
-        sem_functions = define_SEM_causalenv(
-            self.causal_env.graph, self.causal_env.weighted_adjacency_matrix
-        )
+        if self.nonlinear:
+            sem_functions = define_SEM_causalenv_nonlinear(
+                self.causal_env, self.causal_env.conditionals
+            )
+        else:
+            sem_functions = define_SEM_causalenv_linear(
+                self.causal_env.graph, self.causal_env.weighted_adjacency_matrix
+            )
         return sem_functions
 
     def get_error_distribution(self, noiseless=False):

@@ -21,6 +21,7 @@ from posterior_model.model import (
     SCMModel,
 )
 from utils.cbo_classes import DoFunctions, TargetClass
+from utils.ceo_acquisitions import get_new_x_y_list_ceo
 from utils.sem_sampling import (
     change_int_data_format_to_mi,
     change_intervention_list_format,
@@ -53,7 +54,10 @@ class PARENT(BASE):
         cost_num: int = 1,
         scale_data: bool = True,
         use_doubly_robust: bool = True,
+        acquisition: str = "EI",
     ):
+        assert acquisition in ["EI", "PES", "CEO"]
+        self.acquisition = acquisition
         self.graph = graph
         self.num_nodes = len(self.graph.variables)
         self.variables = self.graph.variables
@@ -361,13 +365,40 @@ class PARENT(BASE):
             logging.info(f"The corresponding parents are {list(self.graphs.keys())}")
 
             # get the next sample
-            y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
-                self.exploration_set,
-                self.graph,
-                current_global_min,
-                self.model_list_overall,
-                cost_functions,
-            )
+            if self.acquisition == "EI":
+                y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list(
+                    self.exploration_set,
+                    self.graph,
+                    current_global_min,
+                    self.model_list_overall,
+                    cost_functions,
+                )
+            elif self.acquisition == "PES":
+                y_acquisition_list, x_new_list = cbo_functions.get_new_x_y_list_entropy(
+                    self.exploration_set,
+                    self.graph,
+                    current_global_min,
+                    self.model_list_overall,
+                    cost_functions,
+                )
+            elif self.acquisition == "CEO":
+                graphs = list(self.graphs.values())
+                posterior = self.posterior
+                all_sem_hat = [graph.functions for graph in graphs]
+                y_acquisition_list, x_new_list, self.arm_distribution = (
+                    get_new_x_y_list_ceo(
+                        graphs,
+                        self.model_list_overall,
+                        self.exploration_set,
+                        self.arm_distribution,
+                        cost_functions,
+                        posterior,
+                        data_x_list,
+                        data_y_list,
+                        all_sem_hat,
+                        self.n_anchor_points,
+                    )
+                )
 
             # find the optimal intervention, which maximises the acquisition function
             target_index = np.argmax(y_acquisition_list)

@@ -281,6 +281,7 @@ def update_posterior_model_aggregate(
 
     return model_list
 
+
 def update_posterior_model_aggregate_2(
     exploration_set: List,
     trial_observed: bool,
@@ -305,12 +306,8 @@ def update_posterior_model_aggregate_2(
         logging.info(f"Updating posterior for {exploration_set[j]}")
         X = data_x_list[j]
         Y = data_y_list[j].reshape(-1, 1)
-        mean_function = partial(
-            aggregate_mean_function, j, do_function_list, posterior
-        )
-        var_function = partial(
-            aggregate_var_function, j, do_function_list, posterior
-        )
+        mean_function = partial(aggregate_mean_function, j, do_function_list, posterior)
+        var_function = partial(aggregate_var_function, j, do_function_list, posterior)
         model_list[j] = set_up_GP(
             causal_prior, input_space[j], mean_function, var_function, X, Y
         )

@@ -302,7 +302,7 @@ class CEO(BASE):
                     f"Current posterior {self.all_posteriors[-1]}, {self.all_posteriors[-1].sum()}"
                 )
                 trial_observed.append(False)
-
+                print(self.model_list_overall)
                 logging.info(
                     "Updating the models based on the previous observed samples"
                 )

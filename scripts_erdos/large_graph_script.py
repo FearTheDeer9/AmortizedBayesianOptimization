@@ -274,6 +274,8 @@ elif parent_method == "dr2":
         nonlinear=nonlinear,
         filename=graph_type,
         run_cbo_unknown_dr_2=True,
+        run_cbo_parents=True,
+        run_random=True,
     )
 elif parent_method == "all":
     run_script_unknown(

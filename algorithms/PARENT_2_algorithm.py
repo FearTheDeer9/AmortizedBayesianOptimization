@@ -55,6 +55,7 @@ class PARENT(BASE):
         scale_data: bool = True,
         use_doubly_robust: bool = True,
         acquisition: str = "EI",
+        n_anchor_points: int = 30,
     ):
         assert acquisition in ["EI", "PES", "CEO"]
         self.acquisition = acquisition
@@ -75,6 +76,7 @@ class PARENT(BASE):
         self.cost_num = cost_num
         self.scale_data = scale_data
         self.use_doubly_robust = use_doubly_robust
+        self.n_anchor_points = n_anchor_points
 
     def set_values(self, D_O, D_I, exploration_set):
         self.D_O = deepcopy(D_O)
@@ -84,6 +86,10 @@ class PARENT(BASE):
         self.es_to_n_mapping = {
             tuple(es): i for i, es in enumerate(self.exploration_set)
         }
+
+        self.arm_distribution = np.array(
+            [1 / len(self.exploration_set)] * len(self.exploration_set)
+        )
 
     def do_function_graph(self, es: Tuple, size: int = 100, edge_num: int = 0):
 
@@ -146,6 +152,7 @@ class PARENT(BASE):
                 graph=self.graph,
                 topological_order=topological_order,
                 target=self.graph.target,
+                indivdual=True,
                 num_bootstraps=30,
             )
             buffer = ReplayBuffer(binary=True)
@@ -215,7 +222,6 @@ class PARENT(BASE):
 
             graph: GraphStructure = deepcopy(self.graph)
             edges = [(parent, graph.target) for parent in parents]
-            print(edges)
             graph.mispecify_graph(edges)
             self.graphs[parents] = graph
             self.posterior.append(self.prior_probabilities[parents])

@@ -1,2 +1,2 @@
-python3 large_graph_bash.py "Erdos15" "dr1" $1
-python3 large_graph_bash.py "Erdos15" "dr1" --non_linear $1
+# python3 large_graph_bash.py "Erdos15" "dr1" $1
+# python3 large_graph_bash.py "Erdos15" "dr1" --nonlinear $1

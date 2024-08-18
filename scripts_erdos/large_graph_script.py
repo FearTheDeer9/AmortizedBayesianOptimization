@@ -7,6 +7,7 @@ from typing import List, Tuple
 
 os.chdir("..")
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.3"
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 if os.getcwd() not in sys.path:
     sys.path.append(os.getcwd())
 
@@ -59,7 +60,7 @@ def set_graph(graph_type: str, nonlinear: bool = False) -> GraphStructure:
         graph.set_target("8")
     elif graph_type == "Erdos20":
         graph = ErdosRenyiGraph(num_nodes=20, nonlinear=nonlinear)
-        graph.set_target("14")
+        graph.set_target("18")
     return graph
 
 

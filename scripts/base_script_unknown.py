@@ -39,15 +39,14 @@ def run_script_unknown(
     graph_type: str,
     run_num: int,
     noiseless: bool,
-    noisy_string: str,
     seeds_int_data: int,
     n_obs: int,
     n_int: int,
     n_trials: int,
-    doubly_robust: bool,
     filename: str,
+    n_anchor_points: int,
 ):
-    dr_string = "_dr" if doubly_robust else ""
+    # assert acquisition in ["EI", "CEO", "PES"]
     graph = set_graph(graph_type)
     D_O, D_I, exploration_set = setup_observational_interventional(
         graph_type=None,
@@ -58,25 +57,38 @@ def run_script_unknown(
         graph=graph,
     )
 
-    model = PARENT(graph=graph, nonlinear=True, use_doubly_robust=doubly_robust)
-    model.set_values(D_O, D_I, exploration_set)
-    (
-        best_y_array,
-        current_y_array,
-        cost_array,
-        intervention_set,
-        intervention_value,
-        average_uncertainty,
-    ) = model.run_algorithm(T=n_trials, show_graphics=False)
+    # run for the expected improvement
+    acquisitions = ["EI", "PES", "CEO"]
+    use_doubly_robust = [True, False]
+    for acquisition in acquisitions:
+        for dr in use_doubly_robust:
+            dr_string = "dr" if dr else "all"
+            model = PARENT(
+                graph=graph,
+                nonlinear=True,
+                use_doubly_robust=dr,
+                acquisition=acquisition,
+                n_anchor_points=n_anchor_points,
+            )
+            model.set_values(D_O, D_I, exploration_set)
+            (
+                best_y_array,
+                current_y_array,
+                cost_array,
+                intervention_set,
+                intervention_value,
+                average_uncertainty,
+            ) = model.run_algorithm(T=n_trials, show_graphics=False)
 
-    cbo_unknown_results_dict = {
-        "Best_Y": best_y_array,
-        "Per_trial_Y": current_y_array,
-        "Cost": cost_array,
-        "Intervention_Set": intervention_set,
-        "Intervention_Value": intervention_value,
-        "Uncertainty": average_uncertainty,
-    }
-    filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_unknown_results_{n_obs}_{n_int}{noisy_string}{dr_string}.pickle"
-    with open(filename_cbo_unknown, "wb") as file:
-        pickle.dump(cbo_unknown_results_dict, file)
+            cbo_unknown_results_dict = {
+                "Best_Y": best_y_array,
+                "Per_trial_Y": current_y_array,
+                "Cost": cost_array,
+                "Intervention_Set": intervention_set,
+                "Intervention_Value": intervention_value,
+                "Uncertainty": average_uncertainty,
+            }
+            filename_cbo_unknown = f"results/{filename}/run{run_num}_cbo_{dr_string}_{acquisition}_results_{n_obs}_{n_int}.pickle"
+
+            with open(filename_cbo_unknown, "wb") as file:
+                pickle.dump(cbo_unknown_results_dict, file)

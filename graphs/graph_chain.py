@@ -50,7 +50,7 @@ def define_SEM_causalenv_nonlinear(
     sem_functions = OrderedDict()
 
     def nn_forward(node, parents, sample, theta, epsilon):
-        N = len(epsilon)
+        N = 1 if isinstance(epsilon, float) else len(epsilon)
         parent_values = jnp.zeros(shape=(N, num_variables))
         for i, parent in enumerate(parents):
             parent_values = parent_values.at[:, i].set(sample[str(parent)])

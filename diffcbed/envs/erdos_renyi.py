@@ -36,7 +36,7 @@ class ErdosRenyi(CausalEnvironment):
         logger=None,
     ):
         if args.old_er_logic:
-            self.noise_sigma = noise_sigma
+            self.noise_sigma = 0.1 if nonlinear else noise_sigma
             p = float(exp_edges) / (num_nodes - 1)
             acyclic = 0
             mmec = 0
@@ -55,7 +55,7 @@ class ErdosRenyi(CausalEnvironment):
                     mmec = num_mec(self.graph) >= 2
                 count += 1
         else:
-            self.noise_sigma = noise_sigma
+            self.noise_sigma = 0.1 if nonlinear else noise_sigma
             p = exp_edges * 2
             print(p)
 

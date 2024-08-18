@@ -24,11 +24,10 @@ run_script_unknown(
     graph_type="Graph5",
     run_num=run_num,
     noiseless=noiseless,
-    noisy_string=noisy_string,
     seeds_int_data=seeds_int_data,
     n_obs=n_obs,
     n_int=n_int,
     n_trials=n_trials,
-    doubly_robust=doubly_robust,
     filename="Graph5Unknown",
+    n_anchor_points=n_anchor_points,
 )

@@ -20,7 +20,10 @@ from graphs.graph_chain import (
 
 class ErdosRenyiGraph(GraphStructure):
 
-    def __init__(self, num_nodes: int, seed: int = 17, nonlinear: bool = False):
+    def __init__(
+        self, num_nodes: int, seed: int = 17, nonlinear: bool = False, noise_sigma=1.0
+    ):
+        self.noise_sigma = 0.1 if nonlinear else noise_sigma
         args = argparse.Namespace(scm_bias=0.0, noise_bias=0.0, old_er_logic=True)
         self.nonlinear = nonlinear
         self.num_nodes = num_nodes
@@ -67,7 +70,7 @@ class ErdosRenyiGraph(GraphStructure):
     def get_error_distribution(self, noiseless=False):
         err_dist = {}
 
-        noise_type = NOISE_TYPES[NOISE_TYPE_INDEX]
+        noise_type = "isotropic-gaussian"
         if noise_type.endswith("gaussian"):
             # Identifiable
             if noise_type == "isotropic-gaussian":
@@ -86,6 +89,9 @@ class ErdosRenyiGraph(GraphStructure):
                 ).sample(1)
 
         return err_dist
+
+    def set_noise(self, noise):
+        self.noise_sigma = noise
 
     def get_sets(self):
         mis = []

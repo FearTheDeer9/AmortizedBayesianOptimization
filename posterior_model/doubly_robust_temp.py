@@ -948,7 +948,7 @@ class DoublyRobustClassWrapper:
 
 
 model_type = "MLP"
-num_epochs, learning_rate, l1_reg, l2_reg, batch_size = 500, 0.0001, 0, 0, 32
+num_epochs, learning_rate, l1_reg, l2_reg, batch_size = 500, 0.01, 0, 0, 32
 train_double = True
 
 print("cuda is available", torch.cuda.is_available())

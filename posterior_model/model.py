@@ -130,6 +130,9 @@ class SCMModel:
     def prior_probabilities(self):
         return self._prior_probabilities
 
+    def get_graph(self) -> GraphStructure:
+        return self.graph
+
     def update_all(self, x_dict: Dict[str, float], y: float):
         raise NotImplementedError(MESSAGE)
 
@@ -158,6 +161,64 @@ class SCMModel:
         for parents in keys_to_delete:
             del self._prior_probabilities[parents]
 
+    def calculate_metrics(self):
+        graph = self.get_graph()
+        true_parents = set(graph.parents[graph.target])
+        true_non_parents = set(
+            [
+                var
+                for var in graph.variables
+                if var not in true_parents and var != graph.target
+            ]
+        )
+        predicted_parents = list(self.prior_probabilities.keys())
+
+        accuracies = np.zeros(len(predicted_parents))
+        precision = np.zeros(len(predicted_parents))
+        recall = np.zeros(len(predicted_parents))
+        f1_scores = np.zeros(len(predicted_parents))
+
+        for i, parents in enumerate(predicted_parents):
+            parent_set = set(parents)
+            negative_prediction = [
+                var
+                for var in graph.variables
+                if var != graph.target and var not in parent_set
+            ]
+
+            positive_correct_predictions = len(true_parents.intersection(parent_set))
+            negative_correct_predictions = len(
+                true_non_parents.intersection(negative_prediction)
+            )
+            num_correct = positive_correct_predictions + negative_correct_predictions
+
+            # Calculate metrics
+            accuracies[i] = num_correct / (len(graph.variables) - 1)
+            precision[i] = (
+                positive_correct_predictions / len(parent_set)
+                if len(parent_set) > 0
+                else 0
+            )
+            recall[i] = (
+                positive_correct_predictions / len(true_parents)
+                if len(true_parents) > 0
+                else 0
+            )
+            f1_scores[i] = (
+                (2 * precision[i] * recall[i]) / (precision[i] + recall[i])
+                if (precision[i] + recall[i]) > 0
+                else 0
+            )
+
+        # Convert prior probabilities to numpy array
+        probs = np.array(list(self.prior_probabilities.values()))
+
+        # Compute weighted metrics
+        self.accuracy.append(accuracies @ probs)
+        self.precision.append(precision @ probs)
+        self.recall.append(recall @ probs)
+        self.f1_score.append(f1_scores @ probs)
+
 
 class LinearSCMModel(SCMModel):
     def __init__(
@@ -171,6 +232,10 @@ class LinearSCMModel(SCMModel):
         self.graph = graph
         self.sigma_y = sigma_y
         self.sigma_theta = sigma_theta
+        self.accuracy = []
+        self.precision = []
+        self.recall = []
+        self.f1_score = []
 
     def update_all(self, x_dict: Dict[str, float], y: float):
         # suppose we observed a new sample, update all probabilities
@@ -207,6 +272,7 @@ class LinearSCMModel(SCMModel):
             parents: updated_posterior[parents] / total_prob
             for parents in self._prior_probabilities
         }
+        self.calculate_metrics()
 
     def set_data(self, D_O_scaled: Dict[str, np.ndarray]):
         X_dict = {}
@@ -286,6 +352,10 @@ class NonLinearSCMModel(SCMModel):
         self.sigma_y = sigma_y
         self.sigma_theta = sigma_theta
         self.D = D
+        self.accuracy = []
+        self.precision = []
+        self.recall = []
+        self.f1_score = []
 
         # setting up the fourier series
         self.fourier_series: Dict[Tuple, RandomFourierFeatures] = {}
@@ -361,6 +431,7 @@ class NonLinearSCMModel(SCMModel):
             parents: updated_posterior[parents] / total_prob
             for parents in self._prior_probabilities
         }
+        self.calculate_metrics()
 
     def log_unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
         p = len(x)

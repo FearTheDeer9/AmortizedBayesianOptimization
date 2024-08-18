@@ -15,19 +15,12 @@ import utils.ceo_utils as ceo_utils
 from algorithms.BASE_algorithm import BASE
 from diffcbed.replay_buffer import ReplayBuffer
 from graphs.graph import GraphStructure
-from posterior_model.model import (
-    DoublyRobustModel,
-    LinearSCMModel,
-    NonLinearSCMModel,
-    SCMModel,
-)
+from posterior_model.model import (DoublyRobustModel, LinearSCMModel,
+                                   NonLinearSCMModel, SCMModel)
 from utils.cbo_classes import DoFunctions, TargetClass
-from utils.sem_sampling import (
-    change_int_data_format_to_mi,
-    change_intervention_list_format,
-    change_obs_data_format_to_mi,
-    sample_model,
-)
+from utils.sem_sampling import (change_int_data_format_to_mi,
+                                change_intervention_list_format,
+                                change_obs_data_format_to_mi, sample_model)
 
 
 # Function to standardize data
@@ -154,6 +147,12 @@ class PARENT_SCALE(BASE):
             buffer.update(D_O_mi)
             robust_model.run_method(buffer.data())
             probabilities = robust_model.prob_estimate
+            if isinstance(probabilities, dict) and len(probabilities) == 1 and () in probabilities:
+                probabilities = {
+                    (var,): 1 / len(self.graph.variables)
+                    for var in self.graph.variables
+                    if var != self.graph.target
+                }
             if () in probabilities:
                 del probabilities[()]
         else:
@@ -298,12 +297,9 @@ class PARENT_SCALE(BASE):
                 y = D_I_sample[self.graph.target][n]
                 self.posterior_model.update_all(x_dict, y)
                 D_I = {key: np.array([D_I_sample[key][n]]) for key in D_I_sample}
-                print(f"The sample is {D_I}")
                 self.posterior_model.add_data(D_I)
-                print(self.posterior_model.prior_probabilities)
 
         self.prior_probabilities = self.posterior_model.prior_probabilities.copy()
-        print(f"THE POSTERIOR PROBS ARE {self.posterior_model.prior_probabilities}")
 
     def return_elements_for_new_exploration_set(
         self, data_x_list: Dict, data_y_list: Dict

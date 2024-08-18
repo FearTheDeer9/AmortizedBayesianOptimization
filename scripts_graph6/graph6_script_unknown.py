@@ -26,11 +26,10 @@ run_script_unknown(
     graph_type="Graph6",
     run_num=run_num,
     noiseless=noiseless,
-    noisy_string=noisy_string,
     seeds_int_data=seeds_int_data,
     n_obs=n_obs,
     n_int=n_int,
     n_trials=n_trials,
-    doubly_robust=doubly_robust,
     filename="Graph6Unknown",
+    n_anchor_points=n_anchor_points,
 )

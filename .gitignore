@@ -5,3 +5,4 @@ ceo_venv/
 *log
 model_checkpoints/
 tmp/
+results/

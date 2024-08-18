@@ -1,0 +1,9 @@
+python3 large_graph_bash.py "Erdos10" "random" --nonlinear 200
+python3 large_graph_bash.py "Erdos10" "random" --nonlinear 300
+python3 large_graph_bash.py "Erdos10" "random" --nonlinear 500
+python3 large_graph_bash.py "Erdos15" "random" --nonlinear 200
+python3 large_graph_bash.py "Erdos15" "random" --nonlinear 300
+python3 large_graph_bash.py "Erdos15" "random" --nonlinear 500
+python3 large_graph_bash.py "Erdos20" "random" --nonlinear 200
+python3 large_graph_bash.py "Erdos20" "random" --nonlinear 300
+python3 large_graph_bash.py "Erdos20" "random" --nonlinear 500

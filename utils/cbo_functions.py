@@ -258,12 +258,12 @@ def get_new_x_y_list_entropy(
     for j, vars in enumerate(exploration_set):
         space = graph.get_parameter_space(vars)
         # cost = Cost(cost_functions, vars)
-        optimizer = GradientAcquisitionOptimizer(space)
+        optimizer = GradientAcquisitionOptimizer(space, num_samples=100)
         acquisition = MaxValueEntropySearch(model_list[j], space=space)
 
         x_new, _ = optimizer.optimize(acquisition)
         y_acquisition = acquisition.evaluate(x_new).flatten()
-        y_acquisition_list[j] = y_acquisition
+        y_acquisition_list[j] = np.max(y_acquisition)
         x_new_list[j] = x_new
 
     return y_acquisition_list, x_new_list

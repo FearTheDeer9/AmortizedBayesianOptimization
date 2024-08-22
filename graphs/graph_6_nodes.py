@@ -104,7 +104,7 @@ class Graph6Nodes(GraphStructure):
         do_dict = {}
         do_dict["compute_do_a"] = self.compute_do_a
         do_dict["compute_do_S"] = self.compute_do_S
-        do_dict["compute_do_aS"] = self.compute_do_a_S
+        do_dict["compute_do_Sa"] = self.compute_do_a_S
         return do_dict
 
     def get_interventional_range(self):
@@ -127,17 +127,16 @@ class Graph6Nodes(GraphStructure):
 
         dict_ranges = OrderedDict(
             [
-                ("a", [min_intervention_As, max_intervention_As]),
                 ("S", [min_intervention_S, max_intervention_S]),
+                ("a", [min_intervention_As, max_intervention_As]),
             ]
         )
-        print(dict_ranges)
         return dict_ranges
 
     def get_sets(self):
-        mis = [["a"], ["S"], ["a", "S"]]
-        pomis = [["a", "S"]]
-        manipulative_variables = ["a", "S"]
+        mis = [["a"], ["S"], ["S", "a"]]
+        pomis = [["S", "a"]]
+        manipulative_variables = ["S", "a"]
         return mis, pomis, manipulative_variables
 
     def get_variable_equal_costs(self):
@@ -208,7 +207,7 @@ class Graph6Nodes(GraphStructure):
         return mean_do, var_do
 
     def compute_do_a_S(self, observational_samples, value):
-        interventions_nodes = ["a", "S"]
+        interventions_nodes = ["S", "a"]
         mean_do, var_do = self.compute_do(
             observational_samples, value, interventions_nodes
         )
@@ -216,7 +215,7 @@ class Graph6Nodes(GraphStructure):
         return mean_do, var_do
 
     def get_exploration_set(self):
-        return [("a",), ("S",), ("a", "S")]
+        return [("a",), ("S",), ("S", "a")]
 
     def get_error_distribution(self, noiseless: bool = False):
         err_dist = {}

@@ -1,6 +1,6 @@
-# XXX going the change things, so I am going to change this file
 
 import argparse
+import concurrent.futures
 import math
 import os
 from collections import namedtuple
@@ -379,27 +379,6 @@ def cross_fit(
         train_X = torch.cat([f for j, f in enumerate(folds_X) if j != i])
         train_y = torch.cat([f for j, f in enumerate(folds_y) if j != i])
 
-        # XXX picking which samples to not include in the dataset
-        # train_intervened_nodes = torch.cat(
-        #     [f for j, f in enumerate(folds_intervened_nodes) if j != i]
-        # )
-        # all_false_train = torch.all(train_intervened_nodes == False, dim=1)
-        # all_false_test = torch.all(test_intervened_nodes == False, dim=1)
-        # include_test_samples = (test_intervened_nodes[:, i] | all_false_test).reshape(
-        #     -1
-        # )
-
-        # include_train_samples = (
-        #     train_intervened_nodes[:, i] | all_false_train
-        # ).reshape(-1)
-
-        # redefine the folds
-        # test_X, test_y = test_X[include_test_samples], test_y[include_test_samples]
-        # train_X, train_y = (
-        #     train_X[include_train_samples],
-        #     train_y[include_train_samples],
-        # )
-
         # Split the training data into training and validation sets
         num_train = len(train_X)
         split_idx = int(num_train * 0.8)  # 80% training, 20% validation
@@ -527,6 +506,8 @@ def infer_causal_parents_new(
             print(f"ttest mean: {z.mean().item():.3f} ttest std: {z.std().item():.3f}")
         return stats.ttest_rel(z0, zi)
 
+    # Define a function to be executed in parallel
+
     methods = ["direct", "dr"]
     causal_graph = {
         method: pd.DataFrame([{node_name: 0 for node_name in node_names}])
@@ -569,17 +550,15 @@ def infer_causal_parents_new(
         else a0
     )
 
-    # print("-----a0---------")
-    # print(a0.shape)
-    # print("-----r0---------")
-    # print(r0.shape)
     z1, z2 = a0[:, 0] - y, r0[:, 0] - y
     print("y std:", y.std().item())
     # print('y_true std:',y_true.std().item())
     mean_and_std(z1)
     mean_and_std(z2)
-    for i in range(1, X.shape[1]):
+
+    def process_node(i):
         print(node_names[i - 1], " groundtruth ", groundtruth.iloc[i - 1])
+
         ai = cross_fit(
             torch.cat([X[:, 0:i], X[:, i + 1 :]], dim=1),
             y,
@@ -592,6 +571,7 @@ def infer_causal_parents_new(
             batch_size,
             closed_form,
         )
+
         ri = (
             cross_fit(
                 torch.cat([X[:, 0:i], X[:, i + 1 :]], dim=1),
@@ -611,32 +591,12 @@ def infer_causal_parents_new(
 
         print(f"THE SHAPES {y.shape}, {a0.shape}, {ri.shape}, {ai.shape}")
         all_false = torch.all(intervened_nodes == False, dim=1)
-        include_sample = (intervened_nodes[:, i - 1] | all_false).reshape(-1)
 
-        # z1, z2 = (
-        #     a0[include_sample, i] - y[include_sample],
-        #     r0[include_sample, i] - y[include_sample],
-        # )
-        # mean_and_std(z1)
-        # mean_and_std(z2)
-        # for method in methods:
-        #     test_res = ttest(
-        #         y[include_sample],
-        #         a0[include_sample, 0],
-        #         r0[include_sample, 0],
-        #         a0[include_sample, i],
-        #         r0[include_sample, i],q
-        #         method,
-        #     )
-        #     pValues[method][node_names[i - 1]] = (test_res[1]).item()
-        #     if method == "dr":
-        #         print(node_names[i - 1], method, test_res)
-        z1, z2 = (
-            ai - y,
-            ri - y,
-        )
+        z1, z2 = ai - y, ri - y
         mean_and_std(z1)
         mean_and_std(z2)
+
+        results = {}
         for method in methods:
             test_res = ttest(
                 y,
@@ -646,9 +606,22 @@ def infer_causal_parents_new(
                 ri,
                 method,
             )
-            pValues[method][node_names[i - 1]] = (test_res[1]).item()
+            results[method] = (test_res[1]).item()
             if method == "dr":
                 print(node_names[i - 1], method, test_res)
+        return results
+
+    # Using ThreadPoolExecutor to avoid conflicts with JAX's multithreading
+    pValues = {method: pd.DataFrame(index=[0], columns=node_names) for method in methods}
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Map function to run in parallel
+        all_results = list(executor.map(process_node, range(1, X.shape[1])))
+
+    # Collect results
+    for i, results in enumerate(all_results):
+        for method, p_value in results.items():
+            pValues[method][node_names[i]] = p_value
     print("______Corrected p values______")
     for method in methods:
         pValues[method].iloc[0, :] = sm.stats.multipletests(
@@ -953,25 +926,25 @@ train_double = True
 
 print("cuda is available", torch.cuda.is_available())
 
-if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(description="Double robustness experiments")
-    # parser.add_argument("--N_data", default=1000, type=int)
-    # parser.add_argument("--path", type=str)
-    # args = vars(parser.parse_args())
-    # N_data = args["N_data"]
-    # path = args["path"]
+# if __name__ == "__main__":
+#     # parser = argparse.ArgumentParser(description="Double robustness experiments")
+#     # parser.add_argument("--N_data", default=1000, type=int)
+#     # parser.add_argument("--path", type=str)
+#     # args = vars(parser.parse_args())
+#     # N_data = args["N_data"]
+#     # path = args["path"]
 
-    path = "/vol/bitbucket/jd123/causal_bayes_opt/data/test.csv"
-    N_data = 200
-    infer_causal_parents(
-        path,
-        num_epochs,
-        learning_rate,
-        l1_reg,
-        l2_reg,
-        batch_size,
-        train_double,
-        N_data,
-        closed_form=False,
-        use_wandb=False,
-    )
+#     path = "/vol/bitbucket/jd123/causal_bayes_opt/data/test.csv"
+#     N_data = 200
+#     infer_causal_parents(
+#         path,
+#         num_epochs,
+#         learning_rate,
+#         l1_reg,
+#         l2_reg,
+#         batch_size,
+#         train_double,
+#         N_data,
+#         closed_form=False,
+#         use_wandb=False,
+#     )

@@ -366,6 +366,9 @@ def build_p_y_star(
     Building an optimal value for every element in the exploration set
     """
     # sets = bo_models.keys()
+    parameter_int_domain = {
+        tuple(sorted(key)): value for key, value in parameter_int_domain.items()
+    }
     all_ystar = np.empty(shape=(len(exploration_set), n_samples))
     all_xstar = [[] for _ in range(len(exploration_set))]
 

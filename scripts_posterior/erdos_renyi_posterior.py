@@ -10,35 +10,101 @@ if os.getcwd() not in sys.path:
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 import numpy as np
 
+from diffcbed.replay_buffer import ReplayBuffer
 from graphs.data_setup import setup_observational_interventional
 from graphs.graph import GraphStructure
 from graphs.graph_erdos_renyi import ErdosRenyiGraph
-from posterior_model.model import LinearSCMModel, NonLinearSCMModel
+from posterior_model.model import DoublyRobustModel, LinearSCMModel, NonLinearSCMModel
+from utils.sem_sampling import change_obs_data_format_to_mi
 
 
-def set_graph(graph_type: str, nonlinear: bool = False) -> ErdosRenyiGraph:
+def set_graph(graph_type: str, nonlinear: bool = False, p: int = 1) -> ErdosRenyiGraph:
     assert graph_type in [
-        "Toy",
-        "Graph4",
-        "Graph5",
-        "Graph6",
-        "Graph10",
         "Erdos5",
+        "Erdos6",
+        "Erdos7",
+        "Erdos8",
+        "Erdos9",
         "Erdos10",
         "Erdos15",
         "Erdos20",
     ]
-    if graph_type == "Erdos5":
-        graph = ErdosRenyiGraph(num_nodes=5, nonlinear=nonlinear)
-    elif graph_type == "Erdos10":
-        graph = ErdosRenyiGraph(num_nodes=10, nonlinear=nonlinear)
-        graph.set_target("1")
-    elif graph_type == "Erdos15":
-        graph = ErdosRenyiGraph(num_nodes=15, nonlinear=nonlinear)
-        graph.set_target("8")
-    elif graph_type == "Erdos20":
-        graph = ErdosRenyiGraph(num_nodes=20, nonlinear=nonlinear)
-        graph.set_target("18")
+    if p == 1:
+        if graph_type == "Erdos5":
+            graph = ErdosRenyiGraph(num_nodes=5, nonlinear=nonlinear, seed=4)
+            graph.set_target("4")
+        elif graph_type == "Erdos6":
+            graph = ErdosRenyiGraph(num_nodes=6, nonlinear=nonlinear)
+            graph.set_target("3")
+        elif graph_type == "Erdos7":
+            graph = ErdosRenyiGraph(num_nodes=7, nonlinear=nonlinear)
+            graph.set_target("5")
+        elif graph_type == "Erdos8":
+            graph = ErdosRenyiGraph(num_nodes=8, nonlinear=nonlinear)
+            graph.set_target("3")
+        elif graph_type == "Erdos9":
+            graph = ErdosRenyiGraph(num_nodes=9, nonlinear=nonlinear)
+            graph.set_target("6")
+        elif graph_type == "Erdos10":
+            graph = ErdosRenyiGraph(num_nodes=10, nonlinear=nonlinear)
+            graph.set_target("1")
+        elif graph_type == "Erdos15":
+            graph = ErdosRenyiGraph(num_nodes=15, nonlinear=nonlinear)
+            graph.set_target("8")
+        elif graph_type == "Erdos20":
+            graph = ErdosRenyiGraph(num_nodes=20, nonlinear=nonlinear)
+            graph.set_target("18")
+    elif p == 2:
+        if graph_type == "Erdos5":
+            graph = ErdosRenyiGraph(num_nodes=5, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("2")
+        elif graph_type == "Erdos6":
+            graph = ErdosRenyiGraph(num_nodes=6, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("2")
+        elif graph_type == "Erdos7":
+            graph = ErdosRenyiGraph(num_nodes=7, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("1")
+        elif graph_type == "Erdos8":
+            graph = ErdosRenyiGraph(num_nodes=8, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("0")
+        elif graph_type == "Erdos9":
+            graph = ErdosRenyiGraph(num_nodes=9, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("8")
+        elif graph_type == "Erdos10":
+            graph = ErdosRenyiGraph(num_nodes=10, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("1")
+        elif graph_type == "Erdos15":
+            graph = ErdosRenyiGraph(num_nodes=15, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("7")
+        elif graph_type == "Erdos20":
+            graph = ErdosRenyiGraph(num_nodes=20, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("18")
+    elif p == 3:
+        if graph_type == "Erdos5":
+            graph = ErdosRenyiGraph(num_nodes=5, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("3")
+        elif graph_type == "Erdos6":
+            graph = ErdosRenyiGraph(num_nodes=6, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("3")
+        elif graph_type == "Erdos7":
+            graph = ErdosRenyiGraph(num_nodes=7, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("1")
+        elif graph_type == "Erdos8":
+            graph = ErdosRenyiGraph(num_nodes=8, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("3")
+        elif graph_type == "Erdos9":
+            graph = ErdosRenyiGraph(num_nodes=9, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("5")
+        elif graph_type == "Erdos10":
+            graph = ErdosRenyiGraph(num_nodes=10, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("7")
+        elif graph_type == "Erdos15":
+            graph = ErdosRenyiGraph(num_nodes=15, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("9")
+        elif graph_type == "Erdos20":
+            graph = ErdosRenyiGraph(num_nodes=20, nonlinear=nonlinear, exp_edges=p)
+            graph.set_target("19")
+    print(f"THE ACTUAL PARENTS ARE {graph.parents[graph.target]}")
     return graph
 
 
@@ -97,10 +163,12 @@ def run_posterior(
     n_obs: int,
     include_nint,
     D: int,
-    p: float,
+    p: int,
     filename: str,
+    use_dr: bool = False,
 ):
-    graph = set_graph(graph_type=graph_type, nonlinear=nonlinear)
+    dr_string = "_dr" if use_dr else ""
+    graph = set_graph(graph_type=graph_type, nonlinear=nonlinear, p=p)
     if noise:
         graph.set_noise(noise)
 
@@ -111,23 +179,46 @@ def run_posterior(
 
     if not include_nint:
         D_I, _, _ = setup_observational_interventional(
-            graph_type=None, n_obs=20, n_int=n_int, graph=graph, seed=seed + 2
+            graph_type=None, n_obs=50, n_int=n_int, graph=graph, seed=seed + 2
         )
 
     D_O_scaled, D_I_scaled = scale_data(D_O, D_I, graph, include_nint)
     variables = [var for var in graph.variables if var != graph.target]
 
-    combinations = []
-    for r in range(1, len(variables) + 1):
-        combinations.extend(itertools.combinations(variables, r))
+    if use_dr:
+        topological_order = list(D_O.keys())
+        D_O_mi = change_obs_data_format_to_mi(
+            D_O,
+            graph_variables=graph.variables,
+            intervention_node=np.zeros(shape=len(graph.variables)),
+        )
+        robust_model = DoublyRobustModel(
+            graph=graph,
+            topological_order=topological_order,
+            target=graph.target,
+            indivdual=True,
+            num_bootstraps=30,
+        )
+        buffer = ReplayBuffer(binary=True)
+        buffer.update(D_O_mi)
+        robust_model.run_method(buffer.data())
+        probabilities = robust_model.prob_estimate
+        if () in probabilities:
+            del probabilities[()]
+    else:
+        combinations = []
+        max_len = min(len(variables) + 1, 10)
+        for r in range(1, max_len):
+            combinations.extend(itertools.combinations(variables, r))
+        probabilities = {combo: 1 / len(combinations) for combo in combinations}
 
-    probabilities = {combo: 1 / len(combinations) for combo in combinations}
     if nonlinear:
-        model = NonLinearSCMModel(prior_probabilities=probabilities, graph=graph, D=D)
+        model = NonLinearSCMModel(prior_probabilities=probabilities, graph=graph)
     else:
         model = LinearSCMModel(prior_probabilities=probabilities, graph=graph)
 
     model.set_data(D_O_scaled)
+    model.calculate_metrics()
     if include_nint:
         for key in D_I_scaled:
             D_I_sample = D_I_scaled[key]
@@ -141,18 +232,18 @@ def run_posterior(
                 model.update_all(x_dict, y)
                 D_I = {key: np.array([D_I_sample[key][n]]) for key in D_I_sample}
                 model.add_data(D_I)
-                print(model.prior_probabilities)
+                model.redefine_prior_probabilities()
     else:
-        for n in range(20):
+        for n in range(50):
             x_dict = {
-                obs_key: D_I_scaled[obs_key][n]
+                obs_key: float(D_I_scaled[obs_key][n])
                 for obs_key in D_I_scaled
                 if obs_key != graph.target
             }
-            y = D_I_scaled[graph.target][n]
+            y = float(D_I_scaled[graph.target][n])
             model.update_all(x_dict, y)
             D_I = {key: np.array([D_I_scaled[key][n]]) for key in D_I_scaled}
-            model.add_data(D_I)
+            model.redefine_prior_probabilities()
 
     results = {
         "accuracy": model.accuracy,
@@ -163,7 +254,7 @@ def run_posterior(
     print(results)
     nonlinear_string = "nonlinear" if nonlinear else "linear"
     include_int = "_nint" if include_nint else ""
-    saved_file = f"results/posterior/{filename}/run{run_num}_{nonlinear_string}_{n_obs}{include_int}_D_{D}_noise_.pickle"
+    saved_file = f"results/posterior/{filename}/run{run_num}_{nonlinear_string}_{n_obs}{include_int}{dr_string}_D_{D}_p_{p}_noise_{noise}.pickle"
     with open(saved_file, "wb") as file:
         pickle.dump(results, file)
 
@@ -177,9 +268,8 @@ parser.add_argument("--n_obs", type=int, default=200)
 parser.add_argument("--D", type=int, default=1000)
 parser.add_argument("--seeds_replicate", type=int)
 parser.add_argument("--include_nint", action="store_true")
-parser.add_argument(
-    "--p", type=float, default=1.0, help="Expected degree for the graphs"
-)
+parser.add_argument("--use_dr", action="store_true")
+parser.add_argument("--p", type=int, default=1, help="Expected degree for the graphs")
 
 args = parser.parse_args()
 graph_type = args.graph_type
@@ -189,6 +279,7 @@ nonlinear = args.nonlinear
 noise = args.noise
 n_obs = args.n_obs
 include_nint = args.include_nint
+use_dr = args.use_dr
 D = args.D
 p = args.p
 
@@ -203,4 +294,5 @@ run_posterior(
     p=p,
     D=D,
     filename=graph_type,
+    use_dr=use_dr,
 )

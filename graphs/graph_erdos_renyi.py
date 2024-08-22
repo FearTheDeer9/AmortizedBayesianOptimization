@@ -21,7 +21,12 @@ from graphs.graph_chain import (
 class ErdosRenyiGraph(GraphStructure):
 
     def __init__(
-        self, num_nodes: int, seed: int = 17, nonlinear: bool = False, noise_sigma=1.0
+        self,
+        num_nodes: int,
+        seed: int = 17,
+        nonlinear: bool = False,
+        noise_sigma=1.0,
+        exp_edges: int = 1,
     ):
         self.noise_sigma = 0.1 if nonlinear else noise_sigma
         args = argparse.Namespace(scm_bias=0.0, noise_bias=0.0, old_er_logic=True)
@@ -34,6 +39,7 @@ class ErdosRenyiGraph(GraphStructure):
             binary_nodes=True,
             nonlinear=nonlinear,
             seed=seed,
+            exp_edges=exp_edges,
         )
         self._SEM = self.define_SEM()
         self._variables = [str(i) for i in range(num_nodes)]

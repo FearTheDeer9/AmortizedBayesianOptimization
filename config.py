@@ -5,7 +5,7 @@ RUN_BO = False
 RUN_BOED_POLICY_OPT = False
 RUN_BOED_POLICY_OPT_FIXED = False
 RUN_BOED_RANDOM = False
-SAVE_RUN = False
+SAVE_RUN = True
 
 # error distributions for run: 'gaussian', 'isotropic-gaussian', 'exponential'
 PRESETS = ["chain", "collider", "fork", "random"]

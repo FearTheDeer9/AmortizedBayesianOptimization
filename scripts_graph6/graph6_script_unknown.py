@@ -32,4 +32,5 @@ run_script_unknown(
     n_trials=n_trials,
     filename="Graph6Unknown",
     n_anchor_points=n_anchor_points,
+    acquisitions=["CEO", "EI", "PES"],
 )

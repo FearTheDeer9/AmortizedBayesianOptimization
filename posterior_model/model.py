@@ -145,6 +145,15 @@ class SCMModel:
     def log_unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
         raise NotImplementedError(MESSAGE)
 
+    def redefine_prior_probabilities(self):
+
+        prior_probabilities = {}
+        for parents in self._prior_probabilities:
+            if self._prior_probabilities[parents] > 1e-5:
+                prior_probabilities[parents] = self._prior_probabilities[parents]
+
+        self._prior_probabilities = prior_probabilities
+
     def unnormalized_posterior(self, y: float, x: np.ndarray, pg: float):
         log_posterior = self.log_unnormalized_posterior(y, x, pg)
         return np.exp(log_posterior)
@@ -345,7 +354,7 @@ class NonLinearSCMModel(SCMModel):
         graph: GraphStructure,
         sigma_y: float = 1.0,
         sigma_theta: float = 1.0,
-        D: int = 1000,  # this is the dimension we are projecting towards
+        D: int = 100,  # this is the dimension we are projecting towards
     ):
         self._prior_probabilities = prior_probabilities
         self.graph = graph

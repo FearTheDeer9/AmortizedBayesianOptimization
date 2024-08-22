@@ -138,6 +138,7 @@ def get_new_x_y_list_ceo(
         arm_distribution, model_list, data_x_list, arm_n_es_mapping
     )
 
+    print(intervention_grid)
     py_star_samples, p_x_star_samples = ceo_utils.build_p_y_star(
         exploration_set,
         model_list,

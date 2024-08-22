@@ -43,39 +43,50 @@ else:
 # run the CEO method using all
 # run the CEO method using all the edges and then the CBO for each of the e
 
+# all_graph_edges = [
+# [
+#     ("B", "L"),
+#     ("B", "Y"),
+#     ("T", "L"),
+#     ("T", "R"),
+#     ("T", "Y"),
+#     ("L", "R"),
+#     ("R", "Y"),
+# ],
+# [
+#     ("B", "L"),
+#     ("B", "Y"),
+#     ("T", "L"),
+#     ("T", "R"),
+#     ("T", "Y"),
+#     ("L", "R"),
+#     ("R", "Y"),
+#     ("L", "Y"),
+# ],  # adding one,
+# [
+#     ("B", "L"),
+#     ("B", "Y"),
+#     ("T", "L"),
+#     ("T", "R"),
+#     ("L", "R"),
+#     ("R", "Y"),
+# ],
+# [
+#     ("B", "L"),
+#     ("B", "Y"),
+#     ("T", "L"),
+#     ("T", "R"),
+#     ("R", "Y"),
+# ],
+# ]
+
 all_graph_edges = [
     [
         ("B", "L"),
-        ("B", "Y"),
-        ("T", "L"),
-        ("T", "R"),
-        ("T", "Y"),
-        ("L", "R"),
-        ("R", "Y"),
-    ],
-    [
-        ("B", "L"),
-        ("B", "Y"),
-        ("T", "L"),
-        ("T", "R"),
-        ("T", "Y"),
-        ("L", "R"),
-        ("R", "Y"),
+        # ("B", "Y"),
         ("L", "Y"),
-    ],  # adding one,
-    [
-        ("B", "L"),
-        ("B", "Y"),
-        ("T", "L"),
-        ("T", "R"),
-        ("L", "R"),
-        ("R", "Y"),
-    ],
-    [
-        ("B", "L"),
-        ("B", "Y"),
-        ("T", "L"),
-        ("T", "R"),
+        # ("T", "L"),
+        # ("T", "R"),
         ("R", "Y"),
     ],
 ]
@@ -91,5 +102,5 @@ run_script(
     n_int=n_int,
     n_anchor_points=n_anchor_points,
     n_trials=n_trials,
-    filename="Graph5",
+    filename="Graph5Wrong",
 )

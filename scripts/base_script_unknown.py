@@ -45,7 +45,9 @@ def run_script_unknown(
     n_trials: int,
     filename: str,
     n_anchor_points: int,
+    acquisitions: List = ["EI", "PES", "CEO"],
 ):
+    print(acquisitions)
     # assert acquisition in ["EI", "CEO", "PES"]
     graph = set_graph(graph_type)
     D_O, D_I, exploration_set = setup_observational_interventional(
@@ -57,10 +59,9 @@ def run_script_unknown(
         graph=graph,
     )
 
-    # run for the expected improvement
-    acquisitions = ["EI", "PES", "CEO"]
     use_doubly_robust = [True, False]
     for acquisition in acquisitions:
+        print(f"The current acquisition is {acquisition}")
         for dr in use_doubly_robust:
             dr_string = "dr" if dr else "all"
             model = PARENT(

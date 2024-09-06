@@ -19,7 +19,7 @@ def load_results(base_path, regex):
 
 # Function to compute statistics across runs
 def aggregate_results(results, key):
-    all_data = [res[key] for res in results if key in res]
+    all_data = [res[key][:30] for res in results if key in res]
     mean_data = np.mean(all_data, axis=0)
     std_dev_data = np.std(all_data, axis=0)
     return mean_data, std_dev_data
@@ -42,20 +42,18 @@ def plot_everything(
     inferno = cm.get_cmap("plasma")
     colors = inferno(np.linspace(0, 1, num_cbo_graphs + 3))
     colors = [
-        "#1b9e77",  # Teal
-        "#d95f02",  # Orange
-        "#7570b3",  # Purple
-        "#e7298a",  # Pink
+        "Black",  # Teal
+        "Red",  # Orange
         # "#66a61e",  # Green
-        "#e6ab02",  # Yellow
-        "#a6761d",  # Brown
+        "Black",  # Yellow
+        "Red",  # Brown
         "#666666",  # Gray
         "#8c564b",  # Brownish Red
         # "#2ca02c",  # Green
-        "#ff7f0e",  # Orange
-        "#1f77b4",  # Blue
-        "#aec7e8",  # Black
-        "#ffbb78",  # Light Orange
+        "Red",  # Orange
+        "Green",  # Blue
+        "Green",  # Black
+        "Green",  # Light Orange
         # "#98df8a",  # Light Green
     ]
     if graph_idxs is None:
@@ -71,7 +69,7 @@ def plot_everything(
 
     # Load and aggregate results for BO
     # Load and aggregate results for CEO
-    bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+    bo_string = rf".*_bo_results_new_{n_obs}_{n_int}_{noisy_suffix}"
     bo_results = load_results(base_path, bo_string)
     bo_mean, bo_std = aggregate_results(bo_results, experiment)
 
@@ -173,7 +171,7 @@ def all_means(
         ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
         ceo_results = load_results(base_path, ceo_string)
         ceo_results = np.hstack(
-            [ceo_result["Per_trial_Y"] for ceo_result in ceo_results]
+            [ceo_result["Per_trial_Y"][:30] for ceo_result in ceo_results]
         )
         ceo_mean = np.mean(ceo_results)
         ceo_std = np.std(ceo_results)
@@ -182,9 +180,11 @@ def all_means(
     # Load and aggregate results for BO
     # Load and aggregate results for CEO
     if has_bo:
-        bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+        bo_string = rf".*_bo_results_new_{n_obs}_{n_int}_{noisy_suffix}"
         bo_results = load_results(base_path, bo_string)
-        bo_results = np.hstack([bo_result["Per_trial_Y"] for bo_result in bo_results])
+        bo_results = np.hstack(
+            [bo_result["Per_trial_Y"][:30] for bo_result in bo_results]
+        )
         bo_mean = np.mean(bo_results)
         bo_std = np.std(bo_results)
         mean_results["bo"] = {"mean": bo_mean, "std": bo_std}
@@ -196,7 +196,7 @@ def all_means(
             )
             cbo_results = load_results(base_path, cbo_string)
             cbo_results = np.hstack(
-                [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
+                [cbo_result["Per_trial_Y"][:30] for cbo_result in cbo_results]
             )
             cbo_mean = np.mean(cbo_results)
             cbo_std = np.std(cbo_results)
@@ -206,7 +206,7 @@ def all_means(
         cbo_string = rf".*_cbo_unknown_results_{n_obs}_{n_int}{noisy_suffix}"
         cbo_results = load_results(base_path, cbo_string)
         cbo_results = np.hstack(
-            [cbo_result["Per_trial_Y"] for cbo_result in cbo_results]
+            [cbo_result["Per_trial_Y"][:30] for cbo_result in cbo_results]
         )
         cbo_mean = np.mean(cbo_results)
         cbo_std = np.std(cbo_results)
@@ -237,7 +237,9 @@ def all_best(
     if has_ceo:
         ceo_string = rf".*_ceo_.*_results_{n_obs}_{n_int}_{noisy_suffix}"
         ceo_results = load_results(base_path, ceo_string)
-        ceo_results = np.vstack([ceo_result["Best_Y"] for ceo_result in ceo_results])
+        ceo_results = np.vstack(
+            [ceo_result["Best_Y"][:30] for ceo_result in ceo_results]
+        )
         ceo_best_results = ceo_results.min(axis=1)
         ceo_mean = np.mean(ceo_best_results)
         ceo_std = np.std(ceo_best_results)
@@ -246,9 +248,9 @@ def all_best(
     # Load and aggregate results for BO
     # Load and aggregate results for CEO
     if has_bo:
-        bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+        bo_string = rf".*_bo_results_new_{n_obs}_{n_int}_{noisy_suffix}"
         bo_results = load_results(base_path, bo_string)
-        bo_results = np.vstack([bo_result["Best_Y"] for bo_result in bo_results])
+        bo_results = np.vstack([bo_result["Best_Y"][:30] for bo_result in bo_results])
         bo_best_results = bo_results.min(axis=1)
         bo_mean = np.mean(bo_best_results)
         bo_std = np.std(bo_best_results)
@@ -261,7 +263,7 @@ def all_best(
             )
             cbo_results = load_results(base_path, cbo_string)
             cbo_results = np.vstack(
-                [cbo_result["Best_Y"] for cbo_result in cbo_results]
+                [cbo_result["Best_Y"][:30] for cbo_result in cbo_results]
             )
             cbo_best_results = cbo_results.min(axis=1)
             cbo_mean = np.mean(cbo_best_results)
@@ -271,7 +273,9 @@ def all_best(
     if has_cbo_unknown:
         cbo_string = rf".*_cbo_unknown_results_{n_obs}_{n_int}{noisy_suffix}"
         cbo_results = load_results(base_path, cbo_string)
-        cbo_results = np.hstack([cbo_result["Best_Y"] for cbo_result in cbo_results])
+        cbo_results = np.hstack(
+            [cbo_result["Best_Y"][:30] for cbo_result in cbo_results]
+        )
         cbo_mean = np.mean(cbo_results)
         cbo_std = np.std(cbo_results)
         min_results["cbo_unknown"] = {"mean": cbo_mean, "std": cbo_std}
@@ -337,7 +341,7 @@ def iterations_to_min(
 
     # Load and aggregate results for BO
     # Load and aggregate results for CEO
-    bo_string = rf".*_bo_results_{n_obs}_{n_int}_{noisy_suffix}"
+    bo_string = rf".*_bo_results_new_{n_obs}_{n_int}_{noisy_suffix}"
     bo_results = load_results(base_path, bo_string)
     bo_results = np.vstack([bo_result["Best_Y"] for bo_result in bo_results])
     bo_best_results = bo_results.argmin(axis=1)

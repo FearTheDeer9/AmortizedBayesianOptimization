@@ -1,7 +1,7 @@
 SHOW_GRAPHICS = False
 RUN_CEO = False
-RUN_CBO = True
-RUN_BO = False
+RUN_CBO = False
+RUN_BO = True
 RUN_BOED_POLICY_OPT = False
 RUN_BOED_POLICY_OPT_FIXED = False
 RUN_BOED_RANDOM = False

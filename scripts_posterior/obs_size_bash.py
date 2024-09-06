@@ -10,7 +10,8 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 seeds_replicate = [71, 11, 89, 69, 7, 50, 100, 111, 619, 77]
 run_nums = range(1, 11)
 # graphs = ["Erdos5", "Erdos6", "Erdos7", "Erdos8", "Erdos9", "Erdos10"]
-graphs = ["Erdos7"]
+# graphs = ["Erdos7"]
+graphs = ["Erdos8"]
 n_obs_samples = [50, 100, 200]
 
 # Loop through the combinations of seeds and run numbers

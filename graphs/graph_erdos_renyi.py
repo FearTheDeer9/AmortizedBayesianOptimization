@@ -62,6 +62,9 @@ class ErdosRenyiGraph(GraphStructure):
         # choose the variable that is the best one to optimize for the ErdosRenyi graph
         self._target = target
 
+    def set_seed(self, seed):
+        self.rng = np.random.default_rng(seed)
+
     def define_SEM(self):
         if self.nonlinear:
             sem_functions = define_SEM_causalenv_nonlinear(

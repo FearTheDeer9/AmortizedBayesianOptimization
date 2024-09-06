@@ -99,8 +99,8 @@ def sample_from_SEM_hat(
     OrderedDict
         A sample from the SEM given previously implemented interventions or initial values.
     """
-    if seed:
-        np.random.seed(seed)
+    # if seed:
+    #     np.random.seed(seed)
     assert epsilon is not None
     sample = OrderedDict()
     topological_order = list(nx.topological_sort(graph.G))
@@ -186,6 +186,7 @@ def sample_model(
                 initial_values=initial_values,
                 interventions=interventions,
                 epsilon=epsilon_term,
+                seed=seed,
             )
         for var in static_sem.keys():
             new_samples[var].append(tmp[var])

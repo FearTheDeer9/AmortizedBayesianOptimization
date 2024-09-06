@@ -10,12 +10,14 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 # Define the varying parameters
 seeds_replicate = [71, 11, 89, 69, 7, 50, 100, 111, 619, 77]
 run_nums = range(1, 11)
-graphs = ["Erdos5", "Erdos6", "Erdos7", "Erdos8", "Erdos9", "Erdos10"]
+# graphs = ["Erdos5", "Erdos6", "Erdos7", "Erdos8", "Erdos9", "Erdos10"]
+# graphs = ["Erdos5", "Erdos7", "Erdos9"]
+graphs = ["Erdos6", "Erdos8", "Erdos10"]
 n_obs_samples = [200]
 
 # Loop through the combinations of seeds and run numbers
-for seed, run_num in zip(seeds_replicate, run_nums):
-    for graph in graphs:
+for graph in graphs:
+    for seed, run_num in zip(seeds_replicate, run_nums):
         for n_obs in n_obs_samples:
             # linear one
             command = (

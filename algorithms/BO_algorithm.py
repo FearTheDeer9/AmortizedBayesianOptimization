@@ -31,7 +31,7 @@ class BO(BASE):
         self,
         graph_type: str = "Toy",
         graph: GraphStructure = None,
-        causal_prior: bool = True,
+        causal_prior: bool = False,
         n_obs: int = 100,
         cost_num: int = 1,
         noiseless: int = True,

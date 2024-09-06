@@ -11,7 +11,7 @@ if os.getcwd() not in sys.path:
 
 import numpy as np
 
-from algorithms.PARENT_algorithm import PARENT
+# from algorithms.PARENT_algorithm import PARENT
 from diffcbed.envs.graph_to_env import GraphStructureEnv
 from diffcbed.models import DagBootstrap
 from diffcbed.strategies import PolicyOptNMC

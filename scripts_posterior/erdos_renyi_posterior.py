@@ -173,13 +173,15 @@ def run_posterior(
         graph.set_noise(noise)
 
     n_int = 5
+    graph.set_seed(seed)
     D_O, D_I, _ = setup_observational_interventional(
         graph_type=None, n_obs=n_obs, n_int=n_int, graph=graph, seed=seed
     )
 
     if not include_nint:
+        seed = seed + 2
         D_I, _, _ = setup_observational_interventional(
-            graph_type=None, n_obs=50, n_int=n_int, graph=graph, seed=seed + 2
+            graph_type=None, n_obs=50, n_int=n_int, graph=graph
         )
 
     D_O_scaled, D_I_scaled = scale_data(D_O, D_I, graph, include_nint)

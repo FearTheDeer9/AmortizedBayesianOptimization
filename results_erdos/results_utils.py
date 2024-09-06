@@ -7,6 +7,7 @@ import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 base_path = "/Users/jeandurand/Documents/Masters Thesis/causal_bayes_opt/results/Erdos"
 
@@ -50,7 +51,10 @@ def plot_posterior_nobs(
     nonlinear: bool = False,
     save_file: bool = False,
     D: int = 1000,
+    ax=None,
 ):
+    if ax is None:
+        ax = plt.gca()
     sns.set_theme(style="whitegrid")  # Use seaborn style for better aesthetics
 
     # Define color map
@@ -60,8 +64,7 @@ def plot_posterior_nobs(
     nonlinear_string = "nonlinear" if nonlinear else "linear"
     intervention_string = "_nint" if used_interventions else ""
 
-    plt.figure(figsize=(10, 6))  # Set the figure size
-    plt.ylim(0.2, 1.1)
+    ax.set_ylim(0.2, 1.1)
 
     for i, n in enumerate(n_obs_list):
         experiment_pattern = (
@@ -74,24 +77,22 @@ def plot_posterior_nobs(
         mean, std = aggregate_results(all_results, experiment)
         x_values = range(len(mean))
 
-        plt.fill_between(x_values, mean - std, mean + std, alpha=0.2, color=colors[i])
-        plt.plot(
-            x_values, mean, label=f"{n} observations", color=colors[i], linewidth=2
-        )
+        ax.fill_between(x_values, mean - std, mean + std, alpha=0.2, color=colors[i])
+        ax.plot(x_values, mean, label=f"{n} observations", color=colors[i], linewidth=2)
 
-    plt.title(
+    ax.set_title(
         f"Posterior Distribution for {graph_type} ({nonlinear_string.capitalize()})"
     )
-    plt.xlabel("Iterations")  # Replace with appropriate label
-    plt.ylabel(f"Expected {experiment}")
+    ax.set_xlabel("Iterations")  # Replace with appropriate label
+    ax.set_ylabel(f"Expected {experiment}")
 
-    plt.legend(title="Number of Observations", loc="best")
-    plt.grid(True, linestyle="--", alpha=0.6)
+    # ax.legend(title="Number of Observations", loc="best")
+    ax.grid(True, linestyle="--", alpha=0.6)
 
-    if save_file:
-        plt.savefig(f"{graph_type}_posterior_plot.png", dpi=300, bbox_inches="tight")
-    else:
-        plt.show()
+    # if save_file:
+    #     plt.savefig(f"{graph_type}_posterior_plot.png", dpi=300, bbox_inches="tight")
+    # else:
+    #     plt.show()
 
 
 def plot_posterior_p(
@@ -141,6 +142,59 @@ def plot_posterior_p(
     plt.ylabel(f"Expected {experiment}")
 
     plt.legend(title="Expected degree", loc="best")
+    plt.grid(True, linestyle="--", alpha=0.6)
+
+    if save_file:
+        plt.savefig(f"{graph_type}_posterior_plot.png", dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+
+def plot_posterior_obs_int(
+    graph_type: str,
+    experiment: str,
+    n_obs: int = 200,
+    used_interventions: bool = [True, False],
+    p: int = 1,
+    nonlinear: bool = False,
+    save_file: bool = False,
+    D: int = 1000,
+):
+    sns.set_theme(style="whitegrid")  # Use seaborn style for better aesthetics
+
+    # Define color map
+    inferno = cm.get_cmap("plasma")
+    colors = inferno(np.linspace(0, 1, len(used_interventions)))
+
+    nonlinear_string = "nonlinear" if nonlinear else "linear"
+    intervention_string = "_nint" if used_interventions else ""
+
+    plt.figure(figsize=(10, 6))  # Set the figure size
+    plt.ylim(0.2, 1.1)
+
+    for i, used_int in enumerate(used_interventions):
+        intervention_string = "_nint" if used_int else ""
+        experiment_pattern = (
+            rf".*_{nonlinear_string}_{n_obs}{intervention_string}_D_{D}(_p_1)?_noise"
+        )
+
+        all_results = load_results(
+            base_path=f"results/posterior/{graph_type}", regex=experiment_pattern
+        )
+
+        mean, std = aggregate_results(all_results, experiment)
+        x_values = range(len(mean))
+
+        plt.fill_between(x_values, mean - std, mean + std, alpha=0.2, color=colors[i])
+        plt.plot(x_values, mean, label=f"{used_int}", color=colors[i], linewidth=2)
+
+    plt.title(
+        f"Posterior Distribution for {graph_type} ({nonlinear_string.capitalize()})"
+    )
+    plt.xlabel("Iterations")  # Replace with appropriate label
+    plt.ylabel(f"Expected {experiment}")
+
+    plt.legend(title="Interventional samples", loc="best")
     plt.grid(True, linestyle="--", alpha=0.6)
 
     if save_file:
@@ -335,7 +389,7 @@ def plot_everything(
         plt.fill_between(
             x_values, dr2_mean - dr2_std, dr2_mean + dr2_std, alpha=0.2, color="Red"
         )
-        plt.plot(x_values, dr2_mean, label="DR2", color="Red")
+        plt.plot(x_values, dr2_mean, label="CBO Unknown", color="Red")
 
     if plot_cbo:
         # Load and aggregate results for CEO
@@ -346,9 +400,9 @@ def plot_everything(
         cbo_std = cbo_std[1:]
         x_values = range(len(cbo_mean))
         plt.fill_between(
-            x_values, cbo_mean - cbo_std, cbo_mean + cbo_std, alpha=0.2, color="Blue"
+            x_values, cbo_mean - cbo_std, cbo_mean + cbo_std, alpha=0.2, color="Black"
         )
-        plt.plot(x_values, cbo_mean, label="CBO", color="Blue")
+        plt.plot(x_values, cbo_mean, label="CBO", color="Black")
 
     if plot_random:
         # Load and aggregate results for CEO
@@ -385,7 +439,7 @@ def all_means_final_project(regex_list):
     mean_results = {}
     for i, regex in enumerate(regex_list):
         results = load_results_regex("", regex=regex)
-        results = np.hstack([result["Per_trial_Y"] for result in results])
+        results = np.hstack([result["Per_trial_Y"][:30] for result in results])
         cbo_mean = np.mean(results)
         cbo_std = np.std(results)
         mean_results[method_map[i]] = {"mean": cbo_mean, "std": cbo_std}
@@ -398,7 +452,7 @@ def all_min_final_project(regex_list):
     min_results = {}
     for i, regex in enumerate(regex_list):
         results = load_results_regex("", regex=regex)
-        results = np.vstack([result["Best_Y"] for result in results])
+        results = np.vstack([result["Best_Y"][:30] for result in results])
         best_results = results.min(axis=1)
         cbo_mean = np.mean(best_results)
         cbo_std = np.std(best_results)
@@ -550,7 +604,7 @@ def iterations_to_min(
     return argmin_results
 
 
-def summarise_n_observational():
+def summarise_n_observational(statistic="accuracy"):
     sns.set_theme(style="whitegrid")
     graphs = [5, 6, 7, 8, 9, 10]
     n_obs_list = [50, 100, 200]
@@ -561,7 +615,7 @@ def summarise_n_observational():
     colors = ["blue", "orange", "black"]
 
     fig, axs = plt.subplots(
-        1, 2, figsize=(12, 6)
+        2, 1, figsize=(6, 10)
     )  # Create a figure with 2 subplots side by side
 
     # Left plot with nonlinear experiment pattern
@@ -576,7 +630,7 @@ def summarise_n_observational():
             all_results = load_results(
                 base_path=f"posterior/Erdos{graph}/", regex=experiment_pattern
             )
-            final_f1_scores = [result["f1_score"][-1] for result in all_results]
+            final_f1_scores = [result[statistic][-1] for result in all_results]
             f1_means.append(np.mean(final_f1_scores))
             f1_stds.append(np.std(final_f1_scores))
 
@@ -591,7 +645,7 @@ def summarise_n_observational():
         )
 
     axs[1].set_xlabel("Graphs")
-    axs[1].set_ylabel("Mean F1 Score")
+    axs[1].set_ylabel(f"Mean {statistic}")
     axs[1].set_title("Nonlinear Graphs")
     axs[1].set_xticks(graphs)
     axs[1].grid(True)
@@ -608,7 +662,7 @@ def summarise_n_observational():
             all_results = load_results(
                 base_path=f"posterior/Erdos{graph}/", regex=experiment_pattern
             )
-            final_f1_scores = [result["f1_score"][-1] for result in all_results]
+            final_f1_scores = [result[statistic][-1] for result in all_results]
             f1_means.append(np.mean(final_f1_scores))
             f1_stds.append(np.std(final_f1_scores))
 
@@ -626,7 +680,7 @@ def summarise_n_observational():
     axs[0].set_ylim(0.2, 1.1)
     axs[1].set_ylim(0.2, 1.1)
     axs[0].set_xlabel("Graphs")
-    axs[0].set_ylabel("Mean F1 Score")
+    axs[0].set_ylabel(f"Mean {statistic}")
     axs[0].set_title("Linear Graphs")
     axs[0].set_xticks(graphs)
     axs[0].grid(True)
@@ -642,11 +696,11 @@ def summarise_n_observational():
     )
 
     plt.tight_layout(rect=[0, 0.1, 1, 1])  # Leave space at the bottom for the legend
-    plt.savefig("observational_size_results")
+    plt.savefig(f"observational_size_results_{statistic}")
     plt.show()
 
 
-def summarise_p_density():
+def summarise_p_density(statistic="accuracy"):
     sns.set_theme(style="whitegrid")
     graphs = [5, 6, 7, 8, 9, 10]
     p_list = [1, 2, 3]
@@ -657,7 +711,7 @@ def summarise_p_density():
     colors = ["blue", "orange", "black"]
 
     fig, axs = plt.subplots(
-        1, 2, figsize=(12, 6)
+        2, 1, figsize=(6, 10)
     )  # Create a figure with 2 subplots side by side
 
     # Left plot with nonlinear experiment pattern
@@ -672,7 +726,7 @@ def summarise_p_density():
             all_results = load_results(
                 base_path=f"posterior/Erdos{graph}/", regex=experiment_pattern
             )
-            final_f1_scores = [result["f1_score"][-1] for result in all_results]
+            final_f1_scores = [result[statistic][-1] for result in all_results]
             f1_means.append(np.mean(final_f1_scores))
             f1_stds.append(np.std(final_f1_scores))
 
@@ -687,7 +741,7 @@ def summarise_p_density():
         )
 
     axs[1].set_xlabel("Graphs")
-    axs[1].set_ylabel("Mean F1 Score")
+    axs[1].set_ylabel(f"Mean {statistic}")
     axs[1].set_title("Nonlinear Graphs")
     axs[1].set_xticks(graphs)
     # axs[1].legend(title="Graph Density")
@@ -705,7 +759,7 @@ def summarise_p_density():
             all_results = load_results(
                 base_path=f"posterior/Erdos{graph}/", regex=experiment_pattern
             )
-            final_f1_scores = [result["f1_score"][-1] for result in all_results]
+            final_f1_scores = [result[statistic][-1] for result in all_results]
             f1_means.append(np.mean(final_f1_scores))
             f1_stds.append(np.std(final_f1_scores))
 
@@ -723,7 +777,7 @@ def summarise_p_density():
     axs[0].set_ylim(0, 1.1)
     axs[1].set_ylim(0, 1.1)
     axs[0].set_xlabel("Graphs")
-    axs[0].set_ylabel("Mean F1 Score")
+    axs[0].set_ylabel(f"Mean {statistic}")
     axs[0].set_title("Linear Graphs")
     axs[0].set_xticks(graphs)
     # axs[0].legend(title="Graph Density")
@@ -740,7 +794,7 @@ def summarise_p_density():
     )
 
     plt.tight_layout(rect=[0, 0.1, 1, 1])  # Adjust spacing to prevent overlap
-    plt.savefig("graph_density_results")
+    plt.savefig(f"graph_density_results_{statistic}")
     plt.show()
 
 
@@ -788,6 +842,7 @@ def summarise_cbo_erdos_results(graphs: List = ["Erdos10", "Erdos15", "Erdos20"]
     methods, means1, stds1 = extract_plot_data(mean_results)
     _, means2, stds2 = extract_plot_data(min_results)
 
+    methods = ["cbo", "cbo unknown", "random"]
     for i, experiment in enumerate(experiments):
         ax = axs[0, i]
         ax.tick_params(axis="both", labelsize=14)
@@ -823,6 +878,7 @@ def summarise_cbo_erdos_results(graphs: List = ["Erdos10", "Erdos15", "Erdos20"]
     methods, means1, stds1 = extract_plot_data(mean_results)
     _, means2, stds2 = extract_plot_data(min_results)
 
+    methods = ["cbo", "cbo unknown", "random"]
     for i, experiment in enumerate(experiments):
         ax = axs[1, i]
         ax.tick_params(axis="both", labelsize=14)
@@ -855,7 +911,7 @@ def summarise_cbo_erdos_results(graphs: List = ["Erdos10", "Erdos15", "Erdos20"]
 
     # Adjust layout to make space for the legend
     plt.tight_layout(rect=[0, 0.05, 1, 1])
-    # plt.savefig("erdos_summary_cbo.png")
+    plt.savefig("erdos_summary_cbo.png")
     plt.show()
 
 
@@ -871,16 +927,10 @@ def summarise_erdos20_per_iteration():
         plot_dr2=True,
         plot_random=True,
     )
-    fig1 = plt.gcf()  # Capture the current figure
-    fig1.canvas.draw()  # Draw the first figure
-    fig1_canvas = fig1.canvas  # Get the canvas of the first figure
-
-    # Remove legends from the first plot
-    for ax in fig1.axes:
-        ax.legend_.remove()
-
-    plt.clf()  # Clear the figure for the next plot
-    plt.close()  # Close the figure to prevent overlap
+    fig1 = plt.gcf()
+    fig1.canvas.draw()
+    img1 = np.array(fig1.canvas.renderer._renderer)
+    plt.close(fig1)
 
     # Second plot
     plot_everything(
@@ -893,37 +943,87 @@ def summarise_erdos20_per_iteration():
         plot_dr2=True,
         plot_random=True,
     )
-    fig2 = plt.gcf()  # Capture the current figure
-    fig2.canvas.draw()  # Draw the second figure
-    fig2_canvas = fig2.canvas  # Get the canvas of the second figure
+    fig2 = plt.gcf()
+    fig2.canvas.draw()
+    img2 = np.array(fig2.canvas.renderer._renderer)
+    plt.close(fig2)
 
-    # Remove legends from the second plot
-    for ax in fig2.axes:
-        ax.legend_.remove()
+    # Create a new composite figure
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 16))
 
-    plt.clf()  # Clear the figure after capturing
-    plt.close()  # Close the figure to prevent overlap
+    # Add the captured plots to the new figure
+    ax1.imshow(img1)
+    ax1.axis("off")
+    ax1.set_title(
+        "Erdos 20 (Nonlinear) - Best Y", fontsize=18, pad=-10
+    )  # Decrease pad to move title closer
 
-    # Create a new composite figure with 1 row and 2 columns
-    composite_fig, axs = plt.subplots(2, 1, figsize=(6, 10))
+    ax2.imshow(img2)
+    ax2.axis("off")
+    ax2.set_title(
+        "Erdos 20 (Nonlinear) - Average Y", fontsize=18, pad=-10
+    )  # Decrease pad to move title closer
 
-    # Add the first plot to the first subplot
-    axs[0].imshow(
-        fig1_canvas.buffer_rgba()
-    )  # Render the first plot as an image in the first subplot
-    axs[0].axis("off")  # Turn off the axis of the first subplot
-    axs[0].set_title("Erdos 20 (Nonlinear) - Best Y")
-
-    # Add the second plot to the second subplot
-    axs[1].imshow(
-        fig2_canvas.buffer_rgba()
-    )  # Render the second plot as an image in the second subplot
-    axs[1].axis("off")  # Turn off the axis of the second subplot
-    axs[1].set_title("Erdos 20 (Nonlinear) - Average Y")
-
-    # Add an overall legend at the bottom of the composite figure
     plt.tight_layout()
-    # plt.savefig("erdos20_nonlinear_cbo.png")
+    plt.subplots_adjust(top=0.95)  # Adjust top margin
+    plt.savefig("erdos20_nonlinear_cbo", bbox_inches="tight")
+    plt.show()
+
+
+def summarise_ecoli1_per_iteration():
+    # First plot
+    plot_everything(
+        base_path="Ecoli1",
+        experiment="Best_Y",
+        # nonlinear=True,
+        n_obs=200,
+        n_int=1,
+        plot_cbo=True,
+        plot_all=False,
+        plot_dr2=True,
+        plot_random=True,
+    )
+    fig1 = plt.gcf()
+    fig1.canvas.draw()
+    img1 = np.array(fig1.canvas.renderer._renderer)
+    plt.close(fig1)
+
+    # Second plot
+    plot_everything(
+        base_path="Ecoli1",
+        experiment="Per_trial_Y",
+        # nonlinear=True,
+        n_obs=200,
+        n_int=1,
+        plot_cbo=True,
+        plot_all=False,
+        plot_dr2=True,
+        plot_random=True,
+    )
+    fig2 = plt.gcf()
+    fig2.canvas.draw()
+    img2 = np.array(fig2.canvas.renderer._renderer)
+    plt.close(fig2)
+
+    # Create a new composite figure
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 8))
+
+    # Add the captured plots to the new figure
+    ax1.imshow(img1)
+    ax1.axis("off")
+    ax1.set_title(
+        "E. Coli - Best Y", fontsize=18, pad=-10
+    )  # Decrease pad to move title closer
+
+    ax2.imshow(img2)
+    ax2.axis("off")
+    ax2.set_title(
+        "E. Coli - Average Y", fontsize=18, pad=-10
+    )  # Decrease pad to move title closer
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.95)  # Adjust top margin
+    plt.savefig("ecoli1_cbo", bbox_inches="tight")
     plt.show()
 
 
@@ -1010,10 +1110,10 @@ def plot_acquisitions_all(
                     )
 
                     if metric == "Best_Y":
-                        res = np.vstack([result[metric] for result in all_results])
+                        res = np.vstack([result[metric][:30] for result in all_results])
                         res = res.min(axis=1)
                     else:
-                        res = np.hstack([result[metric] for result in all_results])
+                        res = np.hstack([result[metric][:30] for result in all_results])
 
                     mean_res = np.mean(res)
                     std_res = np.std(res)
@@ -1054,26 +1154,118 @@ def plot_acquisitions_all(
     plt.show()
 
 
+def plot_acquisitions_all_boxplot(
+    graphs: List = ["ToyGraphUnknown", "Graph5Unknown", "Graph6Unknown"],
+    n_obs: int = 200,
+    acquisition_list: List = ["EI", "CEO", "PES"],
+    use_dr_list: List[bool] = [True, False],
+    save_file: bool = False,
+):
+    sns.set_theme(style="whitegrid")  # Use seaborn style for better aesthetics
+
+    # Define colors for DR (blue) and No DR (orange)
+    colors = ["blue", "orange"]
+
+    # Create a figure with 2 rows and len(graphs) columns (1 for each graph)
+    fig, axs = plt.subplots(2, len(graphs), figsize=(18, 10))
+    plt.subplots_adjust(wspace=0.3, hspace=0.3)
+
+    for col_idx, graph in enumerate(graphs):
+        for row_idx, metric in enumerate(["Best_Y", "Per_trial_Y"]):
+            ax = axs[row_idx, col_idx]
+
+            plot_data = {"Acquisition": [], "Value": [], "Type": []}
+
+            for use_dr, color in zip(use_dr_list, colors):
+                for acquisition in acquisition_list:
+                    dr_string = "_dr" if use_dr else "_all"
+                    experiment_pattern = (
+                        rf".*_cbo{dr_string}_{acquisition}_results_{n_obs}"
+                    )
+                    all_results = load_results(
+                        base_path=f"results/{graph}", regex=experiment_pattern
+                    )
+
+                    if metric == "Best_Y":
+                        res = np.vstack([result[metric][:30] for result in all_results])
+                        res = res.min(axis=1)
+                    else:
+                        res = np.hstack([result[metric][:30] for result in all_results])
+
+                    # Add data to plot_data dictionary
+                    plot_data["Acquisition"].extend([acquisition] * len(res))
+                    plot_data["Value"].extend(res)
+                    plot_data["Type"].extend(["DR" if use_dr else "No DR"] * len(res))
+
+            # Create boxplots
+            sns.boxplot(
+                ax=ax,
+                x="Acquisition",
+                y="Value",
+                hue="Type",
+                data=plot_data,
+                showfliers=False,
+                palette=colors,
+            )
+
+            # Remove the legend for individual plots
+            ax.get_legend().remove()
+
+            # Set title and labels
+            ax.set_title(f"{graph}")
+            ax.set_ylabel("Best Y" if row_idx == 0 else "Average Y")
+            ax.set_xlabel("Acquisition Function")
+            # ax.margins(y=0.4)
+
+            # Set specific y-axis limits for each graph
+            if graph == "ToyGraphUnknown":
+                ax.set_ylim(-2.5, 1)
+            elif graph == "Graph5Unknown" and row_idx == 0:
+                ax.set_ylim(-2, -0.5)
+            elif graph == "Graph5Unknown" and row_idx == 1:
+                ax.set_ylim(-2, 3)
+            elif graph == "Graph6Unknown":
+                ax.set_ylim(12.8, 14.4)
+
+    # Add a single legend at the bottom
+    handles, labels = axs[0, 0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.0),
+        ncol=len(use_dr_list),
+    )
+
+    # Adjust layout for better visualization
+    plt.tight_layout(rect=[0, 0.1, 1, 1])  # Leave space at the bottom for the legend
+
+    if save_file:
+        plt.savefig("acquisition_comparison.png", bbox_inches="tight")
+
+    plt.show()
+
+
 def summarise_cbo_toy_results():
     selected_graphs6 = [
         rf"Graph6Unknown/.*_cbo_unknown_results_200_2",
         rf"Graph6/.*_cbo_results_200_2_graph_0",
         rf"Graph6/.*ceo_\d*_results_200_2_",
-        rf"Graph6/.*_bo_results_200_2_",
+        rf"Graph6/.*_bo_results_new_200_2_",
         rf"Graph6/.*_cbo_results_200_2_graph_4",
     ]
     selected_graphs5 = [
         rf"Graph5Unknown/.*_cbo_unknown_results_200_2",
         rf"Graph5/.*_cbo_results_200_2_graph_0",
-        "Graph5/.*ceo_\d*_results_200_2_",
-        rf"Graph5/.*_bo_results_200_2_",
+        rf"Graph5/.*ceo_\d*_results_200_2_",
+        rf"Graph5Wrong/.*_bo_results_new_200_2_",
         rf"Graph5Wrong/.*_cbo_results_200_2_graph_0",
     ]
     selected_toy = [
         rf"ToyGraphUnknown/.*_cbo_unknown_results_200_2",
         rf"ToyGraph/.*_cbo_results_200_2_graph_0",
-        "ToyGraph/.*ceo_\d*_results_200_2_",
-        rf"ToyGraph/.*_bo_results_200_2_",
+        rf"ToyGraph/.*ceo_\d*_results_200_2_",
+        rf"ToyGraph/.*_bo_results_new_200_2_",
         rf"ToyGraph/.*_cbo_results_200_2_graph_1",
     ]
     sns.set_theme(style="whitegrid")
@@ -1154,5 +1346,162 @@ def summarise_cbo_toy_results():
     plt.tight_layout(rect=[0, 0.1, 1, 1])
 
     # Save the figure with the legend
-    plt.savefig("toy_summary_all.png", bbox_inches='tight')
+    plt.savefig("toy_summary_all.png", bbox_inches="tight")
     plt.show()
+
+
+def summarize_cbo_toy_results_with_boxplots():
+    selected_graphs6 = [
+        rf"Graph6Unknown/.*_cbo_dr_EI_results_200_2",
+        rf"Graph6/.*_cbo_results_200_2_graph_0",
+        rf"Graph6/.*ceo_\d*_results_200_2_",
+        rf"Graph6/.*_bo_results_new_200_2_",
+        # rf"Graph6/.*_cbo_results_200_2_graph_4",
+    ]
+    selected_graphs5 = [
+        rf"Graph5Unknown/.*_cbo_dr_EI_results_200_2",
+        rf"Graph5/.*_cbo_results_200_2_graph_0",
+        rf"Graph5/.*ceo_\d*_results_200_2_",
+        rf"Graph5Wrong/.*_bo_results_new_200_2_",
+        # rf"Graph5Wrong/.*_cbo_results_200_2_graph_0",
+    ]
+    selected_toy = [
+        rf"ToyGraphUnknown/.*_cbo_dr_EI_results_200_2",
+        rf"ToyGraph/.*_cbo_results_200_2_graph_0",
+        rf"ToyGraph/.*ceo_\d*_results_200_2_",
+        rf"ToyGraph/.*_bo_results_new_200_2_",
+        # rf"ToyGraph/.*_cbo_results_200_2_graph_1",
+    ]
+
+    sns.set_theme(style="whitegrid")
+    colors = ["blue", "orange"]
+    # Gather data for box plots
+    per_trial_data = {
+        "ToyGraph": extract_per_trial_data(selected_toy),
+        "Graph5": extract_per_trial_data(selected_graphs5),
+        "Graph6": extract_per_trial_data(selected_graphs6),
+    }
+
+    best_y_data = {
+        "ToyGraph": extract_best_y_data(selected_toy),
+        "Graph5": extract_best_y_data(selected_graphs5),
+        "Graph6": extract_best_y_data(selected_graphs6),
+    }
+
+    # Plotting
+    fig, axs = plt.subplots(1, 3, figsize=(18, 6))
+
+    # Experiment names for titles
+    experiments = ["ToyGraph", "Graph5", "Graph6"]
+    titles = ["Toy", "Epidemiology", "Healthcare"]
+
+    for i, experiment in enumerate(experiments):
+        # Combine data for both Per_trial_Y and Best_Y
+        plot_data = prepare_combined_plot_data(
+            per_trial_data[experiment], best_y_data[experiment]
+        )
+
+        # Create box plots for combined results
+        sns.boxplot(
+            ax=axs[i],
+            x="Method",
+            y="Value",
+            hue="Type",
+            data=plot_data,
+            showfliers=False,
+            palette=colors,
+        )
+        axs[i].set_title(titles[i])
+        axs[i].set_ylabel("Values" if i == 0 else "")
+        # axs[i].legend(loc="upper right")
+        axs[i].get_legend().remove()  # Remove individual legends
+
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, -0.1), ncol=2)
+    # Adjust layout
+    plt.tight_layout()
+
+    # Save the figure
+    plt.savefig("toy_summary_combined_boxplots.png", bbox_inches="tight")
+    plt.show()
+
+
+def extract_per_trial_data(regex_list):
+    """
+    Extracts all per trial Y data points from the results matching the regex list for use in box plots.
+    """
+    method_map = {0: "CBO Unknown", 1: "CBO", 2: "CEO", 3: "BO"}
+    per_trial_data = {method: [] for method in method_map.values()}
+    for i, regex in enumerate(regex_list):
+        results = load_results_regex("", regex=regex)
+        all_points = np.hstack([result["Per_trial_Y"][:30] for result in results])
+        per_trial_data[method_map[i]].extend(all_points)
+
+    return per_trial_data
+
+
+def extract_best_y_data(regex_list):
+    """
+    Extracts the best Y data points from the results matching the regex list for use in box plots.
+    """
+    method_map = {0: "CBO Unknown", 1: "CBO", 2: "CEO", 3: "BO"}
+    best_y_data = {method: [] for method in method_map.values()}
+    for i, regex in enumerate(regex_list):
+        results = load_results_regex("", regex=regex)
+        best_results = np.vstack([result["Best_Y"][:30] for result in results]).min(
+            axis=1
+        )
+        best_y_data[method_map[i]].extend(best_results)
+
+    return best_y_data
+
+
+def prepare_combined_plot_data(per_trial_data, best_y_data):
+    """
+    Prepares data for combined boxplot (Per_trial_Y and Best_Y) for a single experiment.
+    """
+    plot_data = {"Method": [], "Value": [], "Type": []}
+
+    for method, values in per_trial_data.items():
+        plot_data["Method"].extend([method] * len(values))
+        plot_data["Value"].extend(values)
+        plot_data["Type"].extend(["Average Y"] * len(values))
+
+    for method, values in best_y_data.items():
+        plot_data["Method"].extend([method] * len(values))
+        plot_data["Value"].extend(values)
+        plot_data["Type"].extend(["Best Y"] * len(values))
+
+    return plot_data
+
+
+def observational_dataset_posterior_per_iteration(nonlinear: bool = False):
+    graphs = ["Erdos5", "Erdos6", "Erdos7", "Erdos8", "Erdos9", "Erdos10"]
+
+    # Create a 2x3 grid of subplots
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    linear_string = "Nonlinear" if nonlinear else "Linear"
+    fig.suptitle(
+        f"Posterior per Iteration for Different {linear_string} Graphs", fontsize=16
+    )
+
+    for i, graph in enumerate(graphs):
+        row = i // 3
+        col = i % 3
+        ax = axes[row, col]
+
+        # Call the plot_posterior_nobs function with the current axis
+        plot_posterior_nobs(graph, experiment="accuracy", nonlinear=nonlinear, ax=ax)
+
+        ax.set_title(f"Graph: {graph}")
+
+    # Add a single legend at the bottom of the figure
+    handles, labels = axes[
+        0, 0
+    ].get_legend_handles_labels()  # Get handles and labels from one of the subplots
+    fig.legend(handles, labels, loc="lower center", ncol=3)
+
+    plt.tight_layout(rect=[0, 0.1, 1, 1])
+    plt.savefig(f"{linear_string}_per_iteration_accuracy", bbox_inches="tight")
+    plt.show()
+    # return fig

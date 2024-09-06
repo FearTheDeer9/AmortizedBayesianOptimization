@@ -41,7 +41,7 @@ def setup_observational_interventional(
     logging.info("Sampling the observational data")
 
     D_O: Dict[str, np.ndarray] = sample_model(
-        graph.SEM, sample_count=n_obs, graph=graph, seed=seed + 1
+        graph.SEM, sample_count=n_obs, graph=graph
     )
 
     exploration_set = graph.get_exploration_set()

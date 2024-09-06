@@ -465,8 +465,8 @@ class GraphStructure:
 
     @abc.abstractmethod
     def build_relationships(self) -> Tuple[dict, dict]:
-        parents = defaultdict(set)
-        children = defaultdict(set)
+        parents = {}
+        children = {}
         for node in self.nodes:
             parents[node] = []
             children[node] = []

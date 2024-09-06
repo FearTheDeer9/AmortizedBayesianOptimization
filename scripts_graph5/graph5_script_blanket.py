@@ -44,11 +44,7 @@ else:
 # run the CEO method using all the edges and then the CBO for each of the e
 
 all_graph_edges = [
-    [
-        ("B", "Y"),
-        ("T", "Y"),
-        ("R", "Y"),
-    ],
+    [("B", "Y"), ("T", "Y"), ("R", "Y"), ("T", "R")],
 ]
 
 run_script(

@@ -11,20 +11,40 @@ from algorithms.BO_algorithm import BO
 from algorithms.BOED_algorithm import BOED
 from algorithms.CBO_algorithm import CBO
 from algorithms.CEO_algorithm import CEO
-from config import (RUN_BO, RUN_BOED_POLICY_OPT, RUN_BOED_POLICY_OPT_FIXED,
-                    RUN_BOED_RANDOM, RUN_CBO, RUN_CEO, SAVE_RUN)
-from diffcbed.envs import (Chain, ErdosRenyi, OnlyDAGDream4Environment,
-                           ScaleFree)
+from config import (
+    RUN_BO,
+    RUN_BOED_POLICY_OPT,
+    RUN_BOED_POLICY_OPT_FIXED,
+    RUN_BOED_RANDOM,
+    RUN_CBO,
+    RUN_CEO,
+    SAVE_RUN,
+)
+from diffcbed.envs import Chain, ErdosRenyi, OnlyDAGDream4Environment, ScaleFree
 from diffcbed.envs.graph_to_env import GraphStructureEnv
 from diffcbed.models import DagBootstrap
-from diffcbed.strategies import (ABCDStrategy, BALDStrategy, BatchBALDStrategy,
-                                 FScoreBatchStrategy, GreedyABCDStrategy,
-                                 GridOptPCE, PCEBatchStrategy, PolicyOptCovEig,
-                                 PolicyOptNMC, PolicyOptNMCFixedValue,
-                                 PolicyOptPCE, RandomAcquisitionStrategy,
-                                 RandOptPCE_BO, RandOptPCE_GD, ReplayStrategy,
-                                 SoftBALDStrategy, SoftFScoreStrategy,
-                                 SoftPCE_BO, SoftPCE_GD, SSFinite)
+from diffcbed.strategies import (
+    ABCDStrategy,
+    BALDStrategy,
+    BatchBALDStrategy,
+    FScoreBatchStrategy,
+    GreedyABCDStrategy,
+    GridOptPCE,
+    PCEBatchStrategy,
+    PolicyOptCovEig,
+    PolicyOptNMC,
+    PolicyOptNMCFixedValue,
+    PolicyOptPCE,
+    RandomAcquisitionStrategy,
+    RandOptPCE_BO,
+    RandOptPCE_GD,
+    ReplayStrategy,
+    SoftBALDStrategy,
+    SoftFScoreStrategy,
+    SoftPCE_BO,
+    SoftPCE_GD,
+    SSFinite,
+)
 from graphs.data_setup import setup_observational_interventional
 from graphs.graph import GraphStructure
 from graphs.graph_4_nodes import Graph4Nodes
@@ -351,8 +371,6 @@ def run_script(
         n_obs=n_obs,
         n_int=n_int,
     )
-    # print(D_O)
-    # print(D_I)
 
     if RUN_CEO:
         model: CEO = CEO(
@@ -445,7 +463,7 @@ def run_script(
             "Uncertainty": average_uncertainty,
         }
 
-        filename_bo = f"results/{filename}/run{run_num}_bo_results_{n_obs}_{n_int}_{noisy_string}.pickle"
+        filename_bo = f"results/{filename}/run{run_num}_bo_results_new_{n_obs}_{n_int}_{noisy_string}.pickle"
         if SAVE_RUN:
             with open(filename_bo, "wb") as file:
                 pickle.dump(bo_results_dict, file)

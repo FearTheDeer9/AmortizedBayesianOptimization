@@ -94,10 +94,10 @@ class OnlyDAGDream4Environment(CausalEnvironment):
         mu_prior=2.0,
         sigma_prior=1.0,
         seed=10,
-        path="envs/dream4/configurations",
-        name="insilico_size10_1",
-        nonlinear=False,
-        binary_nodes=False,
+        path="diffcbed/envs/dream4/configurations",
+        name="InSilicoSize10-Ecoli1",
+        nonlinear=True,
+        binary_nodes=True,
         logger=None,
     ):
         self.noise_sigma = noise_sigma
@@ -106,6 +106,7 @@ class OnlyDAGDream4Environment(CausalEnvironment):
         self.path = path
         self.name = name
         self.nodes, self.var2id, A = get_network(pathlib.Path(path) / f"{name}.xml")
+
         self.adjacency_matrix = A
         self.num_nodes = len(self.nodes)
 

@@ -79,6 +79,7 @@ def run_script_unknown(
     run_cbo_unknown_dr_2: bool = False,
     run_cbo_unknown_all: bool = False,
     run_cbo_parents: bool = False,
+    run_misspecified: bool = False,
     run_random: bool = False,
 ):
     nonlinear_string = "_nonlinear" if nonlinear else ""
@@ -230,6 +231,42 @@ def run_script_unknown(
         with open(filename_cbo, "wb") as file:
             pickle.dump(cbo_results_dict, file)
 
+    if run_misspecified:
+        print(graph.edges)
+        print(graph.parents)
+        print(graph.parents[graph.target])
+        graph.misspecify_graph_random()
+        parents = graph.parents[graph.target]
+        print(graph.edges)
+        print(graph.parents)
+        print(parents)
+        edges = [(parent, graph.target) for parent in parents]
+        graph.mispecify_graph(edges)
+        graph.set_interventional_range_data(D_O)
+        exploration_set = [(parent,) for parent in parents]
+        model = CBO(graph=graph)
+        model.set_values(D_O, D_I, exploration_set)
+        model.run_algorithm(T=n_trials)
+        (
+            best_y_array,
+            current_y_array,
+            cost_array,
+            intervention_set,
+            intervention_value,
+            average_uncertainty,
+        ) = model.run_algorithm(T=n_trials)
+        filename_cbo = f"results/{filename}/run{run_num}_cbo_misspecified_results_{n_obs}_{n_int}{nonlinear_string}.pickle"
+        cbo_results_dict = {
+            "Best_Y": best_y_array,
+            "Per_trial_Y": current_y_array,
+            "Cost": cost_array,
+            "Intervention_Set": intervention_set,
+            "Intervention_Value": intervention_value,
+            "Uncertainty": average_uncertainty,
+        }
+        with open(filename_cbo, "wb") as file:
+            pickle.dump(cbo_results_dict, file)
+
 
 args = parse_args()
 n_int = 2
@@ -247,6 +284,7 @@ parent_method = args.parent_method
 graph_type = args.graph_type
 
 print(graph_type, parent_method, nonlinear)
+print(f"THE parent_method IS {parent_method}")
 if parent_method == "dr1":
     run_script_unknown(
         graph_type=graph_type,
@@ -307,4 +345,19 @@ elif parent_method == "random":
         filename=graph_type,
         run_cbo_parents=True,
         run_random=False,
+    )
+
+elif parent_method == "misspecified":
+    run_script_unknown(
+        graph_type=graph_type,
+        run_num=run_num,
+        noiseless=noiseless,
+        noisy_string=noisy_string,
+        seeds_int_data=seeds_int_data,
+        n_obs=n_obs,
+        n_int=n_int,
+        n_trials=n_trials,
+        nonlinear=nonlinear,
+        filename=graph_type,
+        run_misspecified=True,
     )

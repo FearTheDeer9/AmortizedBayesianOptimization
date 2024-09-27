@@ -231,7 +231,6 @@ class CausalEnvironment(torch.utils.data.Dataset):
 
         Outputs: Observations [num_samples x num_nodes]
         """
-
         if graph is None:
             graph = self.graph
 

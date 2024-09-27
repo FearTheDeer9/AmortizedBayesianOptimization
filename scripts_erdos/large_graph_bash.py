@@ -6,24 +6,26 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 # Get parent_method from command line argument
 
-if len(sys.argv) == 4:
-    graph_type = sys.argv[1]
-    parent_method = sys.argv[2]
-    n_observational = int(sys.argv[3])
-elif len(sys.argv) == 5:
-    graph_type = sys.argv[1]
-    parent_method = sys.argv[2]
-    nonlinear = sys.argv[3]
-    n_observational = int(sys.argv[4])
-else:
-    print("Usage: python3 run_graph_scripts.py <GraphType> <parent_method>")
-    sys.exit(1)
+# if len(sys.argv) == 4:
+#     graph_type = sys.argv[1]
+#     parent_method = sys.argv[2]
+#     n_observational = int(sys.argv[3])
+# elif len(sys.argv) == 5:
+#     graph_type = sys.argv[1]
+#     parent_method = sys.argv[2]
+#     nonlinear = sys.argv[3]
+#     n_observational = int(sys.argv[4])
+# else:
+#     print("Usage: python3 run_graph_scripts.py <GraphType> <parent_method>")
+#     sys.exit(1)
 
 # Define the fixed parameters
-# n_observational = 500
+n_observational = 200
+graph_type = "Erdos20"
 n_trials = 50
 n_anchor_points = 35
 noiseless = "--noiseless"
+parent_method = "misspecified"
 
 # Define the varying parameters
 seeds_replicate = [71, 11, 89, 69, 7, 50, 100, 111, 619, 77]

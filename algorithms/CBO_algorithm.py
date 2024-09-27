@@ -41,6 +41,7 @@ class CBO(BASE):
         noiseless: bool = True,
         acquisition: str = "EI",
         n_anchor_points: int = 35,
+        use_iscm: bool = False,
     ):
         assert acquisition in ["EI", "PES", "CEO"]
         self.acquisition = acquisition
@@ -64,6 +65,7 @@ class CBO(BASE):
         self.cost_num = cost_num
         self.task = task
         self.n_anchor_points = n_anchor_points
+        self.use_iscm = use_iscm
 
     def set_values(self, D_O: Dict, D_I: Dict, exploration_set: List[List[str]]):
         logging.info("Using predefined values for the optimization algorithm")
@@ -209,6 +211,7 @@ class CBO(BASE):
                 variables=self.graph.variables,
                 graph=self.graph,
                 noiseless=self.noiseless,
+                use_iscm=self.use_iscm,
             )
 
         current_global_min = np.mean(self.D_O[self.target])

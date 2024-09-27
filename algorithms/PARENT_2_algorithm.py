@@ -56,6 +56,7 @@ class PARENT(BASE):
         use_doubly_robust: bool = True,
         acquisition: str = "EI",
         n_anchor_points: int = 30,
+        use_iscm: bool = False,
     ):
         assert acquisition in ["EI", "PES", "CEO"]
         self.acquisition = acquisition
@@ -77,6 +78,7 @@ class PARENT(BASE):
         self.scale_data = scale_data
         self.use_doubly_robust = use_doubly_robust
         self.n_anchor_points = n_anchor_points
+        self.use_iscm = use_iscm
 
     def set_values(self, D_O, D_I, exploration_set):
         self.D_O = deepcopy(D_O)
@@ -119,6 +121,7 @@ class PARENT(BASE):
                     interventions=interventions,
                     sample_count=500,
                     graph=self.graph,
+                    use_iscm=self.use_iscm,
                 )["Y"]
             )
 
@@ -337,6 +340,7 @@ class PARENT(BASE):
                 variables=self.graph.variables,
                 graph=self.graph,
                 noiseless=self.noiseless,
+                use_iscm=self.use_iscm,
             )
 
         # STARTING THE ALGORITHM

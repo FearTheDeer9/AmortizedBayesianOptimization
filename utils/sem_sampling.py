@@ -70,6 +70,64 @@ def sample_from_SEM(
     return sample
 
 
+def sample_from_SEM_iscm(
+    static_sem: OrderedDict,
+    initial_values: dict = None,
+    interventions: dict = None,
+    epsilon: dict = None,
+    seed: int = None,
+    std: float = 0.1,
+    graph: GraphStructure = None,
+) -> OrderedDict:
+    """
+    Function to sample from a SEM, potentially with interventions or initial values.
+
+    Parameters
+    ----------
+    static_sem : OrderedDict
+        SEMs specifying the relationships among variables.
+    initial_values : dict, optional
+        Initial values of nodes, by default None.
+    interventions : dict, optional
+        Specifies interventions on variables, by default None.
+    epsilon : dict, optional
+        Specifies noise for each variable, by default standard Gaussian noise is used.
+    seed : int, optional
+        Random seed for reproducibility, by default None.
+
+    Returns
+    -------
+    OrderedDict
+        A sample from the SEM given previously implemented interventions or initial values.
+    """
+    if seed is not None:
+        rng = np.random.default_rng(seed)
+    else:
+        rng = np.random.default_rng()
+
+    # Initialize noise model
+    if epsilon is None:
+        epsilon = {k: rng.normal(scale=std) for k in static_sem.keys()}
+    assert isinstance(epsilon, dict)
+
+    # Initialize sample
+    sample = OrderedDict()
+
+    for var, function in static_sem.items():
+        # Apply interventions or initial values if specified
+        if interventions and var in interventions:
+            sample[var] = interventions[var]
+        elif initial_values and var in initial_values:
+            sample[var] = initial_values[var]
+        else:
+            # Otherwise, sample from the model using the specified noise
+            sample[var] = (
+                function(epsilon[var], sample) - graph.iscm_paramters[var]["mean"]
+            ) / graph.iscm_paramters[var]["std"]
+
+    return sample
+
+
 def sample_from_SEM_hat(
     static_sem: OrderedDict[str, GPRegression],
     graph: GraphStructure,
@@ -149,6 +207,7 @@ def sample_model(
     seed: int = None,
     graph: GraphStructure = None,
     noiseless: bool = False,
+    use_iscm: bool = False,
 ) -> dict:
     """
     Draws multiple samples from Bayesian Network.
@@ -160,6 +219,7 @@ def sample_model(
     dict
         Dictionary of n_samples per node in graph.
     """
+
     if seed:
         np.random.seed(seed)
 
@@ -175,24 +235,100 @@ def sample_model(
             )
         # This option uses the true SEMs.
         else:
-
             if graph is not None:
                 epsilon_term = graph.get_error_distribution(noiseless=noiseless)
             else:
                 epsilon_term = epsilon
 
-            tmp = sample_from_SEM(
-                static_sem=static_sem,
-                initial_values=initial_values,
-                interventions=interventions,
-                epsilon=epsilon_term,
-                seed=seed,
-            )
+            if use_iscm:
+                tmp = sample_from_SEM_iscm(
+                    static_sem=static_sem,
+                    initial_values=initial_values,
+                    interventions=interventions,
+                    epsilon=epsilon_term,
+                    seed=seed,
+                    graph=graph,
+                )
+            else:
+                tmp = sample_from_SEM(
+                    static_sem=static_sem,
+                    initial_values=initial_values,
+                    interventions=interventions,
+                    epsilon=epsilon_term,
+                    seed=seed,
+                )
         for var in static_sem.keys():
             new_samples[var].append(tmp[var])
 
     for var in static_sem.keys():
         new_samples[var] = np.vstack(new_samples[var])
+
+    return new_samples
+
+
+def sample_model_set_icm_params(
+    static_sem: OrderedDict,
+    initial_values: dict = None,
+    interventions: dict = None,
+    node_parents: Callable = None,
+    sample_count: int = 500,
+    epsilon: dict = None,
+    use_sem_estimate: bool = False,
+    seed: int = None,
+    graph: GraphStructure = None,
+    noiseless: bool = False,
+) -> dict:
+    """
+    Draws multiple samples from Bayesian Network.
+
+    Per variable the returned array is of the format: n_samples x timesteps in DBN.
+
+    Returns
+    -------
+    dict
+        Dictionary of n_samples per node in graph.
+    """
+    if seed:
+        np.random.seed(seed)
+
+    topological_order = list(nx.topological_sort(graph.G))
+
+    for set_var in topological_order:
+        new_samples = {k: [] for k in static_sem.keys()}
+        for _ in range(sample_count):
+            # This option uses the estimates of the SEMs, estimates found through use of GPs.
+            if use_sem_estimate:
+                tmp = sample_from_SEM_hat(
+                    static_sem=static_sem,
+                    node_parents=node_parents,
+                    initial_values=initial_values,
+                    interventions=interventions,
+                )
+            # This option uses the true SEMs.
+            else:
+
+                if graph is not None:
+                    epsilon_term = graph.get_error_distribution(noiseless=noiseless)
+                else:
+                    epsilon_term = epsilon
+
+                tmp = sample_from_SEM_iscm(
+                    static_sem=static_sem,
+                    initial_values=initial_values,
+                    interventions=interventions,
+                    epsilon=epsilon_term,
+                    seed=seed,
+                    graph=graph,
+                )
+            for var in static_sem.keys():
+                new_samples[var].append(tmp[var])
+
+        mean = np.mean(new_samples[set_var])
+        std = np.std(new_samples[set_var])
+        print(set_var, mean, std)
+        graph.set_params_iscm(set_var, mean, std)
+        for var in static_sem.keys():
+            new_samples[var] = np.vstack(new_samples[var])
 
     return new_samples
 
@@ -332,7 +468,8 @@ def draw_interventional_samples_sem(
     graph: GraphStructure,
     n_int: int = 2,
     seed: int = None,
-    noiseless=True,
+    noiseless: bool = True,
+    use_iscm: bool = False,
 ) -> dict:
     """
     Draw interventional samples from the given list of interventions
@@ -363,6 +500,7 @@ def draw_interventional_samples_sem(
                 interventions=intervention,
                 graph=graph,
                 noiseless=noiseless,
+                use_iscm=use_iscm,
             )
             for var in sample:
                 interventional_data[tuple(intervention)][var].append(sample[var][0, 0])

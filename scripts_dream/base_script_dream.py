@@ -42,6 +42,7 @@ def run_script_unknown(
     run_cbo_unknown_all: bool = False,
     run_cbo_parents: bool = False,
     run_random: bool = False,
+    use_iscm: bool = False,
 ):
     nonlinear_string = "_nonlinear" if nonlinear else ""
     if dream_env_name == "Ecoli1":
@@ -60,36 +61,8 @@ def run_script_unknown(
         n_obs=n_obs,
         n_int=n_int,
         graph=graph,
+        use_iscm=use_iscm,
     )
-
-    if run_cbo_unknown_dr_1:
-        model = PARENT_SCALE(
-            graph=graph,
-            nonlinear=nonlinear,
-            individual=False,
-            use_doubly_robust=True,
-        )
-        model.set_values(D_O, D_I, exploration_set)
-        (
-            best_y_array,
-            current_y_array,
-            cost_array,
-            intervention_set,
-            intervention_value,
-            average_uncertainty,
-        ) = model.run_algorithm(T=n_trials, show_graphics=False)
-
-        cbo_unknown_results_dict = {
-            "Best_Y": best_y_array,
-            "Per_trial_Y": current_y_array,
-            "Cost": cost_array,
-            "Intervention_Set": intervention_set,
-            "Intervention_Value": intervention_value,
-            "Uncertainty": average_uncertainty,
-        }
-        filename_cbo_unknown = f"results/{dream_env_name}/run{run_num}_cbo_unknown_dr1_results_{n_obs}_{n_int}{nonlinear_string}.pickle"
-        with open(filename_cbo_unknown, "wb") as file:
-            pickle.dump(cbo_unknown_results_dict, file)
 
     if run_cbo_unknown_dr_2:
         model = PARENT_SCALE(
@@ -97,6 +70,7 @@ def run_script_unknown(
             nonlinear=nonlinear,
             individual=True,
             use_doubly_robust=True,
+            use_iscm=use_iscm,
         )
         model.set_values(D_O, D_I, exploration_set)
         (
@@ -116,7 +90,7 @@ def run_script_unknown(
             "Intervention_Value": intervention_value,
             "Uncertainty": average_uncertainty,
         }
-        filename_cbo_unknown = f"results/{dream_env_name}/run{run_num}_cbo_unknown_dr2_results_{n_obs}_{n_int}{nonlinear_string}.pickle"
+        filename_cbo_unknown = f"results/{dream_env_name}/run{run_num}_cbo_unknown_dr2_iscm_results_{n_obs}_{n_int}{nonlinear_string}.pickle"
         with open(filename_cbo_unknown, "wb") as file:
             pickle.dump(cbo_unknown_results_dict, file)
 
@@ -137,7 +111,7 @@ def run_script_unknown(
             intervention_value,
             average_uncertainty,
         ) = model.run_algorithm(T=n_trials)
-        filename_cbo = f"results/{filename}/run{run_num}_cbo_results_{n_obs}_{n_int}{nonlinear_string}.pickle"
+        filename_cbo = f"results/{filename}/run{run_num}_cbo_results_iscm_{n_obs}_{n_int}{nonlinear_string}.pickle"
         cbo_results_dict = {
             "Best_Y": best_y_array,
             "Per_trial_Y": current_y_array,
@@ -160,7 +134,7 @@ def run_script_unknown(
             intervention_value,
             average_uncertainty,
         ) = model.run_algorithm(T=n_trials)
-        filename_cbo = f"results/{filename}/run{run_num}_cbo_results_random_{n_obs}_{n_int}{nonlinear_string}.pickle"
+        filename_cbo = f"results/{filename}/run{run_num}_cbo_results_iscm_random_{n_obs}_{n_int}{nonlinear_string}.pickle"
         cbo_results_dict = {
             "Best_Y": best_y_array,
             "Per_trial_Y": current_y_array,
@@ -205,6 +179,7 @@ if parent_method == "dr2":
         run_cbo_unknown_dr_2=True,
         run_cbo_parents=True,
         run_random=True,
+        use_iscm=True,
     )
 elif parent_method == "random":
     run_script_unknown(

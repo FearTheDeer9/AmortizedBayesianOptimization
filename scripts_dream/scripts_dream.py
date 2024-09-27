@@ -11,8 +11,8 @@ noiseless = "--noiseless"
 # Define the varying parameters
 seeds_replicate = [71, 11, 89, 69, 7, 50, 100, 111, 619, 77]
 run_nums = range(1, 11)
-# graph_type = "Ecoli1"
-graph_type = "Ecoli2"
+graph_type = "Ecoli1"
+# graph_type = "Ecoli2"
 
 # Loop through the combinations of seeds and run numbers
 for seed, run_num in zip(seeds_replicate, run_nums):

@@ -56,6 +56,10 @@ class Dream4Graph(GraphStructure):
         self._standardised = False
         self.use_intervention_range_data = False
 
+        self.population_mean_variance = {
+            var: {"mean": 0, "std": 1} for var in self.variables
+        }
+
     def set_target(self, target: str):
         # choose the variable that is the best one to optimize for the ErdosRenyi graph
         self._target = target

@@ -13,6 +13,7 @@ from utils.sem_sampling import (
     create_grid_interventions,
     draw_interventional_samples_sem,
     sample_model,
+    sample_model_set_icm_params,
 )
 
 
@@ -23,6 +24,7 @@ def setup_observational_interventional(
     noiseless: bool = True,
     seed: int = 42,
     graph: GraphStructure = None,
+    use_iscm: bool = False,
 ):
     """
     Setup the graph based on the structure we are using
@@ -40,15 +42,25 @@ def setup_observational_interventional(
 
     logging.info("Sampling the observational data")
 
+    if use_iscm:
+        logging.info("SETTING ISCM PARAMETERS")
+        sample_model_set_icm_params(graph.SEM, sample_count=n_obs, graph=graph)
+        logging.info(graph.iscm_paramters)
+
     D_O: Dict[str, np.ndarray] = sample_model(
-        graph.SEM, sample_count=n_obs, graph=graph
+        graph.SEM, sample_count=n_obs, graph=graph, use_iscm=use_iscm
     )
 
     exploration_set = graph.get_exploration_set()
     # getting the interventional data in two different formats
     logging.info("Sampling the interventional data")
     D_I = draw_interventional_samples_sem(
-        exploration_set, graph, n_int=n_int, seed=seed, noiseless=noiseless
+        exploration_set,
+        graph,
+        n_int=n_int,
+        seed=seed,
+        noiseless=noiseless,
+        use_iscm=use_iscm,
     )
 
     return D_O, D_I, exploration_set

@@ -15,12 +15,19 @@ import utils.ceo_utils as ceo_utils
 from algorithms.BASE_algorithm import BASE
 from diffcbed.replay_buffer import ReplayBuffer
 from graphs.graph import GraphStructure
-from posterior_model.model import (DoublyRobustModel, LinearSCMModel,
-                                   NonLinearSCMModel, SCMModel)
+from posterior_model.model import (
+    DoublyRobustModel,
+    LinearSCMModel,
+    NonLinearSCMModel,
+    SCMModel,
+)
 from utils.cbo_classes import DoFunctions, TargetClass
-from utils.sem_sampling import (change_int_data_format_to_mi,
-                                change_intervention_list_format,
-                                change_obs_data_format_to_mi, sample_model)
+from utils.sem_sampling import (
+    change_int_data_format_to_mi,
+    change_intervention_list_format,
+    change_obs_data_format_to_mi,
+    sample_model,
+)
 
 
 # Function to standardize data
@@ -48,6 +55,7 @@ class PARENT_SCALE(BASE):
         scale_data: bool = True,
         individual: bool = False,
         use_doubly_robust: bool = True,
+        use_iscm: bool = False,
     ):
         self.graph = graph
         self.num_nodes = len(self.graph.variables)
@@ -67,6 +75,7 @@ class PARENT_SCALE(BASE):
         self.scale_data = scale_data
         self.individual = individual
         self.use_doubly_robust = use_doubly_robust
+        self.use_iscm = use_iscm
 
     def set_values(self, D_O, D_I, exploration_set):
         self.D_O = deepcopy(D_O)
@@ -107,6 +116,7 @@ class PARENT_SCALE(BASE):
                     interventions=interventions,
                     sample_count=500,
                     graph=self.graph,
+                    use_iscm=self.use_iscm,
                 )["Y"]
             )
 
@@ -147,7 +157,11 @@ class PARENT_SCALE(BASE):
             buffer.update(D_O_mi)
             robust_model.run_method(buffer.data())
             probabilities = robust_model.prob_estimate
-            if isinstance(probabilities, dict) and len(probabilities) == 1 and () in probabilities:
+            if (
+                isinstance(probabilities, dict)
+                and len(probabilities) == 1
+                and () in probabilities
+            ):
                 probabilities = {
                     (var,): 1 / len(self.graph.variables)
                     for var in self.graph.variables
@@ -340,6 +354,7 @@ class PARENT_SCALE(BASE):
                 variables=self.graph.variables,
                 graph=self.graph,
                 noiseless=self.noiseless,
+                use_iscm=self.use_iscm,
             )
 
         return data_x_list_new, data_y_list_new, parameter_spaces, target_classes

@@ -317,6 +317,7 @@ class TargetClass:
         variables: List,
         graph: GraphStructure,
         noiseless=True,
+        use_iscm: bool = False,
     ) -> None:
         self.model = sem_model
         self.interventions = interventions
@@ -325,6 +326,7 @@ class TargetClass:
         self.interventional_dict = {val: "" for val in self.interventions}
         self.graph = graph
         self.noiseless = noiseless
+        self.use_iscm = use_iscm
 
     def compute_target(self, value: np.ndarray) -> np.ndarray:
         for i in range(self.num_interventions):
@@ -340,6 +342,7 @@ class TargetClass:
             interventions=self.interventional_dict,
             sample_count=sample_count,
             graph=self.graph,
+            use_iscm=self.use_iscm,
         )
         return np.mean(new_samples[self.graph.target]).reshape(1, 1)
 
@@ -352,6 +355,7 @@ class TargetClass:
             interventions=self.interventional_dict,
             sample_count=1000,
             graph=self.graph,
+            use_iscm=self.use_iscm,
         )
         all_vars = {
             var: np.mean(new_samples[var]).reshape(1, 1) for var in self.variables

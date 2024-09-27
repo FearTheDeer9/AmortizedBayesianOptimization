@@ -208,6 +208,11 @@ class GraphStructure:
 
     @property
     @abc.abstractmethod
+    def iscm_paramters(self):
+        return self.population_mean_variance
+
+    @property
+    @abc.abstractmethod
     def target(self) -> str:
         return self._target
 
@@ -822,10 +827,6 @@ class GraphStructure:
         return uncertanties
 
     @abc.abstractmethod
-    def set_err_distrbution(self, err_dist: Dict):
-        pass
-
-    @abc.abstractmethod
     def compute_do_generic(self, intervention_nodes, observational_samples, value):
         mean_do, var_do = self.compute_do(
             observational_samples, value, intervention_nodes
@@ -845,3 +846,8 @@ class GraphStructure:
             self.stds = stds
         else:
             self._standardised = standardised
+
+    @abc.abstractmethod
+    def set_params_iscm(self, var: str, mean: float, std: float):
+        self.population_mean_variance[var]["mean"] = mean
+        self.population_mean_variance[var]["std"] = std

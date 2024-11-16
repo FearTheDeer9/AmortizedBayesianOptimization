@@ -75,9 +75,9 @@ class ErdosRenyiGraph(GraphStructure):
         print(adj_matrix)
         # Shuffle rows except the target row
         indices = list(range(num_nodes))  # Create a list of all indices (rows)
-        indices.remove(
-            target
-        )  # Remove the target index from the list of rows to shuffle
+        # indices.remove(
+        #     target
+        # )  # Remove the target index from the list of rows to shuffle
 
         # Shuffle the remaining indices
         np.random.seed(seed)

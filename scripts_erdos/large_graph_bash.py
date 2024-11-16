@@ -21,11 +21,11 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 # Define the fixed parameters
 n_observational = 200
-graph_type = "Erdos20"
+graphs = ["Erdos10", "Erdos15", "Erdos20"]
 n_trials = 50
 n_anchor_points = 35
 noiseless = "--noiseless"
-parent_method = "misspecified"
+parent_method = "random_2"
 
 # Define the varying parameters
 seeds_replicate = [71, 11, 89, 69, 7, 50, 100, 111, 619, 77]
@@ -33,20 +33,21 @@ run_nums = range(1, 11)
 
 # Loop through the combinations of seeds and run numbers
 for seed, run_num in zip(seeds_replicate, run_nums):
-    # linear one
-    command = (
-        f"python3 large_graph_script.py --seeds_replicate {seed} --n_observational {n_observational} "
-        f"--n_trials {n_trials} --n_anchor_points {n_anchor_points} --run_num {run_num} {noiseless} "
-        f'--graph_type "{graph_type}" --parent_method "{parent_method}"'
-    )
-    os.system(command)
-    print(f"Executed: {command}")
+    for graph_type in graphs:
+        # linear one
+        command = (
+            f"python3 large_graph_script.py --seeds_replicate {seed} --n_observational {n_observational} "
+            f"--n_trials {n_trials} --n_anchor_points {n_anchor_points} --run_num {run_num} {noiseless} "
+            f'--graph_type "{graph_type}" --parent_method "{parent_method}"'
+        )
+        os.system(command)
+        print(f"Executed: {command}")
 
-    # non-linear one
-    command = (
-        f"python3 large_graph_script.py --seeds_replicate {seed} --n_observational {n_observational} "
-        f"--n_trials {n_trials} --n_anchor_points {n_anchor_points} --run_num {run_num} {noiseless} "
-        f'--graph_type "{graph_type}" --parent_method "{parent_method}" --nonlinear'
-    )
-    os.system(command)
-    print(f"Executed: {command}")
+        # non-linear one
+        command = (
+            f"python3 large_graph_script.py --seeds_replicate {seed} --n_observational {n_observational} "
+            f"--n_trials {n_trials} --n_anchor_points {n_anchor_points} --run_num {run_num} {noiseless} "
+            f'--graph_type "{graph_type}" --parent_method "{parent_method}" --nonlinear'
+        )
+        os.system(command)
+        print(f"Executed: {command}")

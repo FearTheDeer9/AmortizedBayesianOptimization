@@ -49,6 +49,7 @@ class RANDOM_SCALE(BASE):
         graph: GraphStructure,
         noiseless: bool = True,
         cost_num: int = 1,
+        use_iscm: bool = False,
     ):
         self.graph = graph
         self.num_nodes = len(self.graph.variables)
@@ -59,6 +60,7 @@ class RANDOM_SCALE(BASE):
         self.manipulative_variables = self.graph.get_sets()[2]
         self.noiseless = noiseless
         self.cost_num = cost_num
+        self.use_iscm = use_iscm
 
     def set_values(self, D_O, D_I, exploration_set):
         self.D_O = deepcopy(D_O)
@@ -93,6 +95,7 @@ class RANDOM_SCALE(BASE):
                 variables=self.graph.variables,
                 graph=self.graph,
                 noiseless=self.noiseless,
+                use_iscm=self.use_iscm,
             )
 
         # STARTING THE ALGORITHM

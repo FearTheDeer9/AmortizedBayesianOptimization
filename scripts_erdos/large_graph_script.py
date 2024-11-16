@@ -41,6 +41,10 @@ def set_graph(graph_type: str, nonlinear: bool = False) -> GraphStructure:
         "Erdos10",
         "Erdos15",
         "Erdos20",
+        "Erdos50",
+        "Erdos100",
+        "Erdos100_2",
+        "Erdos100_3",
     ]
     if graph_type == "Toy":
         graph = ToyGraph()
@@ -61,6 +65,18 @@ def set_graph(graph_type: str, nonlinear: bool = False) -> GraphStructure:
     elif graph_type == "Erdos20":
         graph = ErdosRenyiGraph(num_nodes=20, nonlinear=nonlinear)
         graph.set_target("18")
+    elif graph_type == "Erdos50":
+        graph = ErdosRenyiGraph(num_nodes=50, nonlinear=nonlinear)
+        graph.set_target("23")
+    elif graph_type == "Erdos100":
+        graph = ErdosRenyiGraph(num_nodes=100, nonlinear=nonlinear)
+        graph.set_target("80")
+    elif graph_type == "Erdos100_2":
+        graph = ErdosRenyiGraph(num_nodes=100, nonlinear=nonlinear)
+        graph.set_target("2")
+    elif graph_type == "Erdos100_3":
+        graph = ErdosRenyiGraph(num_nodes=100, nonlinear=nonlinear)
+        graph.set_target("16")
     return graph
 
 
@@ -187,7 +203,7 @@ def run_script_unknown(
         exploration_set = [(parent,) for parent in parents]
         model = CBO(graph=graph)
         model.set_values(D_O, D_I, exploration_set)
-        model.run_algorithm(T=n_trials)
+        # model.run_algorithm(T=n_trials)
         (
             best_y_array,
             current_y_array,
@@ -232,21 +248,15 @@ def run_script_unknown(
             pickle.dump(cbo_results_dict, file)
 
     if run_misspecified:
-        print(graph.edges)
-        print(graph.parents)
-        print(graph.parents[graph.target])
-        graph.misspecify_graph_random()
+        graph.misspecify_graph_random(seed=14)
         parents = graph.parents[graph.target]
-        print(graph.edges)
-        print(graph.parents)
-        print(parents)
         edges = [(parent, graph.target) for parent in parents]
         graph.mispecify_graph(edges)
         graph.set_interventional_range_data(D_O)
         exploration_set = [(parent,) for parent in parents]
         model = CBO(graph=graph)
         model.set_values(D_O, D_I, exploration_set)
-        model.run_algorithm(T=n_trials)
+        # model.run_algorithm(T=n_trials)
         (
             best_y_array,
             current_y_array,
@@ -285,7 +295,84 @@ graph_type = args.graph_type
 
 print(graph_type, parent_method, nonlinear)
 print(f"THE parent_method IS {parent_method}")
-if parent_method == "dr1":
+# if parent_method == "dr1":
+#     run_script_unknown(
+#         graph_type=graph_type,
+#         run_num=run_num,
+#         noiseless=noiseless,
+#         noisy_string=noisy_string,
+#         seeds_int_data=seeds_int_data,
+#         n_obs=n_obs,
+#         n_int=n_int,
+#         n_trials=n_trials,
+#         nonlinear=nonlinear,
+#         filename=graph_type,
+#         run_cbo_unknown_dr_1=True,
+#         run_random=True,
+#         run_cbo_parents=True,
+#     )
+# elif parent_method == "dr2":
+#     run_script_unknown(
+#         graph_type=graph_type,
+#         run_num=run_num,
+#         noiseless=noiseless,
+#         noisy_string=noisy_string,
+#         seeds_int_data=seeds_int_data,
+#         n_obs=n_obs,
+#         n_int=n_int,
+#         n_trials=n_trials,
+#         nonlinear=nonlinear,
+#         filename=graph_type,
+#         run_cbo_unknown_dr_2=True,
+#         run_cbo_parents=True,
+#         run_random=True,
+#     )
+# elif parent_method == "all":
+#     run_script_unknown(
+#         graph_type=graph_type,
+#         run_num=run_num,
+#         noiseless=noiseless,
+#         noisy_string=noisy_string,
+#         seeds_int_data=seeds_int_data,
+#         n_obs=n_obs,
+#         n_int=n_int,
+#         n_trials=n_trials,
+#         nonlinear=nonlinear,
+#         filename=graph_type,
+#         run_cbo_unknown_all=True,
+#     )
+# elif parent_method == "random":
+#     run_script_unknown(
+#         graph_type=graph_type,
+#         run_num=run_num,
+#         noiseless=noiseless,
+#         noisy_string=noisy_string,
+#         seeds_int_data=seeds_int_data,
+#         n_obs=n_obs,
+#         n_int=n_int,
+#         n_trials=n_trials,
+#         nonlinear=nonlinear,
+#         filename=graph_type,
+#         run_cbo_parents=True,
+#         run_random=False,
+#     )
+
+# elif parent_method == "misspecified":
+#     run_script_unknown(
+#         graph_type=graph_type,
+#         run_num=run_num,
+#         noiseless=noiseless,
+#         noisy_string=noisy_string,
+#         seeds_int_data=seeds_int_data,
+#         n_obs=n_obs,
+#         n_int=n_int,
+#         n_trials=n_trials,
+#         nonlinear=nonlinear,
+#         filename=graph_type,
+#         run_misspecified=True,
+#     )
+
+if parent_method == "dr2":
     run_script_unknown(
         graph_type=graph_type,
         run_num=run_num,
@@ -297,54 +384,10 @@ if parent_method == "dr1":
         n_trials=n_trials,
         nonlinear=nonlinear,
         filename=graph_type,
-        run_cbo_unknown_dr_1=True,
-        run_random=True,
         run_cbo_parents=True,
-    )
-elif parent_method == "dr2":
-    run_script_unknown(
-        graph_type=graph_type,
-        run_num=run_num,
-        noiseless=noiseless,
-        noisy_string=noisy_string,
-        seeds_int_data=seeds_int_data,
-        n_obs=n_obs,
-        n_int=n_int,
-        n_trials=n_trials,
-        nonlinear=nonlinear,
-        filename=graph_type,
         run_cbo_unknown_dr_2=True,
-        run_cbo_parents=True,
+        run_misspecified=True,
         run_random=True,
-    )
-elif parent_method == "all":
-    run_script_unknown(
-        graph_type=graph_type,
-        run_num=run_num,
-        noiseless=noiseless,
-        noisy_string=noisy_string,
-        seeds_int_data=seeds_int_data,
-        n_obs=n_obs,
-        n_int=n_int,
-        n_trials=n_trials,
-        nonlinear=nonlinear,
-        filename=graph_type,
-        run_cbo_unknown_all=True,
-    )
-elif parent_method == "random":
-    run_script_unknown(
-        graph_type=graph_type,
-        run_num=run_num,
-        noiseless=noiseless,
-        noisy_string=noisy_string,
-        seeds_int_data=seeds_int_data,
-        n_obs=n_obs,
-        n_int=n_int,
-        n_trials=n_trials,
-        nonlinear=nonlinear,
-        filename=graph_type,
-        run_cbo_parents=True,
-        run_random=False,
     )
 
 elif parent_method == "misspecified":
@@ -360,4 +403,35 @@ elif parent_method == "misspecified":
         nonlinear=nonlinear,
         filename=graph_type,
         run_misspecified=True,
+    )
+elif parent_method == "random":
+    run_script_unknown(
+        graph_type=graph_type,
+        run_num=run_num,
+        noiseless=noiseless,
+        noisy_string=noisy_string,
+        seeds_int_data=seeds_int_data,
+        n_obs=n_obs,
+        n_int=n_int,
+        n_trials=n_trials,
+        nonlinear=nonlinear,
+        filename=graph_type,
+        run_cbo_parents=True,
+        run_random=True,
+    )
+
+elif parent_method == "random_2":
+    run_script_unknown(
+        graph_type=graph_type,
+        run_num=run_num,
+        noiseless=noiseless,
+        noisy_string=noisy_string,
+        seeds_int_data=seeds_int_data,
+        n_obs=n_obs,
+        n_int=n_int,
+        n_trials=n_trials,
+        nonlinear=nonlinear,
+        filename=graph_type,
+        run_cbo_parents=False,
+        run_random=True,
     )

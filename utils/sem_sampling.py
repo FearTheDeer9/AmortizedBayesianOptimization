@@ -541,6 +541,18 @@ def change_obs_data_format_to_bo(D_O: Data, graph_variables: List) -> Dict:
     return data_bo
 
 
+def change_obs_data_format_to_bo_sergio(D_O: np.array, graph_variables: List) -> Dict:
+    """
+    Change the data format from the format for the MI methods to the format needed for the
+    the BO methods
+    """
+    data = D_O
+    data_bo = {}
+    for i, node_name in enumerate(graph_variables):
+        data_bo[node_name] = data[:, i, 0]
+    return data_bo
+
+
 def change_int_data_format_to_mi(D_I: Dict, graph_variables: List) -> List[Data]:
     # this only takes into account one intervention
     D_I_mi = []

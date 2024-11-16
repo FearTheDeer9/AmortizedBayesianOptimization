@@ -20,7 +20,7 @@ for seed, run_num in zip(seeds_replicate, run_nums):
     command = (
         f"python3 base_script_dream.py --seeds_replicate {seed} --n_observational 200 "
         f"--n_trials {n_trials} --n_anchor_points {n_anchor_points} --run_num {run_num} {noiseless} "
-        f'--graph_type "{graph_type}" --parent_method dr2'
+        f'--graph_type "{graph_type}" --parent_method misspecified'
     )
     os.system(command)
     print(f"Executed: {command}")

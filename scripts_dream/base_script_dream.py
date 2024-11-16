@@ -41,10 +41,12 @@ def run_script_unknown(
     run_cbo_unknown_dr_2: bool = False,
     run_cbo_unknown_all: bool = False,
     run_cbo_parents: bool = False,
+    run_misspecified: bool = False,
     run_random: bool = False,
     use_iscm: bool = False,
 ):
     nonlinear_string = "_nonlinear" if nonlinear else ""
+    use_iscm_string = "_iscm_" if use_iscm else ""
     if dream_env_name == "Ecoli1":
         graph = Dream4Graph(yml_name=f"InSilicoSize10-{dream_env_name}")
         graph.set_target("3")
@@ -100,7 +102,7 @@ def run_script_unknown(
         graph.mispecify_graph(edges)
         graph.set_interventional_range_data(D_O)
         exploration_set = [(parent,) for parent in parents]
-        model = CBO(graph=graph)
+        model = CBO(graph=graph, use_iscm=use_iscm)
         model.set_values(D_O, D_I, exploration_set)
         model.run_algorithm(T=n_trials)
         (
@@ -111,7 +113,7 @@ def run_script_unknown(
             intervention_value,
             average_uncertainty,
         ) = model.run_algorithm(T=n_trials)
-        filename_cbo = f"results/{filename}/run{run_num}_cbo_results_iscm_{n_obs}_{n_int}{nonlinear_string}.pickle"
+        filename_cbo = f"results/{filename}/run{run_num}_cbo_results{use_iscm_string}{n_obs}_{n_int}{nonlinear_string}.pickle"
         cbo_results_dict = {
             "Best_Y": best_y_array,
             "Per_trial_Y": current_y_array,
@@ -124,7 +126,7 @@ def run_script_unknown(
             pickle.dump(cbo_results_dict, file)
 
     if run_random:
-        model = RANDOM_SCALE(graph)
+        model = RANDOM_SCALE(graph, use_iscm=use_iscm)
         model.set_values(D_O, D_I, exploration_set)
         (
             best_y_array,
@@ -134,7 +136,40 @@ def run_script_unknown(
             intervention_value,
             average_uncertainty,
         ) = model.run_algorithm(T=n_trials)
-        filename_cbo = f"results/{filename}/run{run_num}_cbo_results_iscm_random_{n_obs}_{n_int}{nonlinear_string}.pickle"
+        filename_cbo = f"results/{filename}/run{run_num}_cbo_results_random{use_iscm_string}{n_obs}_{n_int}{nonlinear_string}.pickle"
+        cbo_results_dict = {
+            "Best_Y": best_y_array,
+            "Per_trial_Y": current_y_array,
+            "Cost": cost_array,
+            "Intervention_Set": intervention_set,
+            "Intervention_Value": intervention_value,
+            "Uncertainty": average_uncertainty,
+        }
+        with open(filename_cbo, "wb") as file:
+            pickle.dump(cbo_results_dict, file)
+
+    if run_misspecified:
+        if dream_env_name == "Ecoli1":
+            graph.misspecify_graph_random(seed=42)
+        else:
+            graph.misspecify_graph_random()
+        parents = graph.parents[graph.target]
+        edges = [(parent, graph.target) for parent in parents]
+        graph.mispecify_graph(edges)
+        graph.set_interventional_range_data(D_O)
+        exploration_set = [(parent,) for parent in parents]
+        model = CBO(graph=graph, use_iscm=use_iscm)
+        model.set_values(D_O, D_I, exploration_set)
+        model.run_algorithm(T=n_trials)
+        (
+            best_y_array,
+            current_y_array,
+            cost_array,
+            intervention_set,
+            intervention_value,
+            average_uncertainty,
+        ) = model.run_algorithm(T=n_trials)
+        filename_cbo = f"results/{filename}/run{run_num}_cbo_misspecified_results{use_iscm_string}{n_obs}_{n_int}{nonlinear_string}.pickle"
         cbo_results_dict = {
             "Best_Y": best_y_array,
             "Per_trial_Y": current_y_array,
@@ -195,4 +230,23 @@ elif parent_method == "random":
         filename=graph_type,
         run_cbo_parents=True,
         run_random=False,
+        run_misspecified=True,
+        use_iscm=True,
+    )
+elif parent_method == "misspecified":
+    run_script_unknown(
+        dream_env_name=graph_type,
+        run_num=run_num,
+        noiseless=noiseless,
+        noisy_string=noisy_string,
+        seeds_int_data=seeds_int_data,
+        n_obs=n_obs,
+        n_int=n_int,
+        n_trials=n_trials,
+        nonlinear=nonlinear,
+        filename=graph_type,
+        run_cbo_parents=True,
+        run_random=True,
+        run_misspecified=True,
+        use_iscm=True,
     )

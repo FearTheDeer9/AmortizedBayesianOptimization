@@ -151,7 +151,7 @@ class PARENT_SCALE(BASE):
                 topological_order=topological_order,
                 target=self.graph.target,
                 indivdual=self.individual,
-                num_bootstraps=30,
+                num_bootstraps=10,
             )
             buffer = ReplayBuffer(binary=True)
             buffer.update(D_O_mi)

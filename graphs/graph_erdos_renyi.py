@@ -13,10 +13,9 @@ from diffcbed.envs.causal_environment import CausalEnvironment
 from diffcbed.envs.erdos_renyi import ErdosRenyi
 from diffcbed.envs.samplers import D
 from graphs.graph import GraphStructure
-from graphs.graph_chain import (
-    define_SEM_causalenv_linear,
-    define_SEM_causalenv_nonlinear,
-)
+
+# Import only the linear SEM function and not the nonlinear one
+from graphs.graph_chain import define_SEM_causalenv_linear
 
 
 class ErdosRenyiGraph(GraphStructure):
@@ -25,24 +24,32 @@ class ErdosRenyiGraph(GraphStructure):
         self,
         num_nodes: int,
         seed: int = 17,
-        nonlinear: bool = False,
+        nonlinear: bool = False,  # Keep for compatibility but ignore
         noise_sigma=1.0,
         exp_edges: int = 1,
+        task: str = "min",
     ):
-        self.noise_sigma = 0.1 if nonlinear else noise_sigma
-        args = argparse.Namespace(scm_bias=0.0, noise_bias=0.0, old_er_logic=True)
-        self.nonlinear = nonlinear
+        if nonlinear:
+            raise NotImplementedError(
+                "Nonlinear SEM not implemented for ErdosRenyiGraph")
+
+        self.noise_sigma = noise_sigma
+        args = argparse.Namespace(
+            scm_bias=0.0, noise_bias=0.0, old_er_logic=True)
+        self.nonlinear = False  # Force to linear
         self.num_nodes = num_nodes
+        self.task = task
 
         self.causal_env: CausalEnvironment = ErdosRenyi(
             args=args,
             num_nodes=num_nodes,
             binary_nodes=True,
-            nonlinear=nonlinear,
+            nonlinear=False,  # Force to linear
             seed=seed,
             exp_edges=exp_edges,
         )
         self._SEM = self.define_SEM()
+
         self._variables = [str(i) for i in range(num_nodes)]
 
         self._edges = [
@@ -75,9 +82,6 @@ class ErdosRenyiGraph(GraphStructure):
         print(adj_matrix)
         # Shuffle rows except the target row
         indices = list(range(num_nodes))  # Create a list of all indices (rows)
-        # indices.remove(
-        #     target
-        # )  # Remove the target index from the list of rows to shuffle
 
         # Shuffle the remaining indices
         np.random.seed(seed)
@@ -87,7 +91,8 @@ class ErdosRenyiGraph(GraphStructure):
         shuffled_matrix = adj_matrix.copy()
 
         for i, new_row_index in enumerate(shuffled_indices):
-            shuffled_matrix[i] = adj_matrix[new_row_index]  # Replace with shuffled rows
+            # Replace with shuffled rows
+            shuffled_matrix[i] = adj_matrix[new_row_index]
 
         # Keep the target row unchanged
         shuffled_matrix[target] = adj_matrix[target]
@@ -133,14 +138,10 @@ class ErdosRenyiGraph(GraphStructure):
         self.rng = np.random.default_rng(seed)
 
     def define_SEM(self):
-        if self.nonlinear:
-            sem_functions = define_SEM_causalenv_nonlinear(
-                self.causal_env, self.causal_env.conditionals
-            )
-        else:
-            sem_functions = define_SEM_causalenv_linear(
-                self.causal_env.graph, self.causal_env.weighted_adjacency_matrix
-            )
+        # Only use linear SEM, ignoring any nonlinear options
+        sem_functions = define_SEM_causalenv_linear(
+            self.causal_env.graph, self.causal_env.weighted_adjacency_matrix
+        )
         return sem_functions
 
     def get_error_distribution(self, noiseless=False):
@@ -172,5 +173,6 @@ class ErdosRenyiGraph(GraphStructure):
     def get_sets(self):
         mis = []
         pomis = []
-        manipulative_variables = [var for var in self.variables if var != self.target]
+        manipulative_variables = [
+            var for var in self.variables if var != self.target]
         return mis, pomis, manipulative_variables

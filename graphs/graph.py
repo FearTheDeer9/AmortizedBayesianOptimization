@@ -41,7 +41,8 @@ def safe_optimization(
     bound_len: int = 20,
 ) -> GPyModelWrapper:
     if gpy_model.kern.variance[0] < lower_bound_var:
-        logging.info("SAFE OPTIMIZATION: Resetting the kernel variance to lower bound")
+        logging.info(
+            "SAFE OPTIMIZATION: Resetting the kernel variance to lower bound")
         gpy_model.kern.variance[0] = lower_bound_var
 
     if gpy_model.kern.lengthscale[0] > bound_len:
@@ -49,11 +50,13 @@ def safe_optimization(
         gpy_model.kern.lengthscale[0] = 1.0
 
     if gpy_model.likelihood.variance[0] > upper_bound_var:
-        logging.info("SAFE OPTIMIZATION: restting likelihood var to upper bound")
+        logging.info(
+            "SAFE OPTIMIZATION: restting likelihood var to upper bound")
         gpy_model.likelihood.variance[0] = upper_bound_var
 
     if gpy_model.likelihood.variance[0] < lower_bound_var:
-        logging.info("SAFE OPTIMIZATION: resetting likelihood var to lower bound")
+        logging.info(
+            "SAFE OPTIMIZATION: resetting likelihood var to lower bound")
         gpy_model.likelihood.variance[0] = lower_bound_var
     return gpy_model
 
@@ -184,7 +187,8 @@ def predict_causal_effect(
     Returns the mean and the variance of the observation
     """
     input_Y = np.hstack(
-        [variables[parent].reshape(num_observations, -1) for parent in parents_Y]
+        [variables[parent].reshape(num_observations, -1)
+         for parent in parents_Y]
     )
     gp_Y = functions[target]
     predictions = gp_Y.predict(input_Y)
@@ -356,7 +360,7 @@ class GraphStructure:
         manipulative_variables = self.get_sets()[2]
         costs = OrderedDict()
         for var in manipulative_variables:
-            func = lambda intervention_value: 1.0
+            def func(intervention_value): return 1.0
             costs[var] = func
 
         return costs
@@ -454,9 +458,11 @@ class GraphStructure:
                 gp = safe_optimization(gp)
                 self._functions[child] = gp
             else:
-                logging.debug(f"Fitting marginal distribution for child {child}")
+                logging.debug(
+                    f"Fitting marginal distribution for child {child}")
                 Y = samples[child]
-                self._functions[child] = MyKDE(kernel="gaussian").fit_and_update(Y)
+                self._functions[child] = MyKDE(
+                    kernel="gaussian").fit_and_update(Y)
 
             # this can also be a flag - not sure why it is added
             # if set_priors:

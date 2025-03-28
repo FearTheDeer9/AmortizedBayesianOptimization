@@ -26,12 +26,14 @@ class ToyGraph(GraphStructure):
         Z: np.ndarray = None,
         Y: np.ndarray = None,
         noiseless: bool = False,
+        task: str = "min",
     ):
         logging.info("Initializing the Toy Graph Structures")
         self.X = X
         self.Z = Z
         self.Y = Y
         self.noiseless = noiseless
+        self.task = task
         self._SEM = self.define_SEM()
         self._edges = [("X", "Z"), ("Z", "Y")]
         self._nodes = set(chain(*self.edges))
@@ -69,7 +71,8 @@ class ToyGraph(GraphStructure):
         """
         Fit the model based on the original data
         """
-        logging.info("Fitting the Gaussian Processes based on the original data")
+        logging.info(
+            "Fitting the Gaussian Processes based on the original data")
         assert self.X is not None
 
         # regress Y on Z
@@ -117,10 +120,14 @@ class ToyGraph(GraphStructure):
         max_intervention_z = 13
 
         if self.standardised:
-            min_intervention_x = (min_intervention_x - self.means["X"]) / self.stds["X"]
-            max_intervention_x = (max_intervention_x - self.means["X"]) / self.stds["X"]
-            min_intervention_z = (min_intervention_z - self.means["Z"]) / self.stds["Z"]
-            max_intervention_z = (max_intervention_z - self.means["Z"]) / self.stds["Z"]
+            min_intervention_x = (min_intervention_x -
+                                  self.means["X"]) / self.stds["X"]
+            max_intervention_x = (max_intervention_x -
+                                  self.means["X"]) / self.stds["X"]
+            min_intervention_z = (min_intervention_z -
+                                  self.means["Z"]) / self.stds["Z"]
+            max_intervention_z = (max_intervention_z -
+                                  self.means["Z"]) / self.stds["Z"]
 
         dict_ranges = OrderedDict(
             [
@@ -166,16 +173,17 @@ class ToyGraph(GraphStructure):
 
     def get_fixed_equal_costs(self) -> OrderedDict:
         logging.info("Using the fixed equal cost structure")
-        cost_fix_X_equal = lambda intervention_value: 1.0
-        cost_fix_Z_equal = lambda intervention_value: 1.0
+        def cost_fix_X_equal(intervention_value): return 1.0
+        def cost_fix_Z_equal(intervention_value): return 1.0
         costs = OrderedDict([("X", cost_fix_X_equal), ("Z", cost_fix_Z_equal)])
         return costs
 
     def get_fixed_different_costs(self) -> OrderedDict:
         logging.info("Using the fixed different cost structure")
-        cost_fix_X_different = lambda intervention_value: 1.0
-        cost_fix_Z_different = lambda intervention_value: 10.0
-        costs = OrderedDict([("X", cost_fix_X_different), ("Z", cost_fix_Z_different)])
+        def cost_fix_X_different(intervention_value): return 1.0
+        def cost_fix_Z_different(intervention_value): return 10.0
+        costs = OrderedDict([("X", cost_fix_X_different),
+                            ("Z", cost_fix_Z_different)])
         return costs
 
     def get_variable_equal_costs(self) -> OrderedDict:
@@ -197,7 +205,8 @@ class ToyGraph(GraphStructure):
             lambda intervention_value: np.sum(np.abs(intervention_value)) + 1.0
         )
         cost_variable_Z_different = (
-            lambda intervention_value: np.sum(np.abs(intervention_value)) + 10.0
+            lambda intervention_value: np.sum(
+                np.abs(intervention_value)) + 10.0
         )
         costs = OrderedDict(
             [("X", cost_variable_X_different), ("Z", cost_variable_Z_different)]
@@ -216,7 +225,8 @@ class ToyGraph(GraphStructure):
         """
         This is for the CBO algorithm
         """
-        logging.info("Getting the variables (mis and pomis) for the CBO algorithm")
+        logging.info(
+            "Getting the variables (mis and pomis) for the CBO algorithm")
         mis = [["X"], ["Z"]]
         pomis = [["Z"]]
         manipulative_variables = ["X", "Z"]

@@ -122,7 +122,8 @@ def sample_from_SEM_iscm(
         else:
             # Otherwise, sample from the model using the specified noise
             sample[var] = (
-                function(epsilon[var], sample) - graph.iscm_paramters[var]["mean"]
+                function(epsilon[var], sample) -
+                graph.iscm_paramters[var]["mean"]
             ) / graph.iscm_paramters[var]["std"]
 
     return sample
@@ -175,7 +176,8 @@ def sample_from_SEM_hat(
             if parents:
                 gp_function = static_sem[var]
                 # Create parent matrix for GP
-                parent_values = np.array([[sample[parent] for parent in parents]])
+                parent_values = np.array(
+                    [[sample[parent] for parent in parents]])
                 # Predict from GP model, mean of distribution used as sample
                 mean = gp_function.predict(parent_values)[0][0]
                 value = mean.squeeze()
@@ -236,7 +238,8 @@ def sample_model(
         # This option uses the true SEMs.
         else:
             if graph is not None:
-                epsilon_term = graph.get_error_distribution(noiseless=noiseless)
+                epsilon_term = graph.get_error_distribution(
+                    noiseless=noiseless)
             else:
                 epsilon_term = epsilon
 
@@ -308,7 +311,8 @@ def sample_model_set_icm_params(
             else:
 
                 if graph is not None:
-                    epsilon_term = graph.get_error_distribution(noiseless=noiseless)
+                    epsilon_term = graph.get_error_distribution(
+                        noiseless=noiseless)
                 else:
                     epsilon_term = epsilon
 
@@ -359,7 +363,8 @@ def create_grid_interventions(
     # Individual and combination interventions
     for size in range(1, len(ranges) + 1):
         for variable_subset in combinations(ranges.keys(), size):
-            full_product = list(product(*(grids[var] for var in variable_subset)))
+            full_product = list(
+                product(*(grids[var] for var in variable_subset)))
 
             if len(full_product) > max_combinations:
                 sampled_product = random.sample(full_product, max_combinations)
@@ -367,11 +372,13 @@ def create_grid_interventions(
                 sampled_product = full_product
 
             for product_values in sampled_product:
-                interventions.append(dict(zip(variable_subset, product_values)))
+                interventions.append(
+                    dict(zip(variable_subset, product_values)))
 
     # Optionally remove the full combination if not desired
     if not include_full_combination and len(ranges) > 1:
-        interventions = [intv for intv in interventions if len(intv) < len(ranges)]
+        interventions = [
+            intv for intv in interventions if len(intv) < len(ranges)]
 
     new_grid = {}
 
@@ -405,9 +412,11 @@ def change_intervention_list_format(
     new_grid = {i: {} for i in range(len(exploration_set))}
 
     for i, es in enumerate(exploration_set):
+        # Convert list to tuple for dictionary key
+        es_tuple = tuple(es)
         for val in es:
-            new_grid[i][val] = interventions[es][val]
-        new_grid[i][target] = interventions[es][target]
+            new_grid[i][val] = interventions[es_tuple][val]
+        new_grid[i][target] = interventions[es_tuple][target]
     return new_grid
 
 
@@ -445,7 +454,8 @@ def draw_interventional_samples(
             None,
         )
         if index is not None:
-            sample = sample_model(graph.SEM, sample_count=1, interventions=intervention)
+            sample = sample_model(graph.SEM, sample_count=1,
+                                  interventions=intervention)
             for var in intervention:
                 if len(interventional_data[index][var]) >= n_int:
                     continue
@@ -458,7 +468,8 @@ def draw_interventional_samples(
     # Convert lists to numpy arrays for easier manipulation and consistency
     for idx in interventional_data:
         for var in interventional_data[idx]:
-            interventional_data[idx][var] = np.array(interventional_data[idx][var])
+            interventional_data[idx][var] = np.array(
+                interventional_data[idx][var])
 
     return interventional_data
 
@@ -503,11 +514,13 @@ def draw_interventional_samples_sem(
                 use_iscm=use_iscm,
             )
             for var in sample:
-                interventional_data[tuple(intervention)][var].append(sample[var][0, 0])
+                interventional_data[tuple(intervention)][var].append(
+                    sample[var][0, 0])
 
     for idx in interventional_data:
         for var in interventional_data[idx]:
-            interventional_data[idx][var] = np.array(interventional_data[idx][var])
+            interventional_data[idx][var] = np.array(
+                interventional_data[idx][var])
     return interventional_data
 
 

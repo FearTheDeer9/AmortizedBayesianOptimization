@@ -6,3 +6,11 @@ ceo_venv/
 model_checkpoints/
 tmp/
 results/
+.venv/
+.portal/
+.vscode/
+.idea/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/

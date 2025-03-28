@@ -11,6 +11,7 @@ from graphs.graph import GraphStructure
 from graphs.graph_4_nodes import Graph4Nodes
 from graphs.graph_5_nodes import Graph5Nodes
 from graphs.graph_6_nodes import Graph6Nodes
+from graphs.graph_erdos_renyi import ErdosRenyiGraph
 from graphs.graph_functions import create_grid_interventions
 from graphs.toy_graph import ToyGraph
 from utils.sem_sampling import sample_model
@@ -27,7 +28,7 @@ class BASE:
     @abc.abstractmethod
     def get_model_dict(self) -> Dict[str, GPyModelWrapper]:
         model_list_dict = {
-            key: self.model_list_overall[i]
+            tuple(key) if isinstance(key, list) else key: self.model_list_overall[i]
             for i, key in enumerate(self.exploration_set)
         }
         return model_list_dict
@@ -50,7 +51,8 @@ class BASE:
         """
         Setup the graph based on the structure we are using
         """
-        assert self.graph_type in ["Toy", "Graph4", "Graph5", "Graph6"]
+        assert self.graph_type in ["Toy", "Graph4", "Graph5", "Graph6", "ErdosRenyi",
+                                   "Erdos8", "Erdos10", "Erdos15", "Erdos20", "Erdos50", "Erdos100"]
         if self.graph_type == "Toy":
             graph = ToyGraph(noiseless=self.noiseless)
         elif self.graph_type == "Graph4":
@@ -59,6 +61,18 @@ class BASE:
             graph = Graph5Nodes()
         elif self.graph_type == "Graph6":
             graph = Graph6Nodes()
+        elif self.graph_type == "ErdosRenyi" or self.graph_type.startswith("Erdos"):
+            # Extract number of nodes if specified in the graph type
+            if self.graph_type.startswith("Erdos") and len(self.graph_type) > 5:
+                try:
+                    num_nodes = int(self.graph_type[5:])
+                except ValueError:
+                    # If there's no valid number (like in "ErdosRenyi"), use default
+                    num_nodes = 10
+            else:
+                num_nodes = 10  # Default size
+            # ErdosRenyiGraph doesn't accept noiseless parameter
+            graph = ErdosRenyiGraph(num_nodes=num_nodes)
         return graph
 
     def plot_model_list(
@@ -156,8 +170,10 @@ class BASE:
             exploration_set = [tuple(exploration_set)]
         all_entropies = np.zeros(shape=len(exploration_set))
         for i, es in enumerate(exploration_set):
-            grid = self.intervention_grid[es]
-            model: GPRegression = model_dict[es].model
+            # Convert list to tuple for dictionary key if needed
+            es_key = tuple(es) if isinstance(es, list) else es
+            grid = self.intervention_grid[es_key]
+            model: GPRegression = model_dict[es_key].model
             # print(grid)
             values = np.vstack([value for value in grid])
             variance = model.predict(values)[1]
@@ -166,7 +182,10 @@ class BASE:
 
         total_uncertainty = {}
         for i in range(len(all_entropies)):
-            total_uncertainty[exploration_set[i]] = all_entropies[i]
+            es = exploration_set[i]
+            # Convert to tuple for dictionary key
+            es_key = tuple(es) if isinstance(es, list) else es
+            total_uncertainty[es_key] = all_entropies[i]
 
         total_uncertainty["average"] = np.mean(all_entropies)
         logging.info(f"The total uncertainty is {total_uncertainty}")

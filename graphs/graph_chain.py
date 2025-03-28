@@ -14,7 +14,7 @@ from config import NOISE_TYPE_INDEX, NOISE_TYPES
 from diffcbed.envs.causal_environment import CausalEnvironment
 from diffcbed.envs.chain import Chain
 from diffcbed.envs.samplers import D
-from diffcbed.models.dibs.models.nonlinearGaussian import DenseNonlinearGaussianJAX
+from diffcbed.models.dibs.models.nonLinearGaussian import DenseNonlinearGaussian
 from graphs.graph import GraphStructure
 
 
@@ -26,11 +26,13 @@ def define_SEM_causalenv_linear(
     for node in nx.topological_sort(graph):
         parents = list(graph.predecessors(node))
         if not parents:
-            sem_functions[str(node)] = lambda epsilon, sample, node=node: epsilon
+            sem_functions[str(
+                node)] = lambda epsilon, sample, node=node: epsilon
         else:
             sem_functions[str(node)] = (
                 lambda epsilon, sample, node=node, parents=parents: sum(
-                    weighted_adjacency_matrix[parent, node] * sample[str(parent)]
+                    weighted_adjacency_matrix[parent,
+                                              node] * sample[str(parent)]
                     for parent in parents
                 )
                 + epsilon
@@ -40,7 +42,7 @@ def define_SEM_causalenv_linear(
 
 
 def define_SEM_causalenv_nonlinear(
-    causal_env: CausalEnvironment, conditionals: DenseNonlinearGaussianJAX
+    causal_env: CausalEnvironment, conditionals: DenseNonlinearGaussian
 ) -> OrderedDict[str, Callable]:
 
     graph = causal_env.graph
@@ -59,7 +61,8 @@ def define_SEM_causalenv_nonlinear(
     for node in topological_list:
         parents = list(graph.predecessors(node))
         if not parents:
-            sem_functions[str(node)] = lambda epsilon, sample, node=node: epsilon
+            sem_functions[str(
+                node)] = lambda epsilon, sample, node=node: epsilon
         else:
             sem_functions[str(node)] = (
                 lambda epsilon, sample, node=node, parents=parents: nn_forward(
@@ -79,7 +82,8 @@ class ChainGraph(GraphStructure):
         seed: int = None,
         nonlinear: bool = False,
     ):
-        args = argparse.Namespace(scm_bias=1.0, noise_bias=1.0, old_er_logic=True)
+        args = argparse.Namespace(
+            scm_bias=1.0, noise_bias=1.0, old_er_logic=True)
         self.num_nodes = num_nodes
 
         self.causal_env: CausalEnvironment = Chain(
@@ -137,5 +141,6 @@ class ChainGraph(GraphStructure):
     def get_sets(self):
         mis = []
         pomis = []
-        manipulative_variables = [var for var in self.variables if var != self.target]
+        manipulative_variables = [
+            var for var in self.variables if var != self.target]
         return mis, pomis, manipulative_variables

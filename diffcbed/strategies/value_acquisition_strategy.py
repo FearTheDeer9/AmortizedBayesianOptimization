@@ -1,4 +1,5 @@
-from bayes_opt import BayesianOptimization, UtilityFunction
+from bayes_opt import BayesianOptimization
+from bayes_opt.acquisition import AcquisitionFunction
 import numpy as np
 from diffcbed.envs.samplers import Constant
 
@@ -10,7 +11,8 @@ class ValueAcquisitionStrategy(object):
         self.max_x = None
         self.max_j = None
         self.target = None
-        self.intervention_value_prior = lambda size: np.zeros((size, args.num_nodes))
+        self.intervention_value_prior = lambda size: np.zeros(
+            (size, args.num_nodes))
         self._force_iters = None
 
     def __call__(self, func, n_iters=5, **kargs):
@@ -21,8 +23,10 @@ class ValueAcquisitionStrategy(object):
         self.extra = [{}] * len(self.nodes)
 
         for i in range(n_iters):
-            value_samplers = [Constant(self.values[i][j]) for j, node in enumerate(self.nodes)]
-            self.target[i], self.extra[i] = func(self.nodes, value_samplers, **kargs)
+            value_samplers = [Constant(self.values[i][j])
+                              for j, node in enumerate(self.nodes)]
+            self.target[i], self.extra[i] = func(
+                self.nodes, value_samplers, **kargs)
 
         self.func_max = np.amax(self.target)
         _max_x_idx, _max_j_idx = np.unravel_index(
@@ -31,7 +35,7 @@ class ValueAcquisitionStrategy(object):
 
         # XXX made changes here
         # print(f"This is causing the error {_max_j_idx} {self.nodes}")
-        node_map = {i : node for i, node in enumerate(self.nodes)}
+        node_map = {i: node for i, node in enumerate(self.nodes)}
         self.max_iter, self.max_x, self.max_j = (
             _max_x_idx,
             self.values[_max_x_idx][_max_j_idx],
@@ -54,7 +58,7 @@ class BOValueAcquisitionStrategy(ValueAcquisitionStrategy):
             )
             for node in self.nodes
         ]
-        self.utility = UtilityFunction(kind="ucb", kappa=2.5, xi=0.0)
+        self.utility = AcquisitionFunction(kind="ucb", kappa=2.5, xi=0.0)
         self.exploration_steps = args.exploration_steps
 
     def __call__(self, func, n_iters=5, **kargs):
@@ -76,7 +80,8 @@ class BOValueAcquisitionStrategy(ValueAcquisitionStrategy):
                     _next_point = self.optimizers[i].suggest(self.utility)
                 next_point.append(Constant(_next_point[j]))
                 self.values[k, j] = _next_point[j]
-            self.target[k], self.extra[k] = func(self.nodes, next_point, **kargs)
+            self.target[k], self.extra[k] = func(
+                self.nodes, next_point, **kargs)
             for i, j in enumerate(self.nodes):
                 try:
                     self.optimizers[i].register(
@@ -109,7 +114,8 @@ class RandomValueAcquisitionStrategy(ValueAcquisitionStrategy):
     def __init__(self, nodes, args):
         super().__init__(nodes=nodes, args=args)
         self.intervention_value_prior = lambda size: np.random.uniform(
-            args.node_range[0], args.node_range[1], size=(size, len(args.sample_mean))
+            args.node_range[0], args.node_range[1], size=(
+                size, len(args.sample_mean))
         )
         self._force_iters = 1
 
@@ -150,7 +156,8 @@ class LinspacePlot(ValueAcquisitionStrategy):
         for i in range(n_iters):
             print(i)
             value_samplers = [Constant(self.values[i])] * len(self.nodes)
-            self.target[i], self.extra[i] = func(self.nodes, value_samplers, **kargs)
+            self.target[i], self.extra[i] = func(
+                self.nodes, value_samplers, **kargs)
 
         if self.save:
             import pickle as pkl

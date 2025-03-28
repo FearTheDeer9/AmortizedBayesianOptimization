@@ -22,10 +22,12 @@ from utils.sem_sampling import (
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the loggingand level
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Set the format of log messages
+    # Set the format of log messages
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="%m/%d/%Y %I:%M:%S %p",  # Set the date format
     filename="logfile.log",  # Specify the file to write the logs to
-    filemode="w",  # Set the file mode to 'a' to append to the file (use 'w' to overwrite each time)
+    # Set the file mode to 'a' to append to the file (use 'w' to overwrite each time)
+    filemode="w",
 )
 
 
@@ -50,7 +52,8 @@ class CBO(BASE):
         if graph is not None:
             self.graph = graph
         else:
-            assert graph_type in ["Toy", "Synthetic", "Graph6", "Graph5", "Graph4"]
+            assert graph_type in ["Toy", "Synthetic",
+                                  "Graph6", "Graph5", "Graph4"]
             # defining the initial variables
             self.graph = self.chosen_structure()
 
@@ -132,7 +135,8 @@ class CBO(BASE):
             )
 
             value = np.array([interventions[var] for var in es]).reshape(1, -1)
-            predictions[i] = self.do_function_list[es_num].mean_function_do(value)
+            predictions[i] = self.do_function_list[es_num].mean_function_do(
+                value)
             var[i] = self.do_function_list[es_num].var_function_do(value)
 
         # Apply custom plot styles from kwargs
@@ -331,8 +335,9 @@ class CBO(BASE):
             # set the new best variable
             best_variable = target_index
 
-            ## Update the dict storing the current optimal solution
-            current_best_x[var_to_intervene].append(x_new_list[target_index][0][0])
+            # Update the dict storing the current optimal solution
+            current_best_x[var_to_intervene].append(
+                x_new_list[target_index][0][0])
             current_best_y[var_to_intervene].append(y_new[0][0])
             # maybe need to update the model -> i don't think so as this is done at the start of each intervention loop
 
@@ -348,7 +353,8 @@ class CBO(BASE):
             # get the of the current intervention
             total_cost = 0
             for j, val in enumerate(self.exploration_set[target_index]):
-                total_cost += cost_functions[val](x_new_list[target_index][0, j])
+                total_cost += cost_functions[val](
+                    x_new_list[target_index][0, j])
 
             current_cost.append(current_cost[i] + total_cost)
 

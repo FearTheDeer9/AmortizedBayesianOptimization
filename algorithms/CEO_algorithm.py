@@ -23,10 +23,12 @@ from utils.sem_sampling import (
 
 logging.basicConfig(
     level=logging.INFO,  # Set the loggingand level
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Set the format of log messages
+    # Set the format of log messages
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="%m/%d/%Y %I:%M:%S %p",  # Set the date format
     filename="logfile.log",  # Specify the file to write the logs to
-    filemode="w",  # Set the file mode to 'a' to append to the file (use 'w' to overwrite each time)
+    # Set the file mode to 'a' to append to the file (use 'w' to overwrite each time)
+    filemode="w",
 )
 
 
@@ -71,7 +73,8 @@ class CEO(BASE):
         self.SEM = self.graphs[0].SEM
         self.variables = self.graphs[0].variables
         self.exploration_set = self.graph.get_exploration_set()
-        logging.info(f"The exploration set in this setup is {self.exploration_set}")
+        logging.info(
+            f"The exploration set in this setup is {self.exploration_set}")
         # create mappings for the exploration set
         self.es_to_n_mapping = {
             tuple(es): i for i, es in enumerate(self.exploration_set)
@@ -85,9 +88,33 @@ class CEO(BASE):
             self.interventional_range, get_list_format=True, num_points=n_anchor_points
         )
 
-        self.posterior = np.log(np.asarray([1 / len(self.graphs)] * len(self.graphs)))
+        self.posterior = np.log(np.asarray(
+            [1 / len(self.graphs)] * len(self.graphs)))
         self.all_posteriors = []
-        self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
+        self.all_posteriors.append(
+            ceo_utils.normalize_log(deepcopy(self.posterior)))
+
+    def get_model_dict(self) -> Dict[str, GPyModelWrapper]:
+        """
+        Return a dictionary mapping exploration sets to their model
+        """
+        model_list_dict = {
+            tuple(key) if isinstance(key, list) else key: self.model_list_overall[i]
+            for i, key in enumerate(self.exploration_set)
+        }
+        return model_list_dict
+
+    def get_graph(self) -> GraphStructure:
+        """
+        Return the graph
+        """
+        return self.graph
+
+    def get_exploration_set(self) -> List[Tuple[str]]:
+        """
+        Return the exploration set
+        """
+        return self.exploration_set
 
     def set_values(self, D_O: Dict, D_I: Dict, exploration_set: List[List[str]]):
         logging.info("Using predefined values for the optimization algorithm")
@@ -150,7 +177,11 @@ class CEO(BASE):
         true_vals = np.zeros(shape=size)
         predictions = np.zeros(shape=size)
         var = np.zeros(shape=size)
-        es_num = self.es_to_n_mapping[es]
+
+        # Convert list to tuple for dictionary key if needed
+        es_key = tuple(es) if isinstance(es, list) else es
+        es_num = self.es_to_n_mapping[es_key]
+
         interventions = {}
 
         # getting the number of entries in the exploration set
@@ -172,14 +203,15 @@ class CEO(BASE):
                     interventions=interventions,
                     sample_count=500,
                     graph=self.graph,
-                )["Y"]
+                )[self.target]
             )
 
             value = np.array([interventions[var] for var in es]).reshape(1, -1)
             predictions[i] = self.do_effects_functions[edge_num][
                 es_num
             ].mean_function_do(value)
-            var[i] = self.do_effects_functions[edge_num][es_num].var_function_do(value)
+            var[i] = self.do_effects_functions[edge_num][es_num].var_function_do(
+                value)
 
         plt.plot(intervention_vals, true_vals, label="True")
         plt.plot(intervention_vals, predictions, label="Do 1")
@@ -212,11 +244,13 @@ class CEO(BASE):
             self.model_list_overall[es].model.kern.lengthscale[0] = 1.0
 
         if gpy_model.likelihood.variance[0] > upper_bound_var:
-            logging.info("SAFE OPTIMIZATION: restting likelihood var to upper bound")
+            logging.info(
+                "SAFE OPTIMIZATION: restting likelihood var to upper bound")
             self.model_list_overall[es].model.likelihood.variance[0] = upper_bound_var
 
         if gpy_model.likelihood.variance[0] < lower_bound_var:
-            logging.info("SAFE OPTIMIZATION: resetting likelihood var to lower bound")
+            logging.info(
+                "SAFE OPTIMIZATION: resetting likelihood var to lower bound")
             self.model_list_overall[es].model.likelihood.variance[0] = 1.0
 
     def run_algorithm(
@@ -247,8 +281,10 @@ class CEO(BASE):
         )
         self.update_posterior()
 
-        self.all_posteriors.append(ceo_utils.normalize_log(deepcopy(self.posterior)))
-        logging.info(f"The updated posterior distribution is {self.all_posteriors[-1]}")
+        self.all_posteriors.append(
+            ceo_utils.normalize_log(deepcopy(self.posterior)))
+        logging.info(
+            f"The updated posterior distribution is {self.all_posteriors[-1]}")
 
         input_space = [len(es) for es in self.exploration_set]
         # model_list: List[GPyModelWrapper] = [None] * len(exploration_set)
@@ -257,7 +293,8 @@ class CEO(BASE):
         )
 
         arm_n_es_mapping = {i: es for i, es in enumerate(self.exploration_set)}
-        arm_es_n_mapping = {tuple(es): i for i, es in enumerate(self.exploration_set)}
+        arm_es_n_mapping = {
+            tuple(es): i for i, es in enumerate(self.exploration_set)}
         target_classes: List[TargetClass] = [
             TargetClass(
                 self.SEM, es, self.variables, graph=self.graph, noiseless=self.noiseless
@@ -268,7 +305,7 @@ class CEO(BASE):
 
         # setting the variables that the algorithm needs to return for the plotting
         best_y_array = []
-        best_y_array.append(np.mean(self.D_O["Y"]))
+        best_y_array.append(np.mean(self.D_O[self.target]))
         intervention_set: List[Tuple[str]] = []
         intervention_values: List[Tuple[float]] = []
         average_uncertainty: List[float] = []
@@ -323,7 +360,9 @@ class CEO(BASE):
                 # doing the safe optimization stuff
                 if safe_optimization:
                     for es in self.exploration_set:
-                        es_num = self.es_to_n_mapping[es]
+                        # Convert list to tuple for dictionary key if needed
+                        es_key = tuple(es) if isinstance(es, list) else es
+                        es_num = self.es_to_n_mapping[es_key]
                         self.safe_optimization(es_num)
 
                 logging.info("Now setting up the arm distribution")
@@ -441,7 +480,8 @@ class CEO(BASE):
 
                 if SHOW_GRAPHICS:
                     for es in self.exploration_set:
-                        fig, ax = self.plot_model_list(self.model_list_overall, es)
+                        fig, ax = self.plot_model_list(
+                            self.model_list_overall, es)
                         for j, intervention in enumerate(intervention_set):
                             if intervention == es:
                                 ax.scatter(

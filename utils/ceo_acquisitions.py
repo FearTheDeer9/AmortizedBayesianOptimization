@@ -97,7 +97,8 @@ def evaluate_acquisition_ceo(
             point_count=num_anchor_points
         )
     else:
-        limits = [list(tup) for tup in parameter_intervention_domain.get_bounds()]
+        limits = [list(tup)
+                  for tup in parameter_intervention_domain.get_bounds()]
         sampled_points = ceo_utils.create_n_dimensional_intervention_grid(
             limits=limits, size_intervention_grid=num_anchor_points
         )
@@ -256,7 +257,8 @@ class CausalEntropySearch(Acquisition):
         grid = self.grid
 
         initial_entropy = self.pre_kde.entropy  # A scalar really
-        initial_graph_entropy = entropy(ceo_utils.normalize_log(self.init_posterior))
+        initial_graph_entropy = entropy(
+            ceo_utils.normalize_log(self.init_posterior))
         n_fantasies = 5  # N. of fantasy observations
         # could  choose a subset of them to reduce computation
         n_acquisitions = x.shape[0]
@@ -312,7 +314,8 @@ class CausalEntropySearch(Acquisition):
 
                     tempx = np.concatenate([prevx, x_inp])
 
-                    fantasy_y, prevy = fantasy_y.reshape(-1, 1), prevy.reshape(-1, 1)
+                    fantasy_y, prevy = fantasy_y.reshape(
+                        -1, 1), prevy.reshape(-1, 1)
 
                     tempy = np.vstack([prevy, fantasy_y])
 
@@ -322,11 +325,14 @@ class CausalEntropySearch(Acquisition):
                     updated_models_list[id_acquisition].append(updated_model)
 
                     # Arm distr gets updated only because model gets updated
+                    # Convert list to tuple for dictionary key if needed
+                    es_key = tuple(self.es) if isinstance(
+                        self.es, list) else self.es
                     new_arm_dist = ceo_utils.update_arm_dist_single_model(
                         arm_distribution=deepcopy(self.prev_arm_distr),
                         es=self.es,
                         single_updated_bo_model=updated_model,
-                        inputs=grid[self.es],
+                        inputs=grid[es_key],
                         arm_mapping_es_to_n=self.es_num_mapping,
                     )
 
@@ -334,7 +340,7 @@ class CausalEntropySearch(Acquisition):
                         arm_mapping=self.es_num_mapping,
                         es=self.es,
                         bo_model=updated_model,
-                        inputs=grid[self.es],
+                        inputs=grid[es_key],
                         all_xstar=self.prev_all_xstar,
                         all_ystar=deepcopy(self.prev_all_ystar),
                     )
@@ -428,7 +434,8 @@ class CausalEntropySearch(Acquisition):
 
                     tempx = np.concatenate([prevx, x_inp])
 
-                    fantasy_y, prevy = fantasy_y.reshape(-1, 1), prevy.reshape(-1, 1)
+                    fantasy_y, prevy = fantasy_y.reshape(
+                        -1, 1), prevy.reshape(-1, 1)
 
                     tempy = np.vstack([prevy, fantasy_y])
 
@@ -438,14 +445,15 @@ class CausalEntropySearch(Acquisition):
                     updated_models_list[id_acquisition].append(updated_model)
 
                     # Arm distr gets updated only because model gets updated
-                    # if self.es == ("X", "Z"):
-                    #     print(grid)
+                    # Convert list to tuple for dictionary key if needed
+                    es_key = tuple(self.es) if isinstance(
+                        self.es, list) else self.es
                     new_arm_dist = ceo_utils.update_arm_dist_single_model(
-                        deepcopy(self.prev_arm_distr),
-                        self.es,
-                        updated_model,
-                        grid[self.es],
-                        self.es_num_mapping,
+                        arm_distribution=deepcopy(self.prev_arm_distr),
+                        es=self.es,
+                        single_updated_bo_model=updated_model,
+                        inputs=grid[es_key],
+                        arm_mapping_es_to_n=self.es_num_mapping,
                     )
 
                     # Use this to build p(y*, x* | D, (x,y) )
@@ -453,7 +461,7 @@ class CausalEntropySearch(Acquisition):
                         arm_mapping=self.es_num_mapping,
                         es=self.es,
                         bo_model=updated_model,
-                        inputs=grid[self.es],
+                        inputs=grid[es_key],
                         all_xstar=self.prev_all_xstar,
                         all_ystar=deepcopy(self.prev_all_ystar),
                     )

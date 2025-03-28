@@ -14,12 +14,8 @@ from scipy.stats import norm
 from sklearn.gaussian_process.kernels import RBF
 from sklearn.metrics import f1_score
 
-try:
-    from jax import random
-
-    from diffcbed.models.dibs.models.nonlinearGaussian import DenseNonlinearGaussianJAX
-except:
-    print("jax is not installed")
+# Replace the try-except block with direct import from our utility
+from diffcbed.models.dibs.models.nonLinearGaussian import DenseNonlinearGaussian
 
 from config import NOISE_TYPES, PRESETS, VARIABLE_TYPES
 from diffcbed.envs.samplers import D
@@ -96,7 +92,7 @@ class CausalEnvironment(torch.utils.data.Dataset):
         self.init_sampler()
 
         if nonlinear:
-            self.conditionals = DenseNonlinearGaussianJAX(
+            self.conditionals = DenseNonlinearGaussian(
                 obs_noise=self._noise_std,
                 sig_param=1.0,
                 hidden_layers=[
@@ -143,10 +139,6 @@ class CausalEnvironment(torch.utils.data.Dataset):
 
     def reseed(self, seed=None):
         self.rng = np.random.default_rng(seed)
-        try:
-            self.rng_jax = random.PRNGKey(seed)
-        except:
-            print("No JAX")
 
     def __getitem__(self, index):
         raise NotImplementedError
@@ -193,16 +185,16 @@ class CausalEnvironment(torch.utils.data.Dataset):
         elif self.noise_type == "exponential":
             noise_std = [self.noise_sigma] * self.num_nodes
             for i in range(self.num_nodes):
-                graph.nodes[i]["sampler"] = D(self.rng.exponential, scale=noise_std[i])
+                graph.nodes[i]["sampler"] = D(
+                    self.rng.exponential, scale=noise_std[i])
 
         return graph
 
     def sample_weights(self):
         """Sample the edge weights"""
         if self.nonlinear:
-            self.rng_jax, subk = random.split(self.rng_jax)
             self.weights = self.conditionals.sample_parameters(
-                key=subk, n_vars=self.num_nodes
+                key=self.rng_jax, n_vars=self.num_nodes
             )
         else:
             if self.mu_prior is not None:
@@ -251,20 +243,20 @@ class CausalEnvironment(torch.utils.data.Dataset):
             else:
                 curr = 0
                 for j in parents:
-                    curr += self.weighted_adjacency_matrix[j, i] * samples[:, j]
+                    curr += self.weighted_adjacency_matrix[j,
+                                                           i] * samples[:, j]
                     edge_pointer += 1
                 curr += noise
                 samples[:, i] = curr
         return Data(samples=samples, intervention_node=-1)
 
     def sample_nonlinear(self, num_samples, graph=None, node=None, values=None):
-        self.rng_jax, subk = random.split(self.rng_jax)
         if graph is None:
             graph = self.graph
         mat = nx.to_numpy_array(graph)
         g = ig.Graph.Weighted_Adjacency(mat.tolist())
         samples = self.conditionals.sample_obs(
-            key=subk,
+            key=self.rng_jax,
             n_samples=num_samples,
             g=g,
             theta=self.weights,
@@ -399,7 +391,8 @@ class CausalEnvironment(torch.utils.data.Dataset):
         nx.draw_networkx_labels(g, pos, labels, font_color="white")
 
         nx.draw_networkx_edges(
-            nx.convert_matrix.from_numpy_array(NON_CPDAG_A, create_using=nx.DiGraph),
+            nx.convert_matrix.from_numpy_array(
+                NON_CPDAG_A, create_using=nx.DiGraph),
             pos,
             style="solid",
             node_size=1000,
@@ -409,7 +402,8 @@ class CausalEnvironment(torch.utils.data.Dataset):
         )
 
         collection = nx.draw_networkx_edges(
-            nx.convert_matrix.from_numpy_array(CPDAG_A, create_using=nx.DiGraph),
+            nx.convert_matrix.from_numpy_array(
+                CPDAG_A, create_using=nx.DiGraph),
             pos,
             style="dashed",
             node_size=1000,
@@ -435,8 +429,10 @@ class CausalEnvironment(torch.utils.data.Dataset):
         if legend:
             ax.legend(
                 [
-                    Line2D([0, 1], [0, 1], linewidth=3, linestyle="-", color="black"),
-                    Line2D([0, 1], [0, 1], linewidth=3, linestyle="--", color="black"),
+                    Line2D([0, 1], [0, 1], linewidth=3,
+                           linestyle="-", color="black"),
+                    Line2D([0, 1], [0, 1], linewidth=3,
+                           linestyle="--", color="black"),
                 ],
                 [r"$\notin$ CPDAG", r"$\in$ CPDAG"],
                 frameon=False,
@@ -533,7 +529,8 @@ class CausalEnvironment(torch.utils.data.Dataset):
                 sigma = (dists.median() / 2).item()
                 kernel = RBF(length_scale=sigma)
                 _mmds.append(mmd(_model_samples, gt_samples, kernel))
-            mmds.append((np.array(_mmds) * np.exp(model.normalized_log_weights)).sum())
+            mmds.append(
+                (np.array(_mmds) * np.exp(model.normalized_log_weights)).sum())
         return np.array(mmds).mean()
 
     def get_valid_interventions(self):

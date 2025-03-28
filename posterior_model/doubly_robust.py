@@ -9,7 +9,6 @@ import pandas as pd
 import scipy.stats as stats
 import statsmodels.api as sm
 import torch
-import wandb
 from torch import nn
 
 Data = namedtuple("Data", ["samples", "nodes"])
@@ -52,7 +51,8 @@ def get_net(in_features):
             nn.Linear(n_common, 1),
         )
     net.apply(
-        lambda m: (m.reset_parameters() if hasattr(m, "reset_parameters") else None)
+        lambda m: (m.reset_parameters() if hasattr(
+            m, "reset_parameters") else None)
     )
     return net
 
@@ -142,12 +142,13 @@ def generate_target_time_series(time_series_data, adjacency_matrix, transform, n
         for j in range(n_variables):
             if adjacency_matrix[l, j] == 1:
                 parent_data[lag:, p] = time_series_data[
-                    lag - 1 - l : n_data_points - 1 - l, j
+                    lag - 1 - l: n_data_points - 1 - l, j
                 ]
                 p += 1
     with torch.no_grad():
         target_data = transform(parent_data)
-    target_data += math.sqrt(nsr) * target_data.std() * torch.randn_like(target_data)
+    target_data += math.sqrt(nsr) * target_data.std() * \
+        torch.randn_like(target_data)
 
     return target_data
 
@@ -155,7 +156,8 @@ def generate_target_time_series(time_series_data, adjacency_matrix, transform, n
 # Define the target variable's binary adjacency matrix
 def construct_connectivity_matrix_target(lag, n_variables, pc):
     return (
-        (np.random.rand(lag * n_variables) < pc).astype(int).reshape((lag, n_variables))
+        (np.random.rand(lag * n_variables) <
+         pc).astype(int).reshape((lag, n_variables))
     )
 
 
@@ -180,7 +182,8 @@ def construct_total_connectivity_matrix(
     total_connectivity_matrix = np.zeros(
         (lag, n_variables + 1, n_variables + 1), dtype=int
     )
-    total_connectivity_matrix[:, :n_variables, :n_variables] = connectivity_matrix
+    total_connectivity_matrix[:, :n_variables,
+                              :n_variables] = connectivity_matrix
     total_connectivity_matrix[:, :-1, -1] = connectivity_matrix_target
     return np.concatenate(
         [
@@ -205,25 +208,27 @@ def create_dataset(
     for mlp in fixed_functions:
         mlp.apply(
             lambda m: (
-                nn.init.xavier_uniform_(m.weight) if isinstance(m, nn.Linear) else None
+                nn.init.xavier_uniform_(m.weight) if isinstance(
+                    m, nn.Linear) else None
             )
         )
 
     if transform_type == "logsumexp":
-        transform = lambda pars: SEM_function_log_sum_exp(pars, a=a, b=0)
+        def transform(pars): return SEM_function_log_sum_exp(pars, a=a, b=0)
     elif transform_type == "linear":
-        transform = lambda pars: SEM_function_linear(pars, a=a, b=0)
+        def transform(pars): return SEM_function_linear(pars, a=a, b=0)
     elif transform_type == "sqrt":
-        transform = lambda pars: SEM_function_sqrt_sum(pars, a=a, b=0)
+        def transform(pars): return SEM_function_sqrt_sum(pars, a=a, b=0)
     else:  # transform_type=='MLP'
         n_parents = connectivity_matrix_target.sum()
         net = MLP(n_parents if n_parents > 0 else 1)
         net.apply(
             lambda m: (
-                nn.init.xavier_uniform_(m.weight) if isinstance(m, nn.Linear) else None
+                nn.init.xavier_uniform_(m.weight) if isinstance(
+                    m, nn.Linear) else None
             )
         )
-        transform = lambda pars: a * net(pars)
+        def transform(pars): return a * net(pars)
 
     Xs, ys = [], []
     for i in range(n_series):
@@ -682,7 +687,8 @@ def infer_causal_parents_new(
         else:
             z0, zi = y * r0 - a0 * (r0 - y), y * ri - ai * (ri - y)
             z = zi - z0
-            print(f"ttest mean: {z.mean().item():.3f} ttest std: {z.std().item():.3f}")
+            print(
+                f"ttest mean: {z.mean().item():.3f} ttest std: {z.std().item():.3f}")
         return stats.ttest_rel(z0, zi)
 
     methods = ["direct", "dr"]
@@ -869,7 +875,8 @@ def compute_target(data_conf, parents_y):
     if data_conf["dataset_transform_type"] == "linear":
         y = data_conf["data_coef_a"] * parents_y.sum(axis=1)
     elif data_conf["dataset_transform_type"] == "logsumexp":
-        y = data_conf["data_coef_a"] * torch.log(torch.exp(parents_y).sum(axis=1))
+        y = data_conf["data_coef_a"] * \
+            torch.log(torch.exp(parents_y).sum(axis=1))
     elif data_conf["dataset_transform_type"] == "sqrt":
         y = data_conf["data_coef_a"] * torch.sqrt(parents_y.abs().sum(axis=1))
     elif data_conf["dataset_transform_type"] == "MLP":
@@ -929,7 +936,8 @@ def get_data(path, N_data=-1):
         parents_y = X[:, groundtruth.to_numpy()]
         T_ones = np.ones((len(X), 1))
         X = torch.tensor(np.hstack((T_ones, X)), dtype=torch.float32)
-        y = compute_target(data_conf, torch.tensor(parents_y, dtype=torch.float32))
+        y = compute_target(data_conf, torch.tensor(
+            parents_y, dtype=torch.float32))
         groundtruth = groundtruth.astype(int)
     elif data_conf["dataset_type"] == "time_series_data":
         X, y, groundtruth = create_dataset(
@@ -950,7 +958,7 @@ def get_data(path, N_data=-1):
             cur_series = X[i]
             cur_target = y[i, :, 0]
             for j in range(lag, len(cur_series)):
-                Xs.append(cur_series[j - lag : j].reshape(-1))
+                Xs.append(cur_series[j - lag: j].reshape(-1))
                 ys.append(cur_target[j])
         X = torch.stack(Xs)
         T_ones = torch.ones((len(X), 1))
@@ -973,7 +981,8 @@ def get_data(path, N_data=-1):
         X, y = torch.tensor(X, dtype=torch.float32), torch.tensor(
             y, dtype=torch.float32
         ).reshape(-1, 1)
-        groundtruth_path = os.path.join(path, "all_graph_matrix{}.csv".format(0))
+        groundtruth_path = os.path.join(
+            path, "all_graph_matrix{}.csv".format(0))
         groundtruth = pd.read_csv(groundtruth_path, sep="\t", index_col=0)
         groundtruth = groundtruth.iloc[1:, 0]
         groundtruth = (groundtruth != 0).astype(int)[node_names]
@@ -985,7 +994,8 @@ def get_data(path, N_data=-1):
             dtype=bool,
         )
         # torch.manual_seed(0)
-        X = torch.randn(N_data if N_data != -1 else 10000, data_conf["N_feat"]).float()
+        X = torch.randn(N_data if N_data != -1 else 10000,
+                        data_conf["N_feat"]).float()
         parents_y = X[:, torch.tensor(groundtruth.to_numpy())]
         X = torch.cat([torch.ones((len(X), 1)), X], dim=1)
         y = compute_target(data_conf, parents_y)

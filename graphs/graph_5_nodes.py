@@ -28,6 +28,7 @@ class Graph5Nodes(GraphStructure):
         self.L = L
         self.R = R
         self.Y = Y
+        self._variables = ["B", "T", "L", "R", "Y"]
         self._SEM = self.define_SEM()
         self._edges = [
             ("B", "L"),
@@ -38,20 +39,19 @@ class Graph5Nodes(GraphStructure):
             ("L", "R"),
             ("R", "Y"),
         ]
-        self._variables = ["B", "T", "L", "R", "Y"]
-        self._G = self.make_graphical_model()
         self._nodes = set(chain(*self.edges))
         self._parents, self._children = self.build_relationships()
         self._target = "Y"
         self._functions: Optional[Dict[str, Callable]] = None
+        self._G = self.make_graphical_model()
         self._standardised = False
         self.use_intervention_range_data = False
 
     def define_SEM(self):
-        fb = lambda epsilon, sample: epsilon
-        ft = lambda epsilon, sample: epsilon
-        fl = lambda epsilon, sample: expit(0.5 * sample["T"] + sample["B"])
-        fr = lambda epsilon, sample: 4 + sample["L"] * sample["T"]
+        def fb(epsilon, sample): return epsilon
+        def ft(epsilon, sample): return epsilon
+        def fl(epsilon, sample): return expit(0.5 * sample["T"] + sample["B"])
+        def fr(epsilon, sample): return 4 + sample["L"] * sample["T"]
         fy = (
             lambda epsilon, sample: 0.5
             + np.cos(4 * sample["T"])
@@ -60,7 +60,8 @@ class Graph5Nodes(GraphStructure):
             + epsilon
         )
 
-        graph = OrderedDict([("B", fb), ("T", ft), ("L", fl), ("R", fr), ("Y", fy)])
+        graph = OrderedDict(
+            [("B", fb), ("T", ft), ("L", fl), ("R", fr), ("Y", fy)])
         return graph
 
     def get_exploration_set(self) -> List[List[str]]:
@@ -92,16 +93,17 @@ class Graph5Nodes(GraphStructure):
 
     def get_fixed_equal_costs(self) -> OrderedDict:
         logging.info("Using the fixed equal cost structure")
-        cost_fix_T_equal = lambda intervention_value: 1.0
-        cost_fix_R_equal = lambda intervention_value: 1.0
+        def cost_fix_T_equal(intervention_value): return 1.0
+        def cost_fix_R_equal(intervention_value): return 1.0
         costs = OrderedDict([("T", cost_fix_T_equal), ("R", cost_fix_R_equal)])
         return costs
 
     def get_fixed_different_costs(self) -> OrderedDict:
         logging.info("Using the fixed different cost structure")
-        cost_fix_T_different = lambda intervention_value: 1.0
-        cost_fix_R_different = lambda intervention_value: 10.0
-        costs = OrderedDict([("T", cost_fix_T_different), ("R", cost_fix_R_different)])
+        def cost_fix_T_different(intervention_value): return 1.0
+        def cost_fix_R_different(intervention_value): return 10.0
+        costs = OrderedDict([("T", cost_fix_T_different),
+                            ("R", cost_fix_R_different)])
         return costs
 
     def get_variable_equal_costs(self) -> OrderedDict:
@@ -123,7 +125,8 @@ class Graph5Nodes(GraphStructure):
             lambda intervention_value: np.sum(np.abs(intervention_value)) + 1.0
         )
         cost_variable_R_different = (
-            lambda intervention_value: np.sum(np.abs(intervention_value)) + 10.0
+            lambda intervention_value: np.sum(
+                np.abs(intervention_value)) + 10.0
         )
         costs = OrderedDict(
             [("T", cost_variable_T_different), ("R", cost_variable_R_different)]

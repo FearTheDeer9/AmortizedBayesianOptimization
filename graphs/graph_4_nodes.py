@@ -26,6 +26,7 @@ class Graph4Nodes(GraphStructure):
         self.A = T
         self.Z = Z
         self.Y = Y
+        self._variables = ["X", "Z", "T", "Y"]
         self._SEM = self.define_SEM()
         self._edges = [("X", "T"), ("X", "Z"), ("T", "Y"), ("Z", "Y")]
         self._target = "Y"
@@ -33,17 +34,18 @@ class Graph4Nodes(GraphStructure):
         self._nodes = set(chain(*self.edges))
         self._parents, self._children = self.build_relationships()
         self._G = self.make_graphical_model()
-        self._variables = ["X", "Z", "T", "Y"]
         self._standardised = False
         self.use_intervention_range_data = False
 
     def define_SEM(self):
-        fx = lambda epsilon, sample: epsilon
-        fz = lambda epsilon, sample: 1.5 * np.tanh(sample["X"]) + epsilon
+        def fx(epsilon, sample): return epsilon
+        def fz(epsilon, sample): return 1.5 * np.tanh(sample["X"]) + epsilon
         ft = (
-            lambda epsilon, sample: np.cos(sample["X"]) + np.exp(-sample["X"]) + epsilon
+            lambda epsilon, sample: np.cos(
+                sample["X"]) + np.exp(-sample["X"]) + epsilon
         )
-        fy = lambda epsilon, sample: sample["Z"] ** 2 + np.sin(sample["T"]) + epsilon
+        def fy(
+            epsilon, sample): return sample["Z"] ** 2 + np.sin(sample["T"]) + epsilon
         graph = OrderedDict([("X", fx), ("Z", fz), ("T", ft), ("Y", fy)])
         return graph
 
@@ -94,9 +96,9 @@ class Graph4Nodes(GraphStructure):
 
     def get_fixed_equal_costs(self) -> OrderedDict:
         logging.info("Using the fixed equal cost structure")
-        cost_fix_X_equal = lambda intervention_value: 1.0
-        cost_fix_Z_equal = lambda intervention_value: 1.0
-        cost_fix_T_equal = lambda intervention_value: 1.0
+        def cost_fix_X_equal(intervention_value): return 1.0
+        def cost_fix_Z_equal(intervention_value): return 1.0
+        def cost_fix_T_equal(intervention_value): return 1.0
         costs = OrderedDict(
             [
                 ("X", cost_fix_X_equal),
@@ -108,9 +110,9 @@ class Graph4Nodes(GraphStructure):
 
     def get_fixed_different_costs(self) -> OrderedDict:
         logging.info("Using the fixed different cost structure")
-        cost_fix_X_different = lambda intervention_value: 1.0
-        cost_fix_Z_different = lambda intervention_value: 3.0
-        cost_fix_T_different = lambda intervention_value: 5.0
+        def cost_fix_X_different(intervention_value): return 1.0
+        def cost_fix_Z_different(intervention_value): return 3.0
+        def cost_fix_T_different(intervention_value): return 5.0
         costs = OrderedDict(
             [
                 ("X", cost_fix_X_different),

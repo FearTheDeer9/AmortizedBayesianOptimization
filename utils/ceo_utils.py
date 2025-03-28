@@ -134,7 +134,8 @@ def aggregate_mean_function(
     """
     # calculates E[Y | do(x)] = E[E[Y|(do(x), G]], i.e. it calculates the mean over all the graphs
     unweighted_means = np.hstack(
-        [do_functions_es[i].mean_function_do(x) for do_functions_es in do_functions]
+        [do_functions_es[i].mean_function_do(x)
+         for do_functions_es in do_functions]
     )
     mean = unweighted_means @ posterior
     mean = mean.reshape(-1, 1)
@@ -153,15 +154,18 @@ def aggregate_var_function(
     """
     # calculates V[Y | do(x)] = E[V[Y|(do(x), G]] + V[E[Y | do(x), G]], i.e., it calculates the variance over all the graphs
     unweighted_means = np.hstack(
-        [do_functions_es[i].mean_function_do(x) for do_functions_es in do_functions]
+        [do_functions_es[i].mean_function_do(x)
+         for do_functions_es in do_functions]
     )
 
     unweighted_second_moments = np.hstack(
-        [do_function_es[i].mean_function_do(x) ** 2 for do_function_es in do_functions]
+        [do_function_es[i].mean_function_do(
+            x) ** 2 for do_function_es in do_functions]
     )
 
     unweighted_vars = np.hstack(
-        [do_functions_es[i].var_function_do(x) for do_functions_es in do_functions]
+        [do_functions_es[i].var_function_do(x)
+         for do_functions_es in do_functions]
     )
 
     var = (
@@ -266,7 +270,8 @@ def update_posterior_model_aggregate(
             )
     else:
         # only update the model of the set that was intervened upon
-        logging.info(f"Updating posterior for {exploration_set[best_variable]}")
+        logging.info(
+            f"Updating posterior for {exploration_set[best_variable]}")
         X = data_x_list[best_variable]
         Y = data_y_list[best_variable].reshape(-1, 1)
         mean_function = partial(
@@ -306,8 +311,10 @@ def update_posterior_model_aggregate_2(
         logging.info(f"Updating posterior for {exploration_set[j]}")
         X = data_x_list[j]
         Y = data_y_list[j].reshape(-1, 1)
-        mean_function = partial(aggregate_mean_function, j, do_function_list, posterior)
-        var_function = partial(aggregate_var_function, j, do_function_list, posterior)
+        mean_function = partial(aggregate_mean_function,
+                                j, do_function_list, posterior)
+        var_function = partial(aggregate_var_function, j,
+                               do_function_list, posterior)
         model_list[j] = set_up_GP(
             causal_prior, input_space[j], mean_function, var_function, X, Y
         )
@@ -345,9 +352,12 @@ def update_arm_dist_single_model(
     arm_mapping_es_to_n,
     beta=0.1,
 ):
-    corresponding_n = arm_mapping_es_to_n[es]
+    # Convert list to tuple for dictionary key if needed
+    es_key = tuple(es) if isinstance(es, list) else es
+    corresponding_n = arm_mapping_es_to_n[es_key]
     inps = np.array(inputs)
-    preds_mean, preds_var = single_updated_bo_model.predict(inps)  # Predictive mean
+    preds_mean, preds_var = single_updated_bo_model.predict(
+        inps)  # Predictive mean
     arm_distribution[corresponding_n] = np.min(preds_mean) - beta * np.sqrt(
         preds_var[np.argmin(preds_mean)]
     )
@@ -404,7 +414,9 @@ def update_pystar_single_model(
     Update the samples for the optimal values based on the current elements in the
     exploration set (only changes one of the posterior probabilities)
     """
-    corresponding_idx = arm_mapping[es]
+    # Convert list to tuple for dictionary key if needed
+    es_key = tuple(es) if isinstance(es, list) else es
+    corresponding_idx = arm_mapping[es_key]
     n_samples = all_ystar.shape[1]  # samples to build local p(y*, x*)
     gpy_model: GPRegression = bo_model.model
     inps = np.array(inputs)
@@ -456,7 +468,7 @@ def sample_global_xystar(
         if j == 0:
             resy[:count], _ = local_pystars[mix_id].sample(n_samples=count)
         else:
-            resy[running_cumsum : running_cumsum + count], _ = local_pystars[
+            resy[running_cumsum: running_cumsum + count], _ = local_pystars[
                 mix_id
             ].sample(n_samples=count)
         running_cumsum += count
@@ -629,7 +641,8 @@ def fake_do_x(
     # Get a set of all variables
 
     # This will hold the fake intervention
-    intervention_blanket = {k: np.array([None]).reshape(-1, 1) for k in intervened_vars}
+    intervention_blanket = {k: np.array(
+        [None]).reshape(-1, 1) for k in intervened_vars}
 
     for i, intervened_var in enumerate(intervened_vars):
         intervention_blanket[intervened_var] = np.array(x.reshape(1, -1)[0, i]).reshape(

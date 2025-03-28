@@ -135,11 +135,13 @@ class CausalRBF(Stationary):
         self.use_invLengthscale = use_invLengthscale
         if self.use_invLengthscale:
             self.unlink_parameter(self.lengthscale)
-            self.inv_l = Param("inv_lengthscale", 1.0 / self.lengthscale**2, Logexp())
+            self.inv_l = Param("inv_lengthscale", 1.0 /
+                               self.lengthscale**2, Logexp())
             self.link_parameter(self.inv_l)
 
         self.variance_adjustment = variance_adjustment
-        self.rescale_variance = Param("rescale_variance", rescale_variance, Logexp())
+        self.rescale_variance = Param(
+            "rescale_variance", rescale_variance, Logexp())
 
     def to_dict(self):
         """
@@ -329,14 +331,19 @@ class TargetClass:
         self.use_iscm = use_iscm
 
     def compute_target(self, value: np.ndarray) -> np.ndarray:
+        """Compute target value for given intervention values."""
+        # Ensure value has shape [batch_size, num_interventions]
+        if len(value.shape) == 1:
+            value = value.reshape(1, -1)
+
+        # Create intervention dictionary
         for i in range(self.num_interventions):
             self.interventional_dict[self.interventions[i]] = value[0, i]
 
-        if self.noiseless:
-            sample_count = 1000
-        else:
-            sample_count = 1
+        # Sample more points for noiseless case to get better mean estimate
+        sample_count = 1000 if self.noiseless else 1
 
+        # Get samples from the model
         new_samples = sample_model(
             self.model,
             interventions=self.interventional_dict,
@@ -344,6 +351,8 @@ class TargetClass:
             graph=self.graph,
             use_iscm=self.use_iscm,
         )
+
+        # Return mean target value with shape [batch_size, 1]
         return np.mean(new_samples[self.graph.target]).reshape(1, 1)
 
     def compute_all(self, value: np.ndarray):
@@ -389,7 +398,7 @@ class CausalGradientAcquisitionOptimizer(AcquisitionOptimizerBase):
         """
 
         # Take negative of acquisition function because they are to be maximised and the optimizers minimise
-        f = lambda x: -acquisition.evaluate(x)
+        def f(x): return -acquisition.evaluate(x)
 
         # Context validation
         if len(context_manager.contextfree_space.parameters) == 0:

@@ -18,10 +18,12 @@ from utils.sem_sampling import sample_model
 
 logging.basicConfig(
     level=logging.DEBUG,  # Set the loggingand level
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",  # Set the format of log messages
+    # Set the format of log messages
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="%m/%d/%Y %I:%M:%S %p",  # Set the date format
     filename="logfile.log",  # Specify the file to write the logs to
-    filemode="w",  # Set the file mode to 'a' to append to the file (use 'w' to overwrite each time)
+    # Set the file mode to 'a' to append to the file (use 'w' to overwrite each time)
+    filemode="w",
 )
 
 
@@ -54,7 +56,7 @@ class BO(BASE):
         )
 
         self.observational_samples = np.hstack(
-            ([self.D_O[var] for var in graph.variables])
+            ([self.D_O[var] for var in self.graph.variables])
         )
         # this is to change the edges so that the method works for BO
         self.graph.break_dependency_structure()
@@ -78,7 +80,8 @@ class BO(BASE):
         ]
         self.exploration_set = [tuple(self.manipulative_variables)]
         self.graph.refit_models(self.D_O)
-        X = np.hstack([self.D_O[var] for var in self.variables if var != self.target])
+        X = np.hstack([self.D_O[var]
+                      for var in self.variables if var != self.target])
         X = X[:, manipulative_index]
         Y = self.D_O[self.target]
 
@@ -129,7 +132,8 @@ class BO(BASE):
             # average_uncertainty.append(total_uncertainty["average"])
 
             if SHOW_GRAPHICS:
-                self.plot_model_list(model_list, tuple(self.manipulative_variables))
+                self.plot_model_list(model_list, tuple(
+                    self.manipulative_variables))
 
             acquisition = ExpectedImprovement(emukit_model)
             optimzer = GradientAcquisitionOptimizer(space)

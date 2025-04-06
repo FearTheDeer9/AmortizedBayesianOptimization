@@ -13,7 +13,7 @@ class ErdosRenyi(CausalEnvironment):
     exp_edges - Expected Number of edges in Erdos Renyi graph
     noise_type - Type of exogenous variables
     noise_sigma - Std of the noise type
-    num_samples - number of observations
+    num_sampels - number of observations
     mu_prior - prior of weights mean(gaussian)
     sigma_prior - prior of weights sigma (gaussian)
     seed - random seed for data
@@ -36,7 +36,7 @@ class ErdosRenyi(CausalEnvironment):
         logger=None,
     ):
         if args.old_er_logic:
-            self.noise_sigma = 0.1 if nonlinear else noise_sigma
+            self.noise_sigma = noise_sigma
             p = float(exp_edges) / (num_nodes - 1)
             acyclic = 0
             mmec = 0
@@ -50,12 +50,13 @@ class ErdosRenyi(CausalEnvironment):
                     self.graph = nx.generators.random_graphs.gnp_random_graph(
                         num_nodes, p, directed=True, seed=seed * count
                     )
-                acyclic = expm_np(nx.to_numpy_array(self.graph), num_nodes) == 0
+                acyclic = expm_np(nx.to_numpy_array(
+                    self.graph), num_nodes) == 0
                 if acyclic:
                     mmec = num_mec(self.graph) >= 2
                 count += 1
         else:
-            self.noise_sigma = 0.1 if nonlinear else noise_sigma
+            self.noise_sigma = noise_sigma
             p = exp_edges * 2
             print(p)
 
@@ -98,7 +99,8 @@ class ErdosRenyi(CausalEnvironment):
 
         self.dag = graphical_models.DAG.from_nx(self.graph)
 
-        print(f"Expected degree: {np.mean(list(dict(self.graph.in_degree).values()))}")
+        print(
+            f"Expected degree: {np.mean(list(dict(self.graph.in_degree).values()))}")
 
         self.nodes = self.dag.nodes
         self.arcs = self.dag.arcs

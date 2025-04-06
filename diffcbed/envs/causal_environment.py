@@ -1,4 +1,5 @@
 from collections import namedtuple
+from typing import Dict
 
 import causaldag as cd
 import cdt
@@ -13,12 +14,14 @@ from scipy.special import logsumexp
 from scipy.stats import norm
 from sklearn.gaussian_process.kernels import RBF
 from sklearn.metrics import f1_score
+import jax
 
 # Replace the try-except block with direct import from our utility
 from diffcbed.models.dibs.models.nonLinearGaussian import DenseNonlinearGaussian
 
 from config import NOISE_TYPES, PRESETS, VARIABLE_TYPES
 from diffcbed.envs.samplers import D
+from .causal_dataset import CausalDataset
 
 Data = namedtuple("Data", ["samples", "intervention_node"])
 
@@ -50,7 +53,11 @@ def mmd(x, y, kernel):
 
 
 class CausalEnvironment(torch.utils.data.Dataset):
-    """Base class for generating different graphs and performing ancestral sampling"""
+    """Base class for generating different graphs and performing ancestral sampling.
+
+    This class handles the broader experimental setup while delegating data management
+    to the CausalDataset class.
+    """
 
     def __init__(
         self,
@@ -64,81 +71,189 @@ class CausalEnvironment(torch.utils.data.Dataset):
         sigma_prior=None,
         seed=None,
         nonlinear=False,
-        binary_nodes=True,
         logger=None,
     ):
+        """Initialize the causal environment."""
         self.args = args
-        self.allow_cycles = False
-        self.node_range = node_range
         self.num_nodes = num_nodes
         self.num_edges = num_edges
-        assert (
-            noise_type in NOISE_TYPES
-        ), "Noise types must correspond to {} but got {}".format(
-            NOISE_TYPES, noise_type
-        )
         self.noise_type = noise_type
         self.num_samples = num_samples
+        self.node_range = node_range
         self.mu_prior = mu_prior
         self.sigma_prior = sigma_prior
         self.seed = seed
         self.nonlinear = nonlinear
-        self.binary_nodes = binary_nodes
         self.logger = logger
 
-        if seed is not None:
-            self.reseed(seed)
+        # Initialize random number generators
+        self.rng = np.random.default_rng(seed)
+        self.rng_jax = jax.random.PRNGKey(seed if seed is not None else 0)
 
-        self.init_sampler()
+        # Initialize noise standard deviations based on noise type
+        if self.noise_type.endswith("gaussian"):
+            if self.noise_type == "isotropic-gaussian":
+                # Default isotropic noise
+                self._noise_std = [1.0] * self.num_nodes
+            elif self.noise_type == "gaussian":
+                self._noise_std = np.linspace(0.1, 1.0, self.num_nodes)
+        elif self.noise_type == "exponential":
+            # Default exponential noise
+            self._noise_std = [1.0] * self.num_nodes
 
+        # Initialize nonlinear conditionals if needed
         if nonlinear:
             self.conditionals = DenseNonlinearGaussian(
                 obs_noise=self._noise_std,
                 sig_param=1.0,
-                hidden_layers=[
-                    5,
-                ],
+                hidden_layers=[5,],
             )
 
+        # Sample weights and build graph
         self.sample_weights()
         self.build_graph()
 
+        # Initialize sampler
+        self.init_sampler()
+
+        # Get SCM before initializing dataset
+        scm = self._get_scm()
+
+        # Initialize CausalDataset for data management
+        self.dataset = CausalDataset(
+            self.graph,
+            scm,
+            n_obs=num_samples,
+            n_int=2,  # Default number of interventional samples
+            seed=seed
+        )
+
+        # Initialize held-out data after dataset is ready
         self.held_out_interventions = []
         self.held_out_nodes = []
         self.held_out_values = []
 
+        # Create held-out interventions
         for node in range(self.num_nodes):
-            # for value in np.linspace(node_range[0], node_range[1], 5):
             for value in [-20, 20]:
-                samples = np.zeros(self.num_nodes) + value
-                node_binary_v = np.zeros(self.num_nodes)
-                node_binary_v[node] = 1.0
+                self.held_out_nodes.append(node)
+                self.held_out_values.append(value)
 
-                self.held_out_nodes.append(node_binary_v)
-                self.held_out_values.append(samples)
+                # Add intervention to dataset
+                self.dataset.add_intervention(node, value, n_samples=200)
+                intervention_samples = self.dataset.get_intervention_samples(
+                    node, value)
 
-                samples = self.intervene(
-                    0, 200, node_binary_v.astype(int), samples, _log=False
-                ).samples
-                self.held_out_interventions.append(
-                    {"node": node, "value": value, "samples": samples}
-                )
+                # Convert samples to array format
+                sample_array = np.zeros((200, self.num_nodes))
+                for i in range(self.num_nodes):
+                    sample_array[:, i] = intervention_samples[str(i)].flatten()
 
+                self.held_out_interventions.append({
+                    "node": node,
+                    "value": value,
+                    "samples": sample_array
+                })
+
+        # Sample held-out observational data
         self.held_out_data = self.sample(1000).samples
 
-        # import seaborn as sns
-        # import matplotlib.pyplot as plt
-        # fig, ax = plt.subplots(nrows=5)
-        # sns.distplot(self.held_out_data[:, 0], ax=ax[0])
-        # sns.distplot(self.held_out_data[:, 1], ax=ax[1])
-        # sns.distplot(self.held_out_data[:, 2], ax=ax[2])
-        # sns.distplot(self.held_out_data[:, 3], ax=ax[3])
-        # sns.distplot(self.held_out_data[:, 4], ax=ax[4])
-        # fig.savefig('distplot.png')
-        # import pdb; pdb.set_trace()
+    def _get_scm(self) -> Dict[str, callable]:
+        """Get the structural causal model based on current configuration."""
+        if self.nonlinear:
+            return self._get_nonlinear_scm()
+        else:
+            return self._get_linear_scm()
+
+    def _get_linear_scm(self) -> Dict[str, callable]:
+        """Get linear SCM based on weighted adjacency matrix."""
+        mechanisms = {}
+
+        def create_mechanism(i, parents, weights):
+            def mechanism(n_samples=1):
+                # Create a dictionary to store intermediate values
+                node_values = {}
+
+                # Get topological ordering starting from parents
+                topo_order = list(nx.topological_sort(self.graph))
+
+                # Calculate values for all nodes in topological order
+                for node in topo_order:
+                    if str(node) not in node_values:
+                        node_parents = list(self.graph.predecessors(node))
+                        if not node_parents:
+                            # Root node
+                            node_values[str(node)] = self.graph.nodes[node]["sampler"].sample(
+                                n_samples).reshape(-1, 1)
+                        else:
+                            # Non-root node
+                            node_weights = [
+                                self.weighted_adjacency_matrix[j, node] for j in node_parents]
+                            parent_values = np.hstack(
+                                [node_values[str(p)] for p in node_parents])
+                            node_values[str(node)] = (parent_values @ np.array(node_weights).reshape(-1, 1) +
+                                                      self.graph.nodes[node]["sampler"].sample(n_samples).reshape(-1, 1))
+
+                # Return the value for the target node
+                return node_values[str(i)].reshape(-1)
+
+            return mechanism
+
+        # Create mechanisms for all nodes
+        for i in range(self.num_nodes):
+            parents = list(self.graph.predecessors(i))
+            weights = [self.weighted_adjacency_matrix[j, i]
+                       for j in parents] if parents else []
+            mechanisms[str(i)] = create_mechanism(i, parents, weights)
+
+        return mechanisms
+
+    def _get_nonlinear_scm(self) -> Dict[str, callable]:
+        """Get nonlinear SCM based on current conditionals."""
+        mechanisms = {}
+
+        def create_mechanism(i, parents):
+            def mechanism(n_samples=1):
+                # Create a dictionary to store intermediate values
+                node_values = {}
+
+                # Get topological ordering starting from parents
+                topo_order = list(nx.topological_sort(self.graph))
+
+                # Calculate values for all nodes in topological order
+                for node in topo_order:
+                    if str(node) not in node_values:
+                        node_parents = list(self.graph.predecessors(node))
+                        if not node_parents:
+                            # Root node
+                            node_values[str(node)] = self.graph.nodes[node]["sampler"].sample(
+                                n_samples).reshape(-1, 1)
+                        else:
+                            # Non-root node
+                            parent_values = np.hstack(
+                                [node_values[str(p)] for p in node_parents])
+                            with torch.no_grad():
+                                output = self.conditionals.forward(
+                                    torch.FloatTensor(parent_values))
+                            node_values[str(node)] = output.numpy(
+                            ) + self.graph.nodes[node]["sampler"].sample(n_samples).reshape(-1, 1)
+
+                # Return the value for the target node
+                return node_values[str(i)].reshape(-1)
+
+            return mechanism
+
+        # Create mechanisms for all nodes
+        for i in range(self.num_nodes):
+            parents = list(self.graph.predecessors(i))
+            mechanisms[str(i)] = create_mechanism(i, parents)
+
+        return mechanisms
 
     def reseed(self, seed=None):
         self.rng = np.random.default_rng(seed)
+        if hasattr(self, 'dataset'):
+            self.dataset.seed = seed
 
     def __getitem__(self, index):
         raise NotImplementedError
@@ -172,21 +287,14 @@ class CausalEnvironment(torch.utils.data.Dataset):
             graph = self.graph
 
         if self.noise_type.endswith("gaussian"):
-            # Identifiable
-            if self.noise_type == "isotropic-gaussian":
-                self._noise_std = [self.noise_sigma] * self.num_nodes
-            elif self.noise_type == "gaussian":
-                self._noise_std = np.linspace(0.1, 1.0, self.num_nodes)
             for i in range(self.num_nodes):
                 graph.nodes[i]["sampler"] = D(
                     self.rng.normal, loc=0.0, scale=self._noise_std[i]
                 )
-
         elif self.noise_type == "exponential":
-            noise_std = [self.noise_sigma] * self.num_nodes
             for i in range(self.num_nodes):
                 graph.nodes[i]["sampler"] = D(
-                    self.rng.exponential, scale=noise_std[i])
+                    self.rng.exponential, scale=self._noise_std[i])
 
         return graph
 
@@ -211,44 +319,51 @@ class CausalEnvironment(torch.utils.data.Dataset):
                         sample = dist.sample(size=1)
                         self.weights[k] = sample
 
-    def sample_linear(
-        self, num_samples, graph=None, node=None, values=None, onehot=False
-    ):
-        """
-        Sample observations given a graph
-        num_samples: Scalar
-        graph: networkx DiGraph
-        node: If intervention is performed, specify which node
-        value: value set to node after intervention
+    def sample_linear(self, num_samples, graph=None, node=None, values=None, onehot=False):
+        """Sample observations given a graph with optional intervention.
 
-        Outputs: Observations [num_samples x num_nodes]
+        Args:
+            num_samples: Number of samples to generate
+            graph: networkx DiGraph (uses self.graph if None)
+            node: Node to intervene on (can be array-like for onehot=True)
+            values: Value for intervention
+            onehot: If True, node is a one-hot vector and values is an array
+
+        Returns:
+            Data object containing samples and intervention information
         """
         if graph is None:
             graph = self.graph
 
         samples = np.zeros((num_samples, self.num_nodes))
-        edge_pointer = 0
+
+        # Sample in topological order
         for i in nx.topological_sort(graph):
-            if onehot and node[i] == 1.0:
-                noise = values[i]
-            elif not onehot and i == node:
-                noise = values
+            # Handle intervention
+            if onehot and isinstance(node, (np.ndarray, list)) and node[i] == 1.0:
+                # Binary node case - use value from values array
+                samples[:, i] = values[i]
+            elif not onehot and isinstance(node, (int, np.integer)) and i == node:
+                # Integer node case - use single value
+                samples[:, i] = values
             else:
-                noise = self.args.scm_bias + self.graph.nodes[i]["sampler"].sample(
-                    num_samples
-                )
-            parents = list(graph.predecessors(i))
-            if len(parents) == 0:
-                samples[:, i] = noise
-            else:
-                curr = 0
-                for j in parents:
-                    curr += self.weighted_adjacency_matrix[j,
-                                                           i] * samples[:, j]
-                    edge_pointer += 1
-                curr += noise
-                samples[:, i] = curr
-        return Data(samples=samples, intervention_node=-1)
+                # No intervention - sample normally
+                noise = self.args.scm_bias + \
+                    graph.nodes[i]["sampler"].sample(num_samples)
+                parents = list(graph.predecessors(i))
+
+                if len(parents) == 0:
+                    # Root node - just noise
+                    samples[:, i] = noise
+                else:
+                    # Add weighted parent contributions
+                    parent_contribution = sum(
+                        self.weighted_adjacency_matrix[j, i] * samples[:, j]
+                        for j in parents
+                    )
+                    samples[:, i] = parent_contribution + noise
+
+        return Data(samples=samples, intervention_node=node)
 
     def sample_nonlinear(self, num_samples, graph=None, node=None, values=None):
         if graph is None:
@@ -266,47 +381,100 @@ class CausalEnvironment(torch.utils.data.Dataset):
         )
         return Data(samples=samples, intervention_node=-1)
 
-    def intervene(self, iteration, num_samples, nodes, values, _log=True):
-        """Perform intervention to obtain a mutilated graph"""
-        mutated_graph = self.adjacency_matrix.copy()
-        if self.binary_nodes:
-            mutated_graph[:, nodes.astype(np.bool_)] = 0
+    def intervene(self, nodes, values, num_samples=1000):
+        """Intervene on one or more nodes with given values.
+
+        Args:
+            nodes: Node(s) to intervene on. Can be:
+                - Single integer: Intervene on one node
+                - List of integers: Intervene on multiple nodes simultaneously
+                - np.ndarray: Vector-valued intervention (each element corresponds to a node)
+            values: Value(s) to set the node(s) to. Can be:
+                - Single float: Value for single node intervention
+                - List of floats: Values for multiple node interventions
+                - np.ndarray: Vector of values for vector-valued intervention
+            num_samples: Number of samples to generate
+
+        Returns:
+            Data object containing samples and intervention node information
+        """
+        # Convert inputs to consistent format
+        if isinstance(nodes, (int, np.integer)):
+            # Single node intervention
+            nodes = [int(nodes)]
+            values = [float(values)]
+        elif isinstance(nodes, list):
+            # Multiple node intervention
+            nodes = [int(n) for n in nodes]
+            values = [float(v) for v in values]
+        elif isinstance(nodes, np.ndarray):
+            # Vector-valued intervention
+            if nodes.ndim == 1:
+                # Get indices of non-zero elements
+                nodes = np.where(nodes != 0)[0].tolist()
+                if isinstance(values, np.ndarray):
+                    # Extract values at the non-zero indices
+                    values = [float(values[i]) for i in nodes]
+                else:
+                    values = [float(values)] * len(nodes)
+            else:
+                raise ValueError("Node array must be 1-dimensional")
         else:
-            mutated_graph[:, nodes] = 0
+            raise TypeError(
+                "Nodes must be integer, list of integers, or numpy array")
+
+        # Create mutated graph by removing incoming edges to intervention nodes
+        mutated_graph = self.graph.copy()
+        for node in nodes:
+            for edge in list(mutated_graph.in_edges(node)):
+                mutated_graph.remove_edge(*edge)
+
+        # Initialize sampler for mutated graph
+        mutated_graph = self.init_sampler(mutated_graph)
+
+        # Sample from appropriate mechanism
         if self.nonlinear:
             samples = self.sample_nonlinear(
                 num_samples,
-                self.init_sampler(nx.DiGraph(mutated_graph)),
-                nodes,
-                values,
+                mutated_graph,
+                nodes,  # Pass list of nodes
+                values,  # Pass list of values
             ).samples
         else:
             samples = self.sample_linear(
                 num_samples,
-                self.init_sampler(nx.DiGraph(mutated_graph)),
-                nodes,
-                values,
-                onehot=self.binary_nodes,
+                mutated_graph,
+                nodes,  # Pass list of nodes
+                values,  # Pass list of values
+                onehot=False,
             ).samples
 
-        # if _log:
-        #     self.logger.log_interventions(iteration, nodes, samples)
+        # Update dataset with interventions
+        for node, value in zip(nodes, values):
+            self.dataset.add_intervention(node, value, n_samples=num_samples)
 
-        return Data(samples=samples, intervention_node=nodes)
+        # Get formatted samples
+        sample_array = np.zeros((num_samples, self.num_nodes))
+        for i in range(self.num_nodes):
+            if i in nodes:
+                # For intervened nodes, use the intervention value
+                value_idx = nodes.index(i)
+                sample_array[:, i] = np.full(num_samples, values[value_idx])
+            else:
+                # For non-intervened nodes, get samples from dataset
+                intervention_samples = self.dataset.get_intervention_samples(
+                    nodes[0], values[0])
+                sample_array[:, i] = intervention_samples[str(i)].flatten()
+
+        return Data(samples=sample_array, intervention_node=nodes)
 
     def sample(self, num_samples):
-        if self.nonlinear:
-            return self.sample_nonlinear(num_samples)
-        else:
-            _sample = self.sample_linear(num_samples)
-
-            if self.binary_nodes:
-                b = np.zeros(self.num_nodes)
-                if _sample.intervention_node != -1:
-                    b[_sample.intervention_node] = 1
-                _sample = Data(samples=_sample.samples, intervention_node=b)
-
-        return _sample
+        """Sample from the observational distribution"""
+        obs_data = self.dataset.get_obs_data()
+        sample_array = np.zeros((num_samples, self.num_nodes))
+        for i in range(self.num_nodes):
+            sample_array[:, i] = obs_data[str(i)].flatten()
+        return Data(samples=sample_array, intervention_node=-1)
 
     def interventional_likelihood_linear(self, data, intervention):
         graph = self.graph

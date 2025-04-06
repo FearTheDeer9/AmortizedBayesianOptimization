@@ -32,7 +32,6 @@ class ErdosRenyi(CausalEnvironment):
         sigma_prior=1.0,
         seed=10,
         nonlinear=False,
-        binary_nodes=False,
         logger=None,
     ):
         if args.old_er_logic:
@@ -90,7 +89,6 @@ class ErdosRenyi(CausalEnvironment):
             sigma_prior=sigma_prior,
             seed=seed,
             nonlinear=nonlinear,
-            binary_nodes=binary_nodes,
             logger=logger,
         )
 

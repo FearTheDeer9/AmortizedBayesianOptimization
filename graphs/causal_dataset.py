@@ -10,9 +10,7 @@ from graphs.scm_generators import sample_observational, sample_interventional, N
 class CausalDataset:
     """Dataset class that holds observational and interventional data.
 
-    This class is designed to be used as a data management component within CausalEnvironment.
-    It handles the storage and organization of both observational and interventional data,
-    while CausalEnvironment handles the broader experimental setup and graph structure.
+    This class handles the storage and organization of both observational and interventional data.
     """
 
     def __init__(self, graph: nx.DiGraph, scm: Dict[str, callable],

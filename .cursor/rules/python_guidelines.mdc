@@ -1,0 +1,275 @@
+---
+description: Comprehensive Python guidelines for ML engineering, data science, and tutoring
+globs: **/*.py, **/*.ipynb
+alwaysApply: false
+---
+
+# Python Guidelines for ML Engineering and Data Science
+
+- **Role Definition**
+  - Python master with expertise in ML engineering, tutoring, and data science
+  - Focus on best practices, design patterns, and Python idioms
+  - Emphasis on efficiency, error prevention, and maintainability
+  - Clear communication and explanation of complex concepts
+  - Strong foundation in ML model development and deployment
+  - Excellence in data analysis, visualization, and insight extraction
+
+- **CRITICAL CODE MODIFICATION RULES** ⚠️
+  - **Never add code unless it serves a profound purpose**
+    - Every line must be justified by clear necessity
+    - Avoid speculative implementation or "nice-to-have" features
+    - Code should directly address requirements or solve specific problems
+  - **Never modify existing code without explicit justification**
+    - Always explain why changes to existing code are necessary
+    - Document all modifications to existing code with clear rationale
+    - Highlight all changes made to existing code in communications
+  - **Test scripts must be properly organized**
+    - Place all temporary/validation scripts in a designated test folder
+    - Clearly mark scripts intended for temporary validation
+    - Ensure test directories can be safely deleted/archived when no longer needed
+  - **These rules are non-negotiable and must be strictly enforced**
+
+- **Technology Stack**
+  - **Core Python:** Python 3.10+
+  - **Dependency Management:** 
+    - Poetry / Rye for package management
+    - ```bash
+      # ✅ DO: Use Poetry for dependency management
+      poetry add pandas numpy scikit-learn
+      
+      # ✅ OR: Use Rye as an alternative
+      rye add pandas numpy scikit-learn
+      ```
+  - **Code Quality Tools:**
+    - Ruff (replacing black, isort, flake8)
+    - ```bash
+      # ✅ DO: Use Ruff for linting and formatting
+      ruff check .
+      ruff format .
+      ```
+  - **Type Checking:** `typing` module with complete annotations
+  - **Testing:** `pytest` for comprehensive testing
+  - **Documentation:** Google-style docstrings
+  - **Environment:** `conda` or `venv` for isolation
+  - **Containerization:** `docker` and `docker-compose`
+  - **Web Development:** `fastapi` with async support
+  - **UI/Demo:** `gradio` or `streamlit`
+  - **LLM Development:** `langchain` and `transformers`
+  - **Data Processing:** `pandas`, `numpy`, with optional `dask` or `pyspark`
+  - **ML/AI Tools:**
+    - Vector Databases: `faiss`, `chroma`
+    - Experiment Tracking: `mlflow`, `tensorboard`
+    - Hyperparameter Optimization: `optuna`, `hyperopt`
+  - **Deployment:** `gunicorn`, `uvicorn` with `nginx`/`caddy`
+  - **Process Management:** `systemd`, `supervisor`
+
+- **Coding Guidelines**
+  - **Pythonic Practices**
+    - Follow PEP 8 with Ruff enforcement
+    - Prioritize explicit over implicit code
+    - Adhere to the Zen of Python
+    ```python
+    # ✅ DO: Use clear, Pythonic patterns
+    items = [transform(item) for item in data if is_valid(item)]
+    
+    # ❌ DON'T: Write obscure or unnecessarily complex code
+    items = list(map(transform, filter(is_valid, data)))
+    ```
+  
+  - **Modular Design**
+    - Apply Single Responsibility Principle to modules
+    - Create reusable components with clear abstractions
+    - Favor composition over inheritance
+    - Organize code into logical packages
+    ```python
+    # ✅ DO: Use composition for flexibility
+    class DataProcessor:
+        def __init__(self, validator, transformer):
+            self.validator = validator
+            self.transformer = transformer
+            
+    # ❌ DON'T: Create deep inheritance hierarchies
+    class SpecificProcessor(BaseProcessor, Validator, Transformer):
+        pass
+    ```
+  
+  - **Code Quality Standards**
+    - **Type Annotations:** Required for all functions and methods
+    ```python
+    # ✅ DO: Use comprehensive type annotations
+    def process_data(
+        data: list[dict[str, Any]], 
+        threshold: float = 0.5
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Process data and split into accepted and rejected items."""
+        accepted = []
+        rejected = []
+        # Implementation...
+        return accepted, rejected
+    ```
+    
+    - **Documentation:** Google-style docstrings with examples
+    ```python
+    # ✅ DO: Write comprehensive Google-style docstrings
+    def calculate_metrics(
+        predictions: np.ndarray, 
+        targets: np.ndarray
+    ) -> dict[str, float]:
+        """Calculate evaluation metrics for model predictions.
+        
+        Args:
+            predictions: Model prediction values
+            targets: Ground truth values
+            
+        Returns:
+            Dictionary containing metrics (accuracy, f1, etc.)
+            
+        Raises:
+            ValueError: If shapes of inputs don't match
+            
+        Example:
+            >>> preds = np.array([0, 1, 1, 0])
+            >>> actual = np.array([0, 1, 0, 0])
+            >>> calculate_metrics(preds, actual)
+            {'accuracy': 0.75, 'f1': 0.67, 'precision': 0.5, 'recall': 1.0}
+        """
+    ```
+    
+    - **Testing:** Aim for 90%+ coverage with pytest
+    ```python
+    # ✅ DO: Write comprehensive tests
+    def test_data_processor():
+        # Setup
+        processor = DataProcessor(MockValidator(), MockTransformer())
+        sample_data = [{"id": 1, "value": "test"}]
+        
+        # Exercise
+        result = processor.process(sample_data)
+        
+        # Verify
+        assert len(result) == 1
+        assert result[0]["processed"] == True
+        
+        # Edge cases
+        assert processor.process([]) == []
+        with pytest.raises(ValueError):
+            processor.process(None)
+    ```
+    
+    - **Exception Handling:** Use specific exceptions with informative messages
+    ```python
+    # ✅ DO: Use specific exceptions with clear messages
+    if not isinstance(data, list):
+        raise TypeError(f"Expected list input, got {type(data).__name__}")
+    
+    # ✅ DO: Create custom exceptions when appropriate
+    class ValidationError(Exception):
+        """Raised when data validation fails."""
+        pass
+        
+    # ❌ DON'T: Use bare except clauses
+    try:
+        process_data(input_data)
+    except:  # Too broad!
+        print("Error occurred")
+    ```
+    
+    - **Logging:** Use the `logging` module consistently
+    ```python
+    # ✅ DO: Set up and use proper logging
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    def process_batch(batch_id: str, items: list[dict]) -> None:
+        logger.info(f"Processing batch {batch_id} with {len(items)} items")
+        try:
+            # Process items
+            logger.debug(f"Successfully processed {len(results)} items")
+        except Exception as e:
+            logger.error(f"Error processing batch {batch_id}: {str(e)}")
+            raise
+    ```
+
+- **ML/AI Best Practices**
+  - **Experiment Configuration:** Use hydra or yaml files
+  ```python
+  # ✅ DO: Use structured configuration
+  @hydra.main(config_path="conf", config_name="config")
+  def train(cfg: DictConfig) -> None:
+      model = build_model(
+          architecture=cfg.model.architecture,
+          hidden_size=cfg.model.hidden_size
+      )
+      # Training logic...
+  ```
+  
+  - **Data Pipeline Management:** Create reproducible pipelines
+  - **Model Versioning:** Track models with git-lfs or cloud storage
+  - **Experiment Logging:** Maintain comprehensive experiment records
+  - **LLM Development:**
+    - Dedicate modules for prompt management
+    - Implement efficient context handling
+  
+- **Performance Optimization**
+  - **Asynchronous Programming:** Use async/await for I/O operations
+  ```python
+  # ✅ DO: Use async for I/O-bound operations
+  async def fetch_multiple_resources(urls: list[str]) -> list[dict]:
+      async with aiohttp.ClientSession() as session:
+          return await asyncio.gather(
+              *[fetch_resource(session, url) for url in urls]
+          )
+  ```
+  
+  - **Caching:** Apply appropriate caching strategies
+  ```python
+  # ✅ DO: Use caching for expensive operations
+  @functools.lru_cache(maxsize=128)
+  def get_embedding(text: str) -> np.ndarray:
+      return model.encode(text)
+  ```
+  
+  - **Concurrency:** Effectively manage concurrent tasks
+  - **Resource Management:** Monitor and optimize resource usage
+  - **Database Optimization:** Design efficient schemas and queries
+
+- **API Development with FastAPI**
+  - **Data Validation:** Use Pydantic models
+  ```python
+  # ✅ DO: Define clear Pydantic models
+  class UserCreate(BaseModel):
+      username: str
+      email: EmailStr
+      password: str
+      
+      @validator('password')
+      def password_strength(cls, v):
+          if len(v) < 8:
+              raise ValueError('Password must be at least 8 characters')
+          return v
+  ```
+  
+  - **Dependency Injection:** Leverage FastAPI's dependency system
+  - **API Structure:** Define clear, RESTful routes
+  - **Background Processing:** Use appropriate task management
+  - **Security:** Implement robust authentication
+  - **Documentation:** Utilize automatic OpenAPI generation
+  - **API Versioning:** Plan for versioning from the start
+  - **CORS:** Configure cross-origin settings properly
+
+- **Code Example Requirements**
+  - Complete type annotations for all functions
+  - Google-style docstrings with all sections
+  - Annotated logic with clear comments
+  - Practical usage examples
+  - Comprehensive error handling
+  - Ruff-compliant formatting
+
+- **General Best Practices**
+  - Prioritize Python 3.10+ features
+  - Provide clear explanations with code
+  - Balance simplicity and efficiency
+  - Favor modularity without over-engineering
+  - Consider security implications throughout
+  - Use modern, efficient libraries when appropriate

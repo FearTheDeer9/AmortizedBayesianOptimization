@@ -11,6 +11,9 @@ import numpy as np
 
 from causal_meta.graph.directed_graph import DirectedGraph
 
+# Import networkx for the new method
+import networkx as nx
+
 
 class CausalGraph(DirectedGraph):
     """
@@ -473,3 +476,145 @@ class CausalGraph(DirectedGraph):
             str: A string representation
         """
         return f"CausalGraph(nodes={len(self._nodes)}, edges={len(self._edges)})"
+
+    # --- Edge Attribute Handling --- 
+        
+    def set_edge_attribute(self, u: Any, v: Any, name: str, value: Any):
+        """
+        Set an attribute for a specific edge.
+
+        Args:
+            u: The source node identifier.
+            v: The target node identifier.
+            name: The name of the attribute to set.
+            value: The value of the attribute.
+
+        Raises:
+            ValueError: If the edge (u, v) does not exist.
+        """
+        if not self.has_edge(u, v):
+            raise ValueError(f"Edge ({u}, {v}) does not exist.")
+            
+        edge_key = (u, v)
+        # Ensure the attribute dictionary exists for this edge
+        if edge_key not in self._edge_attributes:
+            self._edge_attributes[edge_key] = {}
+        self._edge_attributes[edge_key][name] = value
+
+    def get_edge_attribute(self, u: Any, v: Any, name: str, default: Optional[Any] = None) -> Any:
+        """
+        Get an attribute for a specific edge.
+
+        Args:
+            u: The source node identifier.
+            v: The target node identifier.
+            name: The name of the attribute to get.
+            default: The value to return if the edge or attribute doesn't exist.
+
+        Returns:
+            The value of the attribute, or the default value.
+        """
+        edge_key = (u, v)
+        edge_data = self._edge_attributes.get(edge_key)
+        if edge_data is None:
+             # Check if edge exists at all before returning default
+             # This prevents returning default if edge is valid but has no attributes
+             if not self.has_edge(u,v):
+                 return default
+             else:
+                 # Edge exists but has no attributes dict or specific attribute
+                 return default
+        return edge_data.get(name, default)
+
+    def get_edge_attributes(self, u: Any, v: Any) -> Optional[Dict[str, Any]]:
+        """
+        Get all attributes for a specific edge.
+
+        Args:
+            u: The source node identifier.
+            v: The target node identifier.
+
+        Returns:
+            A dictionary of attributes (or an empty dict if none), 
+            or None if the edge doesn't exist.
+        """
+        edge_key = (u, v)
+        if not self.has_edge(u, v):
+            return None
+        # Get the attribute dictionary, defaulting to empty if none exists for the edge
+        edge_data = self._edge_attributes.get(edge_key, {})
+        # Return a copy to prevent external modification
+        return copy.deepcopy(edge_data)
+
+    # has_path is inherited from DirectedGraph
+
+    # --- Causal Specific Methods --- 
+
+    def get_markov_blanket(self, node_id: Any) -> Set:
+        """
+        Get the Markov blanket of a node.
+
+        The Markov blanket of a node X consists of X's parents, X's children,
+        and the parents of X's children.
+
+        Args:
+            node_id: The node identifier
+
+        Returns:
+            Set: A set of node identifiers in the Markov blanket
+
+        Raises:
+            ValueError: If the node doesn't exist
+        """
+        if node_id not in self._nodes:
+            raise ValueError(f"Node {node_id} does not exist in the graph")
+
+        # Get parents and children
+        parents = self.get_parents(node_id)
+        children = self.get_children(node_id)
+
+        # Get parents of children (spouses)
+        spouses = set()
+        for child in children:
+            child_parents = self.get_parents(child)
+            spouses.update(child_parents)
+
+        # Remove the node itself from spouses if present
+        if node_id in spouses:
+            spouses.remove(node_id)
+
+        # Combine all sets
+        markov_blanket = parents.union(children).union(spouses)
+
+        return markov_blanket
+
+    def to_networkx(self, include_attributes: bool = True) -> nx.DiGraph:
+        """Convert the CausalGraph to a NetworkX DiGraph object.
+
+        Args:
+            include_attributes (bool): If True, copy node and edge attributes
+                                       from the CausalGraph to the NetworkX graph.
+                                       Defaults to True.
+
+        Returns:
+            nx.DiGraph: A NetworkX directed graph representation.
+        """
+        nx_graph = nx.DiGraph()
+
+        # Add nodes
+        for node_id in self.get_nodes():
+            if include_attributes:
+                node_attrs = self.get_node_attributes(node_id) or {}
+                nx_graph.add_node(node_id, **node_attrs)
+            else:
+                nx_graph.add_node(node_id)
+
+        # Add edges
+        for u, v in self.get_edges():
+            if include_attributes:
+                edge_attrs = self.get_edge_attributes(u, v) or {}
+                nx_graph.add_edge(u, v, **edge_attrs)
+            else:
+                nx_graph.add_edge(u, v)
+
+        return nx_graph

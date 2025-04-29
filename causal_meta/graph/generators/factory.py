@@ -7,12 +7,15 @@ of graph structures, including random graphs, scale-free networks, and predefine
 from typing import Dict, Any, Optional, Union, List, Tuple
 import random
 from abc import ABC, abstractmethod
+import logging
+import networkx as nx
 
 from causal_meta.graph import CausalGraph, DirectedGraph
 from causal_meta.graph.generators.errors import GraphGenerationError
 from causal_meta.graph.generators.scale_free import ScaleFreeNetworkGenerator
 from causal_meta.graph.generators.predefined import PredefinedGraphStructureGenerator
 
+logger = logging.getLogger(__name__)
 
 class GraphFactory:
     """
@@ -650,17 +653,27 @@ class GraphFactory:
         # Add nodes (0 to num_nodes - 1)
         for i in range(num_nodes):
             graph.add_node(i)
+        assert graph.num_nodes == num_nodes
 
         # Core loop structure for potential edges (i -> j where i < j)
-        # Actual edge addition based on probability will be in subtask 1.3
+        edge_count = 0
         for i in range(num_nodes):
             for j in range(i + 1, num_nodes): # Ensure j > i
                 # Logic for adding edge based on edge_probability goes here (Subtask 1.3)
-                # Example placeholder for next step:
                 if random.random() < edge_probability:
                     graph.add_edge(i, j)
+                    edge_count += 1
                 #pass # No edges added in Subtask 1.2
 
+        # Log edge count
+        logger.debug(f"Generated DAG with {num_nodes} nodes and {edge_count} edges.")
+
         # Validation logic will be added in subtask 1.4
+        # Convert to NetworkX graph for validation
+        nx_graph = nx.DiGraph()
+        nx_graph.add_nodes_from(graph.get_nodes())
+        nx_graph.add_edges_from(graph.get_edges())
+        # Validate acyclicity (should always be true by construction)
+        assert nx.is_directed_acyclic_graph(nx_graph), "Generated graph is not a DAG!"
 
         return graph

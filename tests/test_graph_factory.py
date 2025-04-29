@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 import random
 import math
 from collections import Counter
+import networkx as nx
 
 from causal_meta.graph import CausalGraph, DirectedGraph
 from causal_meta.graph.generators import GraphFactory, GraphGenerationError
@@ -585,6 +586,63 @@ class TestGraphFactory(unittest.TestCase):
             is_causal=False
         )
         self.assertIsInstance(graph, DirectedGraph)
+
+    # ---- Tests for create_random_dag ----
+
+    def test_create_random_dag_validates_parameters(self):
+        """Test that create_random_dag validates parameters."""
+        with self.assertRaises(GraphGenerationError):
+            GraphFactory.create_random_dag(num_nodes=0, edge_probability=0.5)
+        with self.assertRaises(GraphGenerationError):
+            GraphFactory.create_random_dag(num_nodes=10, edge_probability=-0.1)
+        with self.assertRaises(GraphGenerationError):
+            GraphFactory.create_random_dag(num_nodes=10, edge_probability=1.1)
+
+    def test_create_random_dag_basic_cases(self):
+        """Test basic DAG generation with various parameters."""
+        test_cases = [
+            {"num_nodes": 5, "edge_probability": 0.5, "seed": 1, "is_causal": True, "expected_type": CausalGraph},
+            {"num_nodes": 50, "edge_probability": 0.2, "seed": 2, "is_causal": True, "expected_type": CausalGraph},
+            {"num_nodes": 1, "edge_probability": 0.5, "seed": 3, "is_causal": True, "expected_type": CausalGraph},
+            {"num_nodes": 2, "edge_probability": 0.0, "seed": 4, "is_causal": True, "expected_type": CausalGraph},
+            {"num_nodes": 2, "edge_probability": 1.0, "seed": 5, "is_causal": True, "expected_type": CausalGraph},
+            {"num_nodes": 10, "edge_probability": 0.3, "seed": 6, "is_causal": False, "expected_type": DirectedGraph},
+        ]
+
+        for params in test_cases:
+            with self.subTest(params=params):
+                num_nodes = params['num_nodes']
+                graph = GraphFactory.create_random_dag(
+                    num_nodes=num_nodes,
+                    edge_probability=params['edge_probability'],
+                    seed=params['seed'],
+                    is_causal=params['is_causal']
+                )
+
+                # 1. Assert Type
+                self.assertIsInstance(graph, params['expected_type'])
+
+                # 2. Assert Node Count
+                self.assertEqual(graph.num_nodes, num_nodes)
+
+                # 3. Assert Acyclicity using NetworkX
+                nx_graph = nx.DiGraph()
+                nx_graph.add_nodes_from(graph.get_nodes())
+                nx_graph.add_edges_from(graph.get_edges())
+                self.assertTrue(nx.is_directed_acyclic_graph(nx_graph), 
+                                f"Graph generated with params {params} is not acyclic")
+
+    def test_create_random_dag_reproducibility(self):
+        """Test reproducibility of create_random_dag with the same seed."""
+        params = {'num_nodes': 20, 'edge_probability': 0.4, 'seed': 42}
+        graph1 = GraphFactory.create_random_dag(**params)
+        graph2 = GraphFactory.create_random_dag(**params)
+        graph3 = GraphFactory.create_random_dag(**params, seed=43)
+
+        self.assertEqual(graph1.get_edges(), graph2.get_edges())
+        self.assertNotEqual(graph1.get_edges(), graph3.get_edges())
+
+    # ---- End Tests for create_random_dag ----
 
 
 if __name__ == "__main__":

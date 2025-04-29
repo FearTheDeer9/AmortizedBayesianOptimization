@@ -19,4 +19,19 @@ This document reflects the current state of the project based on `tasks/tasks.js
     - Status: Basic `TaskFamilyVisualizer` implemented and tested. `TaskFamily` class created and enhanced with save/load. Tests passing.
     - Next: Implement remaining integration points (metrics, framework hooks), add performance optimizations if needed.
 3.  **Integrate StructuralCausalModel Implementation:** `pending`
-    - Subtask 3.1 (Review) is `
+    - Subtask 3.1 (Review) is `done`
+    - Subtask 3.2 (Implement or extend sample_data method) is `done`
+    - Subtask 3.3 (Implement or extend perform_intervention method) is `done`
+    - Subtask 3.4 (Implement or extend get_adjacency_matrix method) is `done`
+    - Subtask 3.5 (Update example workflow to use StructuralCausalModel) is `pending`
+    - Status: All subtasks completed.
+    - Next: Implement remaining integration points (metrics, framework hooks), add performance optimizations if needed.
+
+### Project Implementation Plan
+
+#### Task 3: Integrate StructuralCausalModel Implementation (Pending ⏱️)
+- Subtask 3.1: Review and analyze existing StructuralCausalModel implementation (Done ✅)
+- Subtask 3.2: Implement or extend sample_data method (Done ✅)
+- Subtask 3.3: Implement or extend perform_intervention method (Done ✅)
+- Subtask 3.4: Implement or extend get_adjacency_matrix method (Done ✅)
+- Subtask 3.5: Update example workflow to use StructuralCausalModel (Pending ⏱️)

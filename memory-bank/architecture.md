@@ -16,6 +16,7 @@ This document outlines the key architectural components of the Causal Bayesian O
         - `do_intervention(target_node, value)`: Modifies the SCM according to a perfect intervention (returns a *new* SCM instance).
         - `sample_interventional_data(interventions_dict, n_samples)`: Generates data under specified interventions.
         - `get_causal_graph()`: Returns the underlying `CausalGraph`.
+        - `get_adjacency_matrix()`: Returns the adjacency matrix of the underlying causal graph.
         - Potentially methods to get/set structural equations.
 
 3.  **Intervention (`causal_meta.environments.interventions.Intervention` and subclasses)**:

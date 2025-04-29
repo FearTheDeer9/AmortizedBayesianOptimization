@@ -29,7 +29,21 @@ This document tracks completed tasks and subtasks.
 - **Task 3: Integrate StructuralCausalModel Implementation** (Status: `pending`, Partially Complete)
   - Subtask 3.1: Review and analyze existing StructuralCausalModel implementation (Status: `in-progress`)
   - Subtask 3.2: Implement or extend sample_data method (Status: `done`)
+  - Subtask 3.3: Implement or extend `get_adjacency_matrix` method (Status: `done`)
+  - Subtask 3.4: Implement or extend `perform_intervention` method (Status: `done`)
 
-*Log last updated: <TIMESTAMP>* 
+*Log last updated: <TIMESTAMP>*
+
+- **2025-04-29:** Completed Task 1: Implement Reliable DAG Generation (All subtasks 1.1-1.5 done).
+- **2025-04-29:** Completed Subtask 2.1: Set up module structure for Task Family Generation.
+- **2025-04-29:** Completed Subtask 2.2: Implement edge weight variation.
+- **2025-04-29:** Completed Subtask 2.3: Implement structure variation.
+- **2025-04-30:** Made progress on Subtask 2.5: Integrated error handling, expanded test suite, enhanced documentation.
+- **2025-05-01:** Completed TaskFamilyVisualizer implementation (Part of Subtask 2.5).
+- **2025-05-02:** Completed TaskFamily class implementation (Part of Subtask 2.5, related to persistence).
+- **2025-05-03:** Completed Subtask 3.1: Review SCM implementation.
+- **2025-05-03:** Completed Subtask 3.2: Implement/extend `sample_data`.
+- **2025-05-03:** Completed Subtask 3.3: Implement/extend `perform_intervention`.
+- **2025-05-03:** Completed Subtask 3.4: Implement/extend `get_adjacency_matrix` method.
 
 *(Note: This file will be updated automatically after each subtask completion. The timestamp will reflect the last update time.)* 

@@ -9,6 +9,8 @@ import copy
 import logging # Added for logger usage
 from typing import List, Union, Literal, Optional
 import numpy as np # Added for noise generation
+import traceback # Import traceback for better error logging
+import networkx as nx # Import networkx for DAG check
 
 # Assuming CausalGraph and potentially SCM are defined elsewhere
 # Adjust imports as necessary based on project structure
@@ -30,37 +32,84 @@ def generate_task_family(
     variation_strength: float = 0.2,
     seed: Optional[int] = None
 ) -> List[CausalGraph]: # Later this might return SCMs
-    """
-    Generates a family of related causal tasks (graphs) based on a base DAG.
+    """Generates a family of related causal task graphs based on a base DAG.
 
-    Creates variations by modifying edge weights, structure, or node functions.
+    This function takes a base causal graph and generates a specified number
+    of variant graphs by applying controlled modifications. The type and magnitude
+    of these modifications are determined by the `variation_type` and
+    `variation_strength` parameters, respectively.
+
+    Supported variation types:
+        - 'edge_weights': Modifies the weights of existing edges by adding
+          Gaussian noise. The scale of the noise is proportional to the original
+          edge weight and the `variation_strength`. The graph structure remains
+          identical to the base graph.
+        - 'structure': Adds or removes edges while ensuring the resulting graph
+          remains a DAG. The number of attempted modifications is proportional
+          to the total number of possible edge additions/removals and the
+          `variation_strength`.
+        - 'node_function': (Not yet implemented) Intended to modify the underlying
+          causal mechanisms associated with nodes. Requires integration with
+          Structural Causal Models (SCMs).
 
     Args:
-        base_graph: The base CausalGraph object (must be a DAG).
-        num_tasks: The number of variant tasks to generate in the family.
-        variation_type: The type of variation to apply. Options are:
-                        'edge_weights': Modify edge weights/coefficients.
-                        'structure': Add/remove edges while maintaining DAG property.
-                        'node_function': Modify functional relationships at nodes (Requires SCM).
-        variation_strength: Controls the magnitude of variation (0.0 to 1.0).
-                            Higher values mean more difference from the base graph.
-        seed: Optional random seed for reproducibility.
+        base_graph: The base `CausalGraph` object. Must be a Directed Acyclic
+            Graph (DAG).
+        num_tasks: The desired number of variant task graphs in the generated family.
+        variation_type: The type of variation to apply. Must be one of
+            'edge_weights', 'structure', or 'node_function'. Defaults to
+            'edge_weights'.
+        variation_strength: A float between 0.0 and 1.0 controlling the magnitude
+            of variation. Higher values result in variants that are more
+            different from the base graph. Defaults to 0.2.
+        seed: An optional integer seed for the random number generators (Python's
+            `random` and `numpy.random`) to ensure reproducibility.
+            Defaults to None.
 
     Returns:
-        A list containing `num_tasks` CausalGraph objects representing the task family.
-        Each graph is a variation of the base_graph.
+        A list containing `num_tasks` `CausalGraph` objects. Each object is a
+        variant derived from the `base_graph` according to the specified
+        variation type and strength. The graphs include a `task_id` attribute
+        indicating their origin (e.g., "BaseTask_var_0").
 
     Raises:
-        TaskFamilyGenerationError: If parameters are invalid or generation fails.
-        TypeError: If base_graph is not a CausalGraph instance.
-        ValueError: If base_graph is not a DAG.
+        TypeError: If `base_graph` is not an instance of `CausalGraph`.
+        ValueError: If `base_graph` is not a Directed Acyclic Graph (DAG) (checked
+            via `networkx` if available).
+        TaskFamilyGenerationError: If `num_tasks` is not a positive integer,
+            `variation_type` is invalid, `variation_strength` is outside the
+            range [0.0, 1.0], or if an unexpected error occurs during generation
+            of a specific variant (the function will log the error and attempt
+            to continue generating other variants).
+
+    Example:
+        >>> factory = GraphFactory()
+        >>> base = factory.create_random_dag(num_nodes=5, edge_probability=0.4, seed=1)
+        >>> base.task_id = "MyBaseGraph"
+        >>> # Generate 3 variants by changing edge weights
+        >>> family_weights = generate_task_family(base, 3, 'edge_weights', 0.5, seed=10)
+        >>> len(family_weights)
+        3
+        >>> # Generate 3 variants by changing structure
+        >>> family_structure = generate_task_family(base, 3, 'structure', 0.2, seed=11)
+        >>> len(family_structure)
+        3
     """
     # --- Parameter Validation ---
     if not isinstance(base_graph, CausalGraph):
         raise TypeError("base_graph must be an instance of CausalGraph.")
     # Add DAG check if available in CausalGraph, otherwise assume it's checked elsewhere
-    # if not base_graph.is_dag(): # Example check
-    #     raise ValueError("base_graph must be a Directed Acyclic Graph (DAG).")
+    # Convert to networkx to perform DAG check
+    try:
+        nx_base = base_graph.to_networkx()
+        if not nx.is_directed_acyclic_graph(nx_base):
+             raise ValueError("base_graph must be a Directed Acyclic Graph (DAG).")
+    except ImportError:
+        logger.warning("networkx not found. Cannot perform DAG check on base_graph.")
+    except AttributeError:
+        logger.warning("base_graph does not have to_networkx method. Cannot perform DAG check.")
+    except Exception as e:
+        logger.warning(f"Could not perform DAG check on base_graph: {e}")
 
     if not isinstance(num_tasks, int) or num_tasks <= 0:
         raise TaskFamilyGenerationError("num_tasks must be a positive integer.")
@@ -229,6 +278,8 @@ def generate_task_family(
 
         except Exception as e:
             logger.error(f"Failed to generate variant task {i} for family: {e}")
+            # Log the traceback for more detailed debugging info
+            logger.debug(traceback.format_exc())
             # Optionally skip failed task or re-raise
             continue # Skip this task and continue
 

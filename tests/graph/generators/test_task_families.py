@@ -263,3 +263,60 @@ def test_family_similarity_weights(num_nodes, edge_probability, var_strength):
 # TODO: Add tests using predefined graphs (Item 4)
 # TODO: Consider property-based testing with Hypothesis (Added Info)
 # TODO: Add tests for framework compatibility (Item 9) - may require mocking
+
+# --- Tests with Predefined Structures ---
+
+@pytest.mark.parametrize("structure_func, num_nodes", [
+    (PredefinedGraphStructureGenerator.chain, 5),
+    (PredefinedGraphStructureGenerator.fork, 6), # 1 parent, 5 children
+    (PredefinedGraphStructureGenerator.collider, 7), # 6 parents, 1 child
+])
+@pytest.mark.parametrize("variation_type", ['edge_weights', 'structure'])
+def test_family_with_predefined_structure(structure_func, num_nodes, variation_type):
+    """Test task family generation with common predefined base structures."""
+    base_graph = structure_func(num_nodes=num_nodes, is_causal=True, seed=num_nodes)
+    # Initialize weights if testing edge_weights variation
+    if variation_type == 'edge_weights':
+        for u, v in base_graph.get_edges():
+            base_graph.set_edge_attribute(u, v, 'weight', random.uniform(0.5, 1.5))
+            
+    num_tasks = 3
+    variation_strength = 0.3
+    
+    family = generate_task_family(base_graph, 
+                                  num_tasks=num_tasks, 
+                                  variation_type=variation_type, 
+                                  variation_strength=variation_strength,
+                                  seed=num_nodes + 10)
+    
+    assert len(family) == num_tasks
+    base_nodes = set(base_graph.get_nodes())
+    base_edges = set(base_graph.get_edges())
+
+    structure_changed = False
+    weights_changed = False
+
+    for i, variant in enumerate(family):
+        assert isinstance(variant, CausalGraph)
+        assert base_nodes == set(variant.get_nodes()), f"Variant {i} nodes differ."
+        variant_nx = variant.to_networkx()
+        assert nx.is_directed_acyclic_graph(variant_nx), f"Variant {i} is not a DAG!"
+
+        if variation_type == 'structure':
+            if base_edges != set(variant.get_edges()):
+                structure_changed = True
+        elif variation_type == 'edge_weights':
+             assert base_edges == set(variant.get_edges()), f"Variant {i} structure changed during weight variation!"
+             for u, v in base_edges:
+                 base_weight = base_graph.get_edge_attribute(u, v, 'weight')
+                 variant_weight = variant.get_edge_attribute(u, v, 'weight')
+                 if not np.isclose(base_weight, variant_weight):
+                     weights_changed = True
+                     break # Found one weight change
+             if weights_changed: break # Found one variant with changed weights
+             
+    # Check that *some* variation occurred for the respective type
+    if variation_type == 'structure':
+        assert structure_changed, f"Structure variation failed to change structure for {structure_func.__name__}"
+    elif variation_type == 'edge_weights':
+        assert weights_changed, f"Edge weight variation failed to change weights for {structure_func.__name__}"

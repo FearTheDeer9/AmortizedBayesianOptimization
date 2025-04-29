@@ -9,11 +9,9 @@ import random
 from abc import ABC, abstractmethod
 
 from causal_meta.graph import CausalGraph, DirectedGraph
-
-
-class GraphGenerationError(Exception):
-    """Exception raised for errors during graph generation."""
-    pass
+from causal_meta.graph.generators.errors import GraphGenerationError
+from causal_meta.graph.generators.scale_free import ScaleFreeNetworkGenerator
+from causal_meta.graph.generators.predefined import PredefinedGraphStructureGenerator
 
 
 class GraphFactory:
@@ -124,16 +122,30 @@ class GraphFactory:
     def create_scale_free_graph(cls,
                                 num_nodes: int,
                                 m: int = 2,
+                                alpha: float = 1.0,
+                                beta: float = 0.0,
+                                gamma: float = 0.0,
                                 directed: bool = True,
                                 is_causal: bool = True,
                                 seed: Optional[int] = None,
                                 **kwargs) -> Union[CausalGraph, DirectedGraph]:
         """
-        Create a scale-free graph using the Barabási–Albert model.
+        Create a scale-free graph using the Barabási-Albert model or its variants.
 
         Args:
             num_nodes: Number of nodes in the graph
             m: Number of edges to attach from a new node to existing nodes
+            alpha: Preferential attachment exponent (default: 1.0)
+                   - alpha > 1: Increases the "rich get richer" effect
+                   - alpha < 1: Decreases the effect, making the degree distribution less skewed
+                   - alpha = 0: Random attachment (equivalent to an Erdős–Rényi model)
+            beta: Probability of random attachment vs. preferential attachment (default: 0.0)
+                  - beta=0: Pure preferential attachment (standard BA model)
+                  - beta=1: Pure random attachment
+                  - 0<beta<1: Mixture of both mechanisms
+            gamma: Aging factor for older nodes (default: 0.0)
+                  - gamma=0: No aging effect
+                  - gamma>0: Older nodes become less attractive over time
             directed: Whether to create a directed graph (default: True)
             is_causal: Whether to return a CausalGraph (default: True)
             seed: Random seed for reproducibility (default: None)
@@ -151,77 +163,28 @@ class GraphFactory:
             'm': (m, (1, num_nodes - 1))
         })
 
-        # Set random seed if provided
-        if seed is not None:
-            random.seed(seed)
-
-        # Create the appropriate graph type
-        if is_causal:
-            graph = CausalGraph()
-        else:
-            graph = DirectedGraph()
-
-        # Add initial nodes to the graph (fully connected)
-        for i in range(m + 1):
-            graph.add_node(i)
-
-        # Connect the initial nodes (create a complete graph of m+1 nodes)
-        for i in range(m + 1):
-            for j in range(i + 1, m + 1):
-                graph.add_edge(i, j)
-                if not directed:
-                    graph.add_edge(j, i)
-
-        # Add remaining nodes using preferential attachment
-        for i in range(m + 1, num_nodes):
-            graph.add_node(i)
-
-            # Calculate node degrees and create a probability distribution
-            node_degrees = {}
-            total_degree = 0
-
-            for node in range(i):
-                # For directed graphs, use out-degree; for undirected, use total degree
-                if directed:
-                    degree = len(graph.get_successors(node))
-                else:
-                    degree = len(graph.get_successors(node)) + \
-                        len(graph.get_predecessors(node))
-
-                node_degrees[node] = degree
-                total_degree += degree
-
-            # Select m distinct nodes based on their degree probability
-            targets = []
-            while len(targets) < m:
-                # Choose a random number between 0 and the total degree
-                r = random.uniform(0, total_degree)
-
-                # Find the node corresponding to this position
-                cumulative = 0
-                for node, degree in node_degrees.items():
-                    if node in targets:
-                        continue
-
-                    cumulative += degree
-                    if cumulative >= r:
-                        targets.append(node)
-                        break
-
-                # If we didn't find a node (due to rounding errors), pick a random one
-                if len(targets) == 0 or (len(targets) < m and targets[-1] not in targets):
-                    available_nodes = [node for node in range(
-                        i) if node not in targets]
-                    if available_nodes:
-                        targets.append(random.choice(available_nodes))
-
-            # Add edges from the new node to the selected targets
-            for target in targets:
-                graph.add_edge(i, target)
-                if not directed:
-                    graph.add_edge(target, i)
-
-        return graph
+        if alpha != 1.0 or beta != 0.0 or gamma != 0.0:
+            # Use extended model if any of the additional parameters are non-default
+            # Delegate to the ScaleFreeNetworkGenerator implementation
+            return ScaleFreeNetworkGenerator.extended_barabasi_albert(
+                num_nodes=num_nodes,
+                m=m,
+                alpha=alpha,
+                beta=beta,
+                gamma=gamma,
+                directed=directed,
+                is_causal=is_causal,
+                seed=seed
+            )
+        elif alpha == 1.0:
+            # Use standard Barabási-Albert model
+            return ScaleFreeNetworkGenerator.barabasi_albert(
+                num_nodes=num_nodes,
+                m=m,
+                directed=directed,
+                is_causal=is_causal,
+                seed=seed
+            )
 
     @classmethod
     def create_predefined_graph(cls,
@@ -253,44 +216,131 @@ class GraphFactory:
         Raises:
             GraphGenerationError: If structure_type is invalid or parameters are invalid
         """
-        # Set random seed if provided
-        if seed is not None:
-            random.seed(seed)
-
-        # Create the appropriate graph type
-        if is_causal:
-            graph = CausalGraph()
-        else:
-            graph = DirectedGraph()
-
-        # Create the specified structure
+        # Use the PredefinedGraphStructureGenerator for supported structures
         if structure_type.lower() == 'chain':
-            cls._create_chain_structure(graph, num_nodes, **kwargs)
+            if not num_nodes:
+                raise GraphGenerationError(
+                    "Number of nodes must be specified for chain structure")
+            return PredefinedGraphStructureGenerator.chain(
+                num_nodes=num_nodes,
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
         elif structure_type.lower() == 'fork':
-            cls._create_fork_structure(graph, num_nodes, **kwargs)
+            if not num_nodes:
+                raise GraphGenerationError(
+                    "Number of nodes must be specified for fork structure")
+            return PredefinedGraphStructureGenerator.fork(
+                num_nodes=num_nodes,
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
         elif structure_type.lower() == 'collider':
-            cls._create_collider_structure(graph, num_nodes, **kwargs)
+            if not num_nodes:
+                raise GraphGenerationError(
+                    "Number of nodes must be specified for collider structure")
+            return PredefinedGraphStructureGenerator.collider(
+                num_nodes=num_nodes,
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
+        elif structure_type.lower() == 'mediator':
+            return PredefinedGraphStructureGenerator.mediator(
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
+        elif structure_type.lower() == 'confounder':
+            return PredefinedGraphStructureGenerator.confounder(
+                num_nodes=num_nodes if num_nodes else 4,
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
+        elif structure_type.lower() == 'diamond':
+            return PredefinedGraphStructureGenerator.diamond(
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
+        elif structure_type.lower() == 'm_structure':
+            return PredefinedGraphStructureGenerator.m_structure(
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
+        elif structure_type.lower() == 'instrumental_variable':
+            return PredefinedGraphStructureGenerator.instrumental_variable(
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
         elif structure_type.lower() == 'complete':
-            cls._create_complete_structure(graph, num_nodes, **kwargs)
+            if not num_nodes:
+                raise GraphGenerationError(
+                    "Number of nodes must be specified for complete structure")
+            directed = kwargs.get('directed', True)
+            return PredefinedGraphStructureGenerator.complete(
+                num_nodes=num_nodes,
+                directed=directed,
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
         elif structure_type.lower() == 'tree':
-            cls._create_tree_structure(graph, num_nodes, **kwargs)
+            if not num_nodes:
+                raise GraphGenerationError(
+                    "Number of nodes must be specified for tree structure")
+            branching_factor = kwargs.get('branching_factor', 2)
+            return PredefinedGraphStructureGenerator.tree(
+                num_nodes=num_nodes,
+                branching_factor=branching_factor,
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
         elif structure_type.lower() == 'bipartite':
-            cls._create_bipartite_structure(graph, **kwargs)
+            n1 = kwargs.get('n1')
+            n2 = kwargs.get('n2')
+            if n1 is None or n2 is None:
+                raise GraphGenerationError(
+                    "n1 and n2 must be specified for bipartite structure")
+            directed = kwargs.get('directed', True)
+            cross_probability = kwargs.get('cross_probability', 1.0)
+            return PredefinedGraphStructureGenerator.bipartite(
+                n1=n1,
+                n2=n2,
+                directed=directed,
+                cross_probability=cross_probability,
+                noise_probability=noise_probability,
+                is_causal=is_causal,
+                seed=seed
+            )
         elif structure_type.lower() == 'from_matrix':
-            cls._create_from_adjacency_matrix(graph, **kwargs)
+            adjacency_matrix = kwargs.pop('adjacency_matrix', None)
+            if not adjacency_matrix:
+                raise GraphGenerationError(
+                    "Adjacency matrix must be specified for from_matrix structure")
+            return PredefinedGraphStructureGenerator.from_adjacency_matrix(
+                adjacency_matrix=adjacency_matrix,
+                is_causal=is_causal
+            )
         elif structure_type.lower() == 'from_edges':
             edge_list = kwargs.pop('edge_list', None)
-            cls._create_from_edge_list(
-                graph, edge_list=edge_list, num_nodes=num_nodes, **kwargs)
+            if not edge_list:
+                raise GraphGenerationError(
+                    "Edge list must be specified for from_edges structure")
+            return PredefinedGraphStructureGenerator.from_edge_list(
+                edge_list=edge_list,
+                num_nodes=num_nodes,
+                is_causal=is_causal
+            )
         else:
             raise GraphGenerationError(
                 f"Unknown structure type: {structure_type}")
-
-        # Add noise edges if specified
-        if noise_probability > 0:
-            cls._add_noise_edges(graph, noise_probability)
-
-        return graph
 
     @staticmethod
     def _create_chain_structure(graph: Union[CausalGraph, DirectedGraph],
@@ -503,89 +553,6 @@ class GraphFactory:
                         graph.add_edge(j, i)
 
     @staticmethod
-    def _create_from_adjacency_matrix(graph: Union[CausalGraph, DirectedGraph],
-                                      adjacency_matrix: List[List[int]],
-                                      **kwargs) -> None:
-        """
-        Create a graph from an adjacency matrix.
-
-        Args:
-            graph: Graph to add the structure to
-            adjacency_matrix: 2D matrix where adjacency_matrix[i][j] indicates an edge from i to j
-            **kwargs: Additional parameters
-
-        Raises:
-            GraphGenerationError: If parameters are invalid
-        """
-        if not adjacency_matrix:
-            raise GraphGenerationError("Adjacency matrix cannot be empty")
-
-        n = len(adjacency_matrix)
-
-        # Check that matrix is square
-        for row in adjacency_matrix:
-            if len(row) != n:
-                raise GraphGenerationError("Adjacency matrix must be square")
-
-        # Add nodes
-        for i in range(n):
-            graph.add_node(i)
-
-        # Add edges according to the adjacency matrix
-        for i in range(n):
-            for j in range(n):
-                if adjacency_matrix[i][j]:
-                    graph.add_edge(i, j)
-
-    @staticmethod
-    def _create_from_edge_list(graph: Union[CausalGraph, DirectedGraph],
-                               edge_list: List[Tuple[int, int]],
-                               num_nodes: Optional[int] = None,
-                               **kwargs) -> None:
-        """
-        Create a graph from a list of edges.
-
-        Args:
-            graph: Graph to add the structure to
-            edge_list: List of tuples (source, target) representing edges
-            num_nodes: Optional number of nodes (useful if isolated nodes should be included)
-            **kwargs: Additional parameters
-
-        Raises:
-            GraphGenerationError: If parameters are invalid
-        """
-        if not edge_list and (num_nodes is None or num_nodes <= 0):
-            raise GraphGenerationError(
-                "Either edge list or num_nodes must be provided")
-
-        # Determine the number of nodes needed
-        node_set = set()
-        if edge_list:
-            for source, target in edge_list:
-                node_set.add(source)
-                node_set.add(target)
-
-        # If num_nodes is provided, use it (even if edge_list suggests fewer nodes)
-        # If not, use the maximum node ID from edge_list + 1
-        required_nodes = max(node_set) + 1 if node_set else 0
-        if num_nodes is None:
-            num_nodes = required_nodes
-        elif num_nodes < required_nodes:
-            # Validate that all nodes in edge_list are within the range of num_nodes
-            for source, target in edge_list:
-                if source >= num_nodes or target >= num_nodes:
-                    raise GraphGenerationError(
-                        f"Edge ({source}, {target}) references a node outside range [0, {num_nodes-1}]")
-
-        # Add nodes
-        for i in range(num_nodes):
-            graph.add_node(i)
-
-        # Add edges from the edge list
-        for source, target in edge_list:
-            graph.add_edge(source, target)
-
-    @staticmethod
     def _add_noise_edges(graph: Union[CausalGraph, DirectedGraph],
                          noise_probability: float) -> None:
         """
@@ -634,3 +601,66 @@ class GraphFactory:
             elif callable(valid_range) and not valid_range(param_value):
                 raise GraphGenerationError(
                     f"Parameter '{param_name}' value {param_value} is invalid")
+
+    @classmethod
+    def create_random_dag(cls,
+                          num_nodes: int,
+                          edge_probability: float,
+                          is_causal: bool = True,
+                          seed: Optional[int] = None,
+                          **kwargs) -> Union[CausalGraph, DirectedGraph]:
+        """
+        Create a random Directed Acyclic Graph (DAG).
+
+        Ensures acyclicity by only allowing edges from lower-indexed nodes to
+        higher-indexed nodes based on a fixed node ordering.
+
+        Args:
+            num_nodes: Number of nodes in the DAG.
+            edge_probability: Probability (0 to 1) of creating an edge between
+                              any two valid node pairs (respecting DAG constraints).
+            is_causal: Whether to return a CausalGraph instance (default: True).
+                       If False, returns a DirectedGraph.
+            seed: Random seed for reproducibility (default: None).
+            **kwargs: Additional unused parameters (for potential future extensions).
+
+        Returns:
+            A random DAG instance (CausalGraph or DirectedGraph).
+
+        Raises:
+            GraphGenerationError: If parameters are invalid (e.g., num_nodes <= 0,
+                                edge_probability outside [0, 1]).
+        """
+        # Parameter Validation
+        if not isinstance(num_nodes, int) or num_nodes <= 0:
+            raise GraphGenerationError("Number of nodes must be a positive integer.")
+        if not isinstance(edge_probability, (float, int)) or not (0.0 <= edge_probability <= 1.0):
+            raise GraphGenerationError("Edge probability must be between 0.0 and 1.0.")
+
+        # Set random seed if provided for reproducibility
+        if seed is not None:
+            random.seed(seed)
+
+        # Create the appropriate graph type
+        if is_causal:
+            graph = CausalGraph()
+        else:
+            graph = DirectedGraph()
+
+        # Add nodes (0 to num_nodes - 1)
+        for i in range(num_nodes):
+            graph.add_node(i)
+
+        # Core loop structure for potential edges (i -> j where i < j)
+        # Actual edge addition based on probability will be in subtask 1.3
+        for i in range(num_nodes):
+            for j in range(i + 1, num_nodes): # Ensure j > i
+                # Logic for adding edge based on edge_probability goes here (Subtask 1.3)
+                # Example placeholder for next step:
+                if random.random() < edge_probability:
+                    graph.add_edge(i, j)
+                #pass # No edges added in Subtask 1.2
+
+        # Validation logic will be added in subtask 1.4
+
+        return graph

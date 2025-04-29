@@ -42,5 +42,5 @@ node_modules/
 # OS specific
 
 # Task files
-tasks.json
+# tasks.json # Removed to allow tracking task state
 tasks/ 

@@ -31,8 +31,9 @@ This document tracks completed tasks and subtasks.
   - Subtask 3.2: Implement or extend sample_data method (Status: `done`)
   - Subtask 3.3: Implement or extend `get_adjacency_matrix` method (Status: `done`)
   - Subtask 3.4: Implement or extend `perform_intervention` method (Status: `done`)
+  - Subtask 3.5: Update example workflow to use StructuralCausalModel (Status: `done`)
 
-*Log last updated: <TIMESTAMP>*
+*Log last updated: 2025-04-29*
 
 - **2025-04-29:** Completed Task 1: Implement Reliable DAG Generation (All subtasks 1.1-1.5 done).
 - **2025-04-29:** Completed Subtask 2.1: Set up module structure for Task Family Generation.
@@ -45,5 +46,12 @@ This document tracks completed tasks and subtasks.
 - **2025-05-03:** Completed Subtask 3.2: Implement/extend `sample_data`.
 - **2025-05-03:** Completed Subtask 3.3: Implement/extend `perform_intervention`.
 - **2025-05-03:** Completed Subtask 3.4: Implement/extend `get_adjacency_matrix` method.
+- **2025-05-03:** Completed Subtask 3.5: Update example workflow to use SCM (fixed runtime errors).
 
-*(Note: This file will be updated automatically after each subtask completion. The timestamp will reflect the last update time.)* 
+*(Note: This file will be updated automatically after each subtask completion. The timestamp will reflect the last update time.)*
+
+- **[Date]**: Project Initialized using Task Master.
+- **[Date]**: Completed Task 1: Implement Reliable DAG Generation.
+- **[Date]**: Completed Task 2: Implement Task Family Generation.
+- **[Date]**: Completed Task 3: Integrate StructuralCausalModel Implementation.
+- **[Date]**: ... 

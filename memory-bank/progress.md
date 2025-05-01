@@ -253,8 +253,33 @@ After reviewing the research direction and current implementation, we are adjust
     *   Fixed critical visualization issue in `parent_scale_acd_demo.py` by implementing proper handling of graph objects
     *   Discovered that `plot_graph` function requires a graph object with `_nodes` attribute, not just an adjacency matrix
     *   Created `create_graph_from_adjacency` helper function to convert adjacency matrices to proper graph objects
-    *   Added fallback handling when the CausalGraph class is not available
-    *   Added proper error handling around visualization code to ensure graceful degradation
-    *   Successfully tested the parent_scale_acd_demo.py script with the --quick flag, verifying it works end-to-end
-    *   Key learning: Interface mismatches between components are a common source of errors; always check expected parameter types
-    *   Next steps: Apply similar fixes to full_acd_pipeline_demo.py to ensure consistent visualization
+    *   Added robust error handling and graceful fallbacks for visualization functions
+
+*   **[2025-07-01]**
+    *   Refactored `parent_scale_acd_demo.py` to use proper causal_meta implementations without fallbacks
+    *   Removed all DummyGraph and DummySCM implementations in favor of using proper CausalGraph and StructuralCausalModel classes
+    *   Updated model loading to properly instantiate GraphEncoder and DynamicsDecoder components
+    *   Made parent-scaled ACD algorithm properly use neural networks for inference
+    *   Simplified the selection of intervention targets based on parent count
+    *   Ensured consistent handling of graphs and data throughout the pipeline
+    *   Implemented proper visualization of both ground truth and inferred graphs
+    *   Used proper probabilistic structural equations for synthetic data generation
+    *   Created an end-to-end demo that showcases the neural network-based approach to amortized causal discovery
+    *   Next step: Apply similar improvements to the full ACD pipeline demo
+
+*   **[2025-07-02]**
+    *   Fixed critical issues in the structural equation definition in `parent_scale_acd_demo.py`:
+        *   Implemented proper handling of function signatures for structural equations to work with SCM validation
+        *   Used dynamic function generation with `exec` to create functions with signatures matching parent variables
+        *   Fixed noise function to properly handle different types of random state objects
+    *   Improved data handling in the demo script:
+        *   Added proper conversion between pandas DataFrames and PyTorch tensors
+        *   Implemented data shape standardization for neural network processing
+        *   Added robust error handling for type conversions
+    *   Enhanced model loading functionality:
+        *   Updated model loading to handle both full models and state dictionaries
+        *   Implemented graceful degradation when pretrained models are unavailable
+        *   Added compatibility layer for models without intervention support
+    *   Successfully tested end-to-end pipeline with the synthetic data generation, neural inference, and intervention selection
+    *   The demo now runs smoothly with both observational and interventional data
+    *   Next step: Apply similar improvements to the full ACD pipeline demo

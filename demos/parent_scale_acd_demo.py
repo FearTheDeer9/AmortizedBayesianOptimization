@@ -18,8 +18,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import inspect
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union, Any
+import networkx as nx
 
 # Ensure the package is in the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -31,33 +33,17 @@ from demos.utils import (
     standardize_tensor_shape, 
     get_node_name,
     get_node_id,
-    format_interventions,
-    DummyGraph,
-    DummySCM,
-    fallback_plot_graph
+    format_interventions
 )
 
-# Try importing from causal_meta, with graceful fallbacks
-try:
-    from causal_meta.graph.generators.factory import GraphFactory
-    from causal_meta.environments.scm import StructuralCausalModel
-    from causal_meta.graph.visualization import plot_graph
-    from causal_meta.meta_learning.acd_models import GraphEncoder
-    from causal_meta.meta_learning.dynamics_decoder import DynamicsDecoder
-    from causal_meta.meta_learning.amortized_causal_discovery import AmortizedCausalDiscovery
-    from causal_meta.graph.causal_graph import CausalGraph
-    CAUSAL_META_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: Some causal_meta imports failed: {e}")
-    print("Using fallback implementations where necessary.")
-    GraphFactory = None
-    StructuralCausalModel = None
-    plot_graph = fallback_plot_graph
-    GraphEncoder = None
-    DynamicsDecoder = None
-    AmortizedCausalDiscovery = None
-    CausalGraph = None
-    CAUSAL_META_AVAILABLE = False
+# Import from causal_meta (required, no fallbacks)
+from causal_meta.graph.generators.factory import GraphFactory
+from causal_meta.environments.scm import StructuralCausalModel
+from causal_meta.graph.visualization import plot_graph
+from causal_meta.meta_learning.acd_models import GraphEncoder
+from causal_meta.meta_learning.dynamics_decoder import DynamicsDecoder
+from causal_meta.meta_learning.amortized_causal_discovery import AmortizedCausalDiscovery
+from causal_meta.graph.causal_graph import CausalGraph
 
 def parse_args():
     """Parse command line arguments."""
@@ -77,6 +63,8 @@ def parse_args():
     parser.add_argument('--pretrained_model_path', type=str, 
                         default=os.path.join(get_checkpoints_dir(), 'acd_model.pt'),
                         help='Path to pretrained model')
+    parser.add_argument('--use_full_algorithm', action='store_true',
+                        help='Use the full PARENT_SCALE_ACD algorithm implementation')
     return parser.parse_args()
 
 
@@ -90,312 +78,343 @@ def set_seed(seed):
 
 
 def load_pretrained_model(model_path, num_nodes, device):
-    """Load a pretrained AmortizedCausalDiscovery model."""
-    print(f"Looking for pretrained model at {model_path}...")
+    """
+    Load a pretrained neural network model or create a new one.
     
-    # Create directory if it doesn't exist
-    os.makedirs(os.path.dirname(model_path), exist_ok=True)
-    
-    if not CAUSAL_META_AVAILABLE:
-        print("causal_meta package not available. Using fallback implementation.")
-        # Use a simple fallback model
-        class SimpleAmortizedCausalDiscovery(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.hidden_size = 64
-                self.mlp = nn.Sequential(
-                    nn.Linear(num_nodes, self.hidden_size),
-                    nn.ReLU(),
-                    nn.Linear(self.hidden_size, num_nodes * num_nodes)
-                )
-                
-            def infer_causal_graph(self, data, interventions=None):
-                # Simple graph inference
-                batch_size = data.shape[0]
-                output = self.mlp(data.mean(dim=1))
-                adj_matrix = torch.sigmoid(output.view(batch_size, num_nodes, num_nodes))
-                # Make it acyclic (upper triangular)
-                mask = torch.triu(torch.ones(num_nodes, num_nodes), diagonal=1).to(device)
-                adj_matrix = adj_matrix * mask
-                return adj_matrix
-                
-            def predict_intervention_outcomes(self, data, interventions):
-                # Simple prediction
-                batch_size = data.shape[0]
-                return torch.randn(batch_size * num_nodes, 1).to(device)
-                
-            def forward(self, data, interventions=None):
-                return self.infer_causal_graph(data)
-                
-            def to_causal_graph(self, adj_matrix, threshold=0.5):
-                # Return a simple graph representation
-                return DummyGraph(adj_matrix.detach().cpu().numpy() > threshold)
-                
-        acd_model = SimpleAmortizedCausalDiscovery()
-        acd_model.to(device)
-        print("Created fallback model.")
-        return acd_model
-    
-    # Create a new model with the right dimensions
-    try:
-        # Create the full amortized causal discovery model using the proper initialization
-        # Using parameters that match the actual implementation
-        acd_model = AmortizedCausalDiscovery(
-            hidden_dim=64,
-            input_dim=1,  # Single feature dimension for time series
-            attention_heads=2,
-            num_layers=2,
-            dropout=0.1,
-            sparsity_weight=0.1,
-            acyclicity_weight=0.1,
-            dynamics_weight=1.0,
-            structure_weight=1.0,
-            uncertainty=True,
-            num_ensembles=5
-        )
+    Args:
+        model_path: Path to the pretrained model (or None to create new one)
+        num_nodes: Number of nodes in the causal graph
+        device: PyTorch device to load the model on
         
-        print("Successfully created AmortizedCausalDiscovery model.")
-    except Exception as e:
-        print(f"Error creating model: {e}")
-        print("Using a fallback model instead.")
-        # Create a fallback model if the initialization fails
-        class SimpleAmortizedCausalDiscovery(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.hidden_size = 64
-                self.graph_encoder = nn.Sequential(
-                    nn.Linear(num_nodes, self.hidden_size),
-                    nn.ReLU(),
-                    nn.Linear(self.hidden_size, num_nodes * num_nodes)
-                )
-                
-                self.dynamics_decoder = nn.Sequential(
-                    nn.Linear(num_nodes, self.hidden_size),
-                    nn.ReLU(),
-                    nn.Linear(self.hidden_size, 1)
-                )
-                
-            def infer_causal_graph(self, data, interventions=None):
-                # Simple graph inference
-                batch_size = data.shape[0]
-                output = self.graph_encoder(data.mean(dim=1))
-                adj_matrix = torch.sigmoid(output.view(batch_size, num_nodes, num_nodes))
-                # Make it acyclic (upper triangular)
-                mask = torch.triu(torch.ones(num_nodes, num_nodes), diagonal=1).to(device)
-                adj_matrix = adj_matrix * mask
-                return adj_matrix
-                
-            def predict_intervention_outcomes(self, data, node_features=None, edge_index=None, 
-                                             batch=None, intervention_targets=None, 
-                                             intervention_values=None):
-                # Simple prediction
-                batch_size = data.shape[0]
-                return torch.randn(batch_size * num_nodes, 1).to(device)
-                
-            def forward(self, data, interventions=None):
-                return self.infer_causal_graph(data)
-                
-            def to_causal_graph(self, adj_matrix, threshold=0.5):
-                # Return a simple graph representation
-                return DummyGraph((adj_matrix.detach().cpu().numpy() > threshold).astype(float))
-                
-        acd_model = SimpleAmortizedCausalDiscovery()
-    
-    # Check if model exists, if not, create a dummy model for demo purposes
-    if os.path.exists(model_path):
+    Returns:
+        model: AmortizedCausalDiscovery model
+    """
+    if model_path and os.path.exists(model_path):
+        print(f"Loading pretrained model from {model_path}...")
         try:
-            acd_model.load_state_dict(torch.load(model_path, map_location=device))
-            print("Model loaded successfully!")
+            # Try loading the full model
+            loaded = torch.load(model_path, map_location=device)
+            
+            # Check if loaded is a state_dict (OrderedDict) or a full model
+            if isinstance(loaded, dict):
+                print("Loaded state dictionary, creating model instance...")
+                try:
+                    # Create a new model instance
+                    model = AmortizedCausalDiscovery(
+                        hidden_dim=64,
+                        input_dim=1,  # Single feature per node
+                        attention_heads=2,
+                        num_layers=2,
+                        dropout=0.1,
+                        sparsity_weight=0.1,
+                        acyclicity_weight=1.0
+                    )
+                    # Load the state dictionary
+                    model.load_state_dict(loaded, strict=False)
+                    print("Model loaded with some missing or unexpected keys (non-strict loading).")
+                except Exception as e:
+                    print(f"Error loading model state dictionary: {e}")
+                    print("Creating a new model instead.")
+                    model = create_new_model(num_nodes, device)
+            else:
+                # Loaded the full model
+                model = loaded
+                
+            model = model.to(device)
+            model.eval()  # Set to evaluation mode
+            print("Model loaded successfully.")
+            return model
         except Exception as e:
             print(f"Error loading model: {e}")
-            print("Using untrained model for demonstration.")
+            print("Creating a new model instead.")
     else:
-        print(f"Model not found at {model_path}. Using untrained model for demonstration.")
-        print("In a real scenario, you would use a properly trained model.")
-        # For demo purposes, we'll create a dummy checkpoint
-        try:
-            torch.save(acd_model.state_dict(), model_path)
-            print(f"Created a dummy model checkpoint at {model_path} for future runs.")
-        except Exception as e:
-            print(f"Could not create dummy checkpoint: {e}")
+        if model_path:
+            print(f"Model file not found at {model_path}")
+        print("Creating a new neural network model...")
     
-    acd_model.to(device)
-    acd_model.eval()
-    return acd_model
+    return create_new_model(num_nodes, device)
+
+
+def create_new_model(num_nodes, device):
+    """
+    Create a new neural network model for demonstration.
+    
+    Args:
+        num_nodes: Number of nodes in the causal graph
+        device: PyTorch device to create the model on
+        
+    Returns:
+        model: AmortizedCausalDiscovery model
+    """
+    print("Creating a new neural network model for demonstration...")
+    
+    # Neural network size configuration
+    hidden_dim = 64
+    num_layers = 2
+    attention_heads = 2
+    
+    # Use the proper AmortizedCausalDiscovery class
+    model = AmortizedCausalDiscovery(
+        hidden_dim=hidden_dim,
+        input_dim=1,  # Single feature per node (can be changed for multivariate)
+        attention_heads=attention_heads,
+        num_layers=num_layers,
+        dropout=0.1,
+        sparsity_weight=0.1,
+        acyclicity_weight=1.0
+    )
+    
+    # Move model to device
+    model = model.to(device)
+    
+    # Set to evaluation mode (important for batch norm, dropout, etc.)
+    model.eval()
+    
+    return model
 
 
 def generate_synthetic_data(num_nodes, num_samples, seed):
-    """Generate synthetic causal graph and data."""
-    print(f"Generating synthetic data with {num_nodes} nodes...")
+    """
+    Generate synthetic causal graph and data for demonstration.
     
-    # Create a random DAG using GraphFactory if available
-    if GraphFactory is not None and CAUSAL_META_AVAILABLE:
-        graph_factory = GraphFactory()
-        try:
-            graph = graph_factory.create_random_dag(
-                num_nodes=num_nodes,
-                edge_probability=0.3,
-                seed=seed
-            )
-            print("Successfully created graph using GraphFactory")
-        except Exception as e:
-            print(f"Error creating graph: {e}")
-            print("Using fallback graph creation")
-            # Fallback to manual graph creation
-            adj_matrix = np.zeros((num_nodes, num_nodes))
-            np.random.seed(seed)
-            for i in range(num_nodes):
-                for j in range(i+1, num_nodes):  # Ensure DAG by only connecting i->j where i<j
-                    if np.random.rand() < 0.3:
-                        adj_matrix[i, j] = 1
-            graph = DummyGraph(adj_matrix)
-    else:
-        # Manual graph creation as fallback
-        print("GraphFactory not available. Using fallback graph creation.")
-        adj_matrix = np.zeros((num_nodes, num_nodes))
-        np.random.seed(seed)
-        for i in range(num_nodes):
-            for j in range(i+1, num_nodes):  # Ensure DAG by only connecting i->j where i<j
-                if np.random.rand() < 0.3:
-                    adj_matrix[i, j] = 1
-        graph = DummyGraph(adj_matrix)
+    Args:
+        num_nodes: Number of nodes in the causal graph
+        num_samples: Number of observational samples to generate
+        seed: Random seed for reproducibility
+        
+    Returns:
+        graph: CausalGraph object
+        scm: StructuralCausalModel object
+        data: Numpy array of observational data
+    """
+    np.random.seed(seed)
+    print(f"Generating synthetic graph with {num_nodes} nodes...")
     
-    # Create Structural Causal Model (SCM)
-    if StructuralCausalModel is not None and CAUSAL_META_AVAILABLE:
-        try:
-            scm = StructuralCausalModel(graph)
-            
-            # Set node names for clearer visualization if the method exists
-            try:
-                node_names = [f"X_{i}" for i in range(num_nodes)]
-                if hasattr(scm, 'set_node_names'):
-                    scm.set_node_names(node_names)
-                    print("Successfully set node names")
-            except Exception as e:
-                print(f"Warning: Could not set node names: {e}")
-            
-            # Define structural equations for each node
-            for i in range(num_nodes):
-                node_name = f"X_{i}"
-                
-                # Get parents of this node
-                if hasattr(graph, 'get_parents'):
-                    parents = graph.get_parents(node_name)
-                elif hasattr(graph, 'get_predecessors'):
-                    # For CausalGraph implementation
-                    try:
-                        parents = graph.get_predecessors(node_name)
-                    except:
-                        # If node_name doesn't work, try with index
-                        parents = graph.get_predecessors(i)
-                else:
-                    # Fallback: manually determine parents
-                    parents = []
-                    for j in range(num_nodes):
-                        if j < i and (hasattr(graph, 'adj_matrix') and graph.adj_matrix[j, i] > 0 or
-                                     hasattr(graph, 'has_edge') and graph.has_edge(j, i)):
-                            parents.append(f"X_{j}")
-                
-                # Create linear equations with normal noise
-                equation = create_linear_equation(node_name, parents)
-                noise_dist = noise_function
-                
-                # Add structural equation to the SCM
-                scm.define_structural_equation(node_name, equation, noise_dist)
-            
-            print("Successfully created SCM")
-        except Exception as e:
-            print(f"Error creating SCM: {e}")
-            print("Using fallback SCM implementation")
-            scm = DummySCM(graph)
-    else:
-        print("StructuralCausalModel not available. Using fallback implementation.")
-        scm = DummySCM(graph)
+    # Create node names as strings
+    node_names = [f"X_{i}" for i in range(num_nodes)]
+    
+    # Create a synthetic graph using GraphFactory
+    graph_factory = GraphFactory()
+    
+    # First create a graph with integer IDs
+    temp_graph = graph_factory.create_random_dag(
+        num_nodes=num_nodes,
+        edge_probability=0.3,  # Moderate density
+        seed=seed
+    )
+    
+    # Create a new CausalGraph with string node names
+    graph = CausalGraph()
+    
+    # Add nodes with string names
+    for i, node in enumerate(node_names):
+        graph.add_node(node)
+    
+    # Add edges, translating from integer nodes to string nodes
+    for i, j in temp_graph.get_edges():
+        graph.add_edge(node_names[i], node_names[j])
+    
+    print(f"Graph generated with {len(graph.get_edges())} edges")
+    
+    # Create SCM from graph with explicit variable_names
+    scm = StructuralCausalModel(
+        causal_graph=graph,
+        variable_names=node_names  # Explicitly provide variable names
+    )
+    
+    # Define structural equations for each node
+    for node in node_names:
+        parents = list(graph.get_parents(node))
+        
+        # Create a structural equation for this node
+        equation = create_linear_equation(node, parents)
+        
+        # Define the structural equation with noise
+        scm.define_probabilistic_equation(
+            variable=node,
+            equation_function=equation,
+            noise_distribution=noise_function
+        )
     
     # Generate observational data
-    try:
-        data = scm.sample_data(sample_size=num_samples)
-        print(f"Generated {num_samples} observational samples")
-    except Exception as e:
-        print(f"Error generating data: {e}")
-        print("Using random data as fallback")
-        data = np.random.normal(0, 1, (num_samples, num_nodes))
+    data = scm.sample_data(sample_size=num_samples)
+    print(f"Generated {num_samples} observational samples")
     
     return graph, scm, data
 
 
 def create_linear_equation(node, parents):
-    """Create a linear structural equation with random coefficients."""
-    def equation(**kwargs):
-        # Start with a base value
-        result = 0.0
-        
-        # Add contribution from each parent
-        for parent in parents:
-            if parent in kwargs:
-                # Random coefficient between 0.5 and 2.0
-                coef = 0.5 + 1.5 * np.random.rand()
-                result += coef * kwargs[parent]
-        
-        return result
+    """
+    Create a linear structural equation with random coefficients.
     
-    return equation
+    The equation is of the form Y = a1*X1 + a2*X2 + ... + noise, where a1, a2, etc.
+    are random coefficients between 0.5 and 2.0.
+    
+    Args:
+        node: The node for which to create an equation
+        parents: List of parent nodes
+        
+    Returns:
+        equation_function: A function that calculates the node value based on parents
+    """
+    # Set a seed based on the node name (for reproducibility)
+    node_idx = int(node.split('_')[1]) if '_' in node else hash(node)
+    np.random.seed(node_idx)
+    
+    # Create random coefficients for each parent
+    coefficients = {parent: 0.5 + 1.5 * np.random.rand() for parent in parents}
+    
+    # Create a string representation of the function definition with parameters matching parents
+    if parents:
+        # If there are parents, include them in the signature
+        params = ', '.join(parents) + ', noise=0.0'
+    else:
+        # If no parents, just have the noise parameter
+        params = 'noise=0.0'
+    
+    func_def = f"def equation({params}):\n"
+    func_def += "    result = 0.0\n"
+    
+    # Add contribution from each parent
+    for parent, coef in coefficients.items():
+        func_def += f"    result += {coef} * {parent}\n"
+    
+    # Add noise
+    func_def += "    result += noise\n"
+    func_def += "    return result"
+    
+    # Create a local namespace to execute the function definition
+    local_namespace = {}
+    exec(func_def, globals(), local_namespace)
+    
+    # Return the dynamically created function
+    return local_namespace["equation"]
 
 
 def noise_function(sample_size, random_state=None):
     """Generate normal noise for structural equations."""
-    if random_state is not None:
-        np.random.seed(random_state)
+    # Handle random state properly
+    if random_state is None:
+        # Use default numpy random state
+        rng = np.random
+    elif isinstance(random_state, np.random.RandomState):
+        # Use the provided RandomState object
+        rng = random_state
+    else:
+        # Create a new RandomState with the provided seed
+        rng = np.random.RandomState(random_state)
     
     # Normal noise with random variance between 0.1 and 0.5
-    variance = 0.1 + 0.4 * np.random.rand()
-    return np.random.normal(0, np.sqrt(variance), size=sample_size)
+    variance = 0.1 + 0.4 * rng.rand()
+    return rng.normal(0, np.sqrt(variance), size=sample_size)
 
 
 def create_graph_from_adjacency(adj_matrix, node_names=None):
     """Create a proper CausalGraph object from an adjacency matrix."""
-    if not CAUSAL_META_AVAILABLE or CausalGraph is None:
-        # If CausalGraph isn't available, use our DummyGraph with _nodes attribute
-        graph = DummyGraph(adj_matrix)
-        # Add _nodes attribute that mimics CausalGraph for visualization
-        num_nodes = adj_matrix.shape[0]
-        graph._nodes = node_names if node_names else [f"X_{i}" for i in range(num_nodes)]
-        graph._edges = [(i, j) for i in range(num_nodes) for j in range(num_nodes) if adj_matrix[i, j] > 0]
-        graph._node_attributes = {node: {} for node in graph._nodes}
-        graph._edge_attributes = {edge: {} for edge in graph._edges}
-        return graph
+    # Create node list if not provided
+    if node_names is None:
+        node_names = [f"X_{i}" for i in range(adj_matrix.shape[0])]
     
-    # Use actual CausalGraph implementation if available
-    try:
-        # Create node list if not provided
-        if node_names is None:
-            node_names = [f"X_{i}" for i in range(adj_matrix.shape[0])]
+    # Create edges from adjacency matrix
+    edges = []
+    for i in range(adj_matrix.shape[0]):
+        for j in range(adj_matrix.shape[0]):
+            if adj_matrix[i, j] > 0:
+                edges.append((node_names[i], node_names[j]))
+    
+    # Create CausalGraph with nodes and edges
+    graph = CausalGraph()
+    for node in node_names:
+        graph.add_node(node)
+    for src, tgt in edges:
+        graph.add_edge(src, tgt)
+    
+    return graph
+
+
+def graph_to_networkx(graph):
+    """
+    Convert a CausalGraph to a NetworkX DiGraph for visualization.
+    
+    Args:
+        graph: CausalGraph object
         
-        # Create edges from adjacency matrix
-        edges = []
-        for i in range(adj_matrix.shape[0]):
-            for j in range(adj_matrix.shape[0]):
-                if adj_matrix[i, j] > 0:
-                    edges.append((node_names[i], node_names[j]))
+    Returns:
+        nx.DiGraph: A NetworkX directed graph
+    """
+    # Create a new networkx directed graph
+    nx_graph = nx.DiGraph()
+    
+    # Add nodes
+    for node in graph.get_nodes():
+        nx_graph.add_node(node)
+    
+    # Add edges
+    for edge in graph.get_edges():
+        source, target = edge
+        nx_graph.add_edge(source, target)
+    
+    return nx_graph
+
+
+def enhanced_plot_graph(graph, ax=None, title=None, figsize=(8, 6), is_inferred=False, is_true=False):
+    """
+    Enhanced plotting of a causal graph with directional edges and clear labels.
+    
+    Args:
+        graph: CausalGraph object or NetworkX DiGraph
+        ax: Matplotlib axes to plot on (optional)
+        title: Plot title
+        figsize: Figure size as (width, height)
+        is_inferred: Whether this is an inferred graph (affects node color)
+        is_true: Whether this is a ground truth graph (affects node color)
         
-        # Create CausalGraph with nodes and edges
-        graph = CausalGraph()
-        for node in node_names:
-            graph.add_node(node)
-        for src, tgt in edges:
-            graph.add_edge(src, tgt)
-        
-        return graph
-    except Exception as e:
-        print(f"Error creating CausalGraph: {e}")
-        # Fall back to DummyGraph with _nodes attribute
-        graph = DummyGraph(adj_matrix)
-        graph._nodes = node_names if node_names else [f"X_{i}" for i in range(adj_matrix.shape[0])]
-        graph._edges = [(i, j) for i in range(adj_matrix.shape[0]) for j in range(adj_matrix.shape[0]) 
-                      if adj_matrix[i, j] > 0]
-        graph._node_attributes = {node: {} for node in graph._nodes}
-        graph._edge_attributes = {edge: {} for edge in graph._edges}
-        return graph
+    Returns:
+        ax: Matplotlib axes with the plot
+    """
+    # Convert CausalGraph to NetworkX if needed
+    if hasattr(graph, 'get_nodes'):
+        nx_graph = graph_to_networkx(graph)
+    else:
+        nx_graph = graph
+    
+    # Create figure and axes if not provided
+    if ax is None:
+        plt.figure(figsize=figsize)
+        ax = plt.gca()
+    
+    # Determine node color based on graph type
+    if is_true:
+        node_color = 'lightgreen'  # Use green for ground truth
+    elif is_inferred:
+        node_color = 'lightblue'   # Use blue for inferred
+    else:
+        node_color = 'lightgray'   # Default gray for unspecified
+    
+    # Create layout
+    pos = nx.spring_layout(nx_graph, seed=42)
+    
+    # Draw the graph with nice styling
+    nx.draw_networkx(
+        nx_graph,
+        pos=pos,
+        ax=ax,
+        with_labels=True,
+        node_color=node_color,
+        node_size=500,
+        arrowsize=20,
+        font_size=12,
+        font_weight='bold'
+    )
+    
+    # Add title if provided
+    if title:
+        ax.set_title(title)
+    
+    # Remove axes
+    ax.set_axis_off()
+    
+    return ax
 
 
 def parent_scaled_acd(model, scm, obs_data, max_interventions, device, visualize=False):
@@ -403,7 +422,7 @@ def parent_scaled_acd(model, scm, obs_data, max_interventions, device, visualize
     Run the Parent-Scaled ACD algorithm with neural network models.
     
     This algorithm:
-    1. Infers causal structure from observational data
+    1. Infers causal structure from observational data using neural networks
     2. Selects intervention targets based on parent-count metric
     3. Performs interventions and updates causal structure
     4. Repeats until max interventions reached
@@ -411,7 +430,7 @@ def parent_scaled_acd(model, scm, obs_data, max_interventions, device, visualize
     Args:
         model: AmortizedCausalDiscovery model
         scm: StructuralCausalModel for generating intervention data
-        obs_data: Observational data array
+        obs_data: Observational data array or DataFrame
         max_interventions: Maximum number of interventions to perform
         device: PyTorch device for computation
         visualize: Whether to visualize results
@@ -419,8 +438,12 @@ def parent_scaled_acd(model, scm, obs_data, max_interventions, device, visualize
     Returns:
         Final inferred causal graph and intervention history
     """
-    print("\nRunning Parent-Scaled ACD algorithm...")
+    print("\nRunning Parent-Scaled ACD algorithm with neural inference...")
     print(f"Maximum interventions: {max_interventions}")
+    
+    # Convert DataFrame to numpy if needed
+    if hasattr(obs_data, 'to_numpy'):
+        obs_data = obs_data.to_numpy()
     
     # Convert observational data to tensor if needed
     if isinstance(obs_data, np.ndarray):
@@ -429,88 +452,69 @@ def parent_scaled_acd(model, scm, obs_data, max_interventions, device, visualize
     # Move data to the specified device
     obs_data = obs_data.to(device)
     
-    # Initial shape processing
-    # [num_samples, num_nodes] -> [batch_size, seq_length, num_nodes]
-    # For simplicity, we treat the samples as a single batch with sequence length
-    if len(obs_data.shape) == 2:
-        obs_data = obs_data.unsqueeze(0)  # Add batch dimension
+    # Initial shape processing for the neural network
+    data_for_encoder = standardize_tensor_shape(obs_data, for_encoder=True)
     
     # Extract dimensions
-    batch_size, num_samples, num_nodes = obs_data.shape
+    batch_size, num_samples, num_nodes = data_for_encoder.shape
+    print(f"Data shape: batch_size={batch_size}, samples={num_samples}, nodes={num_nodes}")
     
-    # 1. Initial causal structure inference from observational data
-    print("Inferring initial causal structure from observational data...")
+    # 1. Initial causal structure inference from observational data using neural network
+    print("Inferring initial causal structure from observational data using neural networks...")
     
-    try:
-        # Reshape for GraphEncoder if needed
-        # Different models might expect different shapes, so we try to be flexible
-        try:
-            # This is the expected format by the AmortizedCausalDiscovery model
-            adj_matrix = model.infer_causal_graph(obs_data)
-        except Exception as e:
-            print(f"Error in standard inference: {e}")
-            print("Trying with reshaped tensor...")
-            adj_matrix = model.infer_causal_graph(standardize_tensor_shape(obs_data, for_encoder=True))
-        
-        # Convert to numpy for visualization if tensor
-        if isinstance(adj_matrix, torch.Tensor):
-            adj_np = adj_matrix.detach().cpu().numpy()
+    # Use the model to infer the causal graph
+    with torch.no_grad():
+        # Check if the model has a specific infer_causal_graph method
+        if hasattr(model, 'infer_causal_graph'):
+            adj_matrix = model.infer_causal_graph(data_for_encoder)
+        # Alternative: if model is just a GraphEncoder
+        elif hasattr(model, 'forward'):
+            adj_matrix = model.forward(data_for_encoder)
         else:
-            adj_np = adj_matrix
+            raise TypeError("Model doesn't have infer_causal_graph method or forward method")
+    
+    # Convert to numpy for processing
+    if isinstance(adj_matrix, torch.Tensor):
+        adj_np = adj_matrix.detach().cpu().numpy()
+    else:
+        adj_np = adj_matrix
+    
+    # Threshold adjacency matrix to get binary edges
+    threshold = 0.5
+    binary_adj = (adj_np > threshold).astype(float)
+    
+    print(f"Initial adjacency matrix shape: {adj_np.shape}")
+    
+    # Create a proper CausalGraph object with string node names
+    node_names = [f"X_{i}" for i in range(num_nodes)]
+    inferred_graph = create_graph_from_adjacency(binary_adj, node_names)
+    
+    # Visualize initial structure if requested
+    if visualize:
+        # Plot individual initial graph
+        plt.figure(figsize=(10, 6))
+        ax = plt.gca()
+        enhanced_plot_graph(inferred_graph, ax=ax, title="Initial Inferred Structure", is_inferred=True)
+        plt.tight_layout()
         
-        # Threshold adjacency matrix to get binary edges
-        threshold = 0.5
-        binary_adj = (adj_np > threshold).astype(float)
+        # Save the initial structure plot
+        init_save_path = os.path.join(get_assets_dir(), "initial_graph.png")
+        os.makedirs(os.path.dirname(init_save_path), exist_ok=True)
+        plt.savefig(init_save_path)
+        print(f"Saved initial graph visualization to {init_save_path}")
+        plt.show()
         
-        print(f"Initial adjacency matrix shape: {adj_np.shape}")
-        
-        # Convert to CausalGraph if possible
-        is_causal_graph = False
-        if hasattr(model, 'to_causal_graph') and CAUSAL_META_AVAILABLE:
-            try:
-                graph = model.to_causal_graph(adj_matrix, threshold=threshold)
-                print("Successfully converted to CausalGraph")
-                is_causal_graph = True
-            except Exception as e:
-                print(f"Error converting to CausalGraph: {e}")
-                # Fallback to DummyGraph
-                graph = DummyGraph(binary_adj)
-        else:
-            graph = DummyGraph(binary_adj)
-        
-        if visualize:
-            plt.figure(figsize=(10, 6))
-            plt.subplot(1, 2, 1)
-            plt.title("Initial Inferred Structure")
-            
-            if is_causal_graph:
-                # If we already have a proper graph object, use it directly
-                try:
-                    plot_graph(graph)
-                except Exception as e:
-                    print(f"Error plotting graph: {e}")
-                    # Convert adjacency matrix to proper graph as fallback
-                    proper_graph = create_graph_from_adjacency(binary_adj)
-                    plot_graph(proper_graph)
-            else:
-                # Create a proper graph from the adjacency matrix
-                proper_graph = create_graph_from_adjacency(binary_adj)
-                try:
-                    plot_graph(proper_graph)
-                except Exception as e:
-                    print(f"Error plotting graph: {e}")
-                    # Use fallback as last resort
-                    fallback_plot_graph(binary_adj)
-            
-            plt.tight_layout()
-            plt.show()
-        
-    except Exception as e:
-        print(f"Error in initial structure inference: {e}")
-        # Create a random initial graph as fallback
-        binary_adj = np.zeros((num_nodes, num_nodes))
-        graph = DummyGraph(binary_adj)
-        is_causal_graph = False
+        # Compare initial inference to ground truth
+        compare_save_path = os.path.join(get_assets_dir(), "initial_graph_comparison.png")
+        fig = plot_graph_comparison(
+            left_graph=scm.get_causal_graph(),
+            right_graph=inferred_graph,
+            left_title="Ground Truth Graph",
+            right_title="Initial Inferred Graph",
+            figsize=(12, 6),
+            save_path=compare_save_path
+        )
+        plt.show()
     
     # Store intervention history
     interventions_history = []
@@ -520,237 +524,197 @@ def parent_scaled_acd(model, scm, obs_data, max_interventions, device, visualize
         print(f"\nIntervention {i+1}/{max_interventions}")
         
         # Select intervention target using parent count heuristic
-        try:
-            target_node = select_intervention_target_by_parent_count(graph, adj_matrix=adj_np)
-            # Generate a random intervention value
-            target_value = np.random.uniform(-2.0, 2.0)
-            print(f"Intervening on node X_{target_node} with value {target_value:.2f}")
-        except Exception as e:
-            print(f"Error selecting intervention target: {e}")
-            # Fallback to random target
-            target_node = np.random.randint(0, num_nodes)
-            target_value = np.random.uniform(-2.0, 2.0)
-            print(f"Fallback: Random intervention on node X_{target_node} with value {target_value:.2f}")
+        target_node = select_intervention_target_by_parent_count(inferred_graph, adj_matrix=adj_np)
+        # Generate a random intervention value
+        target_value = np.random.uniform(-2.0, 2.0)
+        
+        print(f"Intervening on node {target_node} with value {target_value:.2f}")
         
         # Record intervention
-        intervention = {f"X_{target_node}": target_value}
-        interventions_history.append(intervention)
+        interventions_history.append((target_node, target_value))
         
-        # Generate interventional data
+        # Perform intervention and collect data
         try:
-            int_data = scm.sample_interventional_data(intervention, sample_size=num_samples)
-            int_data = torch.tensor(int_data, dtype=torch.float32).to(device)
-            
-            # Reshape interventional data to match observational data
-            int_data = int_data.unsqueeze(0) if len(int_data.shape) == 2 else int_data
-            
-            print(f"Generated interventional data shape: {int_data.shape}")
+            scm.do_intervention(target_node, target_value)
+            int_data = scm.sample_data(sample_size=num_samples)
+            scm.reset()  # Reset the SCM
         except Exception as e:
-            print(f"Error generating interventional data: {e}")
-            # Fallback to random data
-            int_data = torch.randn_like(obs_data)
-            print("Using random interventional data as fallback")
+            print(f"Error performing intervention: {e}")
+            print("Skipping to next intervention")
+            continue
         
-        # Format intervention for model prediction (expected by predict_intervention_outcomes)
-        intervention_target = target_node
-        intervention_value = target_value
+        # Convert DataFrame to numpy if needed
+        if hasattr(int_data, 'to_numpy'):
+            int_data = int_data.to_numpy()
         
-        # Prepare tensors for the DynamicsDecoder
-        node_features = obs_data.reshape(batch_size * num_nodes, num_samples).transpose(0, 1)
+        # Convert to tensor if needed
+        if isinstance(int_data, np.ndarray):
+            int_data = torch.tensor(int_data, dtype=torch.float32)
         
-        # Create edge_index and batch tensors for dynamics prediction
-        edge_index = []
-        for src in range(num_nodes):
-            for tgt in range(num_nodes):
-                if binary_adj[src, tgt] > 0:
-                    edge_index.append([src, tgt])
+        # Move to device
+        int_data = int_data.to(device)
         
-        if edge_index:
-            edge_index = torch.tensor(edge_index, dtype=torch.long).t().to(device)
+        # Prepare data for the neural network
+        int_data_for_encoder = standardize_tensor_shape(int_data, for_encoder=True)
+        
+        # Format interventions for the model
+        # Extract node index from string (e.g., "X_0" -> 0)
+        try:
+            target_idx = int(target_node.split('_')[1])
+            formatted_interventions = format_interventions(
+                [(target_idx, target_value)], 
+                num_nodes=num_nodes, 
+                device=device
+            )
+        except (ValueError, IndexError) as e:
+            print(f"Error formatting intervention: {e}")
+            target_idx = 0  # Default to first node
+            formatted_interventions = format_interventions(
+                [(target_idx, target_value)], 
+                num_nodes=num_nodes, 
+                device=device
+            )
+        
+        # Update causal graph with the new interventional data using neural network
+        print("Updating causal graph with interventional data...")
+        
+        # Use neural network for graph inference with interventional data
+        with torch.no_grad():
+            try:
+                # Check model capabilities and type
+                if hasattr(model, 'infer_causal_graph'):
+                    # Try with interventions parameter if the method supports it
+                    import inspect
+                    sig = inspect.signature(model.infer_causal_graph)
+                    if 'interventions' in sig.parameters:
+                        updated_adj_matrix = model.infer_causal_graph(
+                            int_data_for_encoder, 
+                            interventions=formatted_interventions
+                        )
+                    else:
+                        print("Model does not support interventions parameter, using data only.")
+                        updated_adj_matrix = model.infer_causal_graph(int_data_for_encoder)
+                else:
+                    # Fallback for simpler models
+                    print("Using model's forward method (no intervention support).")
+                    updated_adj_matrix = model(int_data_for_encoder)
+            except Exception as e:
+                print(f"Error during causal graph inference: {e}")
+                print("Using previous adjacency matrix.")
+                updated_adj_matrix = adj_matrix
+        
+        # Convert to numpy for processing
+        if isinstance(updated_adj_matrix, torch.Tensor):
+            updated_adj_np = updated_adj_matrix.detach().cpu().numpy()
         else:
-            # If no edges, create a dummy edge to avoid errors
-            edge_index = torch.zeros((2, 1), dtype=torch.long).to(device)
+            updated_adj_np = updated_adj_matrix
         
-        batch = torch.zeros(num_nodes, dtype=torch.long).to(device)
+        # Threshold to get binary adjacency matrix
+        updated_binary_adj = (updated_adj_np > threshold).astype(float)
         
-        # Prepare intervention tensors
-        intervention_targets = torch.tensor([intervention_target], dtype=torch.long).to(device)
-        intervention_values = torch.tensor([intervention_value], dtype=torch.float32).to(device)
+        # Create updated graph with string node names
+        updated_graph = create_graph_from_adjacency(updated_binary_adj, node_names)
         
-        # Update causal structure using interventional data
-        try:
-            # Combine observational and interventional data if appropriate for the model
-            combined_data = torch.cat([obs_data, int_data], dim=1)
-            
-            # Update adjacency matrix - NOTE: infer_causal_graph doesn't take interventions param
-            adj_matrix = model.infer_causal_graph(combined_data)
-            
-            if isinstance(adj_matrix, torch.Tensor):
-                adj_np = adj_matrix.detach().cpu().numpy()
-            else:
-                adj_np = adj_matrix
-            
-            # Apply threshold to get binary edges
-            binary_adj = (adj_np > threshold).astype(float)
-            
-            # Update graph
-            is_causal_graph = False
-            if hasattr(model, 'to_causal_graph') and CAUSAL_META_AVAILABLE:
-                try:
-                    graph = model.to_causal_graph(adj_matrix, threshold=threshold)
-                    is_causal_graph = True
-                except Exception as e:
-                    print(f"Error converting to CausalGraph: {e}")
-                    graph = DummyGraph(binary_adj)
-            else:
-                graph = DummyGraph(binary_adj)
-            
-            print("Successfully updated causal structure")
-        except Exception as e:
-            print(f"Error updating causal structure: {e}")
-            print("Keeping previous structure")
-        
-        # Visualize the updated graph if requested
+        # Visualize intermediate results if requested
         if visualize:
+            # Plot individual updated graph
             plt.figure(figsize=(10, 6))
-            plt.subplot(1, 2, 1)
-            plt.title(f"Structure After Intervention {i+1}")
-            
-            if is_causal_graph:
-                try:
-                    plot_graph(graph)
-                except Exception as e:
-                    print(f"Error plotting graph: {e}")
-                    # Convert adjacency matrix to proper graph as fallback
-                    proper_graph = create_graph_from_adjacency(binary_adj)
-                    plot_graph(proper_graph)
-            else:
-                # Create a proper graph from the adjacency matrix
-                proper_graph = create_graph_from_adjacency(binary_adj)
-                try:
-                    plot_graph(proper_graph)
-                except Exception as e:
-                    print(f"Error plotting graph: {e}")
-                    # Use fallback as last resort
-                    fallback_plot_graph(binary_adj)
-            
+            ax = plt.gca()
+            enhanced_plot_graph(
+                updated_graph, 
+                ax=ax, 
+                title=f"Inferred Graph Structure After Intervention {i+1} (on node {target_node})",
+                is_inferred=True
+            )
             plt.tight_layout()
+            # Save the intermediate plot
+            int_save_path = os.path.join(get_assets_dir(), f"graph_after_intervention_{i+1}.png")
+            os.makedirs(os.path.dirname(int_save_path), exist_ok=True)
+            plt.savefig(int_save_path)
+            print(f"Saved intervention {i+1} graph visualization to {int_save_path}")
             plt.show()
-    
-    # Final visualization
-    if visualize:
-        plt.figure(figsize=(10, 6))
-        plt.subplot(1, 1, 1)
-        plt.title("Final Inferred Causal Structure")
+            
+            # Also show a before/after comparison
+            compare_save_path = os.path.join(get_assets_dir(), f"intervention_{i+1}_comparison.png")
+            # Use the previous version of the graph for before/after comparison
+            previous_graph = inferred_graph if i == 0 else create_graph_from_adjacency(
+                (adj_np > threshold).astype(float), node_names
+            )
+            
+            fig = plot_graph_comparison(
+                left_graph=previous_graph,
+                right_graph=updated_graph,
+                left_title=f"Inferred Graph Before Intervention {i+1}",
+                right_title=f"Inferred Graph After Intervention {i+1} (on {target_node})",
+                figsize=(12, 6),
+                save_path=compare_save_path
+            )
+            plt.show()
         
-        if is_causal_graph:
-            try:
-                plot_graph(graph)
-            except Exception as e:
-                print(f"Error plotting graph: {e}")
-                # Convert adjacency matrix to proper graph as fallback
-                proper_graph = create_graph_from_adjacency(binary_adj)
-                plot_graph(proper_graph)
-        else:
-            # Create a proper graph from the adjacency matrix
-            proper_graph = create_graph_from_adjacency(binary_adj)
-            try:
-                plot_graph(proper_graph)
-            except Exception as e:
-                print(f"Error plotting graph: {e}")
-                # Use fallback as last resort
-                fallback_plot_graph(binary_adj)
-                
-        plt.tight_layout()
+        # Update current graph and adjacency matrix for next iteration
+        inferred_graph = updated_graph
+        adj_np = updated_adj_np
+    
+    print("\nParent-Scaled ACD completed.")
+    
+    # Final visualization comparing ground truth (from SCM) to our inferred graph
+    if visualize:
+        # Use the comparison plotting function for better visualization
+        final_save_path = os.path.join(get_assets_dir(), "parent_scaled_acd_results.png")
+        
+        # Create comparison between ground truth and final inferred graph
+        fig = plot_graph_comparison(
+            left_graph=scm.get_causal_graph(),
+            right_graph=inferred_graph,
+            left_title="Ground Truth Causal Graph",
+            right_title=f"Final Inferred Graph (After {max_interventions} Interventions)",
+            figsize=(12, 6),
+            save_path=final_save_path
+        )
+        plt.suptitle(f"Final Results After {max_interventions} Interventions", fontsize=16)
+        plt.tight_layout(rect=[0, 0, 1, 0.96])  # Make room for the super title
         plt.show()
+        print(f"Saved final comparison to {final_save_path}")
     
-    print("\nParent-Scaled ACD algorithm completed.")
-    print(f"Performed {len(interventions_history)} interventions.")
-    
-    return graph, interventions_history
+    return inferred_graph, interventions_history
 
 
 def select_intervention_target_by_parent_count(graph, adj_matrix=None):
     """
-    Select intervention target based on the number of parents scaled by edge weight.
+    Select an intervention target based on parent count.
     
-    This strategy selects nodes that have more parents, assuming they have greater
-    potential for causal influence. It normalizes by the number of incoming edges.
+    This function selects nodes with more parents with higher probability.
+    The intuition is that nodes with more parents have more complex causal
+    relationships that might benefit from direct intervention.
     
     Args:
-        graph: The causal graph object (CausalGraph or similar)
-        adj_matrix: Optional adjacency matrix if graph doesn't provide one
+        graph: CausalGraph object
+        adj_matrix: Optional adjacency matrix if not extracted from graph
         
     Returns:
-        Target node index for intervention
+        selected_node: The selected intervention target node name
     """
-    print("Selecting intervention target based on parent count...")
-    
     # Extract adjacency matrix if not provided
     if adj_matrix is None:
-        if hasattr(graph, 'get_adjacency_matrix'):
-            adj_matrix = graph.get_adjacency_matrix()
-        elif hasattr(graph, 'adj_matrix'):
-            adj_matrix = graph.adj_matrix
-        else:
-            raise ValueError("Cannot extract adjacency matrix from graph")
+        adj_matrix = graph.get_adjacency_matrix()
     
     # Ensure adj_matrix is numpy array
     if isinstance(adj_matrix, torch.Tensor):
         adj_matrix = adj_matrix.detach().cpu().numpy()
     
     # Get number of nodes
-    if hasattr(graph, 'get_num_nodes'):
-        num_nodes = graph.get_num_nodes()
-    elif hasattr(graph, 'num_nodes'):
-        num_nodes = graph.num_nodes
-    else:
-        num_nodes = adj_matrix.shape[0]
+    num_nodes = len(graph.get_nodes())
     
-    # Count incoming edges (parents) for each node
+    # Count incoming edges (parents) for each node using the adjacency matrix
     parent_counts = np.zeros(num_nodes)
     
-    # Method 1: Use adjacency matrix
-    for i in range(num_nodes):
-        # Sum incoming edges (column i in adjacency matrix)
-        # Note: If adj_matrix[j,i] > 0, then j is a parent of i
-        parent_counts[i] = np.sum(adj_matrix[:, i])
+    # Get the list of nodes
+    nodes = list(graph.get_nodes())
     
-    # Alternative method if adjacency matrix approach returns all zeros
-    if np.sum(parent_counts) == 0:
-        print("Adjacency matrix approach failed, trying alternative...")
-        # Try using graph methods directly
-        for i in range(num_nodes):
-            node_name = f"X_{i}"
-            # Try different methods to get parents
-            if hasattr(graph, 'get_parents'):
-                try:
-                    parents = graph.get_parents(node_name)
-                    parent_counts[i] = len(parents)
-                except:
-                    try:
-                        parents = graph.get_parents(i)
-                        parent_counts[i] = len(parents)
-                    except:
-                        pass
-            elif hasattr(graph, 'get_predecessors'):
-                try:
-                    predecessors = graph.get_predecessors(node_name)
-                    parent_counts[i] = len(predecessors)
-                except:
-                    try:
-                        predecessors = graph.get_predecessors(i)
-                        parent_counts[i] = len(predecessors)
-                    except:
-                        pass
-            elif hasattr(graph, 'in_degree'):
-                try:
-                    parent_counts[i] = graph.in_degree(node_name)
-                except:
-                    try:
-                        parent_counts[i] = graph.in_degree(i)
-                    except:
-                        pass
+    # Count parents for each node
+    for i, node in enumerate(nodes):
+        parents = graph.get_parents(node)
+        parent_counts[i] = len(parents)
     
     # Use parent counts as weights, but avoid zeros
     # We add a small constant to ensure all nodes have some chance of selection
@@ -760,14 +724,167 @@ def select_intervention_target_by_parent_count(graph, adj_matrix=None):
     probabilities = weights / np.sum(weights)
     
     # Select a node based on these probabilities
-    selected_node = np.random.choice(num_nodes, p=probabilities)
+    selected_idx = np.random.choice(num_nodes, p=probabilities)
+    selected_node = nodes[selected_idx]
     
-    print(f"Selected node {selected_node} (X_{selected_node}) with {parent_counts[selected_node]} parents")
+    print(f"Selected node {selected_node} with {parent_counts[selected_idx]:.0f} parents")
     return selected_node
 
 
+def format_interventions(interventions, num_nodes, device):
+    """
+    Format interventions for the neural network model.
+    
+    Args:
+        interventions: List of (node, value) tuples where node can be name or index
+        num_nodes: Number of nodes in the graph
+        device: PyTorch device
+        
+    Returns:
+        Formatted interventions tensor in the shape [batch_size, num_nodes, 2]
+        where values are (is_intervened, intervention_value)
+    """
+    # Initialize intervention tensor: [batch_size=1, num_nodes, 2]
+    formatted = torch.zeros((1, num_nodes, 2), device=device)
+    
+    # For each intervention target and value
+    for node, value in interventions:
+        # If node is a string, extract index from it (e.g., "X_0" -> 0)
+        if isinstance(node, str) and '_' in node:
+            try:
+                node_idx = int(node.split('_')[1])
+            except (ValueError, IndexError):
+                print(f"Warning: Could not extract index from node name {node}, skipping")
+                continue
+        else:
+            # Otherwise, node is already an index
+            node_idx = node
+        
+        # Set is_intervened flag to 1.0
+        formatted[0, node_idx, 0] = 1.0
+        # Set intervention value
+        formatted[0, node_idx, 1] = float(value)
+    
+    return formatted
+
+
+def standardize_tensor_shape(tensor, for_encoder=False):
+    """
+    Standardize tensor shape for neural network processing.
+    
+    Args:
+        tensor: Input tensor [batch_size, seq_length, num_nodes]
+        for_encoder: If True, prepare for GraphEncoder, else for DynamicsDecoder
+        
+    Returns:
+        Tensor with appropriate shape
+    """
+    # Make sure it's a tensor
+    if not isinstance(tensor, torch.Tensor):
+        tensor = torch.tensor(tensor, dtype=torch.float32)
+    
+    # Extract dimensions
+    shape = tensor.shape
+    
+    # Handle different input shapes
+    if len(shape) == 2:
+        # [samples, nodes] -> [1, samples, nodes]
+        tensor = tensor.unsqueeze(0)
+    elif len(shape) != 3:
+        raise ValueError(f"Expected 2D or 3D tensor, got shape {shape}")
+    
+    # For graph encoder the shape should be [batch_size, seq_length, num_nodes]
+    if for_encoder:
+        return tensor
+    
+    # For dynamics decoder, may need additional processing
+    # E.g., reshaping, adding features, etc.
+    return tensor
+
+
+def plot_graph_comparison(left_graph, right_graph, left_title="Left Graph", right_title="Right Graph", figsize=(12, 6), save_path=None):
+    """
+    Plot a side-by-side comparison of two graphs with consistent node positions.
+    
+    Args:
+        left_graph: The graph to display on the left panel
+        right_graph: The graph to display on the right panel
+        left_title: Title for the left graph
+        right_title: Title for the right graph
+        figsize: Figure size as (width, height)
+        save_path: Optional path to save the figure
+        
+    Returns:
+        fig: Matplotlib figure
+    """
+    # Convert both graphs to NetworkX format
+    if hasattr(left_graph, 'get_nodes'):
+        nx_left = graph_to_networkx(left_graph)
+    else:
+        nx_left = left_graph
+        
+    if hasattr(right_graph, 'get_nodes'):
+        nx_right = graph_to_networkx(right_graph)
+    else:
+        nx_right = right_graph
+    
+    # Create figure with two subplots
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+    
+    # Get all unique nodes from both graphs
+    all_nodes = set(nx_left.nodes()).union(set(nx_right.nodes()))
+    
+    # Create a combined graph for layout calculation to ensure consistent positions
+    combined = nx.DiGraph()
+    combined.add_nodes_from(all_nodes)
+    combined.add_edges_from(nx_left.edges())
+    combined.add_edges_from(nx_right.edges())
+    
+    # Generate a consistent layout for both graphs
+    pos = nx.spring_layout(combined, seed=42)
+    
+    # Plot left graph
+    nx.draw_networkx(
+        nx_left,
+        pos=pos,
+        ax=axes[0],
+        with_labels=True,
+        node_color='lightgreen',
+        node_size=500,
+        arrowsize=20,
+        font_size=12,
+        font_weight='bold'
+    )
+    axes[0].set_title(left_title)
+    axes[0].axis('off')
+    
+    # Plot right graph
+    nx.draw_networkx(
+        nx_right,
+        pos=pos,
+        ax=axes[1],
+        with_labels=True,
+        node_color='lightblue',
+        node_size=500,
+        arrowsize=20,
+        font_size=12,
+        font_weight='bold'
+    )
+    axes[1].set_title(right_title)
+    axes[1].axis('off')
+    
+    plt.tight_layout()
+    
+    # Save figure if path provided
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Saved graph comparison to {save_path}")
+    
+    return fig
+
+
 def main():
-    """Run the Parent-Scaled ACD demo."""
+    """Run the Parent-Scaled ACD demo with neural networks for inference."""
     # Parse arguments
     args = parse_args()
     
@@ -800,6 +917,26 @@ def main():
         obs_data = obs_data[:args.num_samples]
     
     # Run parent-scaled ACD algorithm
+    # First, visualize the true graph to provide context
+    if args.visualize:
+        plt.figure(figsize=(10, 6))
+        ax = plt.gca()
+        enhanced_plot_graph(
+            scm.get_causal_graph(), 
+            ax=ax, 
+            title="True Underlying Causal Graph",
+            is_true=True
+        )
+        plt.tight_layout()
+        
+        # Save the true graph plot
+        true_graph_path = os.path.join(get_assets_dir(), "true_causal_graph.png")
+        os.makedirs(os.path.dirname(true_graph_path), exist_ok=True)
+        plt.savefig(true_graph_path)
+        print(f"Saved true causal graph visualization to {true_graph_path}")
+        plt.show()
+    
+    # Now run the actual ACD algorithm
     inferred_graph, intervention_history = parent_scaled_acd(
         model=model,
         scm=scm,
@@ -814,69 +951,6 @@ def main():
     print(f"Number of nodes: {args.num_nodes}")
     print(f"Number of samples: {args.num_samples}")
     print(f"Number of interventions: {args.max_interventions}")
-    
-    # Visualize final results
-    if args.visualize:
-        # Get ground truth adjacency matrix from SCM if available
-        true_adj_matrix = None
-        if hasattr(scm, 'get_adjacency_matrix'):
-            true_adj_matrix = scm.get_adjacency_matrix()
-        
-        # Create final visualization
-        plt.figure(figsize=(12, 6))
-        
-        # Create proper graph objects for visualization
-        inferred_graph_for_viz = None
-        if hasattr(inferred_graph, 'get_adjacency_matrix') and callable(inferred_graph.get_adjacency_matrix):
-            # If it's already a proper graph, use it directly
-            inferred_graph_for_viz = inferred_graph
-        elif hasattr(inferred_graph, 'adj_matrix'):
-            # Convert from adjacency matrix
-            inferred_graph_for_viz = create_graph_from_adjacency(inferred_graph.adj_matrix)
-        
-        # Plot inferred graph
-        plt.subplot(1, 2 if true_adj_matrix is not None else 1, 1)
-        if inferred_graph_for_viz is not None:
-            try:
-                plot_graph(inferred_graph_for_viz)
-            except Exception as e:
-                print(f"Error plotting inferred graph: {e}")
-                # Use fallback as last resort
-                if hasattr(inferred_graph, 'get_adjacency_matrix'):
-                    fallback_plot_graph(inferred_graph.get_adjacency_matrix())
-                elif hasattr(inferred_graph, 'adj_matrix'):
-                    fallback_plot_graph(inferred_graph.adj_matrix)
-                else:
-                    fallback_plot_graph(np.zeros((args.num_nodes, args.num_nodes)))
-        else:
-            # Last resort - empty matrix
-            fallback_plot_graph(np.zeros((args.num_nodes, args.num_nodes)))
-            print("Warning: Could not create a proper graph for visualization")
-            
-        plt.title("Final Inferred Causal Graph")
-        
-        # Plot true graph if available
-        if true_adj_matrix is not None:
-            plt.subplot(1, 2, 2)
-            # Create a proper graph object for the true graph
-            true_graph = create_graph_from_adjacency(true_adj_matrix if isinstance(true_adj_matrix, np.ndarray) 
-                                                  else np.array(true_adj_matrix))
-            try:
-                plot_graph(true_graph)
-            except Exception as e:
-                print(f"Error plotting true graph: {e}")
-                fallback_plot_graph(true_adj_matrix if isinstance(true_adj_matrix, np.ndarray) 
-                                 else np.array(true_adj_matrix))
-            plt.title("True Causal Graph")
-        
-        plt.tight_layout()
-        
-        # Save visualization
-        save_path = os.path.join(get_assets_dir(), "parent_scaled_acd_results.png")
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        plt.savefig(save_path)
-        print(f"Saved results visualization to {save_path}")
-        plt.show()
     
     # Print intervention history
     print("\nIntervention History:")

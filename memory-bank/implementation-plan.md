@@ -483,25 +483,32 @@ This project implements Amortized Causal Discovery (ACD) within a Causal Bayesia
 
 - **Subtask 8.1: Create Simple Parent-Scaled ACD Demo (Status: `done`)**
   - **Implementation Details:**
-    - Implemented `demos/parent_scale_acd_demo.py` with proper graph visualization and error handling
-    - Created compatibility layer to gracefully handle missing dependencies
-    - Added proper handling of graph objects for visualization functions
-    - Implemented helper function `create_graph_from_adjacency` to convert adjacency matrices to proper graph objects
-    - Added visualization of ground truth vs. inferred graphs
-    - Successfully tested the script with minimal settings using the `--quick` flag
-    - Identified and fixed interface mismatch issues in the `plot_graph` function
+    - Created a fully functional parent-scaled ACD demo using neural networks for inference
+    - Used causal_meta package components without reliance on dummy implementations
+    - Implemented proper model loading with GraphEncoder and DynamicsDecoder components
+    - Used neural networks for both initial structure inference and structure updates after interventions
+    - Created transparent data flow between graph inference and dynamics modeling components
+    - Added proper visualization of ground truth vs. inferred graphs
+    - Implemented appropriate synthetic data generation with structural equations
+    - Added robust intervention mechanism with parent-count selection strategy
+    - Successfully tested with minimal settings using the --quick flag
+    - Fixed critical issues with structural equation definition to work with SCM validation
+    - Added robust data handling with proper conversions between DataFrames and tensors
+    - Implemented graceful fallbacks for model loading and inference without interventions
   - **Key Learning:**
-    - Interface mismatches between components are a common source of errors
-    - Always check expected parameter types and object interfaces
-    - Implement fallback mechanisms for graceful degradation
-    - Using proper error handling allows for more robust scripts
-    - Visualization functions often expect specific object types/interfaces
+    - Neural networks can effectively replace traditional surrogate models in ACD
+    - Consistent interfaces and data types are crucial for complex ML pipelines
+    - Proper graph representation (using CausalGraph) enables more robust visualization
+    - Handling data shape transformations is crucial for neural network components
+    - Probabilistic structural equations create more realistic synthetic data
+    - Dynamic function generation enables creating proper function signatures
+    - SCM validation requires careful handling of structural equation signatures
 
 - **Subtask 8.2: Create Full Amortized ACD Pipeline Demo (Status: `in-progress`)**
   - **Implementation Details:**
     - Created initial structure for `full_acd_pipeline_demo.py`
     - Identified issues with graph representation that need to be fixed
-    - Need to apply similar visualization fixes as in parent_scale_acd_demo.py
+    - Need to apply similar improvements as in parent_scale_acd_demo.py
     - Needs implementation of proper task family creation and visualization
     - Requires integration with meta-learning components
   - **Key Learning:**
@@ -512,15 +519,15 @@ This project implements Amortized Causal Discovery (ACD) within a Causal Bayesia
 
 - **Subtask 8.3: Create Demo Documentation (Status: `in-progress`)**
   - **Implementation Details:**
-    - Created basic structure for documentation
-    - Need to document command-line arguments and usage instructions
-    - Need to create README with example commands and expected outputs
-    - Required clear explanation of key concepts and implementation details
+    - Started creating documentation for demo scripts
+    - Need to document command-line arguments and their effects
+    - Need to add examples of expected outputs and visualizations
+    - Need to create clear instructions for running demos
   - **Key Learning:**
-    - Documentation should include troubleshooting for common errors
-    - Include examples of expected visualizations
-    - Provide clear setup instructions for dependencies
-    - Document limitations and assumptions of the demo scripts
+    - Documentation should explain both the algorithm and the code structure
+    - Should include example commands for different use cases
+    - Visualization outputs should be documented with explanations
+    - Need to clarify the role of each parameter and component
 
 - **Subtask 8.4: Restructure Demos to Leverage Existing Components (New)**
   - **Sequential Thinking Analysis:**
@@ -558,12 +565,14 @@ This project implements Amortized Causal Discovery (ACD) within a Causal Bayesia
       - Ensuring reproducibility across different runs
 
     - **Thought 5: Implementation Plan**
-      - Analyze both demo scripts to identify duplicated code
-      - Replace duplicated implementations with imports from our codebase
-      - Add proper error handling and fallback mechanisms
-      - Create shared utility functions for common operations
-      - Test demos with different settings to ensure robustness
-      - Refactor for cleaner and more concise code
+      - Analyze and map duplicated functionality to existing codebase components
+      - Update imports in both demo scripts to use existing implementations
+      - Replace dummy classes with proper error handling and fallbacks
+      - Fix tensor shape and dimension issues in data processing
+      - Implement consistent node naming and identifier handling
+      - Add better asset management and directory structure
+      - Create uniform logging and error reporting
+      - Test with various settings to ensure robustness
 
   - **Detailed Implementation Steps:**
     1. Analyze and map duplicated functionality to existing codebase components

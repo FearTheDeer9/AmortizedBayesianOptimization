@@ -98,6 +98,29 @@ This document outlines the key architectural components of the Causal Bayesian O
 *   **`causal_meta.meta_learning.amortized_causal_discovery`**: Core implementation of ACD.
     *   `AmortizedCausalDiscovery`: Main class that combines the encoder (for graph structure inference) and decoder (for dynamics modeling).
     *   `train`, `infer_causal_graph`, and `predict_intervention_outcomes` methods.
+*   **`causal_meta.meta_learning.acd_models`**: Neural network models for causal structure inference.
+    *   `GraphEncoder`: Neural network for causal structure learning using attention mechanisms.
+    *   `AttentionBlock`: Multi-head self-attention block for processing time series data.
+    *   Methods for encoding time series data into graph structures, calculating sparsity and acyclicity losses.
+*   **`causal_meta.meta_learning.dynamics_decoder`**: Neural network models for dynamics prediction.
+    *   `DynamicsDecoder`: Neural network for predicting outcomes under interventions.
+    *   Methods for conditioning on graph structure and intervention information.
+    *   Uncertainty quantification through ensemble predictions.
 *   **`causal_meta.meta_learning.amortized_cbo`**: CBO implementation using ACD.
     *   `AmortizedCBO`: Replaces traditional MetaCBO by using neural networks instead of GPs.
-    *   Methods for meta-training, adaptation, and intervention optimization. 
+    *   Methods for meta-training, adaptation, and intervention optimization.
+
+### Demo Implementation
+
+*   **`demos/parent_scale_acd_demo.py`**: Demonstrates parent-scaled ACD with neural networks.
+    *   Uses GraphEncoder and DynamicsDecoder for structure learning and prediction.
+    *   Implements parent-count based intervention target selection.
+    *   Creates synthetic data with proper structural causal models.
+    *   Shows how neural networks can be used as drop-in replacements for traditional causal discovery.
+    *   Visualizes both ground truth and inferred graph structures.
+    *   Uses probabilistic structural equations for realistic data generation.
+*   **`demos/full_acd_pipeline_demo.py`**: Demonstrates the full amortized causal discovery pipeline.
+    *   Includes task family generation and meta-learning components.
+    *   Shows the full training and adaptation process for amortized causal discovery.
+    *   Leverages neural networks for both structure learning and dynamics prediction.
+    *   Will incorporate proper benchmarking and evaluation metrics. 

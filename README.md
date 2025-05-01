@@ -16,6 +16,10 @@ This library provides tools for working with causal graphs, structural causal mo
   - **inference**: Inference methods for causal discovery and reasoning
   - **discovery**: Causal discovery algorithms
   - **utils**: Utility functions and helpers
+- **algorithms**: Algorithm implementations
+  - **PARENT_SCALE_ACD.py**: Full implementation of Parent-Scaled ACD algorithm
+- **demos**: Demonstration scripts
+  - **parent_scale_acd_demo.py**: Demo of Parent-Scaled ACD with neural networks
 
 ## Installation
 
@@ -64,6 +68,47 @@ scm.do_intervention('X', 2.0)
 interventional_data = scm.sample_data(1000)
 print(interventional_data.head())
 ```
+
+## Demo Scripts
+
+### Parent-Scaled ACD Demo
+
+The `parent_scale_acd_demo.py` script demonstrates how to use neural networks for causal discovery with the Parent-Scaled ACD algorithm. This algorithm uses interventions to improve causal structure learning, selecting targets based on their parent count in the currently inferred graph.
+
+#### Current Implementation:
+
+- **Synthetic Data Generation**: Creates random graphs and data for demonstrations
+- **Neural Network Models**: Uses AmortizedCausalDiscovery model for structure learning
+- **Parent-Count Intervention Selection**: Targets nodes with more inferred parents
+- **Intervention Experiments**: Updates causal graph based on interventional data
+- **Visualization**: Shows inferred graph before and after interventions
+- **Robust Error Handling**: Gracefully handles model loading failures and other errors
+- **Integration Options**: Can use either the simplified demo implementation or the full algorithm
+
+#### Running the Demo:
+
+```bash
+# Run with default settings
+python demos/parent_scale_acd_demo.py
+
+# Run in quick mode (fewer samples, interventions)
+python demos/parent_scale_acd_demo.py --quick
+
+# Run with full algorithm implementation
+python demos/parent_scale_acd_demo.py --use_full_algorithm
+
+# Customize settings
+python demos/parent_scale_acd_demo.py --num_nodes 7 --max_interventions 5
+```
+
+#### To Be Implemented:
+
+- **Advanced Acquisition Functions**: Currently uses simple parent count, but could implement Expected Information Gain
+- **Comprehensive Metrics**: Need to add precision, recall, and F1 score for structure recovery
+- **Benchmark Datasets**: Validate on standard causal discovery benchmarks
+- **Improved Visualization**: Add dynamic graph visualization during the intervention process
+- **Model Training**: Add functionality to train models from scratch on custom datasets
+- **Hyperparameter Tuning**: Allow customization of model architecture and training parameters
 
 ## Features
 

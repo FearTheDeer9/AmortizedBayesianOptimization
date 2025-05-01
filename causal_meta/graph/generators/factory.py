@@ -653,7 +653,7 @@ class GraphFactory:
         # Add nodes (0 to num_nodes - 1)
         for i in range(num_nodes):
             graph.add_node(i)
-        assert graph.num_nodes == num_nodes
+        assert len(graph.get_nodes()) == num_nodes
 
         # Core loop structure for potential edges (i -> j where i < j)
         edge_count = 0

@@ -358,11 +358,14 @@ class StructuralCausalModel(BaseEnvironment):
         # Create the noise function if noise_std > 0
         noise_function = None
         if noise_std > 0:
-            def noise_function(): return float(self._random_state.normal(0, noise_std))
+            # Define a noise function that accepts sample_size and uses a RandomState instance
+            def noise_func(sample_size: int, random_state: np.random.RandomState):
+                return random_state.normal(0, noise_std, size=sample_size)
+            noise_function = noise_func
 
         # Define the structural equation
         self.define_structural_equation(
-            variable, linear_equation, noise_function)
+            variable, linear_equation, exogenous_function=noise_function)
 
     def evaluate_equation(self,
                           variable: str,
@@ -401,34 +404,37 @@ class StructuralCausalModel(BaseEnvironment):
             # If the intervention is a function, evaluate it with the input values
             return self._interventions[variable](**input_values)
 
-        # Get exogenous function if it exists
-        exogenous_value = None
-        if variable in self._exogenous_functions:
-            exogenous_function = self._exogenous_functions[variable]
-            exogenous_value = exogenous_function()
+        # *** Ensure NO noise generation happens here - it's passed via input_values ***
 
-        # Create arguments for the equation
+        # Revert to previous logic: Explicitly get parents and add noise if present in input_values
         equation_args = {}
-
-        # Add parent values from input_values
         parents = self.get_parents(variable)
         missing_parents = []
         for parent in parents:
             if parent in input_values:
                 equation_args[parent] = input_values[parent]
             else:
+                # If a parent value is truly missing from input, raise error
                 missing_parents.append(parent)
 
         if missing_parents:
             raise ValueError(
                 f"Missing values for parent variables: {missing_parents}")
 
-        # Add exogenous value if it exists
-        if exogenous_value is not None:
-            equation_args['noise'] = exogenous_value
+        # Add noise value if it was generated and passed in input_values
+        # Check against function signature if noise is actually expected
+        sig = inspect.signature(equation)
+        if 'noise' in sig.parameters and 'noise' in input_values:
+            equation_args['noise'] = input_values['noise']
+        elif 'noise' in sig.parameters and 'noise' not in input_values:
+            # This might indicate an issue if noise is expected but not provided
+            pass # Or raise an error/warning depending on desired strictness
 
         # Evaluate the equation
-        result = equation(**equation_args)
+        try:
+            result = equation(**equation_args)
+        except TypeError as te:
+            raise TypeError(f"Error calling equation for '{variable}' with args {equation_args}. Original error: {te}") from te
 
         return result
 
@@ -476,80 +482,183 @@ class StructuralCausalModel(BaseEnvironment):
 
         return list(self._causal_graph.get_children(variable))
 
-    def sample_data(self, sample_size: int, random_seed: Optional[int] = None) -> pd.DataFrame:
+    def sample_data(
+        self,
+        sample_size: int = 100,
+        include_latents: bool = False,
+        squeeze: bool = True,
+        as_array: bool = False,
+        random_seed: Optional[int] = None,
+    ) -> Union[np.ndarray, pd.DataFrame]:
         """
-        Sample data from the SCM.
+        Sample data from the structural causal model.
 
-        This method generates samples from the SCM by evaluating the structural
-        equations in topological order. It can generate observational or
-        interventional data, depending on whether interventions have been set.
+        This method samples data according to the causal relationships defined
+        in the SCM, respecting any active interventions.
 
         Args:
-            sample_size: Number of samples to generate
-            random_seed: Optional random seed for reproducibility
+            sample_size: Number of samples to generate.
+            include_latents: Whether to include latent variables in the output.
+                            Defaults to False.
+            squeeze: If True and only one variable is sampled, return a 1D array.
+                     Defaults to True.
+            as_array: If True, return a NumPy array. If False (default), return a Pandas DataFrame.
+            random_seed: Optional random seed for reproducibility.
 
         Returns:
-            DataFrame containing the sampled data, with each column corresponding
-            to a variable in the SCM
+            Union[np.ndarray, pd.DataFrame]: Sampled data, either as a NumPy array or Pandas DataFrame.
 
         Raises:
-            ValueError: If the causal graph is not available or has cycles,
-                       or if any variable doesn't have a defined structural equation
+            RuntimeError: If sampling fails (e.g., missing equations, cycles).
+            ValueError: If input parameters are invalid.
         """
-        # Check if the causal graph is defined
-        if self._causal_graph is None:
-            raise ValueError("Cannot sample data: causal graph is not defined")
+        if sample_size <= 0:
+            raise ValueError("sample_size must be positive")
 
-        # Store current random state if we're setting a new seed
-        original_state = None
         if random_seed is not None:
-            # Save the current random state
-            original_state = np.random.get_state()
-            # Set the new random seed
-            np.random.seed(random_seed)
-            self._random_state = np.random.RandomState(random_seed)
+            # Create a RandomState instance for this run
+            rng = np.random.RandomState(random_seed)
+            # Also set the global seed for compatibility if other parts rely on it?
+            # np.random.seed(random_seed) # Maybe not needed if all sampling uses rng
+        else:
+            # Use a default RandomState instance if no seed is provided
+            rng = np.random.RandomState()
 
-        # Get variables in topological order
+        # Get topological sort if causal graph exists
+        if self._causal_graph:
+            try:
+                ordered_nodes = self._causal_graph.topological_sort()
+            except nx.NetworkXUnfeasible:
+                raise RuntimeError(
+                    "Cannot sample data: Causal graph contains cycles."
+                )
+        else:
+            # If no graph, assume no specific order, but check for cycles implicitly
+            # Need a way to determine order or detect cycles without explicit graph
+            # For now, just use the order variables were added
+            ordered_nodes = self._variable_names
+            # Warning: This might fail if there are cycles not represented in the graph
+
+        # Filter nodes based on include_latents
+        if not include_latents:
+            output_nodes = [n for n in ordered_nodes if n in self._variable_names]
+        else:
+            output_nodes = ordered_nodes
+
+        # Initialize data storage
+        data = {node: np.full(sample_size, np.nan) for node in ordered_nodes}
+
+        for node in ordered_nodes:
+            # Check for interventions first
+            if node in self._interventions:
+                intervention_value = self._interventions[node]
+                if callable(intervention_value):
+                    # Assumes intervention function takes sample_size
+                    try:
+                        data[node] = intervention_value(sample_size)
+                    except TypeError: # Handle functions that don't take size
+                        data[node] = np.full(sample_size, intervention_value())
+                else:
+                    data[node] = np.full(sample_size, intervention_value)
+                continue # Skip structural equation and noise for intervened nodes
+
+            # Initialize arguments for the structural equation
+            eval_args = {}
+
+            # Get parent data if applicable
+            if node in self._structural_equations:
+                parents = self.get_parents(node)
+                parent_data = {p: data[p] for p in parents if p in data}
+                if any(np.any(np.isnan(d)) for d in parent_data.values() if d is not None):
+                    raise RuntimeError(f"Missing parent data for node {node}. Check graph structure and equations.")
+                eval_args.update(parent_data)
+
+            # Generate and add noise *before* evaluating equation if needed
+            generated_noise = None
+            if node in self._exogenous_functions:
+                noise_func = self._exogenous_functions[node]
+                try:
+                    # Check if noise function expects random_state
+                    noise_sig = inspect.signature(noise_func)
+                    if 'random_state' in noise_sig.parameters:
+                        generated_noise = noise_func(sample_size=sample_size, random_state=rng)
+                    else:
+                        # Call without random_state if not expected (legacy?)
+                        generated_noise = noise_func(sample_size=sample_size)
+
+                    # Check if the structural equation expects noise
+                    if node in self._structural_equations:
+                         sig = inspect.signature(self._structural_equations[node])
+                         if 'noise' in sig.parameters:
+                              eval_args['noise'] = generated_noise
+                         else:
+                              # Equation doesn't take noise, but noise exists.
+                              # We will add it *after* evaluation if an equation exists,
+                              # otherwise the noise *is* the value.
+                              pass
+                    elif generated_noise is not None:
+                         # No structural equation, node value is just the noise
+                         data[node] = generated_noise
+                         # Skip equation evaluation below if value is set
+                         if node not in self._structural_equations: continue
+
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Error generating exogenous noise for node {node}: {e}"
+                    ) from e
+
+            # Evaluate structural equation if defined
+            if node in self._structural_equations:
+                try:
+                    # Pass parents and potentially noise
+                    data[node] = self._structural_equations[node](**eval_args)
+
+                    # Add noise AFTER evaluation ONLY if equation exists but doesn't take noise itself
+                    if generated_noise is not None and 'noise' not in eval_args:
+                        if np.isscalar(data[node]) and not np.isscalar(generated_noise):
+                            data[node] = np.full(sample_size, data[node]) + generated_noise
+                        else:
+                            data[node] += generated_noise
+
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Error evaluating structural equation for node {node}: {e}"
+                    ) from e
+
+            # Check if node value was computed (either by equation or noise)
+            if np.any(np.isnan(data[node])):
+                 # Check again if it was intervened
+                if node not in self._interventions:
+                    raise RuntimeError(
+                        f"Value for node {node} could not be computed. \
+                        Ensure it has a structural equation, noise model, or intervention."
+                    )
+
+        # Convert data dictionary to desired format
+        result_data = {node: data[node] for node in output_nodes}
+
+        # Always create DataFrame first with correct column order
         try:
-            topo_order = self._causal_graph.topological_sort()
-        except ValueError as e:
-            # Restore random state if needed
-            if original_state is not None:
-                np.random.set_state(original_state)
-            raise ValueError(f"Cannot sample data: {str(e)}")
+            df = pd.DataFrame(result_data)
+            # Ensure column order matches output_nodes (DataFrame constructor usually respects dict order in newer pandas, but explicit is safer)
+            df = df[output_nodes]
+        except Exception as e:
+            # Use print or raise directly as logger might not be configured here
+            print(f"Error creating DataFrame: {e}")
+            print(f"Data dictionary keys: {list(result_data.keys())}")
+            # Avoid printing potentially large arrays
+            # print(f"Column shapes: {[arr.shape for arr in result_data.values()]}")
+            raise RuntimeError("Failed to create DataFrame from sampled data. Check sampling logic.")
 
-        # Initialize data dictionary with empty lists for each variable
-        data = {var: [] for var in self._variable_names}
-
-        try:
-            # Generate samples
-            for _ in range(sample_size):
-                # Sample a single point
-                sample = {}
-
-                # Evaluate each variable in topological order
-                for var in topo_order:
-                    # Skip variables without structural equations
-                    if var not in self._structural_equations:
-                        raise ValueError(
-                            f"Variable '{var}' does not have a defined structural equation")
-
-                    # Evaluate the equation
-                    value = self.evaluate_equation(var, sample)
-
-                    # Store the value
-                    sample[var] = value
-
-                # Add sample to data
-                for var, value in sample.items():
-                    data[var].append(value)
-        finally:
-            # Restore the original random state if we set a new seed
-            if original_state is not None:
-                np.random.set_state(original_state)
-
-        # Convert data to DataFrame
-        return pd.DataFrame(data)
+        if as_array:
+            result_array = df.to_numpy()
+            # Squeeze if only one variable and squeeze=True
+            if result_array.shape[1] == 1 and squeeze:
+                return result_array.flatten()
+            return result_array
+        else:
+            # Return Pandas DataFrame
+            return df
 
     def reset(self) -> None:
         """
@@ -657,30 +766,31 @@ class StructuralCausalModel(BaseEnvironment):
         """
         # Store the current state to restore later
         current_graph = None
-        current_interventions = {}
+        current_interventions_state = {}
 
-        if hasattr(self, '_original_graph'):
-            # If we have interventions, store them
-            if hasattr(self, '_interventions'):
-                current_interventions = self._interventions.copy()
+        # Check if original state exists (meaning we might be in an intervened state)
+        original_graph_exists = hasattr(self, '_original_graph') and self._original_graph is not None
+        if original_graph_exists:
             current_graph = copy.deepcopy(self._causal_graph)
+            current_interventions_state = copy.deepcopy(self._interventions)
 
-        # Reset to the original state
+        # Always reset to the *actual* original state before applying new interventions
         self.reset()
 
-        # Apply all interventions
+        # Apply all new interventions
         self.multiple_interventions(interventions)
 
-        # Sample data with the applied interventions
-        data = self.sample_data(sample_size, random_seed)
-
-        # Restore the previous state if there was one
-        if current_graph is not None:
-            self._causal_graph = current_graph
-            self._interventions = current_interventions
-        else:
-            # If there was no previous state, just reset
-            self.reset()
+        # Sample data with the applied interventions, passing the seed
+        try:
+            data = self.sample_data(sample_size, random_seed=random_seed) # Pass seed here
+        finally:
+            # Restore the state that existed *before* this method call
+            if original_graph_exists:
+                self._causal_graph = current_graph
+                self._interventions = current_interventions_state
+            else:
+                # If there was no original state stored, just reset to ensure clean state
+                self.reset()
 
         return data
 
@@ -1110,8 +1220,25 @@ class StructuralCausalModel(BaseEnvironment):
 
         # Indirect effect = Total effect - Direct effect
         indirect_effect = total_effect - direct_effect
-
         return indirect_effect
+
+    def get_adjacency_matrix(self, node_order: Optional[List] = None) -> np.ndarray:
+        """
+        Return the adjacency matrix of the underlying causal graph.
+
+        Args:
+            node_order: Optional list specifying the order of nodes for the matrix rows/columns.
+                        If None, the default node order of the graph is used.
+
+        Returns:
+            A numpy ndarray representing the adjacency matrix.
+
+        Raises:
+            ValueError: If the causal graph is not defined for this SCM.
+        """
+        if self._causal_graph is None:
+            raise ValueError("Causal graph is not defined in this SCM.")
+        return self._causal_graph.get_adjacency_matrix(node_order=node_order)
 
     def compare_structure(self, other_scm: 'StructuralCausalModel') -> Tuple[bool, Dict[str, Any]]:
         """
@@ -1299,3 +1426,64 @@ class StructuralCausalModel(BaseEnvironment):
             str: String representation of the SCM
         """
         return f"<{self.__class__.__name__} with {len(self._variable_names)} variables and {len(self._structural_equations)} equations>"
+
+    def sample_data_interventional(
+            self,
+            interventions: List['Intervention'], # noqa: F821 - Use string literal for forward reference
+            sample_size: int,
+            random_seed: Optional[int] = None
+        ) -> pd.DataFrame:
+            """
+            Sample data from the SCM after applying a sequence of interventions.
+
+            This method creates a modified copy of the SCM by applying the specified
+            interventions sequentially and then samples data from the resulting
+            intervened model. The original SCM remains unchanged.
+
+            Args:
+                interventions: A list of Intervention objects (e.g., PerfectIntervention,
+                               ImperfectIntervention, SoftIntervention) to apply.
+                sample_size: The number of samples to generate from the intervened SCM.
+                random_seed: Optional random seed for reproducibility of the sampling process.
+
+            Returns:
+                pd.DataFrame: DataFrame containing the sampled data from the intervened SCM.
+
+            Raises:
+                ValueError: If any intervention is invalid or cannot be applied,
+                           or if sampling fails on the intervened SCM.
+                TypeError: If `interventions` is not a list of Intervention objects.
+            """
+            # Imports should be checked/added at the top of the file:
+            # import copy
+            # from typing import List, Optional
+            # import pandas as pd
+            # from causal_meta.environments.interventions import Intervention
+
+            if not isinstance(interventions, list):
+                raise TypeError("`interventions` must be a list of Intervention objects.")
+
+            # Instance check requires Intervention to be imported.
+            # Assuming caller ensures correct type.
+            # from causal_meta.environments.interventions import Intervention
+            # if not all(isinstance(interv, Intervention) for interv in interventions):
+            #     raise TypeError("All elements in `interventions` must be Intervention objects.")
+
+            intervened_scm = copy.deepcopy(self)
+
+            for intervention in interventions:
+                try:
+                    intervened_scm = intervention.apply(intervened_scm)
+                except (ValueError, NotImplementedError, TypeError) as e:
+                    raise ValueError(f"Failed to apply intervention {intervention!r}: {e}") from e
+
+            try:
+                return intervened_scm.sample_data(sample_size=sample_size, random_seed=random_seed)
+            except Exception as e:
+                raise RuntimeError(f"Failed to sample data from intervened SCM: {e}") from e
+
+    @property
+    def nodes(self) -> list:
+        """Return the list of nodes in the causal graph."""
+        return self._causal_graph.get_nodes()
+

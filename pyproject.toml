@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "causal_bayes_opt"
+version = "0.1.0"
+description = "Causal Bayesian Optimization Framework"
+readme = "README.md"
+# Add other metadata like authors, license, etc. if desired
+requires-python = ">=3.9"
+# Add project dependencies here if not managed elsewhere (e.g., requirements.txt)
+# dependencies = [
+#     "numpy",
+#     "pandas",
+#     "pytest",
+# ]
+
+[tool.setuptools.packages.find]
+# Automatically find packages under the root directory
+# Assumes your source code is directly in the root (e.g., ./causal_meta)
+# If your code was in src/, you'd use: where = ["src"]
+where = ["."] 

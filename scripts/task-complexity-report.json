@@ -1,139 +1,67 @@
 {
   "meta": {
-    "generatedAt": "2025-04-19T09:50:19.770Z",
-    "tasksAnalyzed": 16,
+    "generatedAt": "2025-04-29T13:40:48.648Z",
+    "tasksAnalyzed": 7,
     "thresholdScore": 5,
     "projectName": "Your Project Name",
     "usedResearch": true
   },
   "complexityAnalysis": [
     {
-      "taskId": 5,
-      "taskTitle": "Implement graph visualization utilities",
-      "complexityScore": 6,
+      "taskId": 1,
+      "taskTitle": "Implement Reliable DAG Generation",
+      "complexityScore": 5,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the implementation of a reliable DAG generation method in GraphFactory into specific subtasks covering: 1) Method signature and integration with existing code, 2) Core algorithm for generating acyclic graphs with ordered nodes, 3) Edge probability implementation, and 4) Testing and validation of the DAG properties.",
+      "reasoning": "This task involves implementing a specific algorithm with clear constraints. The complexity is moderate as it requires understanding graph theory concepts (DAGs) and implementing a reliable generation method. The task has well-defined requirements but needs careful implementation to ensure the acyclicity property is maintained."
+    },
+    {
+      "taskId": 2,
+      "taskTitle": "Implement Task Family Generation",
+      "complexityScore": 7,
       "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the implementation of graph visualization utilities into subtasks covering: basic matplotlib rendering, networkx integration, node/edge highlighting features, edge weight visualization, and causal relationship visualization components.",
-      "reasoning": "This task involves creating visualization utilities with multiple rendering options and features. It requires integration with external libraries (matplotlib, networkx) and implementing several visualization features. The complexity is moderate as visualization logic can be compartmentalized."
+      "expansionPrompt": "Break down the implementation of the task family generation function into subtasks covering: 1) Module and function structure setup, 2) Edge weight variation implementation, 3) Structure variation while preserving DAG properties, 4) Node function variation implementation, and 5) Integration testing with the existing framework.",
+      "reasoning": "This task has higher complexity as it involves implementing three different variation types for generating related tasks. Each variation type requires different algorithms and careful implementation to maintain valid SCM properties. The task also requires creating a new module and ensuring compatibility with the existing codebase."
+    },
+    {
+      "taskId": 3,
+      "taskTitle": "Integrate StructuralCausalModel Implementation",
+      "complexityScore": 6,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the integration of the StructuralCausalModel implementation into subtasks covering: 1) Review and understand the existing SCM implementation, 2) Implement or extend the required methods (sample_data, perform_intervention, get_adjacency_matrix), 3) Update the example workflow to use the SCM implementation, and 4) Test the integration with sample DAGs.",
+      "reasoning": "This task involves integrating an existing implementation but may require extending it with new functionality. Understanding the current implementation and ensuring it meets all requirements adds complexity. The integration needs to be seamless with the example workflow."
+    },
+    {
+      "taskId": 4,
+      "taskTitle": "Implement Core MetaCBO Logic",
+      "complexityScore": 9,
+      "recommendedSubtasks": 6,
+      "expansionPrompt": "Break down the implementation of the core MetaCBO logic into subtasks covering: 1) GP model fitting and updating, 2) Acquisition function implementation for intervention selection, 3) CausalExpectedImprovement implementation, 4) Causal effect estimation using backdoor adjustment, 5) Intervention evaluation logic, and 6) Integration with BoTorch for optimization.",
+      "reasoning": "This is a highly complex task involving multiple sophisticated components: Bayesian optimization, Gaussian processes, causal inference, and integration with external libraries. Each component requires deep understanding of both the theoretical concepts and implementation details. The task forms the core functionality of the MetaCBO system."
+    },
+    {
+      "taskId": 5,
+      "taskTitle": "Integrate TaskRepresentation and MAML Implementations",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the integration of TaskRepresentation and MAML implementations into subtasks covering: 1) Review and understand the existing TaskRepresentation implementation, 2) Review and understand the existing MAML implementation, 3) Adapt the implementations to work with causal structures and task embeddings, 4) Update the example workflow to use these implementations, and 5) Test the integration with sample task families.",
+      "reasoning": "This task requires integrating two complex components (TaskRepresentation and MAML) that may have their own intricate implementations. Understanding these implementations and ensuring they work together correctly with causal structures adds significant complexity. The meta-learning aspect requires careful handling of inner and outer loop updates."
     },
     {
       "taskId": 6,
-      "taskTitle": "Implement graph generation factory",
+      "taskTitle": "Implement MetaCBO Visualization Methods",
       "complexityScore": 5,
       "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the implementation of the GraphFactory class into subtasks covering: factory interface design, factory method implementation for each graph type, parameter validation logic, and documentation/testing.",
-      "reasoning": "Implementing a factory pattern is a well-defined task with moderate complexity. It requires designing an interface that can create different graph types with various parameters. The structure is clear but needs careful design to ensure extensibility."
+      "expansionPrompt": "Break down the implementation of MetaCBO visualization methods into subtasks covering: 1) Meta-training progress visualization using matplotlib, 2) Task graph visualization using NetworkX and matplotlib, 3) Adaptation performance evaluation and visualization, and 4) Integration with the existing MetaCBO class.",
+      "reasoning": "This task involves implementing visualization methods which are moderately complex. While the visualization logic itself is straightforward using libraries like matplotlib and NetworkX, ensuring the visualizations are meaningful and correctly represent the underlying data requires careful implementation. The task is well-defined with clear requirements."
     },
     {
       "taskId": 7,
-      "taskTitle": "Implement random graph generators",
-      "complexityScore": 5,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the implementation of random graph generators into subtasks covering: Erdős–Rényi model implementation, parameter validation, CausalGraph integration, and testing with various configurations.",
-      "reasoning": "This task involves implementing specific graph generation algorithms and ensuring they create valid CausalGraph instances. The complexity is moderate as it requires understanding of graph theory concepts and proper integration with the existing framework."
-    },
-    {
-      "taskId": 8,
-      "taskTitle": "Implement scale-free network generators",
+      "taskTitle": "Validate and Finalize the Example Workflow",
       "complexityScore": 6,
       "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the implementation of scale-free network generators into subtasks covering: Barabási–Albert model implementation, parameter configuration (alpha, beta, gamma), scale-free property validation, CausalGraph integration, and performance optimization.",
-      "reasoning": "Scale-free networks have more complex generation algorithms than random graphs. The task requires implementing the Barabási–Albert model with configurable parameters and ensuring scale-free properties are maintained, which adds to the complexity."
-    },
-    {
-      "taskId": 9,
-      "taskTitle": "Implement predefined graph structures",
-      "complexityScore": 5,
-      "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the implementation of predefined graph structures into subtasks covering: chain structure implementation, fork structure implementation, collider structure implementation, complex DAG implementation, and noise edge addition functionality.",
-      "reasoning": "This task involves implementing several predefined graph structures with different characteristics. Each structure type can be implemented independently, and the noise edge addition feature adds some complexity but is manageable."
-    },
-    {
-      "taskId": 10,
-      "taskTitle": "Implement task family generation",
-      "complexityScore": 7,
-      "recommendedSubtasks": 6,
-      "expansionPrompt": "Break down the implementation of task family generation into subtasks covering: base graph variation methods, edge perturbation algorithms, mechanism perturbation algorithms, structural similarity metrics, meta-learning compatibility features, and comprehensive testing.",
-      "reasoning": "This task is more complex as it requires generating variations of graphs while maintaining structural similarity for meta-learning. It depends on multiple previous tasks and requires sophisticated perturbation algorithms and similarity metrics."
-    },
-    {
-      "taskId": 11,
-      "taskTitle": "Implement base environment interface",
-      "complexityScore": 4,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the implementation of the base environment interface into subtasks covering: abstract class definition, data sampling interface methods, intervention interface methods, and outcome evaluation interface methods.",
-      "reasoning": "This task involves defining an interface with abstract methods, which is relatively straightforward. The complexity comes from ensuring the interface is comprehensive enough to support all required functionality while remaining flexible."
-    },
-    {
-      "taskId": 12,
-      "taskTitle": "Implement structural causal models",
-      "complexityScore": 8,
-      "recommendedSubtasks": 6,
-      "expansionPrompt": "Break down the implementation of structural causal models into subtasks covering: SCM class structure, functional relationship definition methods, topological ordering implementation, sampling algorithms, intervention handling, and integration with the base environment interface.",
-      "reasoning": "Implementing SCMs is complex as it requires deep understanding of causal inference concepts. The task involves creating a comprehensive framework for defining, manipulating, and sampling from causal models, with support for interventions."
-    },
-    {
-      "taskId": 13,
-      "taskTitle": "Implement causal mechanisms",
-      "complexityScore": 7,
-      "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the implementation of causal mechanisms into subtasks covering: base mechanism interface, linear mechanism implementation, nonlinear mechanism implementation, neural network-based mechanism implementation, and mechanism serialization/deserialization.",
-      "reasoning": "This task requires implementing different types of functional relationships between variables, from simple linear to complex neural network-based mechanisms. Each mechanism type has its own complexity and implementation challenges."
-    },
-    {
-      "taskId": 14,
-      "taskTitle": "Implement intervention handlers",
-      "complexityScore": 6,
-      "recommendedSubtasks": 4,
-      "expansionPrompt": "Break down the implementation of intervention handlers into subtasks covering: perfect (do-operator) intervention implementation, imperfect intervention implementation, soft intervention implementation, and intervention application to SCMs.",
-      "reasoning": "This task involves implementing different types of causal interventions, each with specific semantics and effects on the underlying SCM. Understanding and correctly implementing these interventions requires good knowledge of causal inference."
-    },
-    {
-      "taskId": 15,
-      "taskTitle": "Implement data sampling utilities",
-      "complexityScore": 6,
-      "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the implementation of data sampling utilities into subtasks covering: observational sampling methods, interventional sampling methods, counterfactual sampling methods, batch sampling optimization, and sampling configuration options.",
-      "reasoning": "This task involves implementing various sampling methods from causal models, including more complex counterfactual sampling. Batch sampling optimization adds performance considerations to the implementation."
-    },
-    {
-      "taskId": 16,
-      "taskTitle": "Implement GNN encoder and decoder",
-      "complexityScore": 9,
-      "recommendedSubtasks": 7,
-      "expansionPrompt": "Break down the implementation of GNN encoder and decoder into subtasks covering: base GNN architecture, GCN implementation, GAT implementation, GIN implementation, encoder-specific components, decoder-specific components, and latent space representation design.",
-      "reasoning": "This is a complex task requiring deep knowledge of graph neural networks and PyTorch. Multiple GNN architectures need to be implemented, along with specialized encoder and decoder components for graph structures."
-    },
-    {
-      "taskId": 17,
-      "taskTitle": "Implement MAML framework",
-      "complexityScore": 9,
-      "recommendedSubtasks": 6,
-      "expansionPrompt": "Break down the implementation of the MAML framework into subtasks covering: inner optimization loop, outer optimization loop, learning rate adaptation, custom adaptation steps, gradient computation and tracking, and integration with neural network components.",
-      "reasoning": "MAML is a complex meta-learning algorithm involving nested optimization loops and careful gradient tracking. Implementing it correctly requires deep understanding of meta-learning concepts and PyTorch's autograd functionality."
-    },
-    {
-      "taskId": 18,
-      "taskTitle": "Implement task representation models",
-      "complexityScore": 8,
-      "recommendedSubtasks": 6,
-      "expansionPrompt": "Break down the implementation of task representation models into subtasks covering: task embedding interface, graph-based representation methods, data-based representation methods, representation similarity metrics, latent space visualization, and integration with meta-learning components.",
-      "reasoning": "This task involves creating sophisticated models for embedding tasks into a common representation space. It requires understanding of both graph embeddings and meta-learning concepts, with multiple approaches to be implemented."
-    },
-    {
-      "taskId": 19,
-      "taskTitle": "Implement Meta-CBO core",
-      "complexityScore": 10,
-      "recommendedSubtasks": 7,
-      "expansionPrompt": "Break down the implementation of Meta-CBO core into subtasks covering: MetaCBO class structure, meta-training pipeline, adaptation methods, evaluation framework, intervention optimization algorithms, integration of all components, and comprehensive testing.",
-      "reasoning": "This is the most complex task as it integrates all previously developed components into a cohesive system. It requires implementing sophisticated meta-learning and causal Bayesian optimization algorithms while ensuring all parts work together correctly."
-    },
-    {
-      "taskId": 20,
-      "taskTitle": "Create example workflow implementation",
-      "complexityScore": 5,
-      "recommendedSubtasks": 5,
-      "expansionPrompt": "Break down the creation of the example workflow into subtasks covering: graph generation setup, task family creation, meta-training configuration, adaptation to new tasks demonstration, results visualization, and comprehensive documentation.",
-      "reasoning": "This task involves creating a well-documented example that demonstrates the system's capabilities. While it depends on all previous components being implemented, the task itself is more about integration and documentation than new development."
+      "expansionPrompt": "Break down the validation and finalization of the example workflow into subtasks covering: 1) Integration of all components into the workflow script, 2) Implementation of logging throughout the workflow, 3) Testing with various parameters and configurations, 4) Documentation of parameters and configuration options, and 5) End-to-end validation with realistic task families.",
+      "reasoning": "This task involves integrating all previous components and ensuring they work together seamlessly. The complexity comes from potential integration issues and the need to validate the entire system end-to-end. Comprehensive testing and documentation are required to ensure the workflow is robust and usable."
     }
   ]
 }

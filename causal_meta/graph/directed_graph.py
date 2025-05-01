@@ -450,3 +450,11 @@ class DirectedGraph(Graph):
             str: A string representation
         """
         return f"DirectedGraph(nodes={len(self._nodes)}, edges={len(self._edges)})"
+
+    def get_nodes(self) -> List[Any]:
+        """Return a list of all nodes in the graph."""
+        return list(self._nodes)  # Convert set to list
+
+    def get_edges(self) -> List[Tuple[Any, Any]]:
+        """Return a list of all edges in the graph."""
+        return list(self._edges)

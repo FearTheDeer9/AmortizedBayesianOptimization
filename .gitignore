@@ -43,4 +43,8 @@ node_modules/
 
 # Task files
 # tasks.json # Removed to allow tracking task state
-tasks/ 
+tasks/
+.cursor/mcp.json
+
+# Added by Claude Task Master
+tasks.json

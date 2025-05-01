@@ -91,4 +91,13 @@ This document outlines the key architectural components of the Causal Bayesian O
     *   `task_representation.py`: (Placeholder - Task 5) `TaskRepresentation` for embedding tasks.
 *   **`causal_meta.optimization`**: Contains CBO logic.
     *   `meta_cbo.py`: (Placeholder - Task 4) `MetaCBO` class implementing the main Bayesian Optimization loop, intervention selection, and effect estimation.
-    *   `acquisition_functions.py`: (Placeholder - Task 4) Custom acquisition functions like `CausalExpectedImprovement`. 
+    *   `acquisition_functions.py`: (Placeholder - Task 4) Custom acquisition functions like `CausalExpectedImprovement`.
+
+### Amortized Causal Discovery Components
+
+*   **`causal_meta.meta_learning.amortized_causal_discovery`**: Core implementation of ACD.
+    *   `AmortizedCausalDiscovery`: Main class that combines the encoder (for graph structure inference) and decoder (for dynamics modeling).
+    *   `train`, `infer_causal_graph`, and `predict_intervention_outcomes` methods.
+*   **`causal_meta.meta_learning.amortized_cbo`**: CBO implementation using ACD.
+    *   `AmortizedCBO`: Replaces traditional MetaCBO by using neural networks instead of GPs.
+    *   Methods for meta-training, adaptation, and intervention optimization. 

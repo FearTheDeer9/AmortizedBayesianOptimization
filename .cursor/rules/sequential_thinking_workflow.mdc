@@ -1,0 +1,149 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Sequential Thinking + Memory Bank Workflow
+
+This rule establishes an integrated approach that combines structured problem decomposition using Sequential Thinking with the Memory Bank task tracking system.
+
+## Core Principles
+
+- **Sequential Thinking for Problem Decomposition**
+  - Break complex problems into logical, sequential steps
+  - Explicitly manage thought dependencies and revisions
+  - Balance divergent exploration with convergent solution-finding
+  - Document reasoning process for future reference
+
+- **Memory Bank for Planning and Progress Tracking**
+  - Use Memory Bank files as the source of truth for project status
+  - Maintain task dependencies and prioritization
+  - Record completed work with timestamps and key accomplishments
+  - Document architectural decisions and technical approach
+
+## Integrated Workflow Process
+
+1. **Task Selection**
+   - Review `memory-bank/implementation-plan.md` to identify the next task based on dependencies and priority
+   - Select tasks that are marked as 'pending' and have no incomplete dependencies
+   - Focus on one task at a time to maintain clarity and focus
+
+2. **Sequential Thinking Analysis**
+   - Apply Sequential Thinking to decompose the selected task:
+     ```
+     1. Initial problem assessment
+     2. Break down into sub-problems
+     3. Identify dependencies between steps
+     4. Develop solution approach for each step
+     5. Consider potential challenges and mitigations
+     6. Synthesize into cohesive implementation plan
+     ```
+   - Document this analysis directly in code or as a separate resource when appropriate
+   - Iterate through thoughts until a clear solution path emerges
+
+3. **Memory Bank Update (Pre-Implementation)**
+   - Update `implementation-plan.md` with:
+     - Detailed implementation steps derived from Sequential Thinking
+     - Specific file paths, functions, and changes needed
+     - Potential challenges identified during analysis
+   - Update `architecture.md` if the implementation will introduce new components or change existing ones
+   - Change task status to 'in-progress'
+
+4. **Implementation with TDD**
+   - Write tests first based on the implementation plan
+   - Implement the minimal code needed to pass tests
+   - Refactor for clarity and maintainability
+   - Document any deviations from the original plan
+
+5. **Progress Documentation**
+   - Update `memory-bank/progress.md` with completed work
+   - Include timestamp, key accomplishments, and challenges overcome
+   - Reference the Sequential Thinking process that led to the solution
+
+6. **Review and Reflection**
+   - Evaluate the effectiveness of the implementation
+   - Document any lessons learned or insights gained
+   - Update the task status to 'done' in `implementation-plan.md`
+
+## Sequential Thinking Template
+
+When applying Sequential Thinking to a task, follow this structure:
+
+```
+## Sequential Analysis: [Task Name]
+
+### Thought 1: Problem Understanding
+[Initial assessment of what the task requires]
+
+### Thought 2: Component Identification
+[Identify the key components and their relationships]
+
+### Thought 3: Implementation Approach
+[Develop the technical approach for implementation]
+
+### Thought 4: Potential Challenges
+[Identify and analyze potential roadblocks]
+
+### Thought 5: Solution Synthesis
+[Synthesize findings into a step-by-step implementation plan]
+```
+
+## Example: Applying the Integrated Workflow
+
+```python
+# ✅ DO: Document Sequential Thinking directly in code when appropriate
+"""
+Sequential Analysis: Implement DynamicsDecoder
+
+Thought 1: The DynamicsDecoder needs to predict intervention outcomes based on 
+           inferred graph structure and observational data.
+
+Thought 2: Key components include:
+           - Neural network architecture compatible with graph inputs
+           - Mechanism for conditioning on interventions
+           - Interface with GraphEncoder outputs
+           - Uncertainty quantification method
+
+Thought 3: Will implement an attention-based architecture that can process
+           both the graph structure and node features
+           
+Thought 4: Potential challenges include:
+           - Ensuring differentiability through the entire pipeline
+           - Handling different intervention types
+           - Maintaining computational efficiency
+           
+Thought 5: Implementation steps:
+           1. Create basic class structure with proper interfaces
+           2. Implement the core neural network components
+           3. Add intervention conditioning mechanism
+           4. Integrate uncertainty quantification
+           5. Connect with GraphEncoder outputs
+"""
+
+class DynamicsDecoder(nn.Module):
+    """Neural network module for predicting outcomes under interventions.
+    
+    Based on Sequential Thinking analysis, this implements an attention-based
+    architecture that can process both graph structures and node features.
+    """
+    def __init__(self, ...):
+        # Implementation follows from Sequential Thinking analysis
+```
+
+## Task Completion Criteria
+
+A task is only considered complete when:
+
+1. Sequential Thinking analysis has been documented
+2. All tests are passing
+3. Implementation adheres to the plan derived from Sequential Thinking
+4. Memory Bank files have been updated accordingly
+5. Code quality standards are met
+
+## Related Rules
+
+- [memory_bank_workflow.mdc](mdc:.cursor/rules/memory_bank_workflow.mdc): Base Memory Bank workflow process
+- [python_guidelines.mdc](mdc:.cursor/rules/python_guidelines.mdc): Python coding standards to follow
+- [dev_workflow.mdc](mdc:.cursor/rules/dev_workflow.mdc): Overall development workflow
+
+This integrated approach combines the analytical power of Sequential Thinking with the structured planning of the Memory Bank workflow to create a comprehensive system for complex problem-solving in ML engineering tasks.

@@ -183,4 +183,77 @@ We have made significant progress in implementing the Amortized Causal Discovery
    - Add multi-objective optimization capabilities
    - Develop planning strategies for sequential interventions
 
-This progress positions us well to complete the meta-learning capabilities in the next phase, enabling few-shot adaptation to new causal structures with minimal data. The integrated Sequential Thinking + Memory Bank workflow has proven effective and will continue to guide our implementation efforts. 
+This progress positions us well to complete the meta-learning capabilities in the next phase, enabling few-shot adaptation to new causal structures with minimal data. The integrated Sequential Thinking + Memory Bank workflow has proven effective and will continue to guide our implementation efforts.
+
+## Benchmarking and Evaluation Framework
+
+A comprehensive benchmarking framework has been implemented to rigorously evaluate our research hypotheses regarding amortized causal discovery and optimization methods. This framework allows systematic comparison of our neural approaches against traditional methods.
+
+### Key Evaluation Objectives
+
+1. **Structural Learning Performance**: Assess how well our neural approaches recover true causal structures compared to traditional methods
+   - Metrics: Structural Hamming Distance (SHD), precision, recall, F1 score
+   - Test environments: Varying graph sizes, densities, noise levels, and functional relationships
+
+2. **Intervention Optimization Efficiency**: Evaluate sample efficiency and quality of intervention strategies
+   - Metrics: Best value found, regret, improvement ratio, sample efficiency
+   - Test scenarios: Varying intervention budgets, known vs. unknown graph structures
+
+3. **Computational Requirements**: Measure runtime and memory usage to assess practical deployment feasibility
+   - Analysis: Scaling behavior with increasing graph size
+   - Metrics: Runtime, memory usage, complexity class estimation
+
+4. **Transferability Benefits**: Quantify the advantages of amortized/meta-learning approaches in transfer scenarios
+   - Scenario: Training on a family of related causal systems, testing on unseen but related systems
+   - Metrics: Performance gap between seen and unseen environments
+
+### Benchmarking Components
+
+The benchmarking framework consists of several specialized components:
+
+1. **CausalDiscoveryBenchmark**: For evaluating structure learning methods
+2. **CBOBenchmark**: For evaluating intervention optimization approaches
+3. **ScalabilityBenchmark**: For analyzing computational scaling behavior
+4. **BenchmarkRunner**: For orchestrating comprehensive evaluations across multiple scenarios
+
+Each benchmark generates standardized test environments with ground truth causal structures, enabling fair and reproducible comparisons between methods.
+
+### Statistical Validity
+
+To ensure the statistical validity of our findings:
+
+1. All experiments use multiple random seeds for initialization
+2. Results are aggregated across numerous test cases (typically 20+ per configuration)
+3. Statistical significance testing is performed for method comparisons
+4. Confidence intervals are reported for all performance metrics
+5. Ablation studies isolate the contribution of each component
+
+### Integration with Research Hypotheses
+
+The benchmarking framework directly addresses our core research questions:
+
+1. **Hypothesis 1**: Neural causal discovery methods can achieve competitive or superior structural accuracy compared to traditional methods.
+   - Tested via: CausalDiscoveryBenchmark with structural metrics
+
+2. **Hypothesis 2**: Amortized approaches provide significant sample efficiency advantages for intervention optimization.
+   - Tested via: CBOBenchmark with sample efficiency metrics
+
+3. **Hypothesis 3**: Neural approaches scale better to larger graphs than classical methods.
+   - Tested via: ScalabilityBenchmark with scaling analysis
+
+4. **Hypothesis 4**: Meta-learning enables effective transfer to unseen but related causal systems.
+   - Tested via: Specialized transfer benchmarks comparing in-distribution and out-of-distribution performance
+
+### Visualization and Reporting
+
+The framework generates comprehensive visualizations and reports:
+
+1. Bar charts and box plots for performance comparisons
+2. Scaling curves for computational analysis
+3. Precision-recall trade-off curves for structural learning
+4. Optimization trajectory plots for intervention efficiency
+5. Summary reports with statistical significance indicators
+
+These visualizations enable clear communication of research findings and facilitate identifying strengths and limitations of different approaches.
+
+The benchmarking framework serves as the foundation for validating our research claims and ensuring that our findings are robust, reproducible, and scientifically sound. 

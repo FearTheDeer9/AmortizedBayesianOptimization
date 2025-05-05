@@ -69,4 +69,54 @@ This document lists the primary libraries, frameworks, and tools used or recomme
 -   **Memory:** 16GB+ RAM recommended for larger graph experiments.
 -   **Storage:** Additional space for model checkpoints and synthetic datasets.
 
+## Benchmarking Framework
+
+The benchmarking framework integrates several technologies to provide comprehensive evaluation capabilities:
+
+### Core Libraries
+
+- **NumPy/SciPy**: For efficient numerical computation and data manipulation
+- **pandas**: For structured data handling and analysis
+- **matplotlib/seaborn**: For visualization of benchmark results
+- **NetworkX**: For graph operations and metrics
+- **PyTorch**: For compatibility with neural model evaluation
+- **scikit-learn**: For metrics implementation and analysis
+
+### Performance Monitoring
+
+- **Python's `resource` module**: For memory usage tracking
+- **psutil**: For cross-platform system resource monitoring
+- **GPUtil**: For GPU memory monitoring when using CUDA devices
+- **time/timeit**: For precise timing measurements
+- **signal**: For implementing timeouts to handle non-terminating methods
+
+### Statistical Analysis
+
+- **SciPy.stats**: For statistical testing and p-value calculation
+- **statsmodels**: For regression analysis in scaling curve fitting
+- **numpy.polyfit**: For polynomial fitting to analyze scaling behavior
+
+### Data Management
+
+- **json/pickle**: For serialization of benchmark results and configurations
+- **os/pathlib**: For file and directory operations
+- **tqdm**: For progress tracking during long benchmark runs
+
+### Integration Points
+
+- **GraphFactory**: Custom component for test graph generation
+- **StructuralCausalModel**: For data generation and intervention simulation
+- **AmortizedCausalDiscovery**: For neural model compatibility
+- **AmortizedCBO**: For neural optimization methods
+
+This technology stack enables the benchmarking framework to provide:
+
+1. **Comprehensive Evaluation**: Across multiple metrics and methods
+2. **Efficient Execution**: Through parallel processing and proper resource management
+3. **Flexible Visualization**: Customizable visualizations for different aspects of performance
+4. **Reliable Statistical Analysis**: For meaningful comparisons between methods
+5. **Seamless Integration**: With both traditional and neural-based approaches
+
+The framework is designed to be extensible, allowing new metrics, visualization methods, and benchmark types to be added as needed.
+
 *This list has been updated to reflect the project's pivot to Amortized Causal Discovery, emphasizing neural network components and related tools.* 

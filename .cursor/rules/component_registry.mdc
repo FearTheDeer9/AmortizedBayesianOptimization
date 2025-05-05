@@ -1,0 +1,123 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Component Registry Guidelines
+
+- **Core Principle: Component Registry as Source of Truth**
+  - The `memory-bank/component-registry.md` is the **authoritative documentation** of all components in the codebase
+  - **ALWAYS consult the registry before writing new code** to prevent duplication
+  - New components must be registered in the Component Registry as part of implementation
+  - Changes to existing components must be reflected in the registry
+
+- **Before Implementing New Functionality**
+  - **Check existing components first**
+    - Search the Component Registry for similar functionality
+    - Understand how existing components can be used or extended
+    - Identify appropriate interfaces and patterns to follow
+  - **Plan integration with existing architecture**
+    - Reference the dependency graph in the registry
+    - Design new components to fit within the existing architecture
+    - Ensure compatibility with dependent components
+
+- **When Creating New Components**
+  - **Follow existing interface patterns**
+    - Maintain consistent method names, parameter orders, and return types
+    - Ensure backward compatibility with existing code
+    - Implement all required interfaces expected by dependent components
+  - **Document comprehensively**
+    ```python
+    # ✅ DO: Document components in line with Component Registry format
+    class NewComponent:
+        """Neural network for predicting outcomes under interventions.
+        
+        This component implements the same interface as DynamicsDecoder
+        but with specialized handling for temporal data.
+        See Component Registry for full interface specification.
+        
+        Args:
+            hidden_dim: Dimension of hidden layers
+            num_layers: Number of network layers
+        """
+        def __init__(self, hidden_dim, num_layers):
+            # Implementation
+            
+        def forward(self, data, graph, interventions):
+            """Predict outcomes under interventions.
+            
+            Args:
+                data: Input data tensor of shape (batch_size, seq_len, features)
+                graph: Adjacency matrix of shape (batch_size, nodes, nodes)
+                interventions: Dictionary mapping node indices to intervention values
+                
+            Returns:
+                Tensor of predicted outcomes of shape (batch_size, seq_len, features)
+            """
+            # Implementation
+    ```
+  - **Use higher-level abstractions when possible**
+    ```python
+    # ✅ DO: Use higher-level components instead of reimplementing
+    from causal_meta.meta_learning import AmortizedCausalDiscovery
+    
+    # Use the existing high-level component
+    model = AmortizedCausalDiscovery(
+        graph_encoder_params={...},
+        dynamics_decoder_params={...}
+    )
+    
+    # ❌ DON'T: Reimplement functionality that exists
+    # Don't create a new implementation that duplicates AmortizedCausalDiscovery
+    ```
+
+- **When Modifying Existing Components**
+  - **Maintain interface stability**
+    - Preserve method signatures and parameter names
+    - Add parameters with default values for backward compatibility
+    - Document any breaking changes clearly
+  - **Update all dependent code**
+    - Check the dependency graph for affected components
+    - Update all dependents to work with your changes
+    - Add tests to verify integration still works
+
+- **Component Registry Updates**
+  - **Update the registry after implementation**
+    - Add a clear description of the component's purpose
+    - Document key methods and their parameters
+    - Include usage examples
+    - Show how it integrates with existing components
+    - Update the dependency graph if needed
+  - **Update example code for clarity**
+    ```markdown
+    **Usage Example**:
+    ```python
+    from causal_meta.your_module import YourComponent
+    
+    # Create the component
+    component = YourComponent(param1=value1, param2=value2)
+    
+    # Use the component
+    result = component.method(input_data)
+    ```
+    ```
+
+- **Integration Checklist**
+  - Before submitting new or modified code, verify:
+    - You've checked the registry for existing components
+    - Your component follows established interface patterns
+    - You've written comprehensive tests
+    - You've updated the Component Registry
+    - Dependent components work with your changes
+    - You've added proper error handling
+    - You handle tensor shapes consistently
+
+- **Anti-Patterns to Avoid**
+  - **Duplicating functionality** that already exists
+  - **Creating inconsistent interfaces** that don't match existing patterns
+  - **Implementing at too low a level** when higher-level components exist
+  - **Modifying interfaces** without updating dependent code
+  - **Adding code without updating** the Component Registry
+  - **Ignoring tensor shape conventions** established in other components
+
+This rule should be applied to all Python files in the codebase to ensure consistent use of the Component Registry as the source of truth for component design and implementation.

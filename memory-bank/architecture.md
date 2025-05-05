@@ -123,4 +123,124 @@ This document outlines the key architectural components of the Causal Bayesian O
     *   Includes task family generation and meta-learning components.
     *   Shows the full training and adaptation process for amortized causal discovery.
     *   Leverages neural networks for both structure learning and dynamics prediction.
-    *   Will incorporate proper benchmarking and evaluation metrics. 
+    *   Will incorporate proper benchmarking and evaluation metrics.
+
+## Benchmarking Framework
+
+The benchmarking framework provides a comprehensive system for evaluating causal discovery and causal Bayesian optimization methods, allowing for systematic comparison and performance analysis.
+
+### Core Components
+
+1. **Abstract Benchmark (Base Class)**
+   - Provides the common interface and utilities for all benchmark types
+   - Handles model management, result tracking, and serialization
+   - Implements common evaluation metrics and visualization methods
+   - Manages test environments and dataset generation
+
+2. **Specialized Benchmark Classes**
+   - **CausalDiscoveryBenchmark**: Evaluates methods that infer graph structure from data
+     - Generates synthetic graphs and data for testing
+     - Measures structural accuracy with SHD, precision, recall
+     - Supports different data types (observational, interventional)
+     - Handles various method interfaces for broad compatibility
+   
+   - **CBOBenchmark**: Evaluates methods that optimize interventions in causal systems
+     - Creates optimization problems with varying difficulty
+     - Measures intervention quality and sample efficiency
+     - Supports budget-constrained optimization scenarios
+     - Compares against random and theoretical optimal baselines
+
+   - **ScalabilityBenchmark**: Assesses how methods scale with problem size
+     - Tests performance across increasing graph sizes
+     - Measures runtime, memory usage, and accuracy trends
+     - Determines computational complexity class
+     - Identifies practical size limits for different methods
+
+3. **BenchmarkRunner**
+   - Orchestrates multiple benchmarks for comprehensive evaluation
+   - Aggregates results across different benchmark types
+   - Generates summary reports and comparison visualizations
+   - Enables statistical significance testing between methods
+
+### Integration with Other Components
+
+- **Graph Generation**: Uses `GraphFactory` to create test graphs with varying properties
+- **Structural Causal Models**: Leverages `StructuralCausalModel` for data generation and intervention simulation
+- **Visualization Tools**: Extends visualization capabilities with benchmark-specific plots
+- **Neural Framework**: Supports evaluation of neural network models through compatible interfaces
+
+### Dependencies and Flow
+
+```
+                             ┌────────────┐
+                             │ Benchmark  │
+                             │ (Abstract) │
+                             └─────┬──────┘
+                                   │
+             ┌───────────────┬─────┴─────┬────────────────┐
+             │               │           │                │
+    ┌────────▼─────────┐ ┌───▼───┐ ┌─────▼──────┐ ┌───────▼────────┐
+    │CausalDiscovery   │ │CBO    │ │Scalability │ │BenchmarkRunner │
+    │Benchmark         │ │Bench  │ │Benchmark   │ │                │
+    └────────┬─────────┘ └───┬───┘ └─────┬──────┘ └───────┬────────┘
+             │               │           │                │
+    ┌────────▼─────────┐ ┌───▼───┐ ┌─────▼──────┐ ┌───────▼────────┐
+    │GraphFactory      │ │SCM    │ │Performance │ │Visualization   │
+    │DataGeneration    │ │       │ │Profiling   │ │Reporting       │
+    └──────────────────┘ └───────┘ └────────────┘ └────────────────┘
+             │               │                              │
+             └───────────┬───┘                              │
+                         │                                  │
+                ┌────────▼─────────┐                        │
+                │Evaluation Metrics├──────────────────┬─────┘
+                └──────────────────┘                  │
+                                                      │
+                                              ┌───────▼────────┐
+                                              │Method Comparison│
+                                              └────────────────┘
+```
+
+### Key Interfaces
+
+1. **Model Registration**
+   ```python
+   benchmark = CausalDiscoveryBenchmark(...)
+   benchmark.add_model("method_name", model_instance)
+   benchmark.add_baseline("baseline_name", baseline_instance)
+   ```
+
+2. **Benchmark Configuration**
+   ```python
+   benchmark = CBOBenchmark(
+       name="benchmark_name",
+       seed=42,
+       num_nodes=10,
+       num_graphs=20,
+       num_samples=1000,
+       graph_type="random",
+       edge_prob=0.3
+   )
+   ```
+
+3. **Benchmark Execution**
+   ```python
+   benchmark.setup()  # Generate test problems
+   results = benchmark.run()  # Evaluate all registered models
+   ```
+
+4. **Visualization and Reporting**
+   ```python
+   benchmark.plot_results(metrics=["metric1", "metric2"])
+   benchmark.save_results("results_file.json")
+   ```
+
+5. **BenchmarkRunner Usage**
+   ```python
+   runner = BenchmarkRunner(name="benchmark_suite")
+   runner.add_model("model_name", model_instance)
+   benchmark_ids = runner.create_standard_suite(graph_sizes=[5, 10, 20])
+   suite_results = runner.run_all()
+   runner.generate_summary_report()
+   ```
+
+The benchmarking framework provides a standardized approach to evaluation that ensures fair comparison between different methods, capturing both accuracy and computational efficiency aspects of causal discovery and optimization algorithms. 

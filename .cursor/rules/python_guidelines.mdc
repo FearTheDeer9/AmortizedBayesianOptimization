@@ -81,6 +81,8 @@ alwaysApply: false
     - Create reusable components with clear abstractions
     - Favor composition over inheritance
     - Organize code into logical packages
+    - Document all components in the Component Registry
+    - Follow existing interfaces documented in the registry
     ```python
     # ✅ DO: Use composition for flexibility
     class DataProcessor:

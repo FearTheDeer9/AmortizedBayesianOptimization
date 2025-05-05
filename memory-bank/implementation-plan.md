@@ -447,33 +447,263 @@ This project implements Amortized Causal Discovery (ACD) within a Causal Bayesia
 - **Status:** pending
 - **Dependencies:** 6
 
-- **Subtask 7.1: Implement benchmark suite (Pending ⏱️)**
-  - Create standardized benchmark problems
-  - Implement performance metrics
-  - Add baseline comparison methods
-  - Create synthetic and semi-synthetic datasets
-  - Implement automated benchmark execution
+- **Subtask 7.1: Implement benchmark suite (Done ✅)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to create a comprehensive framework for benchmarking causal discovery and intervention methods
+      - Framework should support evaluating both traditional and neural methods
+      - Must handle multiple metrics across different graph types and sizes
+      - Should enable consistent comparison between different approaches
 
-- **Subtask 7.2: Implement visualization components (Pending ⏱️)**
-  - Create tools for visualizing graph inference results
-  - Implement intervention outcome visualization
-  - Add optimization progress visualization
-  - Create performance comparison plots
-  - Implement uncertainty visualization
+    - **Thought 2: Component Identification**
+      - Base Benchmark Class: Abstract class defining common benchmark interface
+      - CausalDiscoveryBenchmark: For evaluating graph structure learning methods
+      - CBOBenchmark: For evaluating intervention optimization methods
+      - BenchmarkRunner: For orchestrating multiple benchmarks with common configurations
 
-- **Subtask 7.3: Implement scalability testing (Pending ⏱️)**
-  - Create tools for testing performance on increasingly larger graphs
-  - Implement memory and runtime profiling
-  - Add automated scaling tests
-  - Create performance vs. graph size plots
-  - Document scalability limits and recommendations
+    - **Thought 3: Implementation Approach**
+      - Design the base Benchmark class with key evaluation metrics and utilities
+      - Implement specialized benchmarks for different tasks
+      - Ensure all benchmarks work with various model interfaces
+      - Add proper visualization and reporting capabilities
 
-- **Subtask 7.4: Create comprehensive documentation (Pending ⏱️)**
-  - Write detailed API documentation
-  - Create usage tutorials and examples
-  - Add theoretical background and explanations
-  - Document best practices
-  - Create a project website
+    - **Thought 4: Potential Challenges**
+      - Handling different model interfaces consistently
+      - Properly measuring performance with synthetic and real-world datasets
+      - Ensuring fair comparison between methods
+      - Managing computational requirements for large-scale benchmarks
+
+    - **Thought 5: Solution Implementation**
+      - Implemented the core Benchmark abstraction with essential utilities
+      - Created task-specific benchmark implementations
+      - Added comprehensive evaluation metrics and visualization tools
+      - Implemented the BenchmarkRunner for multi-benchmark experiments
+
+  - **Implementation Details:**
+    - Created abstract `Benchmark` class with common functionality
+    - Implemented `CausalDiscoveryBenchmark` for structure learning evaluation
+    - Implemented `CBOBenchmark` for intervention optimization evaluation
+    - Created `BenchmarkRunner` to manage multiple benchmark runs
+    - Added comprehensive metrics: SHD, precision, recall, F1, runtime
+    - Implemented data generation utilities for synthetic benchmark problems
+    - Added visualization tools and reporting capabilities
+
+  - **Bug Fixes:**
+    - Fixed issue with accessing graph nodes properly using `graph.get_nodes()` instead of `graph.nodes`
+    - Added missing `get_best_models` method to BenchmarkRunner class
+    - Fixed `time_performance` method to correctly return both timing results and function results
+    - Updated the CausalGraph creation in tests to properly initialize nodes and edges
+    - Fixed parameter naming in SCM's `sample_interventional_data` calls from `num_samples` to `sample_size`
+    - Modified graph creation to ensure acyclic graphs by controlling edge direction
+    - Added proper variable initialization in SCM setup for both benchmark classes
+    - Updated the Component Registry with comprehensive documentation for all benchmark components
+
+  - **Testing:**
+    - Created unit tests for all benchmark components
+    - Added test fixtures for synthetic graph and data generation
+    - Implemented mock models for testing framework functionality
+    - Verified benchmark results on small test cases
+    - Ensured compatibility with different model interfaces
+    - Added end-to-end test with example script
+
+- **Subtask 7.2: Implement visualization components (Done ✅)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to create visualization components for neural causal discovery and optimization results
+      - Must visualize graph inference results, intervention outcomes, optimization progress, and performance comparisons
+      - Should handle different data formats (tensors, DataFrames) and be compatible with existing visualization tools
+      - Need to support both single-instance and batch visualizations for neural models
+
+    - **Thought 2: Component Identification**
+      - Graph Inference Visualization: For comparing ground truth and inferred graphs
+      - Intervention Outcome Visualization: For comparing predicted vs actual intervention effects
+      - Optimization Progress Visualization: For tracking improvement over iterations
+      - Performance Comparison Visualization: For comparing different methods using various metrics
+      - Uncertainty Visualization: For showing confidence intervals in predictions
+
+    - **Thought 3: Implementation Approach**
+      - Create a new `visualization.py` module in `causal_meta/meta_learning/` to complement existing tools
+      - Implement functions for each visualization type following consistent parameter naming and styling
+      - Make all functions compatible with PyTorch tensors, NumPy arrays, and pandas DataFrames
+      - Ensure functions can handle edge cases and have proper error handling
+      - Add comprehensive docstrings and type hints for all functions
+
+    - **Thought 4: Potential Challenges**
+      - Handling different data formats consistently (tensors, arrays, DataFrames)
+      - Ensuring consistent visualization styles with existing tools
+      - Supporting both single-instance and batch visualizations
+      - Efficiently visualizing high-dimensional data
+      - Creating intuitive visualizations for uncertainty
+
+    - **Thought 5: Implementation Plan**
+      - Create new `visualization.py` with all required functions
+      - Implement comprehensive tests in `tests/meta_learning/test_visualization.py`
+      - Create an example script demonstrating all visualization capabilities
+      - Update module exports to make functions easily accessible
+      - Add examples to documentation
+
+  - **Implementation Details:**
+    - Created new `visualization.py` in `causal_meta/meta_learning` with 5 main functions:
+      - `plot_graph_inference_results`: Compares ground truth and inferred graphs with metrics
+      - `plot_intervention_outcomes`: Visualizes predicted vs. actual intervention effects
+      - `plot_optimization_progress`: Shows target variable improvement over iterations
+      - `plot_performance_comparison`: Compares methods using bar, radar, or box plots
+      - `plot_uncertainty`: Visualizes predictions with confidence intervals
+    - Added support for multiple data formats (PyTorch tensors, NumPy arrays, pandas DataFrames)
+    - Implemented comprehensive error handling and type validation
+    - Created methods for visualizing uncertainty with confidence intervals
+    - Added ability to generate confusion matrices and structure learning metrics
+    - Implemented various plot types (bar charts, distributions, radar charts)
+    - Created utilities for handling different input formats and shapes
+
+  - **Testing:**
+    - Created comprehensive test suite in `tests/meta_learning/test_visualization.py`
+    - Added tests for different input formats (DataFrame, NumPy, PyTorch)
+    - Tested all visualization functions with various configuration options
+    - Validated proper handling of edge cases
+    - Created example script `examples/visualization_example.py` with detailed demonstrations
+    - Updated module exports in `__init__.py` to expose the visualization functions
+
+- **Subtask 7.3: Implement scalability testing (Done ✅)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to create scalability benchmarks that measure performance as graphs grow in size
+      - Must handle different graph types and sizes to measure scaling behavior
+      - Need to analyze complexity class of different algorithms
+      - Should track both runtime and memory usage across varying graph sizes
+      - Should support analysis of both causal discovery and CBO methods
+
+    - **Thought 2: Component Identification**
+      - ScalabilityBenchmark: Class for measuring scaling behavior
+      - Benchmark tests for different graph sizes
+      - Runtime and memory profiling utilities
+      - Scaling analysis tools for complexity classification
+      - Visualization components for scaling curves
+      - Integration with BenchmarkRunner for consistent interface
+
+    - **Thought 3: Implementation Approach**
+      - Create ScalabilityBenchmark class extending the base Benchmark
+      - Implement automated testing across graph sizes from min to max
+      - Add timeout mechanisms to prevent extremely slow tests
+      - Implement curve fitting for polynomial and exponential scaling
+      - Create visualization components for scaling curves
+      - Add comprehensive analysis reports
+
+    - **Thought 4: Potential Challenges**
+      - Very large graphs might cause memory issues
+      - Some algorithms may time out on larger graphs
+      - Ensuring consistent interfaces across different methods
+      - Handling method errors gracefully
+      - Balancing comprehensive testing with practical runtimes
+
+    - **Thought 5: Implementation Plan**
+      - Create ScalabilityBenchmark class with necessary parameters
+      - Implement setup method to generate test cases of varying sizes
+      - Add memory profiling with proper device support
+      - Implement curve fitting and complexity analysis
+      - Create visualization tools for scaling curves
+      - Add report generation for documentation
+
+  - **Implementation Details:**
+    - Created ScalabilityBenchmark class in causal_meta/meta_learning/benchmark.py
+    - Implemented setup method to generate test problems of varying sizes
+    - Added memory profiling with CPU and GPU support
+    - Implemented timeout mechanisms to handle slow methods
+    - Added curve fitting for polynomial and exponential complexity
+    - Created visualization tools for scaling curves with various metrics
+    - Added report generation with recommendations
+    - Integrated with BenchmarkRunner for consistent benchmarking
+    - Fixed issues with backward compatibility across interface changes
+    - Added comprehensive tests in tests/meta_learning/test_scalability_benchmark.py
+    - Created proper node mapping to handle string node names consistently
+    - Ensured DAG properties for all test graphs
+    - Added consistent interface handling for different method types
+    - Implemented analysis tools that identify scaling complexity class
+    - Added resource usage tracking and limit checks
+
+  - **Current Status:** Done
+  - **Estimated Completion:** 2025-05-04
+
+- **Subtask 7.4: Create comprehensive documentation (In Progress 🔄)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to create comprehensive documentation for the benchmarking framework
+      - Documentation should cover basic usage and advanced customization
+      - Should include clear examples for different use cases
+      - Must explain the key concepts and components to users
+      - Should highlight capabilities like structural learning evaluation, intervention optimization, and scalability testing
+      - Need to ensure documentation integrates well with existing component registry
+
+    - **Thought 2: Component Identification**
+      - Comprehensive API documentation for all benchmark classes
+      - Usage examples for common scenarios
+      - Visual guides for understanding benchmark results
+      - Integration examples with neural methods
+      - Performance guidelines and best practices
+      - Documentation updates to Component Registry
+      - Jupyter notebook tutorials for interactive learning
+
+    - **Thought 3: Implementation Approach**
+      - Create comprehensive docstrings for all benchmark classes
+      - Write usage examples for different benchmark types
+      - Develop step-by-step guides for setting up benchmarks
+      - Create visual guides for interpreting results
+      - Implement Jupyter notebook tutorials
+      - Update Component Registry with detailed benchmark information
+      - Add integration examples with neural network components
+
+    - **Thought 4: Potential Challenges**
+      - Ensuring documentation stays synchronized with implementation
+      - Balancing technical details with accessibility
+      - Covering the wide range of configuration options
+      - Providing meaningful examples for different use cases
+      - Demonstrating integration with neural network components
+      - Ensuring documentation covers error handling and edge cases
+
+    - **Thought 5: Implementation Plan**
+      - Update component registry with detailed benchmark information
+      - Create comprehensive API documentation in docstrings
+      - Write README files for benchmark usage
+      - Develop Jupyter notebook tutorials
+      - Create visual guides for interpreting results
+      - Update existing documentation to reference benchmarking capabilities
+      - Add integration examples with neural network components
+
+  - **Detailed Implementation Steps:**
+    1. ✅ Update component registry with detailed benchmark information
+    2. ✅ Create comprehensive API documentation in docstrings
+    3. ✅ Write README files for benchmark usage
+    4. ✅ Create a comprehensive benchmarking tutorial document
+    5. ✅ Create visual guides for interpreting results
+    6. ✅ Update existing documentation to reference benchmarking capabilities
+    7. ✅ Add integration examples with neural network components
+
+  - **Current Status:** Done
+  - **Estimated Completion:** Completed on 2023-06-27
+  - **Implementation Notes:**
+    - Successfully created comprehensive benchmarking tutorial document (`examples/benchmarking_tutorial.md`)
+    - Tutorial covers all aspects of the benchmarking framework including:
+      - Basic concepts and overview
+      - Causal discovery benchmarks
+      - Causal Bayesian optimization benchmarks
+      - Scalability benchmarks
+      - Using BenchmarkRunner for multi-benchmark evaluation
+      - Integration with neural network-based methods
+      - Best practices and guidelines
+    - The tutorial is designed to be dual-purpose:
+      - Can be read as a markdown document for reference
+      - Can be executed as a Python script for hands-on learning
+      - Can be converted to a Jupyter notebook using nbconvert
+    - This approach provides more flexibility than a static Jupyter notebook, addressing the issues identified with the original notebook format
+    - Created comprehensive visual guide for interpreting benchmark results (`examples/benchmark_visualization_guide.md`)
+    - Visual guide covers interpretation of:
+      - Causal discovery benchmark visualizations (bar charts, precision-recall plots, confusion matrices)
+      - CBO benchmark visualizations (optimization trajectories, intervention distributions, improvement ratios)
+      - Scalability benchmark visualizations (scaling curves, complexity heatmaps)
+      - Multi-method comparison visualizations (radar charts, ranking tables)
+    - Updated examples directory README.md to reference the benchmarking documentation and provide instructions on how to use the tutorials
+    - Added placeholder image directory structure for the visualization guide
+    - All benchmarking documentation tasks have been completed successfully
 
 #### Task 8: Demo Scripts for Supervisor Meeting (In Progress 🔄)
 - **Description:** Create demonstration scripts for showcasing the functionality of the implemented components.
@@ -529,60 +759,8 @@ This project implements Amortized Causal Discovery (ACD) within a Causal Bayesia
     - Visualization outputs should be documented with explanations
     - Need to clarify the role of each parameter and component
 
-- **Subtask 8.4: Restructure Demos to Leverage Existing Components (New)**
-  - **Sequential Thinking Analysis:**
-    - **Thought 1: Problem Understanding**
-      - Current demos contain many duplicate implementations instead of using our existing codebase
-      - Need to identify which components from our codebase can be used directly
-      - Should make the demos shorter and more maintainable by reusing existing code
-      - Must ensure demos are robust by properly handling errors and fallbacks
-
-    - **Thought 2: Component Identification**
-      - Core components to leverage:
-        - `causal_meta.graph.causal_graph.CausalGraph` for graph representation
-        - `causal_meta.environments.scm.StructuralCausalModel` for data generation
-        - `causal_meta.graph.generators.factory.GraphFactory` for graph creation
-        - `causal_meta.graph.visualization` for plotting functions
-        - `causal_meta.meta_learning.acd_models.GraphEncoder` for graph structure inference
-        - `causal_meta.meta_learning.dynamics_decoder.DynamicsDecoder` for dynamics modeling
-        - `causal_meta.meta_learning.amortized_causal_discovery.AmortizedCausalDiscovery` for unified approach
-        - `causal_meta.meta_learning.amortized_cbo.AmortizedCBO` for intervention optimization
-
-    - **Thought 3: Implementation Approach**
-      - Use direct imports from existing modules instead of duplicate implementations
-      - Implement fallback mechanisms only where necessary for robustness
-      - Replace dummy implementations with proper error handling
-      - Create consistent interface between demos using shared utility functions
-      - Ensure proper handling of tensor shapes and dimensions
-      - Add better error messages and debugging capabilities
-
-    - **Thought 4: Potential Challenges**
-      - Node naming consistency between SCM and neural components
-      - Handling tensor dimension issues between different components
-      - Managing dependencies and ensuring proper component initialization
-      - Graceful degradation when some components are not available
-      - Path management for assets and model checkpoints
-      - Ensuring reproducibility across different runs
-
-    - **Thought 5: Implementation Plan**
-      - Analyze and map duplicated functionality to existing codebase components
-      - Update imports in both demo scripts to use existing implementations
-      - Replace dummy classes with proper error handling and fallbacks
-      - Fix tensor shape and dimension issues in data processing
-      - Implement consistent node naming and identifier handling
-      - Add better asset management and directory structure
-      - Create uniform logging and error reporting
-      - Test with various settings to ensure robustness
-
-  - **Detailed Implementation Steps:**
-    1. Analyze and map duplicated functionality to existing codebase components
-    2. Update imports in both demo scripts to use existing implementations
-    3. Replace dummy classes with proper error handling and fallbacks
-    4. Fix tensor shape and dimension issues in data processing
-    5. Implement consistent node naming and identifier handling
-    6. Add better asset management and directory structure
-    7. Create uniform logging and error reporting
-    8. Test with various settings to ensure robustness
-
-  - **Current Status:** pending
-  - **Estimated Completion:** TBD
+- **Subtask 8.4: Restructure Demos to Leverage Existing Components (Done ✅)**
+  - **Description:** Refactor demo scripts to properly use existing components from the causal_meta package, following the Component Registry guidelines.
+  - **Acceptance Criteria:** Demo scripts use appropriate components from causal_meta rather than reimplementing functionality.
+  - **Priority:** medium
+  - **Current Status:** done

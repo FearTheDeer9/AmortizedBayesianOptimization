@@ -38,6 +38,34 @@ This demo shows how neural networks can be used for amortized causal discovery w
    - Demonstrates how meta-learning improves performance across related causal structures
    - Includes performance comparisons with and without meta-learning
 
+## Refactored Utilities
+
+We've added a new utilities module that properly leverages components from the causal_meta package:
+
+- **refactored_utils.py**: Improved utility functions that use the official components according to the Component Registry
+
+### Key Improvements in Refactored Utilities
+
+1. **Component Registry Integration**: Uses official components from the Component Registry
+2. **Error Handling**: Improved error handling with informative messages
+3. **Fallback Mechanisms**: Graceful fallbacks when components are not available
+4. **Tensor Shape Handling**: Proper standardization of tensor shapes for neural components
+5. **Node Naming Consistency**: Consistent handling of node names across components
+6. **Proper Graph Integration**: Direct use of CausalGraph instead of duplicated implementations
+7. **Logging**: Comprehensive logging for better debugging
+
+### Using the Refactored Utilities
+
+To use the refactored utilities in your demo scripts, simply import from `refactored_utils.py` instead of `utils.py`:
+
+```python
+# Old import
+from demos.utils import get_assets_dir, standardize_tensor_shape
+
+# New import
+from demos.refactored_utils import get_assets_dir, standardize_tensor_shape
+```
+
 ## Setup Instructions
 
 ### Prerequisites

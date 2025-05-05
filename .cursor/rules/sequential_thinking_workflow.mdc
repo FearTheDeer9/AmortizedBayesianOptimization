@@ -29,14 +29,18 @@ This rule establishes an integrated approach that combines structured problem de
    - Focus on one task at a time to maintain clarity and focus
 
 2. **Sequential Thinking Analysis**
+   - First, review the Component Registry in `memory-bank/component-registry.md` to:
+     - Identify existing components related to your task
+     - Understand established patterns and interfaces
+     - Avoid reinventing or duplicating existing functionality
    - Apply Sequential Thinking to decompose the selected task:
      ```
-     1. Initial problem assessment
+     1. Initial problem assessment, consulting the Component Registry
      2. Break down into sub-problems
      3. Identify dependencies between steps
-     4. Develop solution approach for each step
+     4. Develop solution approach for each step, leveraging existing components
      5. Consider potential challenges and mitigations
-     6. Synthesize into cohesive implementation plan
+     6. Synthesize into cohesive implementation plan that follows established interfaces
      ```
    - Document this analysis directly in code or as a separate resource when appropriate
    - Iterate through thoughts until a clear solution path emerges
@@ -51,9 +55,12 @@ This rule establishes an integrated approach that combines structured problem de
 
 4. **Implementation with TDD**
    - Write tests first based on the implementation plan
+   - Execute tests to confirm they fail initially (verification of test validity)
    - Implement the minimal code needed to pass tests
+   - Run tests repeatedly to verify implementation progress
    - Refactor for clarity and maintainability
    - Document any deviations from the original plan
+   - **MANDATORY**: Provide evidence of test execution with passing results
 
 5. **Progress Documentation**
    - Update `memory-bank/progress.md` with completed work
@@ -135,10 +142,13 @@ class DynamicsDecoder(nn.Module):
 A task is only considered complete when:
 
 1. Sequential Thinking analysis has been documented
-2. All tests are passing
+2. All tests have been written, executed, and are passing (with evidence of test execution)
 3. Implementation adheres to the plan derived from Sequential Thinking
-4. Memory Bank files have been updated accordingly
+4. Memory Bank files have been updated accordingly, including the Component Registry when relevant
 5. Code quality standards are met
+6. New or modified components are properly documented in the Component Registry
+7. Interfaces align with patterns established in the Component Registry
+8. Evidence of test execution with passing tests has been provided
 
 ## Related Rules
 

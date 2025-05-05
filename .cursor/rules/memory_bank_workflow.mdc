@@ -27,6 +27,7 @@ Memory Bank offers a structured way to track project goals, tasks, progress, and
     - `memory-bank/architecture.md`: Documents system design, components, and interactions.
     - `memory-bank/tech-stack.md`: Lists libraries, tools, and technical requirements.
     - `memory-bank/Experiment-design-document.md`: Outlines research approach, goals, and design decisions.
+    - `memory-bank/component-registry.md`: **Critical** documentation of all available components, their interfaces, and usage patterns. This is the **authoritative source of truth** for understanding the codebase structure before implementing new code.
 
 ## Standard Development Workflow Process
 
@@ -50,8 +51,22 @@ Memory Bank offers a structured way to track project goals, tasks, progress, and
 - **Write Tests First:** **ALWAYS** write failing unit tests *before* writing any implementation code for a task or subtask. These tests define the contract and expected behavior.
 - **Minimal Implementation:** Write **only** the code necessary to make the currently failing tests pass. **DO NOT** add extra functionality beyond the scope of the tests.
 - **Refactor:** Once tests pass, refactor the code for clarity, efficiency, and maintainability, ensuring **all tests continue to pass** after refactoring.
+- **Execute Tests:** **ALWAYS** run tests and demonstrate passing results before claiming completion. Screenshots or terminal output showing test execution results **MUST** be provided.
 - **Test Coverage:** Strive for high test coverage. Code without tests is considered incomplete.
-- **Task Completion:** A task or subtask is **ONLY** considered 'done' when its corresponding tests pass and the implementation meets project standards. **Verification through passing tests is mandatory.**
+- **Task Completion:** A task or subtask is **ONLY** considered 'done' when its corresponding tests pass and the implementation meets project standards. **Verification through passing tests with evidence of test execution is mandatory.**
+
+## Test Execution Evidence
+
+- Every PR or task completion submission **MUST** include evidence that tests were actually executed and passed
+- Acceptable evidence includes:
+  - Terminal output showing test execution with passing results
+  - Test runner output screenshots showing passing tests
+  - CI/CD pipeline results showing successful test execution
+- Simply writing tests without executing them is **NOT** acceptable
+- When reporting task completion, always include:
+  - The command used to run the tests
+  - The complete test output showing passing results
+  - Any test coverage information if available
 
 ## Task Structure in Implementation Plan
 
@@ -79,6 +94,11 @@ Follow this iterative process for implementing tasks:
     *   Ask the AI for clarification if needed.
 
 2.  **Initial Exploration & Planning:**
+    *   **Review the Component Registry:**
+        *   Check `memory-bank/component-registry.md` to identify existing components related to your task
+        *   Understand the interfaces and patterns you should follow
+        *   Identify which components can be reused or extended
+        *   See how your changes will integrate with the overall architecture
     *   Use Sequential Thinking to explore and break down the task systematically:
         *   Start with a clear problem definition
         *   Break the problem into logical components
@@ -87,7 +107,7 @@ Follow this iterative process for implementing tasks:
         *   Anticipate challenges and prepare mitigation strategies
     *   Explore the codebase to identify the precise files, functions, and even specific lines of code that will need modification.
     *   Determine the intended code changes and their locations.
-    *   Create a detailed implementation plan.
+    *   Create a detailed implementation plan that follows existing component interfaces.
 
 3.  **Log the Plan:**
     *   Ask the AI to update `implementation-plan.md` with your detailed plan.
@@ -128,6 +148,7 @@ Follow this iterative process for implementing tasks:
 
 10. **Update Memory Bank Documentation:**
     *   Request updates to the relevant memory-bank files:
+        *   `component-registry.md`: **REQUIRED** for all new components or significant modifications to existing ones.
         *   `Experiment-design-document.md`: For changes to high-level design or goals.
         *   `tech-stack.md`: For new libraries or tools.
         *   `implementation-plan.md`: For task status updates.

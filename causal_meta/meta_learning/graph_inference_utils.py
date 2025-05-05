@@ -201,6 +201,44 @@ def compute_precision_recall(true_adj: torch.Tensor, pred_adj: torch.Tensor) -> 
     return precision, recall
 
 
+def threshold_edge_probabilities(edge_probs: Union[torch.Tensor, np.ndarray], node_names: List[str], threshold: float = 0.5) -> CausalGraph:
+    """
+    Convert a matrix of edge probabilities to a CausalGraph using a threshold.
+    
+    Args:
+        edge_probs: Tensor or array of shape [n_variables, n_variables] with edge probabilities
+        node_names: List of node names corresponding to the variables
+        threshold: Probability threshold for including an edge
+        
+    Returns:
+        CausalGraph object with thresholded edges
+    """
+    # Convert to numpy if needed
+    if isinstance(edge_probs, torch.Tensor):
+        edge_probs = edge_probs.detach().cpu().numpy()
+    
+    # Apply threshold to get binary adjacency matrix
+    adj_matrix = (edge_probs > threshold).astype(float)
+    
+    # Ensure no self-loops
+    np.fill_diagonal(adj_matrix, 0)
+    
+    # Create CausalGraph
+    graph = CausalGraph()
+    
+    # Add nodes
+    for node in node_names:
+        graph.add_node(node)
+    
+    # Add edges
+    for i, source in enumerate(node_names):
+        for j, target in enumerate(node_names):
+            if adj_matrix[i, j] > 0:
+                graph.add_edge(source, target)
+    
+    return graph
+
+
 class GraphMetrics:
     """
     Class for computing and tracking various graph recovery metrics.

@@ -29,6 +29,26 @@ class CausalGraph(DirectedGraph):
         """Initialize an empty causal graph."""
         super().__init__()
 
+    def copy(self) -> 'CausalGraph':
+        """
+        Create and return a deep copy of this causal graph.
+        
+        Returns:
+            CausalGraph: A new graph with the same nodes, edges, and attributes
+        """
+        new_graph = CausalGraph()
+        
+        # Copy nodes and their attributes
+        for node in self.get_nodes():
+            new_graph.add_node(node, **self.get_node_attributes(node))
+            
+        # Copy edges and their attributes
+        for source, target in self.get_edges():
+            edge_attrs = self.get_edge_attributes(source, target) or {}
+            new_graph.add_edge(source, target, **edge_attrs)
+            
+        return new_graph
+
     def get_parents(self, node_id: Any) -> Set:
         """
         Get the parents of a node (direct causes).

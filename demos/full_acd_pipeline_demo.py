@@ -18,24 +18,41 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-import networkx as nx
 from pathlib import Path
 from torch.utils.data import TensorDataset, DataLoader
 
 # Ensure the package is in the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Import utilities
-from demos.utils import (
-    get_assets_dir, 
+# Import utilities and components from refactored utils
+from demos.refactored_utils import (
+    get_assets_dir,
     get_checkpoints_dir,
-    standardize_tensor_shape, 
+    standardize_tensor_shape,
     get_node_name,
     get_node_id,
     format_interventions,
+    create_causal_graph_from_adjacency,
+    visualize_graph,
+    compare_graphs,
+    load_model,
+    infer_adjacency_matrix,
+    convert_to_structural_equation_model,
+    select_intervention_target_by_parent_count,
+    GraphFactory,
+    StructuralCausalModel,
+    CausalGraph,
+    GraphEncoder,
+    DynamicsDecoder,
+    AmortizedCausalDiscovery,
+    TaskEmbedding,
+    MAMLForCausalDiscovery,
+    AmortizedCBO,
+    TaskFamily,
     DummyGraph,
     DummySCM,
-    fallback_plot_graph
+    plot_graph,
+    logger
 )
 
 # Try importing from causal_meta, with graceful fallbacks

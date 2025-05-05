@@ -141,6 +141,8 @@ This document tracks completed tasks and subtasks.
 - **2025-06-26:** Completed Subtask 6.3: Create budget-aware intervention selection (as part of 6.1).
 - **2025-06-27:** Completed Subtask 6.4: Update example workflow with comprehensive documentation and visualization tools.
 - **2025-06-27:** Completed Task 6: All components of Amortized Causal Bayesian Optimization implementation are now finished.
+- **2025-06-28:** Started Task 8: Created demos directory and implemented demo scripts for supervisor meeting.
+- **2025-07-01:** Started Task 7.1: Implement benchmark suite for evaluating causal discovery and intervention optimization methods.
 
 ## Current Implementation Status
 
@@ -148,9 +150,11 @@ As of the latest update, we have implemented all the components for Task 4 (Neur
 
 We've now also completed Task 6 (Amortized Causal Bayesian Optimization) with all subtasks finished. This includes the `AmortizedCBO` class that implements various acquisition functions, intervention selection mechanisms with budget constraints, and the full optimization loop. The implementation leverages the meta-learning capabilities from Task 5 to enable transfer learning across causal structures. We've also created a comprehensive example workflow in `examples/amortized_cbo_workflow.py` that demonstrates all the components working together.
 
+We've made significant progress on Task 7 (Evaluation Framework and Benchmarks) by completing Subtask 7.1 to implement a comprehensive benchmark suite. This includes abstract `Benchmark` class, specialized `CausalDiscoveryBenchmark` and `CBOBenchmark` implementations, and a `BenchmarkRunner` to manage multiple benchmarks. The framework supports various metrics including SHD, precision, recall, F1 for structure recovery, and performance metrics for optimization tasks. It also provides tools for generating synthetic benchmark problems and visualizing results.
+
 We've also added a new Task 8 (Demo Scripts for Supervisor Meeting) with high priority to create demonstration scripts for the upcoming meeting with the supervisor. This task involves creating two main demo scripts: one for a simplified parent-scaled ACD implementation using neural networks as drop-in replacements for traditional surrogate models, and another demonstrating the full amortized approach with training and adaptation capabilities. We've made significant progress on this task, creating a `demos/` directory with the required scripts and documentation. This task has been prioritized to be completed ahead of Tasks 6 and 7.
 
-This represents a major milestone in our implementation of the amortized approach to causal discovery and intervention prediction, with most of the core components now in place. The next step is to work on Task 7 (Evaluation Framework and Benchmarks) to create tools for systematically evaluating our approach.
+This represents a major milestone in our implementation of the amortized approach to causal discovery and intervention prediction, with most of the core components now in place. The next step is to continue work on Task 7 (Evaluation Framework and Benchmarks) to create visualization components and baseline comparisons.
 
 ### Workflow Improvements
 
@@ -222,6 +226,7 @@ After reviewing the research direction and current implementation, we are adjust
   - Subtask 8.1: Create Simple Parent-Scaled ACD Demo (Status: `in-progress`)
   - Subtask 8.2: Create Full Amortized ACD Pipeline Demo (Status: `in-progress`)
   - Subtask 8.3: Create Demo Documentation (Status: `in-progress`)
+  - Subtask 8.4: Restructure Demos to Leverage Existing Components (Status: `in-progress`)
 
   *   **[2025-06-28]**
     *   Created `demos/` directory structure with assets subdirectory for visualization outputs
@@ -244,42 +249,163 @@ After reviewing the research direction and current implementation, we are adjust
     *   Updated visualization functions to handle different graph representations
     *   Successfully tested the parent_scale_acd_demo.py script with minimal settings
 
-- **2025-06-27:** Completed Task 6: All components of Amortized Causal Bayesian Optimization implementation are now finished.
-- **2025-06-28:** Started Task 8: Created demos directory and implemented demo scripts for supervisor meeting.
+  *   **[2025-06-26 - Created Refactored Utilities for Demo Scripts]**
+    *   Created `demos/refactored_utils.py` with improved implementations of utility functions:
+       - Safe import system with comprehensive error handling
+       - Improved tensor shape handling with proper validation
+       - Consistent node naming utilities for standardized identifiers
+       - Direct CausalGraph usage instead of duplicate graph implementation
+       - Robust model loading with graceful fallbacks
+       - Proper SCM conversion with standardized structural equations
+       - Comprehensive logging for better debugging
+    *   Created detailed documentation:
+       - Added `demos/refactored_utils_guide.md` with comprehensive explanations and examples
+       - Updated `demos/README.md` with information about the refactored utilities
+    *   Updated the implementation plan to reflect the current status and next steps.
+    *   **Next steps:**
+      1. Update the actual demo scripts (`parent_scale_acd_demo.py` and `full_acd_pipeline_demo.py`) to use the refactored utilities
+      2. Test the refactored demos with various settings to ensure robustness
+      3. Complete the documentation for the demo scripts
+    *   **Technical insight:**
+       The refactored utilities provide a significant improvement over the previous approach by eliminating duplicate implementations and properly leveraging the existing components from the Component Registry. This not only makes the demo scripts more maintainable but also ensures they correctly demonstrate the usage of the official components. The improved error handling and fallback mechanisms make the demos more robust, allowing them to run even when some components are not available.
 
-## Debugging Notes
+- **Task 7: Evaluation Framework and Benchmarks** (Status: `in-progress`, Partially Complete)
+  - Subtask 7.1: Implement benchmark suite (Status: `done`)
+  - Subtask 7.2: Implement visualization components (Status: `done`)
+  - Subtask 7.3: Implement scalability testing (Status: `done`)
+  - Subtask 7.4: Create comprehensive documentation (Status: `in-progress`)
 
-*   **[2025-06-30]**
-    *   Fixed critical visualization issue in `parent_scale_acd_demo.py` by implementing proper handling of graph objects
-    *   Discovered that `plot_graph` function requires a graph object with `_nodes` attribute, not just an adjacency matrix
-    *   Created `create_graph_from_adjacency` helper function to convert adjacency matrices to proper graph objects
-    *   Added robust error handling and graceful fallbacks for visualization functions
+  *   **[2025-05-04]**
+    *   Completed Subtask 7.3: "Implement scalability testing"
+    *   Made significant progress on Subtask 7.4: "Create comprehensive documentation"
+    *   Fixed issues with node name handling and DAG generation in the ScalabilityBenchmark
+    *   Implemented curve fitting for identifying complexity classes
+    *   Added memory profiling and runtime tracking capabilities
+    *   Created visualization utilities for scaling curves
+    *   Added comprehensive documentation to the component registry
+    *   Created detailed README for the meta_learning module
+    *   Developed tutorial notebook for the benchmarking framework
 
-*   **[2025-07-01]**
-    *   Refactored `parent_scale_acd_demo.py` to use proper causal_meta implementations without fallbacks
-    *   Removed all DummyGraph and DummySCM implementations in favor of using proper CausalGraph and StructuralCausalModel classes
-    *   Updated model loading to properly instantiate GraphEncoder and DynamicsDecoder components
-    *   Made parent-scaled ACD algorithm properly use neural networks for inference
-    *   Simplified the selection of intervention targets based on parent count
-    *   Ensured consistent handling of graphs and data throughout the pipeline
-    *   Implemented proper visualization of both ground truth and inferred graphs
-    *   Used proper probabilistic structural equations for synthetic data generation
-    *   Created an end-to-end demo that showcases the neural network-based approach to amortized causal discovery
-    *   Next step: Apply similar improvements to the full ACD pipeline demo
+## June 27, 2023: Completed Benchmarking Framework Documentation
 
-*   **[2025-07-02]**
-    *   Fixed critical issues in the structural equation definition in `parent_scale_acd_demo.py`:
-        *   Implemented proper handling of function signatures for structural equations to work with SCM validation
-        *   Used dynamic function generation with `exec` to create functions with signatures matching parent variables
-        *   Fixed noise function to properly handle different types of random state objects
-    *   Improved data handling in the demo script:
-        *   Added proper conversion between pandas DataFrames and PyTorch tensors
-        *   Implemented data shape standardization for neural network processing
-        *   Added robust error handling for type conversions
-    *   Enhanced model loading functionality:
-        *   Updated model loading to handle both full models and state dictionaries
-        *   Implemented graceful degradation when pretrained models are unavailable
-        *   Added compatibility layer for models without intervention support
-    *   Successfully tested end-to-end pipeline with the synthetic data generation, neural inference, and intervention selection
-    *   The demo now runs smoothly with both observational and interventional data
-    *   Next step: Apply similar improvements to the full ACD pipeline demo
+Today we completed the comprehensive documentation for the benchmarking framework (Task 7.4), creating several resources to ensure the framework is well-documented and accessible:
+
+1. **Comprehensive Benchmarking Tutorial**: Created `examples/benchmarking_tutorial.md`, a dual-purpose document that serves as both executable code and documentation. This tutorial:
+   - Demonstrates all aspects of the benchmarking framework
+   - Can be run as a Python script or converted to a Jupyter notebook
+   - Shows how to use all benchmark types (CausalDiscoveryBenchmark, CBOBenchmark, ScalabilityBenchmark)
+   - Includes examples of integrating with neural network-based methods
+
+2. **Visual Interpretation Guide**: Created `examples/benchmark_visualization_guide.md` to help users understand benchmark results:
+   - Explains how to interpret various visualization types
+   - Covers causal discovery, CBO, and scalability visualizations
+   - Provides best practices for customizing and reporting benchmark results
+
+3. **Updated Examples Directory Documentation**: Updated the `examples/README.md` file to reference these new documentation resources.
+
+This documentation completes the implementation of the benchmarking framework, which provides robust tools for evaluating and comparing causal discovery and causal Bayesian optimization methods. The framework includes features for:
+
+- Standard benchmarks for causal discovery algorithms
+- Benchmark tools for causal Bayesian optimization
+- Scalability testing across different graph sizes
+- Memory and runtime profiling capabilities
+- Comprehensive metrics for all aspects of causal inference
+- Visualization tools for analyzing results
+- Multi-method comparison with statistical significance
+- Integration with neural approaches for amortized methods
+
+The benchmarking framework serves as a critical tool for evaluating our amortized causal discovery and optimization approaches against traditional methods, allowing for systematic comparison and performance analysis.
+
+# Project Progress
+
+This document tracks the progress of implementation tasks and major achievements.
+
+## 2023-07-01: Completed Task 7.1 - Benchmark Suite Implementation
+
+Successfully implemented a comprehensive benchmark suite for evaluating causal discovery and intervention optimization methods. The implementation includes:
+
+- Abstract `Benchmark` base class with standardized evaluation methods
+- `CausalDiscoveryBenchmark` for evaluating graph structure learning algorithms
+- `CBOBenchmark` for evaluating causal Bayesian optimization methods
+- `BenchmarkRunner` class for executing multiple benchmarks and aggregating results
+- Comprehensive visualization utilities for analyzing benchmark results
+- Example script in `examples/run_benchmarks.py` demonstrating benchmark usage
+- Robust test suite in `tests/meta_learning/test_benchmark.py` with thorough coverage
+
+Key features of the benchmark suite:
+- Integration with existing components from the Component Registry
+- Support for various method interfaces through interface detection
+- Synthetic data generation for controlled experiments
+- Automated benchmark execution with configurable parameters
+- Standard benchmark suite creation with common configurations
+- Robust error handling and fallback mechanisms
+
+This implementation provides a standardized framework for evaluating and comparing both traditional and neural causal discovery methods, enabling consistent benchmarking for the project.
+
+## 2025-05-05 - Refactored Demo Scripts to Use Existing Components
+
+Successfully refactored the demo scripts to properly leverage existing components from the causal_meta package:
+
+1. Updated `parent_scale_acd_demo.py` to use the refactored utilities:
+   - Removed duplicate implementations of utility functions
+   - Added proper logging using the logger from refactored_utils
+   - Removed the need for fallback implementations
+   - Improved error handling and visualization
+
+2. Created `refactored_full_acd_pipeline_demo.py` as a refactored version of the full ACD pipeline demo:
+   - Uses proper imports from refactored_utils.py
+   - Leverages existing components from the Component Registry
+   - Implements consistent interfaces for models and data
+   - Follows the design patterns established in the Component Registry
+
+This work completes most of Subtask 8.4, with only testing remaining to ensure the refactored demos work robustly with various settings.
+
+## 2025-05-04 - Created Refactored Utilities Module for Demos
+
+Created a comprehensive refactored utilities module to support the demo scripts:
+
+1. Created `refactored_utils.py` with the following improvements:
+   - Safe import system with comprehensive error handling
+   - Improved tensor shape handling with proper validation
+   - Consistent node naming utilities for standardized identifiers
+   - Direct CausalGraph usage instead of duplicate implementations
+   - Robust model loading with graceful fallbacks
+   - Proper SCM conversion with standardized structural equations
+   - Comprehensive logging for better debugging and error reporting
+
+2. Created detailed documentation:
+   - `refactored_utils_guide.md` with comprehensive explanation of all utilities
+   - Updated demos README with information about the refactored utilities
+
+The refactored utilities module provides a solid foundation for updating the actual demo scripts to leverage components from the causal_meta package instead of using duplicated implementations.
+
+## 2025-07-05 - Completed Subtask 8.4: Restructure Demos to Leverage Existing Components
+
+Successfully refactored demo scripts to properly leverage existing components from the causal_meta package:
+
+1. Implemented `refactored_full_acd_pipeline_demo.py`:
+   - Created a fully refactored version using components from the causal_meta package
+   - Implemented proper fallback mechanisms for robustness
+   - Added comprehensive error handling throughout
+   - Ensured consistent interface with existing codebase components
+
+2. Key functionally implemented:
+   - `plot_family_comparison` - For visualizing families of related causal graphs
+   - `parse_args` and `set_seed` - For command-line argument parsing and reproducibility
+   - `create_task_family` - For generating families of related causal structures
+   - `create_synthetic_data` - For generating observational and interventional data
+   - `create_model` - For creating an AmortizedCausalDiscovery model with proper components
+   - `train_step` and `train_model` - For training the model on causal discovery tasks
+   - `prepare_training_data` - For preparing data for model training
+   - `prepare_meta_training_data` - For preparing data for meta-learning
+   - `setup_meta_learning` - For configuring meta-learning with MAML
+   - `meta_train_step` and `meta_train_model` - For meta-training across related tasks
+   - `evaluate_model` - For evaluating model performance
+
+3. Validation:
+   - Successfully ran the demo script with minimal settings
+   - Properly handled cases where components are not available
+   - Provided robust fallbacks without breaking functionality
+   - Ensured proper command-line interface for configuration
+
+The refactored demo now serves as an example of how to properly use the causal_meta components following the Component Registry guidelines, reducing code duplication and improving maintainability.

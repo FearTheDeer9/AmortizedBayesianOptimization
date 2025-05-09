@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Progressive Structure Recovery Demo
+Improved Structure Recovery Demo
 
-This demo shows how to recover causal graph structure through progressive
-interventions and meta-learning adaptation.
+This script implements an improved version of the progressive structure recovery demo
+that fixes tensor dimension issues and enhances the robustness of causal structure
+discovery through strategic interventions and meta-learning.
 """
 
 import os
@@ -20,6 +21,8 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 from typing import Dict, List, Tuple, Optional
 import argparse
+import networkx as nx
+import pandas as pd
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, 
@@ -33,11 +36,47 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 from demos.simplified_causal_discovery import SimplifiedCausalDiscovery
-from demos.refactored_utils import (CausalGraph, generate_random_dag, 
-                         generate_linear_scm, intervention_effects, 
-                         infer_adjacency_matrix, visualize_graph)
+from demos.refactored_utils import (create_causal_graph_from_adjacency as CausalGraph, 
+                          infer_adjacency_matrix, visualize_graph, 
+                          structural_hamming_distance)
 
-# --- Improved versions of core functions ---
+def compute_edge_uncertainties(adj_matrix):
+    """
+    Calculate uncertainty scores for each potential edge in the graph.
+    
+    Args:
+        adj_matrix: Adjacency matrix tensor [batch_size, num_nodes, num_nodes]
+        
+    Returns:
+        Uncertainty scores tensor of same shape
+    """
+    # Uncertainty is highest at p=0.5, represented by 4*p*(1-p)
+    # This peaks at 0.5 with value 1.0
+    uncertainties = 4 * adj_matrix * (1 - adj_matrix)
+    return uncertainties
+
+def compute_acyclicity_loss(adj_matrix):
+    """
+    Compute acyclicity regularization loss using matrix exponential.
+    
+    Args:
+        adj_matrix: Adjacency matrix tensor [batch_size, num_nodes, num_nodes]
+        
+    Returns:
+        Acyclicity loss scalar
+    """
+    batch_size, n, _ = adj_matrix.shape
+    loss = 0.0
+    
+    for b in range(batch_size):
+        A = adj_matrix[b]
+        A_squared = A * A  # Element-wise square
+        M = torch.matrix_exp(A_squared)  # Matrix exponential
+        trace = torch.trace(M)
+        h_A = trace - n
+        loss += h_A
+    
+    return loss / batch_size
 
 def encode_intervention_as_features(inputs, interventions):
     """
@@ -82,44 +121,6 @@ def encode_intervention_as_features(inputs, interventions):
                     enhanced_data[b, :, i] = enhanced_data[b, :, i] * 1.2
     
     return enhanced_data
-
-def compute_edge_uncertainties(adj_matrix):
-    """
-    Calculate uncertainty scores for each potential edge in the graph.
-    
-    Args:
-        adj_matrix: Adjacency matrix tensor [batch_size, num_nodes, num_nodes]
-        
-    Returns:
-        Uncertainty scores tensor of same shape
-    """
-    # Uncertainty is highest at p=0.5, represented by 4*p*(1-p)
-    # This peaks at 0.5 with value 1.0
-    uncertainties = 4 * adj_matrix * (1 - adj_matrix)
-    return uncertainties
-
-def compute_acyclicity_loss(adj_matrix):
-    """
-    Compute acyclicity regularization loss using matrix exponential.
-    
-    Args:
-        adj_matrix: Adjacency matrix tensor [batch_size, num_nodes, num_nodes]
-        
-    Returns:
-        Acyclicity loss scalar
-    """
-    batch_size, n, _ = adj_matrix.shape
-    loss = 0.0
-    
-    for b in range(batch_size):
-        A = adj_matrix[b]
-        A_squared = A * A  # Element-wise square
-        M = torch.matrix_exp(A_squared)  # Matrix exponential
-        trace = torch.trace(M)
-        h_A = trace - n
-        loss += h_A
-    
-    return loss / batch_size
 
 def select_intervention_node(model, inferred_graph, true_graph, strategy='uncertainty', intervention_counts=None, edge_uncertainties=None):
     """
@@ -651,11 +652,9 @@ def progressive_structure_recovery(args):
         'shd_history': shd_history
     }
 
-# ... existing code ...
-
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description="Progressive Structure Recovery Demo")
+    parser = argparse.ArgumentParser(description="Improved Structure Recovery Demo")
     
     # Graph generation parameters
     parser.add_argument("--num-nodes", type=int, default=5, help="Number of nodes in the graph")
@@ -678,8 +677,7 @@ def main():
     # Intervention parameters
     parser.add_argument("--max-interventions", type=int, default=10, help="Maximum number of interventions")
     parser.add_argument("--intervention-strategy", type=str, default="uncertainty", 
-                        choices=["random", "random_cyclic", "uncertainty", "parent_count", 
-                                "impact", "mse_reduction", "combined"],
+                        choices=["random", "degree", "oracle", "uncertainty"],
                         help="Strategy for selecting intervention nodes")
     
     # Visualization parameters
@@ -731,198 +729,39 @@ def main():
         plt.subplot(1, 2, 2)
         plt.plot(sizes, interventions, marker='o')
         plt.xlabel('Graph Size (nodes)')
-        logger.info("Testing progressive recovery with multiple graph sizes...")
-        results = test_multiple_graph_sizes(
-            min_nodes=args.min_nodes,
-            max_nodes=args.max_nodes,
-            samples_per_size=args.sample_size,
-            max_interventions=args.max_interventions,
-            inner_lr=args.inner_lr,
-            num_inner_steps=args.num_inner_steps,
-            l2_reg_weight=args.l2_reg_weight,
-            sparsity_reg_weight=args.sparsity_reg_weight,
-            acyclicity_reg_weight=args.acyclicity_reg_weight,
-            intervention_strategy=args.intervention_strategy,
-            visualize_summary=not args.no_visualize
-        )
-        # Print summary
-        logger.info("\n=== Summary of Multiple Graph Sizes Test ===")
-        for n in sorted(results.keys()):
-            if results[n]['converged']:
-                logger.info(f"Graph with {n} nodes: Converged after {results[n]['interventions_to_converge']} interventions")
-            else:
-                improvement = 100 * results[n]['relative_improvement']
-                logger.info(f"Graph with {n} nodes: Did not converge. Initial SHD: {results[n]['initial_shd']}, Final SHD: {results[n]['final_shd']}, Improvement: {improvement:.1f}%")
+        plt.ylabel('Interventions Used')
+        plt.title('Interventions Required by Graph Size')
         
-        return
-    
-    # Set device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    logger.info(f"Using device: {device}")
-    
-    # Generate data
-    logger.info(f"Generating random SCM with {args.num_nodes} nodes...")
-    scm = generate_random_linear_scm(
-        num_nodes=args.num_nodes,
-        edge_probability=args.edge_probability,
-        noise_scale=args.noise_scale
-    )
-    true_graph = scm.get_causal_graph()
-    logger.info(f"True graph: {true_graph}")
-    
-    # Generate observational data
-    logger.info(f"Generating {args.sample_size} observational samples...")
-    obs_data = scm.sample_data(sample_size=args.sample_size)
-    
-    # Automatically use attention for larger graphs if not explicitly disabled
-    use_attention = args.use_attention or (args.num_nodes > 3)
-    
-    # Create model
-    logger.info("Creating causal discovery model...")
-    model = SimplifiedCausalDiscovery(
-        input_dim=args.num_nodes,
-        hidden_dim=args.model_hidden_dim,
-        num_layers=2,
-        dropout=args.dropout,
-        sparsity_weight=args.sparsity_reg_weight,
-        acyclicity_weight=args.acyclicity_reg_weight,
-        use_attention=use_attention,
-        num_heads=min(4, args.num_nodes)  # Scale heads with graph size but cap at 4
-    ).to(device)
-    
-    # Create MAML wrapper
-    logger.info("Creating enhanced MAML wrapper...")
-    maml_model = EnhancedMAMLForCausalDiscovery(
-        model=model,
-        inner_lr=args.inner_lr,
-        num_inner_steps=args.num_inner_steps,
-        l2_reg_weight=args.l2_reg_weight,
-        sparsity_reg_weight=args.sparsity_reg_weight,
-        acyclicity_reg_weight=args.acyclicity_reg_weight,
-        anneal_regularization=args.anneal_regularization,
-        device=device
-    )
-    
-    # Run progressive recovery
-    logger.info("Starting progressive structure recovery...")
-    results = progressive_structure_recovery(
-        model=model,
-        scm=scm,
-        obs_data=obs_data,
-        true_graph=true_graph,
-        max_interventions=args.max_interventions,
-        device=device,
-        inner_lr=args.inner_lr,
-        num_inner_steps=args.num_inner_steps,
-        l2_reg_weight=args.l2_reg_weight,
-        sparsity_reg_weight=args.sparsity_reg_weight,
-        acyclicity_reg_weight=args.acyclicity_reg_weight,
-        intervention_strategy=args.intervention_strategy,
-        visualize=not args.no_visualize,
-        convergence_threshold=args.convergence_threshold,
-        disable_intermediate_plots=args.disable_intermediate_plots
-    )
-    
-    # Print results
-    logger.info("\n=== Results ===")
-    logger.info(f"Initial SHD: {results['shd_history'][0]}")
-    logger.info(f"Final SHD: {results['final_shd']}")
-    
-    if results['converged']:
-        logger.info(f"✅ Successfully recovered graph structure after {results['interventions_to_converge']} interventions!")
+        plt.tight_layout()
+        plt.savefig("size_comparison.png")
+        if not args.disable_intermediate_plots:
+            plt.show()
+        plt.close()
+        
+        return results
     else:
-        logger.info("❌ Did not fully recover graph structure.")
+        # Run structure recovery with specified parameters
+        results = progressive_structure_recovery(args)
         
-    # Show improvement percentage
-    initial_shd = results['shd_history'][0]
-    final_shd = results['final_shd']
-    if initial_shd > 0:
-        improvement_pct = 100 * (1.0 - final_shd / initial_shd)
-        logger.info(f"Improvement: {improvement_pct:.1f}%")
+        # Print summary
+        logger.info("\n=== Results Summary ===")
+        logger.info(f"Graph size: {args.num_nodes} nodes")
+        logger.info(f"Initial SHD: {results['initial_shd']}")
+        logger.info(f"Final SHD: {results['final_shd']}")
         
-    # Return results for convenience when using in interactive mode
-    return results
-
+        if results['final_shd'] == 0:
+            logger.info(f"✅ Successfully recovered true graph in {results['interventions']} interventions!")
+        else:
+            logger.info(f"Improved graph recovery by {results['improvement']:.1f}% "
+                       f"after {results['interventions']} interventions")
+        
+        # Log intervention distribution
+        logger.info("Intervention distribution:")
+        for node, count in results['intervention_counts'].items():
+            if count > 0:
+                logger.info(f"  Node X{node}: {count} interventions")
+        
+        return results
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Progressive Structure Recovery Demo"
-    )
-    
-    # Data generation options
-    parser.add_argument('--seed', type=int, default=42,
-                       help="Random seed")
-    parser.add_argument('--num-samples', type=int, default=1000,
-                       help="Number of samples to generate")
-    parser.add_argument('--num-nodes', type=int, default=3,
-                       help="Number of nodes in the causal graph")
-    parser.add_argument('--graph-type', type=str, default='erdos-renyi',
-                       choices=['erdos-renyi', 'barabasi-albert', 'random-dag'],
-                       help="Type of graph to generate")
-    parser.add_argument('--edge-prob', type=float, default=0.7,
-                       help="Edge probability for Erdos-Renyi graph")
-    parser.add_argument('--noise-scale', type=float, default=0.1,
-                       help="Scale of the noise in the SCM")
-    
-    # Model options
-    parser.add_argument('--model-type', type=str, default='simplified',
-                       choices=['gnn', 'mlp', 'simplified'],
-                       help="Type of neural network model")
-    parser.add_argument('--hidden-dim', type=int, default=64,
-                       help="Hidden dimension of the neural network")
-    parser.add_argument('--num-layers', type=int, default=2,
-                       help="Number of layers in the neural network")
-    parser.add_argument('--dropout', type=float, default=0.1,
-                      help="Dropout rate in the neural network")
-    parser.add_argument('--device', type=str, default=None,
-                       help="PyTorch device (cuda/cpu)")
-    
-    # MAML options
-    parser.add_argument('--inner-lr', type=float, default=0.01,
-                       help="Inner loop learning rate for MAML")
-    parser.add_argument('--num-inner-steps', type=int, default=5,
-                       help="Number of inner loop steps for MAML")
-    parser.add_argument('--l2-reg-weight', type=float, default=0.01,
-                       help="Weight for L2 regularization during adaptation")
-    parser.add_argument('--sparsity-reg-weight', type=float, default=0.1,
-                       help="Weight for sparsity regularization during adaptation")
-    
-    # Progressive recovery options
-    parser.add_argument('--max-interventions', type=int, default=20,
-                       help="Maximum number of interventions")
-    parser.add_argument('--intervention-strategy', type=str, default='uncertainty',
-                       choices=['random', 'random_cyclic', 'parent_count', 
-                                'uncertainty', 'max_parents_min_interventions'],
-                       help="Strategy for selecting intervention nodes")
-    
-    # Visualization options
-    parser.add_argument('--visualize', action='store_true',
-                       help="Visualize the results")
-    parser.add_argument('--disable-intermediate-plots', action='store_true',
-                       help="Disable intermediate plots, only show final results")
-    
-    # Multi-size testing option
-    parser.add_argument('--test-multiple-sizes', action='store_true',
-                      help="Test with multiple graph sizes")
-    parser.add_argument('--min-nodes', type=int, default=3,
-                      help="Minimum number of nodes for multi-size testing")
-    parser.add_argument('--max-nodes', type=int, default=6,
-                      help="Maximum number of nodes for multi-size testing")
-    
-    args = parser.parse_args()
-    
-    if args.test_multiple_sizes:
-        test_multiple_graph_sizes(
-            min_nodes=args.min_nodes,
-            max_nodes=args.max_nodes,
-            samples_per_size=args.num_samples,
-            max_interventions=args.max_interventions,
-            inner_lr=args.inner_lr,
-            num_inner_steps=args.num_inner_steps,
-            l2_reg_weight=args.l2_reg_weight,
-            sparsity_reg_weight=args.sparsity_reg_weight,
-            intervention_strategy=args.intervention_strategy,
-            visualize_summary=args.visualize
-        )
-    else:
-        main() 
+    main() 

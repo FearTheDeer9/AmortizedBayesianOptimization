@@ -12,6 +12,7 @@ with direct use of the official components.
 
 import os
 import sys
+import logging
 import numpy as np
 import torch
 import torch.nn as nn
@@ -20,7 +21,11 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union, Any, Callable, Type
 import importlib
 import inspect
-import logging
+import json
+import pickle
+import copy
+import random
+import networkx as nx
 
 # Set up logging
 logging.basicConfig(
@@ -31,6 +36,13 @@ logger = logging.getLogger(__name__)
 
 # Ensure the package is in the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Import specialized components with fallbacks
+AmortizedCausalDiscovery = None
+try:
+    from causal_meta.meta_learning.amortized_causal_discovery import AmortizedCausalDiscovery
+except ImportError:
+    logger.warning("Failed to import AmortizedCausalDiscovery. Some functionality may not be available.")
 
 # Import handling with comprehensive error messages and fallbacks
 def safe_import(module_path: str, fallback_value: Any = None) -> Any:
@@ -288,61 +300,79 @@ def get_node_id(node_name: Union[int, str]) -> int:
             raise ValueError(f"Invalid node name format: {node_name}. " +
                            "Cannot extract numeric ID.")
 
-def format_interventions(
-    interventions: Dict[Union[int, str], float],
-    for_tensor: bool = False,
-    num_nodes: Optional[int] = None,
-    device: Optional[torch.device] = None
-) -> Union[Dict[str, float], Dict[int, torch.Tensor], torch.Tensor]:
+def format_interventions(interventions, for_tensor=False, num_nodes=None, device=None):
     """
-    Format interventions for model input with improved consistency.
+    Format interventions into a standardized format for various components.
+    
+    This function now provides both dictionary and tensor mask formats:
+    - Dictionary format: {'X_0': value, 'X_1': value, ...}
+    - Tensor mask format: A binary mask tensor of shape [batch_size, num_nodes]
+                          where 1 indicates an intervened node
     
     Args:
-        interventions: Dictionary mapping node identifiers to intervention values
-        for_tensor: Whether to format for tensor input
-        num_nodes: Number of nodes in the graph (required if for_tensor=True)
-        device: PyTorch device to place tensors on
+        interventions: Dictionary mapping node names to intervention values
+                      Format: {'X_0': value} or {0: value}
+        for_tensor: Whether to return a tensor format (mask) instead of dict
+        num_nodes: Number of nodes in the graph (required for tensor format)
+        device: PyTorch device for the tensor format
         
     Returns:
-        Properly formatted interventions
+        Formatted interventions as dict or tensor mask
     """
     if interventions is None:
-        return {} if not for_tensor else None
-        
-    if for_tensor and num_nodes is None:
-        raise ValueError("num_nodes must be provided when formatting interventions for tensor input")
+        return None
     
-    # Standardize node names in the intervention dict
-    if for_tensor:
-        # For tensor format, create a one-hot encoding tensor
-        intervention_mask = torch.zeros(num_nodes, dtype=torch.float32)
-        intervention_values = torch.zeros(num_nodes, dtype=torch.float32)
-        
-        for node, value in interventions.items():
-            node_idx = get_node_id(node) if isinstance(node, str) else node
-            if 0 <= node_idx < num_nodes:
-                intervention_mask[node_idx] = 1.0
-                intervention_values[node_idx] = float(value)
+    # Convert to standardized dictionary format
+    formatted_dict = {}
+    
+    for node, value in interventions.items():
+        # Handle different node name formats
+        if isinstance(node, str):
+            if node.startswith('X_'):
+                node_name = node
+                node_idx = int(node[2:])
             else:
-                logger.warning(f"Node index {node_idx} out of bounds (0-{num_nodes-1}). Ignoring this intervention.")
+                node_idx = int(node)
+                node_name = f'X_{node_idx}'
+        else:
+            node_idx = int(node)
+            node_name = f'X_{node_idx}'
         
-        # Move to device if specified
-        if device is not None:
-            intervention_mask = intervention_mask.to(device)
-            intervention_values = intervention_values.to(device)
-            
-        return {
-            'mask': intervention_mask,
-            'values': intervention_values
-        }
-    else:
-        # For standard format, just standardize the node names
-        formatted_interventions = {}
-        for node, value in interventions.items():
-            node_name = get_node_name(node)
-            formatted_interventions[node_name] = float(value)
-        
-        return formatted_interventions 
+        # Store both representations
+        formatted_dict[node_name] = value
+        formatted_dict[node_idx] = value
+    
+    # Return dict format if not requesting tensor format
+    if not for_tensor:
+        return formatted_dict
+    
+    # Create tensor mask for the model if requested
+    if num_nodes is None:
+        # Try to infer number of nodes from the intervention keys
+        node_indices = [int(k[2:]) if isinstance(k, str) and k.startswith('X_') else int(k) 
+                        for k in interventions.keys() if isinstance(k, (str, int))]
+        if node_indices:
+            num_nodes = max(node_indices) + 1
+        else:
+            raise ValueError("Cannot determine number of nodes. Please provide num_nodes.")
+    
+    # Default to CPU if no device specified
+    if device is None:
+        device = torch.device('cpu')
+    
+    # Create a binary intervention mask [batch_size, num_nodes]
+    # We use batch_size=1 by default
+    intervention_mask = torch.zeros(1, num_nodes, device=device)
+    
+    # Mark intervened nodes with 1
+    for node, _ in interventions.items():
+        if isinstance(node, str) and node.startswith('X_'):
+            node_idx = int(node[2:])
+        else:
+            node_idx = int(node)
+        intervention_mask[0, node_idx] = 1.0
+    
+    return intervention_mask
 
 def create_causal_graph_from_adjacency(
     adj_matrix: Union[np.ndarray, torch.Tensor],
@@ -399,7 +429,7 @@ def create_causal_graph_from_adjacency(
             logger.info("Falling back to DummyGraph implementation")
     
     # Fallback to DummyGraph if CausalGraph is not available
-    return DummyGraph(binary_adj, node_names)
+    return DummyGraph(binary_adj)
 
 def load_model(
     path: str, 
@@ -546,76 +576,169 @@ def load_model(
             logger.error(f"Error creating model: {e}")
             return None
 
-def infer_adjacency_matrix(
-    model: nn.Module, 
-    data: torch.Tensor, 
-    interventions: Optional[Dict[str, Any]] = None,
-    threshold: Optional[float] = None
-) -> torch.Tensor:
+def infer_adjacency_matrix(model, encoder_input, interventions=None):
     """
-    Infer adjacency matrix from data using a neural model with improved robustness.
+    Infer adjacency matrix from encoder input using the given model.
     
     Args:
-        model: Neural network model (AmortizedCausalDiscovery or GraphEncoder)
-        data: Input data tensor
-        interventions: Intervention specifications (if any)
-        threshold: Threshold for binarizing edges (None means return raw probabilities)
+        model: Neural network model
+        encoder_input: Input for the graph encoder component [batch_size, num_nodes] or [batch_size, seq_len, num_nodes]
+        interventions: Optional intervention information to be encoded
         
     Returns:
-        Inferred adjacency matrix as a torch tensor
+        Inferred adjacency matrix as a tensor [batch_size, num_nodes, num_nodes] or [num_nodes, num_nodes]
     """
-    # Ensure data is a tensor
-    if not isinstance(data, torch.Tensor):
-        data = torch.tensor(data, dtype=torch.float32)
-    
-    # Move to same device as model
-    device = next(model.parameters()).device
-    data = data.to(device)
-    
-    # Handle interventions if provided
-    if interventions is not None and isinstance(interventions, dict) and 'mask' in interventions:
-        interventions = {
-            key: value.to(device) if isinstance(value, torch.Tensor) else value
-            for key, value in interventions.items()
-        }
-    
-    # Use a default threshold if not provided
-    if threshold is None:
-        threshold = 0.5
-    
-    # Ensure the model is in evaluation mode
+    # Set model to evaluation mode
     model.eval()
     
-    try:
-        with torch.no_grad():
-            # Different handling based on model type
-            if isinstance(model, AmortizedCausalDiscovery) and hasattr(model, 'infer_causal_graph'):
-                # Use the model's built-in inference method - note it doesn't accept interventions
-                adj_matrix = model.infer_causal_graph(data, threshold)
-            elif hasattr(model, 'graph_encoder') and hasattr(model.graph_encoder, 'forward'):
-                # Access the graph encoder directly
-                adj_matrix = model.graph_encoder(data)
-                # Apply threshold
-                adj_matrix = (adj_matrix > threshold).float()
-            elif hasattr(model, 'forward'):
-                # Generic forward pass assuming the model outputs adjacency matrix
-                if interventions is not None:
-                    adj_matrix = model(data, interventions=interventions)
+    # Standardize input dimensions
+    with torch.no_grad():
+        # Handle 1D input (single sample, multiple nodes)
+        if encoder_input.dim() == 1:
+            # [num_nodes] -> [1, num_nodes]
+            encoder_input = encoder_input.unsqueeze(0)
+        
+        # Extract dimensions from input
+        if encoder_input.dim() == 2:
+            # [batch_size, num_nodes]
+            batch_size, num_nodes = encoder_input.shape
+            has_seq_dim = False
+        elif encoder_input.dim() == 3:
+            # [batch_size, seq_len, num_nodes]
+            batch_size, seq_len, num_nodes = encoder_input.shape
+            has_seq_dim = True
+        else:
+            raise ValueError(f"Unexpected encoder_input shape: {encoder_input.shape}. Expected 1D, 2D, or 3D tensor.")
+        
+        # Forward pass with appropriate method based on model type
+        try:
+            # Check if model has methods specifically for handling interventions
+            if hasattr(model, 'forward_with_interventions') and interventions is not None:
+                # Use the model's dedicated method for intervention-aware inference
+                inferred_adj_matrix = model.forward_with_interventions(encoder_input, interventions)
+            elif hasattr(model, 'encode_interventions') and interventions is not None:
+                # Use the model's intervention encoding method
+                inferred_adj_matrix = model(encoder_input, encode_interventions=interventions)
+            elif isinstance(model, AmortizedCausalDiscovery):
+                # Special handling for AmortizedCausalDiscovery model
+                device = encoder_input.device
+                
+                # Create node features (just use 1D features for simplicity)
+                node_features = torch.ones((batch_size * num_nodes, 1), device=device)
+                
+                # Create a fully connected edge index for initial inference
+                edge_index = []
+                for i in range(num_nodes):
+                    for j in range(num_nodes):
+                        if i != j:  # No self-loops
+                            edge_index.append([i, j])
+                edge_index = torch.tensor(edge_index, device=device).t()
+                
+                # Create batch assignment tensor
+                batch = torch.repeat_interleave(
+                    torch.arange(batch_size, device=device),
+                    repeats=num_nodes
+                )
+                
+                # Handle input shape for AmortizedCausalDiscovery
+                x_input = encoder_input
+                if not has_seq_dim and hasattr(model, 'expects_seq_dim') and model.expects_seq_dim:
+                    # Add sequence dimension if model expects it
+                    x_input = encoder_input.unsqueeze(1)
+                
+                # Call the model with all required parameters
+                outputs = model(
+                    x=x_input,
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    batch=batch,
+                    interventions=interventions if interventions is not None else None,
+                    return_uncertainty=False
+                )
+                
+                # Extract adjacency matrix from outputs
+                if isinstance(outputs, dict) and 'adjacency' in outputs:
+                    inferred_adj_matrix = outputs['adjacency']
                 else:
-                    adj_matrix = model(data)
-                # Apply threshold
-                adj_matrix = (adj_matrix > threshold).float()
+                    # Assume the output is the adjacency matrix
+                    inferred_adj_matrix = outputs
             else:
-                raise ValueError("Model does not have a compatible interface for graph inference")
-        
-        return adj_matrix
-    
-    except Exception as e:
-        logger.error(f"Error inferring adjacency matrix: {e}")
-        
-        # Fallback: Return a zero matrix with appropriate shape
-        num_nodes = data.shape[-1] if len(data.shape) >= 2 else data.shape[0]
-        return torch.zeros((num_nodes, num_nodes), device=device)
+                # Handle model specific requirements for input shape
+                model_input = encoder_input
+                
+                # Check if model expects 3D input with sequence dimension
+                if not has_seq_dim and hasattr(model, 'expects_3d_input') and model.expects_3d_input:
+                    # Add a dummy sequence dimension [batch_size, 1, num_nodes]
+                    model_input = encoder_input.unsqueeze(1)
+                
+                # Standard forward pass
+                outputs = model(model_input)
+                
+                # Extract adjacency matrix depending on output format
+                if isinstance(outputs, dict) and 'adjacency' in outputs:
+                    inferred_adj_matrix = outputs['adjacency']
+                elif isinstance(outputs, tuple) and len(outputs) > 0:
+                    inferred_adj_matrix = outputs[0]
+                else:
+                    # Assume the output is the adjacency matrix
+                    inferred_adj_matrix = outputs
+            
+            # Standardize the output shape
+            # Expected output: [batch_size, num_nodes, num_nodes] or [num_nodes, num_nodes]
+            if inferred_adj_matrix.dim() == 2:
+                # Check if this is already a valid adjacency matrix
+                if inferred_adj_matrix.shape[0] == inferred_adj_matrix.shape[1] == num_nodes:
+                    # Valid [num_nodes, num_nodes] adjacency matrix
+                    return inferred_adj_matrix
+                else:
+                    # Try to reshape flat tensor to proper adjacency shape
+                    # This handles cases where the model outputs a flattened adjacency matrix
+                    if inferred_adj_matrix.shape[0] == batch_size and inferred_adj_matrix.shape[1] == num_nodes * num_nodes:
+                        # Reshape [batch_size, num_nodes*num_nodes] -> [batch_size, num_nodes, num_nodes]
+                        return inferred_adj_matrix.view(batch_size, num_nodes, num_nodes)
+                    else:
+                        logger.warning(f"Unexpected adjacency shape: {inferred_adj_matrix.shape}, expected [{num_nodes}, {num_nodes}]")
+                        # Try to reshape to match expected shape
+                        if inferred_adj_matrix.numel() == num_nodes * num_nodes:
+                            return inferred_adj_matrix.view(num_nodes, num_nodes)
+                        else:
+                            # Return as is if we can't reshape
+                            return inferred_adj_matrix
+            
+            elif inferred_adj_matrix.dim() == 3:
+                # Check if the output is already in the correct shape
+                if inferred_adj_matrix.shape[1:] == (num_nodes, num_nodes):
+                    # If batch_size is 1 and we need a 2D output, squeeze
+                    if batch_size == 1 and inferred_adj_matrix.shape[0] == 1:
+                        return inferred_adj_matrix.squeeze(0)
+                    else:
+                        return inferred_adj_matrix
+                else:
+                    logger.warning(f"Unexpected adjacency shape: {inferred_adj_matrix.shape}, expected [batch, {num_nodes}, {num_nodes}]")
+                    # If dimensions are swapped, try to transpose
+                    if inferred_adj_matrix.shape[1] == num_nodes and inferred_adj_matrix.shape[2] == num_nodes:
+                        return inferred_adj_matrix
+                    else:
+                        # Return as is if we can't fix
+                        return inferred_adj_matrix
+            else:
+                # Handle unexpected number of dimensions
+                logger.warning(f"Unexpected adjacency dimensions: {inferred_adj_matrix.dim()}, shape: {inferred_adj_matrix.shape}")
+                
+                if inferred_adj_matrix.numel() == num_nodes * num_nodes:
+                    # Try to reshape to [num_nodes, num_nodes]
+                    return inferred_adj_matrix.view(num_nodes, num_nodes)
+                elif inferred_adj_matrix.numel() == batch_size * num_nodes * num_nodes:
+                    # Try to reshape to [batch_size, num_nodes, num_nodes]
+                    return inferred_adj_matrix.view(batch_size, num_nodes, num_nodes)
+                else:
+                    # Return as is if we can't fix
+                    return inferred_adj_matrix
+                
+        except Exception as e:
+            logger.error(f"Error in adjacency matrix inference: {e}")
+            # Create a safe fallback output
+            return torch.zeros((batch_size, num_nodes, num_nodes), device=encoder_input.device)
 
 def visualize_graph(
     graph: Any,
@@ -761,141 +884,36 @@ def compare_graphs(
     
     return fig
 
-# Dummy classes for fallback when causal_meta components are not available
 class DummyGraph:
-    """Fallback implementation when CausalGraph is not available."""
+    """A simple dummy graph class for when CausalGraph has issues."""
     
-    def __init__(self, adj_matrix: np.ndarray, node_names: Optional[List[str]] = None):
-        """Initialize with adjacency matrix and node names."""
-        self.adj_matrix = adj_matrix
-        self.num_nodes = adj_matrix.shape[0]
-        self.node_names = node_names if node_names is not None else [f"X_{i}" for i in range(self.num_nodes)]
-    
-    def get_num_nodes(self) -> int:
-        """Get the number of nodes in the graph."""
-        return self.num_nodes
-    
-    def has_edge(self, i: int, j: int) -> bool:
-        """Check if there is an edge from node i to node j."""
-        # Convert node names to indices if needed
-        if isinstance(i, str):
-            i = self.node_names.index(i)
-        if isinstance(j, str):
-            j = self.node_names.index(j)
+    def __init__(self, adjacency_matrix):
+        """
+        Initialize a dummy graph from an adjacency matrix.
         
-        return bool(self.adj_matrix[i, j])
-    
-    def get_nodes(self) -> List[str]:
-        """Get all nodes in the graph."""
-        return self.node_names
-    
-    def get_edges(self) -> List[Tuple[str, str]]:
-        """Get all edges in the graph."""
+        Args:
+            adjacency_matrix: Adjacency matrix as a numpy array
+        """
+        self.adjacency_matrix = adjacency_matrix
+        if isinstance(adjacency_matrix, torch.Tensor):
+            self.adjacency_matrix = adjacency_matrix.detach().cpu().numpy()
+        
+    def get_adjacency_matrix(self):
+        """Return the adjacency matrix."""
+        return self.adjacency_matrix
+        
+    def get_nodes(self):
+        """Return the node names."""
+        return [f"X_{i}" for i in range(self.adjacency_matrix.shape[0])]
+        
+    def get_edges(self):
+        """Return the edges as a list of tuples."""
         edges = []
-        for i in range(self.num_nodes):
-            for j in range(self.num_nodes):
-                if self.adj_matrix[i, j]:
-                    edges.append((self.node_names[i], self.node_names[j]))
+        for i in range(self.adjacency_matrix.shape[0]):
+            for j in range(self.adjacency_matrix.shape[1]):
+                if self.adjacency_matrix[i, j] > 0.5:  # Threshold for edge existence
+                    edges.append((f"X_{i}", f"X_{j}"))
         return edges
-    
-    def add_node(self, node: str) -> None:
-        """Add a node to the graph."""
-        if node not in self.node_names:
-            self.node_names.append(node)
-            # Expand adjacency matrix
-            new_adj = np.zeros((self.num_nodes + 1, self.num_nodes + 1))
-            new_adj[:self.num_nodes, :self.num_nodes] = self.adj_matrix
-            self.adj_matrix = new_adj
-            self.num_nodes += 1
-    
-    def add_edge(self, u: str, v: str) -> None:
-        """Add an edge from node u to node v."""
-        # Get indices
-        if u not in self.node_names:
-            self.add_node(u)
-        if v not in self.node_names:
-            self.add_node(v)
-        
-        u_idx = self.node_names.index(u)
-        v_idx = self.node_names.index(v)
-        
-        # Add edge
-        self.adj_matrix[u_idx, v_idx] = 1
-    
-    def get_adjacency_matrix(self, node_order: Optional[List[str]] = None) -> np.ndarray:
-        """Get the adjacency matrix of the graph."""
-        if node_order is None:
-            return self.adj_matrix
-        
-        # Create adjacency matrix with the specified node order
-        indices = [self.node_names.index(node) for node in node_order]
-        return self.adj_matrix[np.ix_(indices, indices)]
-    
-    def get_parents(self, node: str) -> List[str]:
-        """Get parents of a node."""
-        if isinstance(node, int):
-            node_idx = node
-            if node_idx < 0 or node_idx >= self.num_nodes:
-                raise ValueError(f"Node index {node_idx} out of range")
-        else:
-            if node not in self.node_names:
-                raise ValueError(f"Node {node} not in graph")
-            node_idx = self.node_names.index(node)
-        
-        # Find parents (incoming edges)
-        parents = []
-        for i in range(self.num_nodes):
-            if self.adj_matrix[i, node_idx]:
-                parents.append(self.node_names[i])
-        
-        return parents
-    
-    def get_children(self, node: str) -> List[str]:
-        """Get children of a node."""
-        if isinstance(node, int):
-            node_idx = node
-            if node_idx < 0 or node_idx >= self.num_nodes:
-                raise ValueError(f"Node index {node_idx} out of range")
-        else:
-            if node not in self.node_names:
-                raise ValueError(f"Node {node} not in graph")
-            node_idx = self.node_names.index(node)
-        
-        # Find children (outgoing edges)
-        children = []
-        for i in range(self.num_nodes):
-            if self.adj_matrix[node_idx, i]:
-                children.append(self.node_names[i])
-        
-        return children
-    
-    def is_acyclic(self) -> bool:
-        """Check if the graph is acyclic."""
-        # Simple implementation using DFS to detect cycles
-        visited = set()
-        path = set()
-        
-        def is_cyclic_util(node_idx):
-            visited.add(node_idx)
-            path.add(node_idx)
-            
-            for i in range(self.num_nodes):
-                if self.adj_matrix[node_idx, i]:
-                    if i not in visited:
-                        if is_cyclic_util(i):
-                            return True
-                    elif i in path:
-                        return True
-            
-            path.remove(node_idx)
-            return False
-        
-        for i in range(self.num_nodes):
-            if i not in visited:
-                if is_cyclic_util(i):
-                    return False
-        
-        return True
 
 def convert_to_structural_equation_model(
     graph: Any, 
@@ -1310,6 +1328,137 @@ def calculate_structural_hamming_distance(graph1, graph2):
     shd = np.sum(diff)
     
     return shd
+
+def structural_hamming_distance(graph1, graph2):
+    """
+    Calculate the structural hamming distance between two graphs.
+    
+    Works with both CausalGraph instances and DummyGraph instances.
+    
+    Args:
+        graph1: First graph
+        graph2: Second graph
+        
+    Returns:
+        Structural hamming distance
+    """
+    # Extract adjacency matrices
+    if hasattr(graph1, 'get_adjacency_matrix'):
+        adj1 = graph1.get_adjacency_matrix()
+    elif hasattr(graph1, 'adjacency_matrix'):
+        adj1 = graph1.adjacency_matrix
+    else:
+        raise ValueError("graph1 must have get_adjacency_matrix method or adjacency_matrix attribute")
+        
+    if hasattr(graph2, 'get_adjacency_matrix'):
+        adj2 = graph2.get_adjacency_matrix()
+    elif hasattr(graph2, 'adjacency_matrix'):
+        adj2 = graph2.adjacency_matrix
+    else:
+        raise ValueError("graph2 must have get_adjacency_matrix method or adjacency_matrix attribute")
+    
+    # Convert to numpy arrays if they are tensors
+    if isinstance(adj1, torch.Tensor):
+        adj1 = adj1.detach().cpu().numpy()
+    if isinstance(adj2, torch.Tensor):
+        adj2 = adj2.detach().cpu().numpy()
+    
+    # Ensure boolean arrays for comparison
+    if adj1.dtype != bool:
+        adj1 = adj1 > 0.5
+    if adj2.dtype != bool:
+        adj2 = adj2 > 0.5
+        
+    # Calculate SHD (count of differing entries in the adjacency matrices)
+    return np.sum(adj1 != adj2)
+
+def visualize_graph_comparison(graph1, graph2, title="Graph Comparison"):
+    """
+    Visualize a comparison between two graphs.
+    
+    Args:
+        graph1: First graph (typically the true graph)
+        graph2: Second graph (typically the inferred graph)
+        title: Title for the figure
+    """
+    # Create a figure with two subplots
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    
+    # Extract adjacency matrices
+    if hasattr(graph1, 'get_adjacency_matrix'):
+        adj1 = graph1.get_adjacency_matrix()
+    elif hasattr(graph1, 'adjacency_matrix'):
+        adj1 = graph1.adjacency_matrix
+    else:
+        raise ValueError("graph1 must have get_adjacency_matrix method or adjacency_matrix attribute")
+        
+    if hasattr(graph2, 'get_adjacency_matrix'):
+        adj2 = graph2.get_adjacency_matrix()
+    elif hasattr(graph2, 'adjacency_matrix'):
+        adj2 = graph2.adjacency_matrix
+    else:
+        raise ValueError("graph2 must have get_adjacency_matrix method or adjacency_matrix attribute")
+    
+    # Convert to numpy arrays if they are tensors
+    if isinstance(adj1, torch.Tensor):
+        adj1 = adj1.detach().cpu().numpy()
+    if isinstance(adj2, torch.Tensor):
+        adj2 = adj2.detach().cpu().numpy()
+    
+    # Get number of nodes
+    num_nodes = adj1.shape[0]
+    
+    # Get node names
+    if hasattr(graph1, 'get_nodes'):
+        node_names = graph1.get_nodes()
+    else:
+        node_names = [f"X_{i}" for i in range(num_nodes)]
+    
+    # Create networkx graphs
+    G1 = nx.DiGraph()
+    G2 = nx.DiGraph()
+    
+    # Add nodes
+    for i in range(num_nodes):
+        G1.add_node(i, name=node_names[i])
+        G2.add_node(i, name=node_names[i])
+    
+    # Add edges with threshold
+    for i in range(num_nodes):
+        for j in range(num_nodes):
+            if adj1[i, j] > 0.5:
+                G1.add_edge(i, j)
+            if adj2[i, j] > 0.5:
+                G2.add_edge(i, j)
+    
+    # Create layouts
+    pos = nx.spring_layout(G1, seed=42)
+    
+    # Draw first graph
+    nx.draw_networkx_nodes(G1, pos, ax=axes[0], node_color='lightblue', 
+                         node_size=500, alpha=0.8)
+    nx.draw_networkx_edges(G1, pos, ax=axes[0], arrowstyle='->', 
+                         arrowsize=15, width=1.5, edge_color='blue')
+    nx.draw_networkx_labels(G1, pos, ax=axes[0], 
+                         labels={i: G1.nodes[i]['name'] for i in G1.nodes})
+    axes[0].set_title("True Graph")
+    axes[0].axis('off')
+    
+    # Draw second graph
+    nx.draw_networkx_nodes(G2, pos, ax=axes[1], node_color='lightgreen', 
+                         node_size=500, alpha=0.8)
+    nx.draw_networkx_edges(G2, pos, ax=axes[1], arrowstyle='->', 
+                         arrowsize=15, width=1.5, edge_color='green')
+    nx.draw_networkx_labels(G2, pos, ax=axes[1], 
+                         labels={i: G2.nodes[i]['name'] for i in G2.nodes})
+    axes[1].set_title("Inferred Graph")
+    axes[1].axis('off')
+    
+    # Add global title
+    fig.suptitle(title, fontsize=16)
+    plt.tight_layout()
+    
+    return fig
 
 # Initialize logging when the module is imported
 logger.info("Refactored utilities module loaded successfully") 

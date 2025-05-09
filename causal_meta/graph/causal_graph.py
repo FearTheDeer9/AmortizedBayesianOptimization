@@ -8,6 +8,7 @@ identification, and intervention operations.
 from typing import List, Dict, Set, Optional, Union, Any, Tuple, FrozenSet
 import copy
 import numpy as np
+import torch
 
 from causal_meta.graph.directed_graph import DirectedGraph
 from causal_meta.graph.utils import deprecated
@@ -634,3 +635,46 @@ class CausalGraph(DirectedGraph):
                 causal_graph.add_edge(u, v)
                 
         return causal_graph
+
+    @classmethod
+    def from_adjacency_matrix(cls, adjacency_matrix, node_names=None, threshold=0.5):
+        """
+        Create a CausalGraph from an adjacency matrix.
+
+        Args:
+            adjacency_matrix: A 2D matrix where adjacency_matrix[i][j] indicates an edge from i to j.
+                             Values above threshold are considered edges.
+            node_names: Optional list of node names. If provided, must have the same length as
+                      the adjacency matrix dimensions. If not provided, nodes will be named 'X_0', 'X_1', etc.
+            threshold: Threshold value for considering an edge exists (default: 0.5)
+
+        Returns:
+            CausalGraph: A CausalGraph object representing the graph structure
+        """
+        # Convert to numpy array if needed
+        if isinstance(adjacency_matrix, torch.Tensor):
+            adjacency_matrix = adjacency_matrix.detach().cpu().numpy()
+            
+        # Get dimensions
+        num_nodes = adjacency_matrix.shape[0]
+        
+        # Create node names if not provided
+        if node_names is None:
+            node_names = [f"X_{i}" for i in range(num_nodes)]
+        elif len(node_names) != num_nodes:
+            raise ValueError(f"Length of node_names ({len(node_names)}) must match adjacency matrix dimensions ({num_nodes})")
+        
+        # Create the graph
+        graph = cls()
+        
+        # Add nodes
+        for node in node_names:
+            graph.add_node(node)
+        
+        # Add edges where adjacency_matrix[i][j] > threshold
+        for i in range(num_nodes):
+            for j in range(num_nodes):
+                if adjacency_matrix[i][j] > threshold:
+                    graph.add_edge(node_names[i], node_names[j])
+        
+        return graph

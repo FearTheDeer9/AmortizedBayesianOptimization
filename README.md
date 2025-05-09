@@ -110,6 +110,33 @@ python demos/parent_scale_acd_demo.py --num_nodes 7 --max_interventions 5
 - **Model Training**: Add functionality to train models from scratch on custom datasets
 - **Hyperparameter Tuning**: Allow customization of model architecture and training parameters
 
+## Simplified Causal Discovery Model
+
+We have developed a simplified causal discovery model in `demos/simplified_causal_discovery.py` that can be used with the progressive structure recovery demo. This model:
+
+- Addresses tensor dimension compatibility issues in the original AmortizedCausalDiscovery model
+- Provides a clean interface for integrating with EnhancedMAMLForCausalDiscovery
+- Supports proper intervention encoding for more effective structure learning
+- Works with graphs of different sizes
+
+To use the simplified model:
+
+```bash
+# Run the demo with default settings (3 nodes)
+python demos/progressive_structure_recovery_demo.py --model-type simplified --visualize
+
+# Test with multiple graph sizes
+python demos/progressive_structure_recovery_demo.py --test-multiple-sizes --min-nodes 3 --max-nodes 6 --visualize
+```
+
+The implementation includes:
+
+1. `SimplifiedCausalDiscovery`: A lightweight neural model for adjacency matrix prediction
+2. `EnhancedMAMLForCausalDiscovery`: Improved MAML wrapper with proper intervention encoding and regularization
+3. Testing functionality for multiple graph sizes 
+
+Our results demonstrate that the model can successfully recover simple causal structures with a sufficient number of adaptive interventions.
+
 ## Features
 
 ### Graph Classes

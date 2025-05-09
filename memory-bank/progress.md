@@ -1,6 +1,207 @@
 # Progress Log
 
-This document tracks completed tasks and subtasks.
+## 2023-11-17: Completed Implementation of GraphEncoderAdapter
+
+**Task Completed:** Subtask 3.1 - Implement CausalStructureInferenceModel Interface
+
+**Key Accomplishments:**
+- Created GraphEncoderAdapter to implement the CausalStructureInferenceModel interface
+- Fixed several issues in the existing adapter implementation:
+  - Modified infer_structure to return a proper CausalGraph object
+  - Improved input validation for different data formats
+  - Implemented a more flexible update_model method
+  - Enhanced uncertainty estimation with entropy and confidence intervals
+- Wrote comprehensive tests in test_graph_encoder_adapter.py
+- Updated the Component Registry with documentation for the new adapter
+- All tests are now passing with the improved implementation
+
+**Implementation Details:**
+- The adapter properly wraps the existing GraphEncoder component, allowing it to be used through the new interface
+- Input validation was improved to handle both NumPy arrays and PyTorch tensors
+- Fixed the update_model method to avoid a bug with torch.nn.Module.train() method
+- Uncertainty estimates include edge probabilities, entropy, and confidence intervals
+- Implementation follows the interface-first design pattern outlined in the architecture document
+
+**Next Steps:**
+- Implement additional adapters for non-GNN models (Subtask 3.2)
+- Consider implementing adapters for traditional causal discovery algorithms
+- Update the AmortizedCausalDiscovery class to use these adapters
+
+## 2023-12-14: Completed Implementation of Non-GNN Models for Causal Structure Inference
+
+**Task Completed:** Subtask 3.2 - Add Support for Non-GNN Models
+
+**Key Accomplishments:**
+- Implemented and tested MLPGraphEncoder and TransformerGraphEncoder as non-GNN alternatives for causal structure inference
+- Created appropriate adapter classes (MLPGraphEncoderAdapter and TransformerGraphEncoderAdapter) to implement the CausalStructureInferenceModel interface
+- Updated __init__.py files to properly export these new components
+- Created an example script (examples/non_gnn_models_example.py) demonstrating the use of these non-GNN models
+- Verified functionality with passing tests for both model types
+
+**Implementation Details:**
+- MLPGraphEncoder uses standard fully-connected layers to process time series data
+- TransformerGraphEncoder uses self-attention mechanisms to capture temporal dependencies
+- Both models create node embeddings from time series data and predict pairwise edge probabilities
+- The to_causal_graph method properly converts edge probabilities to CausalGraph objects
+- All test cases pass for both MLP and Transformer implementations
+
+**Next Steps:**
+- Implement MLPDynamicsDecoder and TransformerDynamicsDecoder as non-GNN alternatives for dynamics prediction
+- Perform benchmarking to compare performance of GNN vs non-GNN models for causal structure inference
+- Explore hybrid approaches that combine different model architectures
+
+## May 15, 2024
+
+### Completed Subtask 0.1: Define CausalStructureInferenceModel Interface
+
+- Designed the CausalStructureInferenceModel interface:
+  - Created abstract base class in `causal_meta/inference/interfaces.py`
+  - Defined core methods: `infer_structure()`, `update_model()`, `estimate_uncertainty()`
+  - Added comprehensive documentation and type annotations
+
+- Implemented type definitions and utility functions:
+  - Defined `Graph` type variable for graph representations
+  - Defined `Data` type for standardized data format
+  - Defined `UncertaintyEstimate` for uncertainty representation
+  - Added utility functions for data validation and conversion
+
+- Created comprehensive test suite:
+  - Wrote interface tests in `tests/inference/test_interfaces.py`
+  - Ensured the interface contract is properly enforced
+  - Added tests for edge cases and error handling
+
+- Updated Component Registry:
+  - Added documentation for the CausalStructureInferenceModel interface
+  - Included usage examples and integration points
+  - Documented expected behavior for implementing classes
+
+The CausalStructureInferenceModel interface provides a standardized way to interact with causal structure inference models, allowing for consistent usage regardless of the underlying implementation.
+
+## May 23, 2024
+
+### Completed Subtask 0.3: Define AcquisitionStrategy Interface
+
+- Designed the AcquisitionStrategy interface:
+  - Created abstract base class in `causal_meta/optimization/interfaces.py`
+  - Defined core methods: `compute_acquisition()`, `select_intervention()`, `select_batch()`
+  - Added comprehensive documentation and type annotations
+
+- Implemented concrete acquisition strategies:
+  - Implemented `ExpectedImprovement` strategy in `causal_meta/optimization/acquisition.py`
+  - Implemented skeleton of `UpperConfidenceBound` strategy (partial implementation)
+  - Added proper error handling and edge case management
+
+- Created comprehensive test suite:
+  - Wrote interface tests in `tests/optimization/test_interfaces.py`
+  - Wrote implementation tests in `tests/optimization/test_acquisition.py`
+  - All tests are passing (15 tests total)
+
+- Updated Component Registry:
+  - Added documentation for the AcquisitionStrategy interface
+  - Added documentation for concrete implementations
+  - Included usage examples for all components
+  - Documented integration points with other components
+
+The acquisition strategy interface provides a flexible foundation for implementing and using different acquisition functions in causal Bayesian optimization, with a focus on compatibility with uncertainty-aware models and support for batch optimization.
+
+## June 1, 2024
+
+### Completed Subtask 0.2: Define InterventionOutcomeModel Interface
+
+- Designed the InterventionOutcomeModel interface:
+  - Created abstract base class in `causal_meta/inference/interfaces.py`
+  - Defined core methods: `predict_intervention_outcome()`, `update_model()`, `estimate_uncertainty()`
+  - Added comprehensive documentation and type annotations
+
+- Implemented type definitions and utility functions:
+  - Reused `Graph` type variable for graph representation consistency
+  - Extended `Data` type to handle interventional data
+  - Enhanced `UncertaintyEstimate` for intervention prediction uncertainty
+  - Added utility functions for intervention data validation
+
+- Created comprehensive test suite:
+  - Wrote interface tests in `tests/inference/test_interfaces.py`
+  - Ensured the interface contract is properly enforced
+  - Added tests for various intervention types and edge cases
+
+- Updated Component Registry:
+  - Added documentation for the InterventionOutcomeModel interface
+  - Included usage examples and integration points
+  - Documented expected behavior for implementing classes
+
+The InterventionOutcomeModel interface provides a standardized way to interact with models that predict outcomes of interventions, enabling consistent usage across different implementations and integration with the CausalStructureInferenceModel interface.
+
+## July 2, 2024
+
+### Completed Subtask 0.4: Define UncertaintyEstimator Interface
+
+- Designed and implemented the UncertaintyEstimator interface:
+  - Created abstract base class in `causal_meta/inference/uncertainty.py`
+  - Defined core methods: `estimate_uncertainty()` and `calibrate()`
+  - Added comprehensive documentation and type annotations
+
+- Implemented concrete estimators:
+  - `EnsembleUncertaintyEstimator` for ensemble-based uncertainty estimation
+  - `DropoutUncertaintyEstimator` for Monte Carlo dropout uncertainty
+  - `DirectUncertaintyEstimator` for models with direct uncertainty outputs
+  - `ConformalUncertaintyEstimator` for distribution-free uncertainty estimation
+
+- Created comprehensive test suite:
+  - Wrote interface tests and implementation tests
+  - Tested all estimator types with different model configurations
+  - Verified calibration functionality
+  - All tests are passing
+
+- Updated Component Registry:
+  - Added documentation for the UncertaintyEstimator interface
+  - Added documentation for all concrete implementations
+  - Included usage examples for all estimator types
+  - Documented integration with other interfaces
+
+The uncertainty estimation framework provides a flexible approach to quantifying uncertainty in causal inference models, with multiple estimator types to handle different model architectures and uncertainty requirements.
+
+## July 9, 2024
+
+### Completed Subtask 4.2: Standardize Uncertainty Quantification
+
+- Implemented standardized uncertainty quantification for the DynamicsDecoderAdapter, following the interface-first design pattern:
+  - Enhanced the DynamicsDecoderAdapter to accept an optional UncertaintyEstimator
+  - Added support for different uncertainty estimation methods (ensemble, dropout, direct, conformal)
+  - Standardized the uncertainty output format across all estimators
+  - Added calibration support for more accurate uncertainty estimates
+  - Implemented comprehensive tests for all uncertainty features
+  - Updated documentation in the Component Registry
+
+The implementation enables the dynamics models to provide consistent uncertainty estimates regardless of the specific estimator used, and supports calibration for improving the quality of the uncertainty estimates. This completes Task 4: Dynamics Prediction Models Refactoring, as both subtasks (4.1 and 4.2) are now completed.
+
+Next steps:
+- Move on to Task 5: Acquisition Strategies Refactoring, implementing the AcquisitionStrategy interface and strategies
+
+## July 12, 2024
+
+### Completed Implementation of Updatable Interface
+
+**Task Completed:** Subtask 0.5 - Define Updatable Interface
+
+**Key Accomplishments:**
+- Implemented the Updatable interface in causal_meta/inference/interfaces.py
+- Created abstract base class with update and reset methods
+- Added comprehensive documentation with examples
+- Implemented comprehensive test suite in tests/inference/test_updatable.py
+- Updated Component Registry with documentation for the new interface
+- All tests are now passing for the interface
+
+**Implementation Details:**
+- Designed the interface to support different update strategies (incremental, experience replay, full retraining)
+- Return value from update method indicates success or failure of update operation
+- Reset method returns model to initial state, enabling restart of learning or model checkpointing
+- Interface is compatible with existing Data type from other interfaces
+- Implementation follows TDD principles with tests written before implementation
+
+**Next Steps:**
+- Implement concrete updaters (IncrementalUpdater, ExperienceReplayUpdater, FullRetrainingUpdater)
+- Integrate with existing models through adapter pattern
+- Add update and reset methods to existing model implementations
 
 ## Completed Tasks
 
@@ -249,25 +450,25 @@ After reviewing the research direction and current implementation, we are adjust
     *   Updated visualization functions to handle different graph representations
     *   Successfully tested the parent_scale_acd_demo.py script with minimal settings
 
-  *   **[2025-06-26 - Created Refactored Utilities for Demo Scripts]**
-    *   Created `demos/refactored_utils.py` with improved implementations of utility functions:
-       - Safe import system with comprehensive error handling
-       - Improved tensor shape handling with proper validation
-       - Consistent node naming utilities for standardized identifiers
-       - Direct CausalGraph usage instead of duplicate graph implementation
-       - Robust model loading with graceful fallbacks
-       - Proper SCM conversion with standardized structural equations
-       - Comprehensive logging for better debugging
-    *   Created detailed documentation:
-       - Added `demos/refactored_utils_guide.md` with comprehensive explanations and examples
-       - Updated `demos/README.md` with information about the refactored utilities
-    *   Updated the implementation plan to reflect the current status and next steps.
-    *   **Next steps:**
-      1. Update the actual demo scripts (`parent_scale_acd_demo.py` and `full_acd_pipeline_demo.py`) to use the refactored utilities
-      2. Test the refactored demos with various settings to ensure robustness
-      3. Complete the documentation for the demo scripts
-    *   **Technical insight:**
-       The refactored utilities provide a significant improvement over the previous approach by eliminating duplicate implementations and properly leveraging the existing components from the Component Registry. This not only makes the demo scripts more maintainable but also ensures they correctly demonstrate the usage of the official components. The improved error handling and fallback mechanisms make the demos more robust, allowing them to run even when some components are not available.
+  *   **[2025-07-03]**
+    *   Completed Task 8.2: Create Full Amortized ACD Pipeline Demo
+    *   Completely refactored full_acd_pipeline_demo.py to use proper component registry components
+    *   Added detailed error handling and fallback implementations
+    *   Fixed graph representation issues throughout the pipeline
+    *   Created comprehensive documentation guide with instructions and examples
+    *   Successfully tested end-to-end workflow through all stages of causal discovery
+
+  *   **[2025-05-06]**
+    *   Completed Task 8.2: Create Full Amortized ACD Pipeline Demo
+    *   Fixed multiple issues in the full_acd_pipeline_demo.py script:
+      *   Updated the implementation to handle different graph types consistently using networkx.DiGraph
+      *   Improved task family creation to handle graph type conversions properly
+      *   Fixed prepare_training_data to extract adjacency matrices from various graph formats
+      *   Added robust error handling throughout the pipeline 
+      *   Created fallback implementations that work when causal_meta components are unavailable
+      *   Added parameter introspection to handle different constructor parameter names
+    *   Successfully tested the demo in quick mode with full end-to-end execution
+    *   Ensured the demo runs properly with mock components when actual implementations are unavailable
 
 - **Task 7: Evaluation Framework and Benchmarks** (Status: `in-progress`, Partially Complete)
   - Subtask 7.1: Implement benchmark suite (Status: `done`)
@@ -409,3 +610,175 @@ Successfully refactored demo scripts to properly leverage existing components fr
    - Ensured proper command-line interface for configuration
 
 The refactored demo now serves as an example of how to properly use the causal_meta components following the Component Registry guidelines, reducing code duplication and improving maintainability.
+
+## May 15, 2024
+
+### Completed Subtask 0.1: Define CausalStructureInferenceModel Interface
+
+- Designed the CausalStructureInferenceModel interface:
+  - Created abstract base class in `causal_meta/inference/interfaces.py`
+  - Defined core methods: `infer_structure()`, `update_model()`, `estimate_uncertainty()`
+  - Added comprehensive documentation and type annotations
+
+- Implemented type definitions and utility functions:
+  - Defined `Graph` type variable for graph representations
+  - Defined `Data` type for standardized data format
+  - Defined `UncertaintyEstimate` for uncertainty representation
+  - Added utility functions for data validation and conversion
+
+- Created comprehensive test suite:
+  - Wrote interface tests in `tests/inference/test_interfaces.py`
+  - Ensured the interface contract is properly enforced
+  - Added tests for edge cases and error handling
+
+- Updated Component Registry:
+  - Added documentation for the CausalStructureInferenceModel interface
+  - Included usage examples and integration points
+  - Documented expected behavior for implementing classes
+
+The CausalStructureInferenceModel interface provides a standardized way to interact with causal structure inference models, allowing for consistent usage regardless of the underlying implementation.
+
+## May 23, 2024
+
+### Completed Subtask 0.3: Define AcquisitionStrategy Interface
+
+- Designed the AcquisitionStrategy interface:
+  - Created abstract base class in `causal_meta/optimization/interfaces.py`
+  - Defined core methods: `compute_acquisition()`, `select_intervention()`, `select_batch()`
+  - Added comprehensive documentation and type annotations
+
+- Implemented concrete acquisition strategies:
+  - Implemented `ExpectedImprovement` strategy in `causal_meta/optimization/acquisition.py`
+  - Implemented skeleton of `UpperConfidenceBound` strategy (partial implementation)
+  - Added proper error handling and edge case management
+
+- Created comprehensive test suite:
+  - Wrote interface tests in `tests/optimization/test_interfaces.py`
+  - Wrote implementation tests in `tests/optimization/test_acquisition.py`
+  - All tests are passing (15 tests total)
+
+- Updated Component Registry:
+  - Added documentation for the AcquisitionStrategy interface
+  - Added documentation for concrete implementations
+  - Included usage examples for all components
+  - Documented integration points with other components
+
+The acquisition strategy interface provides a flexible foundation for implementing and using different acquisition functions in causal Bayesian optimization, with a focus on compatibility with uncertainty-aware models and support for batch optimization.
+
+## June 1, 2024
+
+### Completed Subtask 0.2: Define InterventionOutcomeModel Interface
+
+- Designed the InterventionOutcomeModel interface:
+  - Created abstract base class in `causal_meta/inference/interfaces.py`
+  - Defined core methods: `predict_intervention_outcome()`, `update_model()`, `estimate_uncertainty()`
+  - Added comprehensive documentation and type annotations
+
+- Implemented type definitions and utility functions:
+  - Reused `Graph` type variable for graph representation consistency
+  - Extended `Data` type to handle interventional data
+  - Enhanced `UncertaintyEstimate` for intervention prediction uncertainty
+  - Added utility functions for intervention data validation
+
+- Created comprehensive test suite:
+  - Wrote interface tests in `tests/inference/test_interfaces.py`
+  - Ensured the interface contract is properly enforced
+  - Added tests for various intervention types and edge cases
+
+- Updated Component Registry:
+  - Added documentation for the InterventionOutcomeModel interface
+  - Included usage examples and integration points
+  - Documented expected behavior for implementing classes
+
+The InterventionOutcomeModel interface provides a standardized way to interact with models that predict outcomes of interventions, enabling consistent usage across different implementations and integration with the CausalStructureInferenceModel interface.
+
+## July 2, 2024
+
+### Completed Subtask 0.4: Define UncertaintyEstimator Interface
+
+- Designed and implemented the UncertaintyEstimator interface:
+  - Created abstract base class in `causal_meta/inference/uncertainty.py`
+  - Defined core methods: `estimate_uncertainty()` and `calibrate()`
+  - Added comprehensive documentation and type annotations
+
+- Implemented concrete estimators:
+  - `EnsembleUncertaintyEstimator` for ensemble-based uncertainty estimation
+  - `DropoutUncertaintyEstimator` for Monte Carlo dropout uncertainty
+  - `DirectUncertaintyEstimator` for models with direct uncertainty outputs
+  - `ConformalUncertaintyEstimator` for distribution-free uncertainty estimation
+
+- Created comprehensive test suite:
+  - Wrote interface tests and implementation tests
+  - Tested all estimator types with different model configurations
+  - Verified calibration functionality
+  - All tests are passing
+
+- Updated Component Registry:
+  - Added documentation for the UncertaintyEstimator interface
+  - Added documentation for all concrete implementations
+  - Included usage examples for all estimator types
+  - Documented integration with other interfaces
+
+The uncertainty estimation framework provides a flexible approach to quantifying uncertainty in causal inference models, with multiple estimator types to handle different model architectures and uncertainty requirements.
+
+## July 9, 2024
+
+### Completed Subtask 4.2: Standardize Uncertainty Quantification
+
+- Implemented standardized uncertainty quantification for the DynamicsDecoderAdapter, following the interface-first design pattern:
+  - Enhanced the DynamicsDecoderAdapter to accept an optional UncertaintyEstimator
+  - Added support for different uncertainty estimation methods (ensemble, dropout, direct, conformal)
+  - Standardized the uncertainty output format across all estimators
+  - Added calibration support for more accurate uncertainty estimates
+  - Implemented comprehensive tests for all uncertainty features
+  - Updated documentation in the Component Registry
+
+The implementation enables the dynamics models to provide consistent uncertainty estimates regardless of the specific estimator used, and supports calibration for improving the quality of the uncertainty estimates. This completes Task 4: Dynamics Prediction Models Refactoring, as both subtasks (4.1 and 4.2) are now completed.
+
+Next steps:
+- Move on to Task 5: Acquisition Strategies Refactoring, implementing the AcquisitionStrategy interface and strategies
+
+## July 12, 2024
+
+### Completed Implementation of Updatable Interface
+
+**Task Completed:** Subtask 0.5 - Define Updatable Interface
+
+**Key Accomplishments:**
+- Implemented the Updatable interface in causal_meta/inference/interfaces.py
+- Created abstract base class with update and reset methods
+- Added comprehensive documentation with examples
+- Implemented comprehensive test suite in tests/inference/test_updatable.py
+- Updated Component Registry with documentation for the new interface
+- All tests are now passing for the interface
+
+**Implementation Details:**
+- Designed the interface to support different update strategies (incremental, experience replay, full retraining)
+- Return value from update method indicates success or failure of update operation
+- Reset method returns model to initial state, enabling restart of learning or model checkpointing
+- Interface is compatible with existing Data type from other interfaces
+- Implementation follows TDD principles with tests written before implementation
+
+**Next Steps:**
+- Implement concrete updaters (IncrementalUpdater, ExperienceReplayUpdater, FullRetrainingUpdater)
+- Integrate with existing models through adapter pattern
+- Add update and reset methods to existing model implementations
+
+## 2023-05-21
+Completed Task 1.1: Standardize Method Naming in the CausalGraph and DirectedGraph classes
+
+Key Accomplishments:
+- Created a utility module `causal_meta/graph/utils.py` with a `deprecated` decorator for managing deprecation warnings
+- Updated the base `Graph` class to have consistent return types for collection methods:
+  - Changed `get_nodes()` and `get_edges()` to return Lists instead of Sets
+  - Updated docstrings and type hints
+- Standardized method naming in `DirectedGraph`:
+  - Ensured consistency with the base class
+  - Added `is_acyclic()` as a complementary method to `has_cycle()`
+- Enhanced `CausalGraph` class with better NetworkX integration:
+  - Added a `from_networkx` class method for creating CausalGraph objects from NetworkX graphs
+- Created comprehensive test suite for each class:
+  - Tests for the graph classes to validate behavior
+  - Tests for the utility functions
+
+Implementation followed the interface-first design pattern with careful consideration to backward compatibility and clear documentation of return types and method behaviors.

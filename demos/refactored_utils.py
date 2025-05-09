@@ -83,7 +83,18 @@ GraphEncoder = safe_import('causal_meta.meta_learning.acd_models.GraphEncoder')
 DynamicsDecoder = safe_import('causal_meta.meta_learning.dynamics_decoder.DynamicsDecoder')
 AmortizedCausalDiscovery = safe_import('causal_meta.meta_learning.amortized_causal_discovery.AmortizedCausalDiscovery')
 TaskEmbedding = safe_import('causal_meta.meta_learning.meta_learning.TaskEmbedding')
+
+# First try to import from causal_meta, if not available use our custom implementation
 MAMLForCausalDiscovery = safe_import('causal_meta.meta_learning.meta_learning.MAMLForCausalDiscovery')
+if MAMLForCausalDiscovery is None:
+    try:
+        # Try to import from our custom implementation
+        from causal_meta.meta_learning.maml_causal_discovery_demo import MAMLForCausalDiscovery
+        logger.info("Using custom implementation of MAMLForCausalDiscovery")
+    except ImportError as e:
+        logger.warning(f"Could not import MAMLForCausalDiscovery: {e}")
+        MAMLForCausalDiscovery = None
+
 AmortizedCBO = safe_import('causal_meta.meta_learning.amortized_cbo.AmortizedCBO')
 SyntheticDataGenerator = safe_import('causal_meta.meta_learning.data_generation.SyntheticDataGenerator')
 
@@ -438,29 +449,20 @@ def load_model(
             try:
                 # Try to initialize model with provided parameters
                 if model_class == AmortizedCausalDiscovery:
-                    # Handle AmortizedCausalDiscovery's complex initialization
-                    encoder_params = {k.replace('encoder_', ''): v for k, v in model_params.items() if k.startswith('encoder_')}
-                    decoder_params = {k.replace('decoder_', ''): v for k, v in model_params.items() if k.startswith('decoder_')}
-                    
-                    # Use defaults for required params if not provided
-                    if 'hidden_dim' not in encoder_params:
-                        encoder_params['hidden_dim'] = model_params.get('hidden_dim', 64)
-                    if 'input_dim' not in decoder_params:
-                        decoder_params['input_dim'] = model_params.get('input_dim', 1)
-                    
-                    # Create the encoder and decoder
-                    encoder = GraphEncoder(**encoder_params) if GraphEncoder is not None else None
-                    decoder = DynamicsDecoder(**decoder_params) if DynamicsDecoder is not None else None
-                    
-                    if encoder is not None and decoder is not None:
-                        model = AmortizedCausalDiscovery(
-                            graph_encoder=encoder,
-                            dynamics_decoder=decoder,
-                            **{k: v for k, v in model_params.items() if not (k.startswith('encoder_') or k.startswith('decoder_'))}
-                        )
-                    else:
-                        logger.error("Could not create encoder or decoder components")
-                        return None
+                    # Use the direct parameter approach for AmortizedCausalDiscovery
+                    model = AmortizedCausalDiscovery(
+                        hidden_dim=model_params.get('hidden_dim', 64),
+                        input_dim=model_params.get('input_dim', 1),
+                        attention_heads=model_params.get('attention_heads', 2),
+                        num_layers=model_params.get('num_layers', 2),
+                        dropout=model_params.get('dropout', 0.1),
+                        sparsity_weight=model_params.get('sparsity_weight', 0.1),
+                        acyclicity_weight=model_params.get('acyclicity_weight', 1.0),
+                        dynamics_weight=model_params.get('dynamics_weight', 1.0),
+                        structure_weight=model_params.get('structure_weight', 1.0),
+                        uncertainty=model_params.get('uncertainty', False),
+                        num_ensembles=model_params.get('num_ensembles', 5)
+                    )
                 else:
                     # For other model classes, pass parameters directly
                     model = model_class(**model_params)
@@ -479,23 +481,20 @@ def load_model(
         
         # Create a new model instance
         if model_class == AmortizedCausalDiscovery:
-            # Handle AmortizedCausalDiscovery's complex initialization
-            encoder_params = {k.replace('encoder_', ''): v for k, v in model_params.items() if k.startswith('encoder_')}
-            decoder_params = {k.replace('decoder_', ''): v for k, v in model_params.items() if k.startswith('decoder_')}
-            
-            # Create the encoder and decoder
-            encoder = GraphEncoder(**encoder_params) if GraphEncoder is not None else None
-            decoder = DynamicsDecoder(**decoder_params) if DynamicsDecoder is not None else None
-            
-            if encoder is not None and decoder is not None:
-                model = AmortizedCausalDiscovery(
-                    graph_encoder=encoder,
-                    dynamics_decoder=decoder,
-                    **{k: v for k, v in model_params.items() if not (k.startswith('encoder_') or k.startswith('decoder_'))}
-                )
-            else:
-                logger.error("Could not create encoder or decoder components")
-                return None
+            # Use the direct parameter approach for AmortizedCausalDiscovery
+            model = AmortizedCausalDiscovery(
+                hidden_dim=model_params.get('hidden_dim', 64),
+                input_dim=model_params.get('input_dim', 1),
+                attention_heads=model_params.get('attention_heads', 2),
+                num_layers=model_params.get('num_layers', 2),
+                dropout=model_params.get('dropout', 0.1),
+                sparsity_weight=model_params.get('sparsity_weight', 0.1),
+                acyclicity_weight=model_params.get('acyclicity_weight', 1.0),
+                dynamics_weight=model_params.get('dynamics_weight', 1.0),
+                structure_weight=model_params.get('structure_weight', 1.0),
+                uncertainty=model_params.get('uncertainty', False),
+                num_ensembles=model_params.get('num_ensembles', 5)
+            )
         else:
             # For other model classes, pass parameters directly
             model = model_class(**model_params)
@@ -522,23 +521,20 @@ def load_model(
         try:
             # Try to initialize model with provided parameters
             if model_class == AmortizedCausalDiscovery:
-                # Handle AmortizedCausalDiscovery's complex initialization
-                encoder_params = {k.replace('encoder_', ''): v for k, v in model_params.items() if k.startswith('encoder_')}
-                decoder_params = {k.replace('decoder_', ''): v for k, v in model_params.items() if k.startswith('decoder_')}
-                
-                # Create the encoder and decoder
-                encoder = GraphEncoder(**encoder_params) if GraphEncoder is not None else None
-                decoder = DynamicsDecoder(**decoder_params) if DynamicsDecoder is not None else None
-                
-                if encoder is not None and decoder is not None:
-                    model = AmortizedCausalDiscovery(
-                        graph_encoder=encoder,
-                        dynamics_decoder=decoder,
-                        **{k: v for k, v in model_params.items() if not (k.startswith('encoder_') or k.startswith('decoder_'))}
-                    )
-                else:
-                    logger.error("Could not create encoder or decoder components")
-                    return None
+                # Use the direct parameter approach for AmortizedCausalDiscovery
+                model = AmortizedCausalDiscovery(
+                    hidden_dim=model_params.get('hidden_dim', 64),
+                    input_dim=model_params.get('input_dim', 1),
+                    attention_heads=model_params.get('attention_heads', 2),
+                    num_layers=model_params.get('num_layers', 2),
+                    dropout=model_params.get('dropout', 0.1),
+                    sparsity_weight=model_params.get('sparsity_weight', 0.1),
+                    acyclicity_weight=model_params.get('acyclicity_weight', 1.0),
+                    dynamics_weight=model_params.get('dynamics_weight', 1.0),
+                    structure_weight=model_params.get('structure_weight', 1.0),
+                    uncertainty=model_params.get('uncertainty', False),
+                    num_ensembles=model_params.get('num_ensembles', 5)
+                )
             else:
                 # For other model classes, pass parameters directly
                 model = model_class(**model_params)
@@ -583,6 +579,10 @@ def infer_adjacency_matrix(
             for key, value in interventions.items()
         }
     
+    # Use a default threshold if not provided
+    if threshold is None:
+        threshold = 0.5
+    
     # Ensure the model is in evaluation mode
     model.eval()
     
@@ -590,20 +590,23 @@ def infer_adjacency_matrix(
         with torch.no_grad():
             # Different handling based on model type
             if isinstance(model, AmortizedCausalDiscovery) and hasattr(model, 'infer_causal_graph'):
-                # Use the model's built-in inference method
-                adj_matrix = model.infer_causal_graph(data, interventions)
+                # Use the model's built-in inference method - note it doesn't accept interventions
+                adj_matrix = model.infer_causal_graph(data, threshold)
             elif hasattr(model, 'graph_encoder') and hasattr(model.graph_encoder, 'forward'):
                 # Access the graph encoder directly
-                adj_matrix = model.graph_encoder(data, interventions)
+                adj_matrix = model.graph_encoder(data)
+                # Apply threshold
+                adj_matrix = (adj_matrix > threshold).float()
             elif hasattr(model, 'forward'):
                 # Generic forward pass assuming the model outputs adjacency matrix
-                adj_matrix = model(data, interventions)
+                if interventions is not None:
+                    adj_matrix = model(data, interventions=interventions)
+                else:
+                    adj_matrix = model(data)
+                # Apply threshold
+                adj_matrix = (adj_matrix > threshold).float()
             else:
                 raise ValueError("Model does not have a compatible interface for graph inference")
-        
-        # Apply threshold if specified
-        if threshold is not None:
-            adj_matrix = (adj_matrix > threshold).float()
         
         return adj_matrix
     
@@ -1271,6 +1274,42 @@ def fallback_plot_graph(adj_matrix, ax=None, title=None, layout='spring', highli
         ax.set_title(title)
     
     return ax
+
+def calculate_structural_hamming_distance(graph1, graph2):
+    """
+    Calculate the Structural Hamming Distance (SHD) between two graphs.
+    
+    Args:
+        graph1: First graph (CausalGraph or similar)
+        graph2: Second graph (CausalGraph or similar)
+        
+    Returns:
+        SHD value (int)
+    """
+    # Extract adjacency matrices
+    if hasattr(graph1, 'get_adjacency_matrix'):
+        adj1 = graph1.get_adjacency_matrix()
+    elif hasattr(graph1, 'adj_matrix'):
+        adj1 = graph1.adj_matrix
+    else:
+        raise ValueError("graph1 must have get_adjacency_matrix method or adj_matrix attribute")
+        
+    if hasattr(graph2, 'get_adjacency_matrix'):
+        adj2 = graph2.get_adjacency_matrix()
+    elif hasattr(graph2, 'adj_matrix'):
+        adj2 = graph2.adj_matrix
+    else:
+        raise ValueError("graph2 must have get_adjacency_matrix method or adj_matrix attribute")
+    
+    # Convert to binary matrices if needed
+    adj1_binary = (adj1 > 0.5).astype(int)
+    adj2_binary = (adj2 > 0.5).astype(int)
+    
+    # Calculate SHD (missing edges + extra edges)
+    diff = np.abs(adj1_binary - adj2_binary)
+    shd = np.sum(diff)
+    
+    return shd
 
 # Initialize logging when the module is imported
 logger.info("Refactored utilities module loaded successfully") 

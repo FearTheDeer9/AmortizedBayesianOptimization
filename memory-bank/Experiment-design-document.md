@@ -2,258 +2,277 @@
 
 ## Project Goal
 
-Develop an Amortized Causal Bayesian Optimization (AmortizedCBO) framework. The core idea is to leverage neural networks to learn both causal structures and dynamics models from data, enabling efficient and scalable causal discovery and intervention optimization on large graphs. This approach will allow us to perform Bayesian optimization to find optimal interventions on complex causal systems without requiring exhaustive enumeration of possible graph structures.
+Develop an Amortized Causal Meta-Learning Framework with an interface-first design pattern. The core idea is to leverage neural networks to learn both causal structures and dynamics models from data, enabling efficient and scalable causal discovery and intervention optimization on large graphs, while maintaining a flexible, decoupled architecture that allows for different model implementations.
 
-## Current Direction & Approach: Amortized Causal Discovery
+## Current Direction & Approach: Interface-First Refactoring
 
-1.  **Represent Causal Tasks:** Use `StructuralCausalModel` (SCM) objects, built upon `CausalGraph` representations (DAGs) for ground truth data generation.
-2.  **Neural Causal Structure Learning:**
-    - Implement a `GraphEncoder` that infers causal edge probabilities from observational and interventional data.
-    - Apply regularization to enforce sparsity and acyclicity constraints.
-    - Implement uncertainty quantification for edge predictions.
-3.  **Neural Dynamics Modeling:**
-    - Implement a `DynamicsDecoder` that learns the functional relationships between variables.
-    - Design the model to predict counterfactual outcomes under interventions.
-    - Support both continuous and discrete node value predictions.
-4.  **Unified Amortized Framework:**
-    - Create an `AmortizedCausalDiscovery` class that combines the graph structure and dynamics components.
-    - Implement joint training procedures with losses that balance structure learning and dynamics modeling.
-    - Provide methods for inference of both graph structure and intervention outcomes.
-5.  **Meta-Learning & Transfer:**
-    - Generate task families using `TaskFamilyGenerator` to create sets of related causal graphs.
-    - Implement meta-learning techniques to enable few-shot adaptation to new tasks.
-    - Incorporate a curriculum learning approach to gradually increase graph complexity during training.
-6.  **Bayesian Optimization with Neural Surrogates:**
-    - Replace traditional GP-based BO with neural surrogate models.
-    - Implement acquisition functions compatible with the neural predictions.
-    - Develop intervention selection strategies that leverage the inferred causal structure.
-    - Create a complete `AmortizedCBO` class that provides an end-to-end solution.
+1. **Interface-First Design Pattern:**
+   - Define core interfaces for key functionalities that completely decouple algorithm logic from specific model implementations
+   - Create adapter classes for existing GNN models to implement the new interfaces
+   - Ensure algorithm logic makes no assumptions about implementation details
+   - Enable greater flexibility in model implementation while maintaining coherent architectural design
+
+2. **Core Interfaces:**
+   - `CausalStructureInferenceModel`: Interface for models that infer causal structure from data
+   - `InterventionOutcomeModel`: Interface for models that predict outcomes of interventions
+   - `AcquisitionStrategy`: Interface for strategies that select interventions
+   - `UncertaintyEstimator`: Interface for estimating uncertainty in predictions
+   - `Updatable`: Interface for models that can be updated with new data
+
+3. **Flexible Uncertainty Estimation & Model Updating:**
+   - Implement a decoupled `UncertaintyEstimator` interface with multiple implementations
+     - `EnsembleUncertaintyEstimator`: Using model ensembles
+     - `DropoutUncertaintyEstimator`: Using MC dropout
+     - `DirectUncertaintyEstimator`: For models that directly predict variance
+     - `ConformalUncertaintyEstimator`: Using conformal prediction methods
+   - Implement an `Updatable` interface for model updating with different strategies
+     - `IncrementalUpdater`: For efficient updates with new data
+     - `ExperienceReplayUpdater`: For balancing old/new data
+     - `FullRetrainingUpdater`: For when full retraining is necessary
+   - Create an `UncertaintyThresholdManager` to monitor uncertainty and trigger fallbacks
+
+4. **Integration Components:**
+   - `AmortizedCausalOptimizer`: High-level class that integrates the core interfaces to perform causal optimization
+   - `AmortizedCausalDiscovery`: Combines structure inference and dynamics modeling
+   - Various model implementations that satisfy the interfaces
+
+5. **Configuration System:**
+   - Implement a YAML-based configuration system for all components
+   - Create a `ConfigurationManager` to load and validate configurations
+   - Develop a `ConfigurableComponent` base class for components that can be configured using YAML
+   - Define configuration schemas for validation and documentation
+
+6. **Error Handling Strategy:**
+   - Implement a unified error handling strategy with custom exception types for different error categories
+   - Define standards for when to raise vs. when to handle errors
+   - Add better error messages with context information
 
 ## Key Design Considerations & Trade-offs
 
--   **Neural Architecture Selection:** Balance between model expressivity and computational efficiency. Graph neural networks with attention mechanisms show promise for capturing complex causal relationships.
--   **Regularization:** Enforcing DAG constraints in neural networks is challenging. Need to explore spectral normalization, continuous optimization of acyclicity constraints, or other approaches.
--   **Uncertainty Quantification:** Essential for reliable decision-making. Will implement ensemble methods or dropout-based uncertainty estimates.
--   **Scalability vs. Accuracy:** Amortized approaches provide scalability but may sacrifice some accuracy compared to exact methods on small graphs. This trade-off is acceptable given our focus on larger graphs where exact methods are intractable.
--   **Training Data Requirements:** Neural methods require substantial training data. Will implement efficient data generation with curriculum learning.
--   **Adaptation Mechanisms:** Need to balance pre-training (general knowledge) and adaptation (task-specific fine-tuning) for optimal performance on new tasks.
+- **Interface Design:** Balance between too restrictive (limiting flexibility) and too loose (making implementations complex)
+- **Model Flexibility:** Support different model architectures (GNNs, MLPs, Transformers) while maintaining consistent interfaces
+- **Uncertainty Representation:** Standardize uncertainty representation across different estimation methods
+- **Performance vs. Modularity:** Ensure that the decoupled design doesn't significantly impact performance
+- **Configuration Complexity:** Balance between detailed configuration options and user-friendly defaults
+- **Backward Compatibility:** Maintain compatibility with existing codebase during incremental refactoring
+- **Testing Strategy:** Develop comprehensive tests for interfaces and implementations
 
 ## Scalability Advantages
 
--   **Graph Size:** Neural approaches can scale to much larger graphs (100+ nodes) compared to exact methods or GP-based approaches.
--   **Computational Efficiency:** Once trained, inference is extremely fast (milliseconds) compared to exact posterior computation.
--   **Memory Usage:** Fixed model size regardless of graph complexity, unlike traditional methods where memory requirements grow exponentially with graph size.
--   **Parallelization:** Neural network training and inference can leverage GPU acceleration.
--   **Inductive Bias:** The neural architecture can incorporate domain knowledge and structural priors about causal systems.
+- **Architectural Scalability:** The interface-first design allows for easier extension to new model types and algorithms
+- **Implementation Flexibility:** Different model implementations can be optimized for specific graph types or sizes
+- **Configuration-Driven Experimentation:** YAML configuration enables rapid experimentation without code changes
+- **Uncertainty-Aware Decision Making:** Flexible uncertainty estimation allows for better decision-making in large-scale problems
+- **Model Updating Strategies:** Different update strategies can be selected based on computational constraints
 
 ## Potential Challenges & Mitigations
 
--   **Training Stability:** Neural networks can be challenging to train. Will implement learning rate scheduling, gradient clipping, and early stopping.
--   **DAG Constraints:** Enforcing acyclicity is difficult. Will explore recent advances in differentiable DAG constraints and spectral approaches.
--   **Evaluation Metrics:** Need to develop comprehensive metrics for both structure discovery and intervention outcomes. Will implement established metrics (SHD, precision/recall) and develop custom ones as needed.
--   **Uncertainty Calibration:** Ensuring reliable uncertainty estimates is crucial. Will implement calibration techniques and validation procedures.
--   **Hyperparameter Tuning:** Neural approaches have many hyperparameters. Will use systematic search or Bayesian optimization for tuning.
+- **Interface Evolution:** As requirements change, interfaces may need to evolve. Use interface versioning and deprecation warnings.
+- **Implementation Overhead:** Abstract interfaces add some overhead. Keep interfaces minimal and focused.
+- **Testing Complexity:** More interfaces mean more testing complexity. Create comprehensive test suites and fixtures.
+- **Learning Curve:** New developers need to understand interfaces before implementation. Create clear documentation and examples.
+- **Performance Considerations:** Abstractions can impact performance. Use profiling to identify and optimize critical paths.
 
 ## Implementation Roadmap
 
-1.  **Foundation (Completed):**
-    - Reliable DAG generation tools
-    - Task family generation capabilities
-    - StructuralCausalModel implementation
-2.  **Neural Components (Next):**
-    - Graph encoder implementation
-    - Dynamics decoder implementation 
-    - Training pipeline and data generation
-3.  **Unified Framework:**
-    - AmortizedCausalDiscovery integration
-    - Meta-learning and adaptation mechanisms
-    - Uncertainty quantification
-4.  **Optimization Integration:**
-    - AmortizedCBO implementation
-    - Acquisition functions and intervention selection
-    - Example workflows and tutorials
-5.  **Evaluation & Benchmarking:**
-    - Comprehensive benchmark suite
-    - Scaling tests
-    - Comparison to baseline methods
+Following a phased approach to the refactoring:
+
+### Phase 0: Interface Definition (1 week)
+- Define core interfaces (`CausalStructureInferenceModel`, `InterventionOutcomeModel`, etc.)
+- Create reference implementations
+- Build adapter patterns for existing code
+
+### Phase 1: Core Components Refactoring (1-2 weeks)
+- Refactor `CausalGraph` and `DirectedGraph` with standardized method naming
+- Update `StructuralCausalModel` to implement relevant interfaces
+- Improve validation logic and error handling
+
+### Phase 2: Model Components Refactoring (2-3 weeks)
+- Implement adapters for existing structure inference models
+- Update dynamics prediction models to use the new interfaces
+- Create pluggable acquisition strategies
+- Implement uncertainty estimation and model updating components
+
+### Phase 3: Integration Classes Refactoring (2-3 weeks)
+- Create `AmortizedCausalOptimizer` using the interface-based design
+- Update existing algorithm classes to use the new interfaces
+- Refactor meta-learning components
+
+### Phase 4: Demo Scripts & Testing (1-2 weeks)
+- Update demo scripts to use the new interfaces
+- Add comprehensive tests
+- Create performance benchmarks
+
+### Phase 5: YAML Configuration System (1-2 weeks)
+- Implement YAML configuration infrastructure
+- Update demo scripts to use configuration files
+- Create configuration-driven training pipeline
+- Add documentation for configuration options
 
 ## Style and Form Recommendations
 
--   **Modular Neural Components:** Design neural components with clear interfaces that can be combined flexibly.
--   **Batched Operations:** Optimize for batch processing throughout the codebase for efficient GPU utilization.
--   **Clear Abstractions:** Define interfaces between physics-based (SCM) and neural components.
--   **Functional Style:** Where appropriate, use functional programming patterns for data transformations.
--   **Stateful Objects:** For trained models, use proper object-oriented design with clear serialization/deserialization.
--   **Testing:** Implement comprehensive unit tests, especially for numerical components.
--   **Type Hinting:** Use Python's `typing` module with `jaxtyping` extensions for tensor shapes.
--   **Documentation:** Clear docstrings and tutorials, especially for the neural components.
--   **Configuration:** Use Hydra for managing complex experiment configurations.
+- **Interface Documentation:** Clearly document the contract for each interface method
+- **Implementation Guidelines:** Provide guidelines for implementing each interface
+- **Configuration Templates:** Create template configurations for common scenarios
+- **Error Handling Standards:** Define standards for error handling across the codebase
+- **Type Annotations:** Use comprehensive type annotations for all interfaces and implementations
+- **Testing Patterns:** Develop standard testing patterns for interface implementations
+- **Documentation:** Create clear documentation with examples for each interface
+- **Configuration Schema:** Document the configuration schema with examples
 
-## Potential Alternatives
+## Risk Management
 
--   **Different Meta-Learning Algorithms:** Instead of MAML, consider Reptile, MetaOptNet, or others.
--   **Alternative BO Models:** Instead of GPs, consider Bayesian Neural Networks or Random Forests for the surrogate model.
--   **Direct Policy Learning:** Meta-learn an intervention *policy* directly instead of a GP prior.
+### Potential Issues & Mitigations
+1. **Breaking Changes**
+   - Risk: Interface changes breaking dependent code
+   - Mitigation: Deprecate old interfaces before removing them, provide adapters
 
-## Potential Blockers
+2. **Performance Regression**
+   - Risk: Refactoring causing performance degradation
+   - Mitigation: Add performance tests for critical paths
 
--   Difficulty in creating meaningful task representations.
--   Instability or slow convergence of MAML training.
--   Challenges in defining and optimizing a suitable causal acquisition function.
--   Computational cost limiting the complexity of tasks or the number of meta-training iterations.
--   Integrating complex causal effect estimation methods if needed.
+3. **Test Coverage Gaps**
+   - Risk: Missing tests allowing bugs to slip through
+   - Mitigation: Require test coverage metrics for all changes
 
-## Adhere to Clean Code/Architecture principles:
+4. **Knowledge Silos**
+   - Risk: Only certain team members understanding components
+   - Mitigation: Implement pair programming and knowledge sharing
 
--   Focus on readability, maintainability, and separation of concerns.
+5. **Interface Design Challenges**
+   - Risk: Designing interfaces that are too restrictive or too loose
+   - Mitigation: Start with minimal interfaces and evolve based on feedback
 
-## Implementation Progress Summary (June 24, 2025)
+6. **Configuration Complexity**
+   - Risk: Creating overly complex configuration options
+   - Mitigation: Layer configurations with sensible defaults and documentation
 
-We have made significant progress in implementing the Amortized Causal Discovery framework, following our research pivot from GP-based surrogate models to neural network-based approaches. This shift aligns with our goal of scaling causal discovery and intervention prediction to larger graphs.
+## Evaluation Framework
 
-### Key Accomplishments
+The evaluation framework will be enhanced to assess the benefits of the interface-first design pattern:
 
-1. **Core Components**: 
-   - Implemented reliable DAG generation for synthetic data creation
-   - Created task family generation for meta-learning scenarios
-   - Integrated the StructuralCausalModel for data generation and intervention simulation
+1. **Interface Compliance Testing:**
+   - Verify that all implementations correctly satisfy their interface contracts
+   - Test edge cases and error conditions
+   - Check performance characteristics
 
-2. **Neural Causal Discovery**:
-   - Implemented GraphEncoder with attention-based architecture for graph structure inference
-   - Created graph inference utilities with thresholding and posterior sampling
-   - Developed training pipeline with curriculum learning and regularization
-   - Implemented synthetic data generation with observational and interventional data
+2. **Flexibility Assessment:**
+   - Evaluate ease of swapping different implementations
+   - Measure development time for new implementations
+   - Assess code reuse across different implementations
 
-3. **Dynamics Modeling**:
-   - Implemented DynamicsDecoder with Graph Attention Network architecture
-   - Added intervention conditioning mechanisms for counterfactual prediction
-   - Incorporated ensemble-based uncertainty quantification
-   - Used skip connections and layer normalization for stable training
+3. **Configuration Testing:**
+   - Verify that all components can be correctly configured via YAML
+   - Test configuration validation and error reporting
+   - Measure configuration-driven experimentation efficiency
 
-4. **Unified Framework**:
-   - Created AmortizedCausalDiscovery class integrating GraphEncoder and DynamicsDecoder
-   - Implemented joint training with balanced loss functions
-   - Added high-level API for graph inference and intervention prediction
-   - Created utilities for converting between adjacency matrices and CausalGraph objects
-   - Added model serialization and loading functionality
+4. **Uncertainty Estimation Evaluation:**
+   - Compare different uncertainty estimation methods
+   - Assess calibration of uncertainty estimates
+   - Evaluate decision quality based on uncertainty
 
-5. **Meta-Learning Design**:
-   - Established test suite for meta-learning capabilities
-   - Designed TaskEmbedding component for graph structure representation
-   - Planned MAML-based approach for few-shot adaptation
-   - Created test fixtures for synthetic meta-learning task data
+5. **Model Updating Efficiency:**
+   - Compare different update strategies
+   - Measure computational efficiency of updates
+   - Assess learning curve with incremental updates
 
-### Methodological Improvements
+## YAML Configuration System
 
-1. **Workflow Integration**:
-   - Successfully integrated Sequential Thinking with Memory Bank for structured problem-solving
-   - Implemented TDD approach across all components
-   - Created comprehensive test suites before implementation
-   - Documented thinking process in implementation plan and code comments
+The YAML Configuration System will provide a unified approach to managing component configurations:
 
-2. **Architecture Decisions**:
-   - Chose GATv2Conv for message passing to capture edge importance
-   - Implemented ensemble methods for uncertainty quantification
-   - Added intervention conditioning through feature modification
-   - Created unified training approach with weighted objectives
+### Key Features
 
-### Next Steps
+1. **Schema Definition:**
+   - Define clear schemas for all configurable components
+   - Support validation of configuration values
+   - Provide clear error messages for invalid configurations
 
-1. **Meta-Learning Implementation** (Highest priority):
-   - Implement TaskEmbedding class for graph structure representation
-   - Create MAML implementation with inner/outer optimization loops
-   - Add few-shot adaptation capabilities to AmortizedCausalDiscovery
-   - Develop meta-training procedures with task sampling
+2. **Configuration Inheritance:**
+   - Allow configurations to extend base configurations
+   - Support overriding specific values
+   - Enable composition of configurations
 
-2. **Technical Improvements**:
-   - Standardize APIs across the codebase
-   - Fix test failures related to thresholds and expected values
-   - Resolve tensor shape compatibility issues
-   - Optimize acyclicity constraint implementation
+3. **Environment Variable Substitution:**
+   - Support environment variable references in configurations
+   - Enable dynamic configuration based on environment
 
-3. **Evaluation and Benchmarking**:
-   - Create comprehensive benchmark suite
-   - Implement visualization tools for results analysis
-   - Test scalability to larger graphs
-   - Compare with baseline approaches
+4. **Command Line Overrides:**
+   - Allow overriding configuration values from command line
+   - Support nested configuration paths
 
-4. **Causal Bayesian Optimization**:
-   - Implement acquisition functions compatible with neural predictions
-   - Create budget-aware intervention selection
-   - Add multi-objective optimization capabilities
-   - Develop planning strategies for sequential interventions
+5. **Default Configurations:**
+   - Provide sensible defaults for all components
+   - Include example configurations for common scenarios
 
-This progress positions us well to complete the meta-learning capabilities in the next phase, enabling few-shot adaptation to new causal structures with minimal data. The integrated Sequential Thinking + Memory Bank workflow has proven effective and will continue to guide our implementation efforts.
+### Example Configuration Structure
 
-## Benchmarking and Evaluation Framework
+```yaml
+# Example configuration for a causal optimization experiment
+structure_inference_model:
+  type: GNNGraphEncoder
+  params:
+    hidden_dim: 64
+    num_layers: 3
+    attention_heads: 4
+    dropout: 0.1
 
-A comprehensive benchmarking framework has been implemented to rigorously evaluate our research hypotheses regarding amortized causal discovery and optimization methods. This framework allows systematic comparison of our neural approaches against traditional methods.
+dynamics_model:
+  type: GNNDynamicsDecoder
+  params:
+    hidden_dim: 64
+    num_layers: 3
+    message_passing_steps: 2
 
-### Key Evaluation Objectives
+acquisition_strategy:
+  type: ExpectedImprovement
+  params:
+    exploration_weight: 0.1
 
-1. **Structural Learning Performance**: Assess how well our neural approaches recover true causal structures compared to traditional methods
-   - Metrics: Structural Hamming Distance (SHD), precision, recall, F1 score
-   - Test environments: Varying graph sizes, densities, noise levels, and functional relationships
+uncertainty_estimation:
+  type: EnsembleUncertaintyEstimator
+  params:
+    num_models: 5
+    bootstrap: true
 
-2. **Intervention Optimization Efficiency**: Evaluate sample efficiency and quality of intervention strategies
-   - Metrics: Best value found, regret, improvement ratio, sample efficiency
-   - Test scenarios: Varying intervention budgets, known vs. unknown graph structures
+model_updating:
+  type: ExperienceReplayUpdater
+  params:
+    buffer_size: 1000
+    sample_ratio: 0.3
 
-3. **Computational Requirements**: Measure runtime and memory usage to assess practical deployment feasibility
-   - Analysis: Scaling behavior with increasing graph size
-   - Metrics: Runtime, memory usage, complexity class estimation
+training:
+  optimizer:
+    type: Adam
+    params:
+      lr: 0.001
+      weight_decay: 1e-5
+  num_epochs: 200
+  batch_size: 32
+  early_stopping:
+    patience: 10
+    min_delta: 0.001
 
-4. **Transferability Benefits**: Quantify the advantages of amortized/meta-learning approaches in transfer scenarios
-   - Scenario: Training on a family of related causal systems, testing on unseen but related systems
-   - Metrics: Performance gap between seen and unseen environments
+evaluation:
+  metrics:
+    - shd
+    - precision
+    - recall
+    - f1
+    - mse
+    - mae
+  test_size: 0.2
+  seed: 42
+```
 
-### Benchmarking Components
+## Definition of Done
 
-The benchmarking framework consists of several specialized components:
+A component refactoring is considered complete when:
 
-1. **CausalDiscoveryBenchmark**: For evaluating structure learning methods
-2. **CBOBenchmark**: For evaluating intervention optimization approaches
-3. **ScalabilityBenchmark**: For analyzing computational scaling behavior
-4. **BenchmarkRunner**: For orchestrating comprehensive evaluations across multiple scenarios
-
-Each benchmark generates standardized test environments with ground truth causal structures, enabling fair and reproducible comparisons between methods.
-
-### Statistical Validity
-
-To ensure the statistical validity of our findings:
-
-1. All experiments use multiple random seeds for initialization
-2. Results are aggregated across numerous test cases (typically 20+ per configuration)
-3. Statistical significance testing is performed for method comparisons
-4. Confidence intervals are reported for all performance metrics
-5. Ablation studies isolate the contribution of each component
-
-### Integration with Research Hypotheses
-
-The benchmarking framework directly addresses our core research questions:
-
-1. **Hypothesis 1**: Neural causal discovery methods can achieve competitive or superior structural accuracy compared to traditional methods.
-   - Tested via: CausalDiscoveryBenchmark with structural metrics
-
-2. **Hypothesis 2**: Amortized approaches provide significant sample efficiency advantages for intervention optimization.
-   - Tested via: CBOBenchmark with sample efficiency metrics
-
-3. **Hypothesis 3**: Neural approaches scale better to larger graphs than classical methods.
-   - Tested via: ScalabilityBenchmark with scaling analysis
-
-4. **Hypothesis 4**: Meta-learning enables effective transfer to unseen but related causal systems.
-   - Tested via: Specialized transfer benchmarks comparing in-distribution and out-of-distribution performance
-
-### Visualization and Reporting
-
-The framework generates comprehensive visualizations and reports:
-
-1. Bar charts and box plots for performance comparisons
-2. Scaling curves for computational analysis
-3. Precision-recall trade-off curves for structural learning
-4. Optimization trajectory plots for intervention efficiency
-5. Summary reports with statistical significance indicators
-
-These visualizations enable clear communication of research findings and facilitate identifying strengths and limitations of different approaches.
-
-The benchmarking framework serves as the foundation for validating our research claims and ensuring that our findings are robust, reproducible, and scientifically sound. 
+1. All identified issues are addressed
+2. Code passes all existing and new tests
+3. Documentation is updated
+4. Performance is verified to be maintained or improved
+5. Code review is completed with no major concerns
+6. Integration tests pass with dependent components
+7. The component properly implements any applicable interfaces
+8. YAML configuration support is added where appropriate 

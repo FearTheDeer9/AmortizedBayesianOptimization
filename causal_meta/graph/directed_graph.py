@@ -9,6 +9,7 @@ from typing import List, Dict, Set, Optional, Union, Any, Tuple, Iterator
 import numpy as np
 
 from causal_meta.graph.base import Graph
+from causal_meta.graph.utils import deprecated
 
 
 class DirectedGraph(Graph):
@@ -248,37 +249,45 @@ class DirectedGraph(Graph):
 
     def has_cycle(self) -> bool:
         """
-        Check if the directed graph contains any cycles.
+        Check if the directed graph contains a cycle.
 
         Returns:
-            bool: True if the graph contains at least one cycle, False otherwise
+            bool: True if the graph contains a cycle, False otherwise
         """
         # Keep track of visited and currently exploring nodes
         visited = set()
         exploring = set()
 
-        def dfs_cycle_check(node):
+        def dfs_check_cycle(node):
             visited.add(node)
             exploring.add(node)
 
             for successor in self.get_successors(node):
-                if successor in exploring:
+                if successor in exploring:  # Found a cycle
                     return True
-
                 if successor not in visited:
-                    if dfs_cycle_check(successor):
+                    if dfs_check_cycle(successor):
                         return True
 
             exploring.remove(node)
             return False
 
-        # Check each node that hasn't been visited yet
+        # Start DFS from each unvisited node
         for node in self._nodes:
             if node not in visited:
-                if dfs_cycle_check(node):
+                if dfs_check_cycle(node):
                     return True
 
         return False
+
+    def is_acyclic(self) -> bool:
+        """
+        Check if the directed graph is acyclic (contains no cycles).
+
+        Returns:
+            bool: True if the graph is acyclic, False otherwise
+        """
+        return not self.has_cycle()
 
     def get_cycles(self) -> List[List[Any]]:
         """
@@ -451,10 +460,6 @@ class DirectedGraph(Graph):
         """
         return f"DirectedGraph(nodes={len(self._nodes)}, edges={len(self._edges)})"
 
-    def get_nodes(self) -> List[Any]:
-        """Return a list of all nodes in the graph."""
-        return list(self._nodes)  # Convert set to list
-
-    def get_edges(self) -> List[Tuple[Any, Any]]:
-        """Return a list of all edges in the graph."""
-        return list(self._edges)
+    # No need to override get_nodes and get_edges since
+    # they already return lists in the parent class and
+    # our implementation would be identical

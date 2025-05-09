@@ -10,6 +10,7 @@ import copy
 import numpy as np
 
 from causal_meta.graph.directed_graph import DirectedGraph
+from causal_meta.graph.utils import deprecated
 
 # Import networkx for the new method
 import networkx as nx
@@ -570,44 +571,6 @@ class CausalGraph(DirectedGraph):
 
     # --- Causal Specific Methods --- 
 
-    def get_markov_blanket(self, node_id: Any) -> Set:
-        """
-        Get the Markov blanket of a node.
-
-        The Markov blanket of a node X consists of X's parents, X's children,
-        and the parents of X's children.
-
-        Args:
-            node_id: The node identifier
-
-        Returns:
-            Set: A set of node identifiers in the Markov blanket
-
-        Raises:
-            ValueError: If the node doesn't exist
-        """
-        if node_id not in self._nodes:
-            raise ValueError(f"Node {node_id} does not exist in the graph")
-
-        # Get parents and children
-        parents = self.get_parents(node_id)
-        children = self.get_children(node_id)
-
-        # Get parents of children (spouses)
-        spouses = set()
-        for child in children:
-            child_parents = self.get_parents(child)
-            spouses.update(child_parents)
-
-        # Remove the node itself from spouses if present
-        if node_id in spouses:
-            spouses.remove(node_id)
-
-        # Combine all sets
-        markov_blanket = parents.union(children).union(spouses)
-
-        return markov_blanket
-
     def to_networkx(self, include_attributes: bool = True) -> nx.DiGraph:
         """Convert the CausalGraph to a NetworkX DiGraph object.
 
@@ -638,3 +601,36 @@ class CausalGraph(DirectedGraph):
                 nx_graph.add_edge(u, v)
 
         return nx_graph
+
+    @classmethod
+    def from_networkx(cls, nx_graph: nx.DiGraph, include_attributes: bool = True) -> 'CausalGraph':
+        """Create a CausalGraph from a NetworkX DiGraph.
+
+        Args:
+            nx_graph (nx.DiGraph): A NetworkX directed graph to convert
+            include_attributes (bool): If True, copy node and edge attributes
+                                       from the NetworkX graph to the CausalGraph.
+                                       Defaults to True.
+
+        Returns:
+            CausalGraph: A new CausalGraph with the same nodes, edges, and optionally attributes
+        """
+        causal_graph = cls()
+        
+        # Add nodes
+        for node in nx_graph.nodes():
+            if include_attributes:
+                attrs = dict(nx_graph.nodes[node])
+                causal_graph.add_node(node, **attrs)
+            else:
+                causal_graph.add_node(node)
+                
+        # Add edges
+        for u, v in nx_graph.edges():
+            if include_attributes:
+                attrs = dict(nx_graph.edges[u, v])
+                causal_graph.add_edge(u, v, **attrs)
+            else:
+                causal_graph.add_edge(u, v)
+                
+        return causal_graph

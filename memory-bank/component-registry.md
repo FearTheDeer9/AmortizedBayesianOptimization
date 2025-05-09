@@ -871,7 +871,7 @@ results = benchmark.run()
 
 ### ScalabilityBenchmark (`causal_meta.meta_learning.benchmark.ScalabilityBenchmark`)
 
-**Purpose**: Evaluates how well methods scale with increasing graph size, measuring both performance and computational requirements.
+**Purpose**: Evaluates how methods scale with increasing graph size, measuring both performance and computational requirements.
 
 **Key Features**:
 - Automatically tests on graphs of increasing size
@@ -935,7 +935,6 @@ report = benchmark.generate_scaling_report(
 - `add_baseline(name, baseline)`: Add a baseline method for comparison
 - `run_all()`: Run all registered benchmarks with all registered methods
 - `generate_summary_report(output_path)`: Generate a summary report of benchmark results
-- `get_best_models()`: Get the best-performing models for each benchmark
 - `generate_comparison_plots(output_dir)`: Generate comparison plots of results
 - `create_standard_suite(...)`: Class method to create a standard benchmark suite
 - `create_scalability_suite(...)`: Create a scalability benchmark suite
@@ -1490,3 +1489,639 @@ The benchmarking framework has the following primary dependencies:
    - `causal_meta.optimization.AmortizedCBO`: For neural intervention optimization
 
 The benchmarking framework is designed to be modular, allowing individual components to be used independently or together as needed.
+
+## Inference Module (`causal_meta.inference`)
+
+### Interfaces (`causal_meta.inference.interfaces`)
+
+**Purpose**: Defines abstract interfaces for causal inference models, establishing consistent contracts that concrete implementations must follow.
+
+**Key Interfaces**:
+- `CausalStructureInferenceModel`: Interface for models that infer causal structure from data
+- `InterventionOutcomeModel`: Interface for models that predict outcomes of interventions
+
+### Adapters (`causal_meta.inference.adapters`)
+
+**Purpose**: Provides adapter classes that wrap existing model implementations to make them compatible with the interface-based architecture.
+
+#### GraphEncoderAdapter (`causal_meta.inference.adapters.GraphEncoderAdapter`)
+
+**Purpose**: Adapts GraphEncoder components to implement the CausalStructureInferenceModel interface, enabling them to be used with the interface-first architecture.
+
+**Key Methods**:
+- `__init__(graph_encoder, threshold=0.5, device=None)`: Constructor
+- `infer_structure(data)`: Infers causal structure from data using the wrapped GraphEncoder
+- `update_model(data)`: Updates the model with new data
+- `estimate_uncertainty()`: Provides uncertainty estimates for the inferred structure
+
+**Usage Example**:
+```python
+from causal_meta.meta_learning.acd_models import GraphEncoder
+from causal_meta.inference.adapters import GraphEncoderAdapter
+from causal_meta.inference.interfaces import CausalStructureInferenceModel
+
+# Create a GraphEncoder
+encoder = GraphEncoder(hidden_dim=64, attention_heads=2)
+
+# Wrap with adapter to implement the interface
+adapter = GraphEncoderAdapter(encoder, threshold=0.5)
+
+# Use through the interface
+data = {"observations": observations_data}
+causal_graph = adapter.infer_structure(data)
+
+# Get uncertainty estimates
+uncertainty = adapter.estimate_uncertainty()
+```
+
+#### DynamicsDecoderAdapter (`causal_meta.inference.adapters.DynamicsDecoderAdapter`)
+
+**Purpose**: Adapts DynamicsDecoder components to implement the InterventionOutcomeModel interface.
+
+**Key Features**:
+- Implements the InterventionOutcomeModel interface using the DynamicsDecoder from meta_learning
+- Supports integration with different UncertaintyEstimator implementations
+- Provides standardized uncertainty format for all estimators
+- Supports model calibration for better uncertainty estimates
+- Handles both built-in and estimator-based uncertainty quantification
+
+**Key Methods**:
+- `__init__(dynamics_decoder, uncertainty_estimator=None, return_uncertainty=False, device=None)`: Constructor
+- `predict_intervention_outcome(graph, intervention, data, return_uncertainty=None)`: Predicts intervention outcomes
+- `update_model(data)`: Updates the model with new data
+- `estimate_uncertainty()`: Provides uncertainty estimates for predictions
+- `calibrate_uncertainty(validation_data)`: Calibrates uncertainty estimates using validation data
+
+**Usage Example**:
+```python
+from causal_meta.meta_learning.dynamics_decoder import DynamicsDecoder
+from causal_meta.inference.adapters import DynamicsDecoderAdapter
+from causal_meta.inference.uncertainty import EnsembleUncertaintyEstimator
+
+# Create a DynamicsDecoder
+decoder = DynamicsDecoder(hidden_dim=64, num_layers=2)
+
+# Create an uncertainty estimator
+estimator = EnsembleUncertaintyEstimator(num_models=5)
+
+# Wrap with adapter to implement the interface
+adapter = DynamicsDecoderAdapter(
+    dynamics_decoder=decoder,
+    uncertainty_estimator=estimator,
+    return_uncertainty=True
+)
+
+# Prepare data
+graph = inferred_causal_graph
+intervention = {"target_node": 3, "value": 2.0}
+data = {"observations": observations_data}
+
+# Predict with uncertainty
+predictions, uncertainty = adapter.predict_intervention_outcome(graph, intervention, data)
+
+# Calibrate uncertainty estimates with validation data
+adapter.calibrate_uncertainty(validation_data)
+```
+
+## Acquisition Strategies (`causal_meta.optimization`)
+
+### AcquisitionStrategy (`causal_meta.optimization.interfaces.AcquisitionStrategy`)
+
+**Purpose**: Abstract interface for strategies that select interventions based on acquisition functions in causal Bayesian optimization.
+
+**Key Methods**:
+- `compute_acquisition(model, graph, data)`: Computes acquisition values for possible interventions
+- `select_intervention(model, graph, data, budget)`: Selects the best intervention given a budget
+- `select_batch(model, graph, data, budget, batch_size)`: Selects a batch of diverse interventions
+
+**Usage Example**:
+```python
+from causal_meta.optimization import ExpectedImprovement
+from causal_meta.inference.adapters import DynamicsDecoderAdapter
+from causal_meta.graph.causal_graph import CausalGraph
+
+# Create a dynamics model
+model = DynamicsDecoderAdapter(...)
+
+# Create a graph
+graph = CausalGraph()
+# ... add nodes and edges ...
+
+# Create an acquisition strategy
+strategy = ExpectedImprovement(exploration_weight=0.1, maximize=True)
+
+# Compute acquisition values for possible interventions
+data = {"observations": observations_data}
+acq_values = strategy.compute_acquisition(model, graph, data)
+
+# Select the best intervention
+intervention = strategy.select_intervention(model, graph, data, budget=1.0)
+
+# Select a batch of diverse interventions
+batch = strategy.select_batch(model, graph, data, budget=1.0, batch_size=5)
+```
+
+### ExpectedImprovement (`causal_meta.optimization.acquisition.ExpectedImprovement`)
+
+**Purpose**: Implements the AcquisitionStrategy interface using Expected Improvement, which balances exploitation (high predicted mean) and exploration (high uncertainty).
+
+**Key Methods**:
+- `__init__(exploration_weight=0.01, maximize=True, intervention_candidates=None)`: Constructor
+- `compute_acquisition(model, graph, data)`: Computes EI values for interventions
+- `select_intervention(model, graph, data, budget)`: Selects intervention with highest EI
+- `select_batch(model, graph, data, budget, batch_size)`: Selects diverse batch using EI
+- `set_best_value(value)`: Sets the current best known value for improvement calculation
+
+**Usage Example**:
+```python
+from causal_meta.optimization import ExpectedImprovement
+
+# Create strategy (maximize objective)
+strategy = ExpectedImprovement(
+    exploration_weight=0.1,  # Control exploration vs exploitation
+    maximize=True  # Whether to maximize or minimize the objective
+)
+
+# Set current best observed value (if known)
+strategy.set_best_value(current_best)
+
+# Select intervention
+intervention = strategy.select_intervention(model, graph, data, budget=1.0)
+```
+
+### UpperConfidenceBound (`causal_meta.optimization.acquisition.UpperConfidenceBound`) 
+
+**Purpose**: Implements the AcquisitionStrategy interface using Upper Confidence Bound, which balances exploration and exploitation using a weighted sum of mean and uncertainty.
+
+**Key Methods**:
+- `__init__(beta=2.0, maximize=True, intervention_candidates=None)`: Constructor
+- `compute_acquisition(model, graph, data)`: Computes UCB values for interventions
+- `select_intervention(model, graph, data, budget)`: Selects intervention with highest UCB
+- `select_batch(model, graph, data, budget, batch_size)`: Selects diverse batch using UCB
+
+**Usage Example**:
+```python
+from causal_meta.optimization import UpperConfidenceBound
+
+# Create strategy
+strategy = UpperConfidenceBound(
+    beta=2.0,  # Higher beta increases exploration
+    maximize=True  # Whether to maximize or minimize the objective
+)
+
+# Select intervention
+intervention = strategy.select_intervention(model, graph, data, budget=1.0)
+```
+
+## Integration with Causal Bayesian Optimization
+
+The acquisition strategies can be used with the AmortizedCausalOptimizer to perform causal Bayesian optimization:
+
+```python
+from causal_meta.optimization import ExpectedImprovement
+from causal_meta.meta_learning.amortized_causal_discovery import AmortizedCausalDiscovery
+from causal_meta.meta_learning.amortized_cbo import AmortizedCBO
+
+# Create causal discovery model
+acd_model = AmortizedCausalDiscovery(...)
+
+# Create acquisition strategy
+acquisition = ExpectedImprovement(exploration_weight=0.1)
+
+# Create optimizer
+optimizer = AmortizedCBO(
+    model=acd_model,
+    acquisition_function=acquisition
+)
+
+# Run optimization
+results = optimizer.optimize(
+    x=data,
+    objective_fn=objective_function,
+    max_iterations=10
+)
+```
+
+### Non-GNN Structure Inference Models (`causal_meta.inference.models`)
+
+#### MLPGraphEncoder (`causal_meta.inference.models.mlp_encoder.MLPGraphEncoder`)
+
+**Purpose**: Implements a Multi-Layer Perceptron (MLP) based approach for causal structure inference from time series data, without using Graph Neural Networks.
+
+**Key Methods**:
+- `__init__(input_dim, hidden_dim=64, num_layers=3, dropout=0.1, sparsity_weight=0.1, acyclicity_weight=1.0, seq_length=10)`: Constructor
+- `forward(x)`: Forward pass to process time series data and predict edge probabilities
+- `predict_graph_from_data(data, threshold=0.5)`: Predict a causal graph from time series data
+- `to_causal_graph(edge_probs, threshold=0.5)`: Convert edge probabilities to a CausalGraph
+
+**Usage Example**:
+```python
+from causal_meta.inference.models import MLPGraphEncoder
+from causal_meta.inference.adapters import MLPGraphEncoderAdapter
+
+# Create the model
+model = MLPGraphEncoder(
+    input_dim=5,  # Number of variables
+    hidden_dim=64,
+    num_layers=3,
+    seq_length=20
+)
+
+# Use an adapter to comply with the CausalStructureInferenceModel interface
+adapter = MLPGraphEncoderAdapter(model)
+
+# Prepare data
+data = {"observations": observed_time_series}  # Shape: [batch_size, seq_length, n_variables]
+
+# Infer causal structure
+graph = adapter.infer_structure(data)
+```
+
+#### TransformerGraphEncoder (`causal_meta.inference.models.transformer_encoder.TransformerGraphEncoder`)
+
+**Purpose**: Implements a Transformer-based approach for causal structure inference from time series data, leveraging self-attention mechanisms to capture temporal dependencies.
+
+**Key Methods**:
+- `__init__(input_dim, hidden_dim=64, num_heads=4, num_layers=2, dropout=0.1, sparsity_weight=0.1, acyclicity_weight=1.0)`: Constructor
+- `forward(x)`: Forward pass to process time series data and predict edge probabilities
+- `predict_graph_from_data(data, threshold=0.5)`: Predict a causal graph from time series data
+- `to_causal_graph(edge_probs, threshold=0.5)`: Convert edge probabilities to a CausalGraph
+
+**Usage Example**:
+```python
+from causal_meta.inference.models import TransformerGraphEncoder
+from causal_meta.inference.adapters import TransformerGraphEncoderAdapter
+
+# Create the model
+model = TransformerGraphEncoder(
+    input_dim=5,  # Number of variables
+    hidden_dim=64,
+    num_heads=4,
+    num_layers=2
+)
+
+# Use an adapter to comply with the CausalStructureInferenceModel interface
+adapter = TransformerGraphEncoderAdapter(model)
+
+# Prepare data
+data = {"observations": observed_time_series}  # Shape: [batch_size, seq_length, n_variables]
+
+# Infer causal structure
+graph = adapter.infer_structure(data)
+```
+
+### Non-GNN Adapters (`causal_meta.inference.adapters`)
+
+#### MLPGraphEncoderAdapter (`causal_meta.inference.adapters.MLPGraphEncoderAdapter`)
+
+**Purpose**: Adapts MLP-based graph encoder models to implement the `CausalStructureInferenceModel` interface.
+
+**Key Methods**:
+- `__init__(model, device=None)`: Constructor
+- `infer_structure(data)`: Infers causal structure from data
+- `update_model(data)`: Updates the model with new data
+- `estimate_uncertainty()`: Provides uncertainty estimates for inferred structures
+
+**Usage Example**:
+```python
+from causal_meta.inference.models import MLPGraphEncoder
+from causal_meta.inference.adapters import MLPGraphEncoderAdapter
+
+# Create MLP-based encoder
+encoder = MLPGraphEncoder(
+    input_dim=5,  # Number of variables
+    hidden_dim=64,
+    num_layers=3
+)
+
+# Wrap with adapter
+adapter = MLPGraphEncoderAdapter(encoder)
+
+# Use through the interface
+data = {"observations": observed_time_series}
+causal_graph = adapter.infer_structure(data)
+
+# Get uncertainty estimates
+uncertainty = adapter.estimate_uncertainty()
+```
+
+#### TransformerGraphEncoderAdapter (`causal_meta.inference.adapters.TransformerGraphEncoderAdapter`)
+
+**Purpose**: Adapts Transformer-based graph encoder models to implement the `CausalStructureInferenceModel` interface.
+
+**Key Methods**:
+- `__init__(model, device=None)`: Constructor
+- `infer_structure(data)`: Infers causal structure from data
+- `update_model(data)`: Updates the model with new data
+- `estimate_uncertainty()`: Provides uncertainty estimates for inferred structures
+
+**Usage Example**:
+```python
+from causal_meta.inference.models import TransformerGraphEncoder
+from causal_meta.inference.adapters import TransformerGraphEncoderAdapter
+
+# Create Transformer-based encoder
+encoder = TransformerGraphEncoder(
+    input_dim=5,  # Number of variables
+    hidden_dim=64,
+    num_heads=4,
+    num_layers=2
+)
+
+# Wrap with adapter
+adapter = TransformerGraphEncoderAdapter(encoder)
+
+# Use through the interface
+data = {"observations": observed_time_series}
+causal_graph = adapter.infer_structure(data)
+
+# Get uncertainty estimates
+uncertainty = adapter.estimate_uncertainty()
+```
+
+### Base Encoder Classes (`causal_meta.inference.models.base_encoder`)
+
+#### MLPBaseEncoder (`causal_meta.inference.models.base_encoder.MLPBaseEncoder`)
+
+**Purpose**: Base class for MLP-based structure inference models, providing common functionality for network construction and regularization.
+
+**Key Methods**:
+- `__init__(input_dim, hidden_dim=64, num_layers=3, dropout=0.1, sparsity_weight=0.1, acyclicity_weight=1.0)`: Constructor
+- `_build_mlp(input_dim, hidden_dim, output_dim, num_layers)`: Builds an MLP with specified dimensions
+- `calculate_acyclicity_regularization(edge_probs)`: Calculates acyclicity regularization term
+- `calculate_sparsity_regularization(edge_probs)`: Calculates sparsity regularization term
+- `calculate_loss(edge_probs, target=None, mask=None)`: Calculates total loss with regularization terms
+
+#### TransformerBaseEncoder (`causal_meta.inference.models.base_encoder.TransformerBaseEncoder`)
+
+**Purpose**: Base class for Transformer-based structure inference models, providing common functionality for transformer construction and regularization.
+
+**Key Methods**:
+- `__init__(input_dim, hidden_dim=64, num_heads=4, num_layers=2, dropout=0.1, sparsity_weight=0.1, acyclicity_weight=1.0)`: Constructor
+- `_generate_positional_encoding(max_seq_len, hidden_dim)`: Generates positional encodings for transformer
+- `_build_transformer_layer(hidden_dim, num_heads, dropout)`: Builds a transformer encoder layer
+- `calculate_acyclicity_regularization(edge_probs)`: Calculates acyclicity regularization term
+- `calculate_sparsity_regularization(edge_probs)`: Calculates sparsity regularization term
+- `calculate_loss(edge_probs, target=None, mask=None)`: Calculates total loss with regularization terms
+
+## Uncertainty Estimation (`causal_meta.inference.uncertainty`)
+
+### UncertaintyEstimator (`causal_meta.inference.uncertainty.UncertaintyEstimator`)
+
+**Purpose**: Abstract interface for uncertainty estimation in causal inference models. This interface defines the contract for components that estimate uncertainty in model predictions or inferred structures.
+
+**Key Methods**:
+- `estimate_uncertainty(model, data)`: Estimates uncertainty in model predictions or inferred structures.
+- `calibrate(model, validation_data)`: Calibrates uncertainty estimates using validation data.
+
+**Usage Example**:
+```python
+from causal_meta.inference.uncertainty import EnsembleUncertaintyEstimator
+from causal_meta.inference.adapters import GraphEncoderAdapter
+from causal_meta.meta_learning.acd_models import GraphEncoder
+
+# Create a model
+encoder = GraphEncoder(hidden_dim=64, attention_heads=2)
+model = GraphEncoderAdapter(encoder)
+
+# Create an uncertainty estimator
+estimator = EnsembleUncertaintyEstimator(num_models=5)
+
+# Prepare data
+data = {"observations": observations_data}
+validation_data = {"observations": validation_observations}
+
+# Calibrate the estimator
+estimator.calibrate(model, validation_data)
+
+# Estimate uncertainty
+uncertainty = estimator.estimate_uncertainty(model, data)
+```
+
+### EnsembleUncertaintyEstimator (`causal_meta.inference.uncertainty.EnsembleUncertaintyEstimator`)
+
+**Purpose**: Estimates uncertainty using ensemble methods. This implementation uses an ensemble of models to estimate uncertainty. The variance of predictions across different models in the ensemble provides an estimate of uncertainty.
+
+**Key Methods**:
+- `__init__(num_models=5, aggregation_method='mean')`: Constructor.
+- `estimate_uncertainty(model, data)`: Estimates uncertainty using ensemble variance.
+- `calibrate(model, validation_data)`: Calibrates ensemble uncertainty estimates.
+
+**Usage Example**:
+```python
+from causal_meta.inference.uncertainty import EnsembleUncertaintyEstimator
+
+# Create an ensemble uncertainty estimator
+estimator = EnsembleUncertaintyEstimator(
+    num_models=5,
+    aggregation_method='mean'
+)
+
+# Use with a model to estimate uncertainty
+uncertainty = estimator.estimate_uncertainty(model, data)
+```
+
+### DropoutUncertaintyEstimator (`causal_meta.inference.uncertainty.DropoutUncertaintyEstimator`)
+
+**Purpose**: Estimates uncertainty using Monte Carlo dropout. This implementation uses MC dropout to estimate model uncertainty. By performing multiple forward passes with dropout enabled, it approximates a Bayesian posterior distribution over predictions.
+
+**Key Methods**:
+- `__init__(num_samples=30, dropout_rate=None)`: Constructor.
+- `estimate_uncertainty(model, data)`: Estimates uncertainty using Monte Carlo dropout.
+- `calibrate(model, validation_data)`: Calibrates MC dropout uncertainty estimates.
+
+**Usage Example**:
+```python
+from causal_meta.inference.uncertainty import DropoutUncertaintyEstimator
+
+# Create a dropout uncertainty estimator
+estimator = DropoutUncertaintyEstimator(
+    num_samples=30,
+    dropout_rate=0.1
+)
+
+# Use with a model to estimate uncertainty
+uncertainty = estimator.estimate_uncertainty(model, data)
+```
+
+### DirectUncertaintyEstimator (`causal_meta.inference.uncertainty.DirectUncertaintyEstimator`)
+
+**Purpose**: Uses model's direct uncertainty outputs. This implementation is for models that directly provide uncertainty estimates as part of their output. It simply extracts and possibly calibrates these direct uncertainty estimates.
+
+**Key Methods**:
+- `__init__(scale_factor=1.0)`: Constructor.
+- `estimate_uncertainty(model, data)`: Extracts and scales direct uncertainty estimates.
+- `calibrate(model, validation_data)`: Calibrates direct uncertainty estimates.
+
+**Usage Example**:
+```python
+from causal_meta.inference.uncertainty import DirectUncertaintyEstimator
+
+# Create a direct uncertainty estimator
+estimator = DirectUncertaintyEstimator(scale_factor=1.2)
+
+# Use with a model to estimate uncertainty
+uncertainty = estimator.estimate_uncertainty(model, data)
+```
+
+### ConformalUncertaintyEstimator (`causal_meta.inference.uncertainty.ConformalUncertaintyEstimator`)
+
+**Purpose**: Estimates uncertainty using conformal prediction. This implementation uses distribution-free conformal prediction methods to provide rigorous uncertainty estimates with statistical guarantees.
+
+**Key Methods**:
+- `__init__(alpha=0.05, method='naive')`: Constructor.
+- `estimate_uncertainty(model, data)`: Estimates uncertainty using conformal prediction.
+- `calibrate(model, validation_data)`: Calibrates the conformal predictor using validation data.
+
+**Usage Example**:
+```python
+from causal_meta.inference.uncertainty import ConformalUncertaintyEstimator
+
+# Create a conformal uncertainty estimator
+estimator = ConformalUncertaintyEstimator(
+    alpha=0.05,  # 95% confidence
+    method='naive'
+)
+
+# Calibrate the estimator (required before use)
+estimator.calibrate(model, validation_data)
+
+# Use with a model to estimate uncertainty
+uncertainty = estimator.estimate_uncertainty(model, data)
+```
+
+## Common Patterns for Uncertainty Estimation
+
+1. **Selecting an Appropriate Estimator**:
+   - Use `EnsembleUncertaintyEstimator` when you can train multiple models or generate samples from the model.
+   - Use `DropoutUncertaintyEstimator` with models that include dropout layers.
+   - Use `DirectUncertaintyEstimator` with models that directly output uncertainty (e.g., Bayesian neural networks).
+   - Use `ConformalUncertaintyEstimator` when you need rigorous statistical guarantees.
+
+2. **Integration with Models**:
+   ```python
+   # Example integration with a structure inference model
+   from causal_meta.inference.adapters import GraphEncoderAdapter
+   from causal_meta.inference.uncertainty import EnsembleUncertaintyEstimator
+   
+   # Create and train a model
+   model = GraphEncoderAdapter(...)
+   
+   # Create an uncertainty estimator
+   estimator = EnsembleUncertaintyEstimator(num_models=5)
+   
+   # Calibrate the estimator
+   estimator.calibrate(model, validation_data)
+   
+   # Use the estimator with new data
+   uncertainty = estimator.estimate_uncertainty(model, new_data)
+   
+   # Extract specific uncertainty metrics
+   edge_probabilities = uncertainty.get("edge_probabilities")
+   confidence_intervals = uncertainty.get("confidence_intervals")
+   ```
+
+3. **Visualization**:
+   ```python
+   # Example visualization of uncertainty
+   import matplotlib.pyplot as plt
+   import numpy as np
+   
+   # Get uncertainty estimates
+   uncertainty = estimator.estimate_uncertainty(model, data)
+   
+   # Plot edge probabilities with confidence intervals
+   edge_probs = uncertainty["edge_probabilities"]
+   conf_intervals = uncertainty.get("confidence_intervals", {})
+   lower_bounds = conf_intervals.get("lower", edge_probs - 0.1)
+   upper_bounds = conf_intervals.get("upper", edge_probs + 0.1)
+   
+   plt.figure(figsize=(10, 6))
+   plt.imshow(edge_probs, cmap='viridis')
+   plt.colorbar(label='Edge Probability')
+   plt.title('Causal Graph Edge Probabilities with Uncertainty')
+   plt.xlabel('Target Node')
+   plt.ylabel('Source Node')
+   ```
+
+### Updatable Interface (`causal_meta.inference.interfaces.Updatable`)
+
+**Purpose**: Defines the contract for models that can be updated with new data. This interface enables components to implement different update strategies such as incremental updates, experience replay, or full retraining.
+
+**Key Methods**:
+- `update(data)`: Updates the model with new data, returns success indicator
+- `reset()`: Resets the model to its initial state
+
+**Usage Example**:
+```python
+from causal_meta.inference.interfaces import Updatable
+import numpy as np
+
+# Assume we have a model that implements the Updatable interface
+class SimpleUpdatableModel(Updatable):
+    def __init__(self):
+        self.data = None
+        self.updates_count = 0
+        self.reset()
+    
+    def update(self, data):
+        # Implement incremental updates
+        self.data = data
+        self.updates_count += 1
+        print(f"Model updated ({self.updates_count} updates so far)")
+        return True
+    
+    def reset(self):
+        # Reset to initial state
+        self.data = None
+        self.updates_count = 0
+        print("Model reset to initial state")
+
+# Create the model
+model = SimpleUpdatableModel()
+
+# Update with data
+mock_data = {"observations": np.random.randn(100, 5)}
+success = model.update(mock_data)
+
+# Update again with new data
+new_data = {"observations": np.random.randn(50, 5)}
+success = model.update(new_data)
+
+# Reset the model
+model.reset()
+```
+
+### UncertaintyEstimator Interface (`causal_meta.inference.uncertainty.UncertaintyEstimator`)
+
+**Purpose**: Defines the contract for components that estimate uncertainty in model predictions or inferred structures. This interface enables flexible uncertainty quantification that can work with different model types.
+
+**Key Methods**:
+- `estimate_uncertainty(model, data)`: Estimates uncertainty in model outputs
+- `calibrate(model, validation_data)`: Calibrates uncertainty estimates using validation data
+
+**Implementations**:
+- `EnsembleUncertaintyEstimator`: Uses ensemble methods for uncertainty estimation
+- `DropoutUncertaintyEstimator`: Uses Monte Carlo dropout for uncertainty estimation
+- `DirectUncertaintyEstimator`: For models that directly predict variance
+- `ConformalUncertaintyEstimator`: Uses conformal prediction methods
+
+**Usage Example**:
+```python
+from causal_meta.inference.uncertainty import EnsembleUncertaintyEstimator
+import numpy as np
+
+# Create an uncertainty estimator
+estimator = EnsembleUncertaintyEstimator(num_models=5)
+
+# Assume we have a model and data
+model = MyModel(...)
+data = {"observations": np.random.randn(100, 5)}
+
+# Estimate uncertainty
+uncertainty = estimator.estimate_uncertainty(model, data)
+
+# Calibrate using validation data
+validation_data = {"observations": np.random.randn(200, 5)}
+estimator.calibrate(model, validation_data)
+```

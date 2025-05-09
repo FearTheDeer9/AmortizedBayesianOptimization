@@ -1,6 +1,6 @@
 # Implementation Plan
 
-This document reflects the current state of the project based on the Amortized Causal Discovery approach.
+This document reflects the updated plan for the project based on the comprehensive refactoring approach for the Amortized Causal Meta-Learning Framework.
 
 ## Task Template with Sequential Thinking
 
@@ -52,715 +52,833 @@ This template ensures that each task is thoroughly analyzed using Sequential Thi
 
 ## Overall Status
 
-- **Project Name:** Amortized Causal Bayesian Optimization Framework
-- **Total Tasks:** 7
-- **Research Direction:** Implementation of Amortized Causal Discovery as outlined in Löwe et al. (2022)
+- **Project Name:** Amortized Causal Bayesian Optimization Framework - Refactoring
+- **Total Tasks:** 15
+- **Research Direction:** Comprehensive refactoring with interface-first design pattern
 
 ## High-Level Task Summary
 
-1.  **Implement Reliable DAG Generation:** `done`
-    - Essential foundation for generating training and test graphs.
-2.  **Implement Task Family Generation:** `done`
-    - Critical for meta-learning across related causal structures.
-3.  **Integrate StructuralCausalModel Implementation:** `done`
-    - Core component for data generation and intervention simulation.
-4.  **Implement Neural Causal Discovery Components:** `in-progress`
-    - Neural network components for graph structure inference.
-5.  **Implement Amortized Causal Dynamics Modeling:** `in-progress`
-    - Neural dynamics modeling for intervention prediction.
-6.  **Implement Amortized Causal Bayesian Optimization:** `done`
-    - End-to-end implementation combining neural graph inference and dynamics modeling.
-7.  **Create Evaluation Framework and Benchmarks:** `pending`
-    - Comprehensive benchmarking and visualization tools.
-8.  **Demo Scripts for Supervisor Meeting:** `in-progress`
-    - HIGH PRIORITY: Demonstration scripts for upcoming supervisor meeting.
-    - Must be completed ahead of Tasks 6 and 7.
+1. **Core Interface Design:** `pending`
+   - Define the key abstractions and interfaces for the framework.
+   
+2. **CausalGraph & DirectedGraph Refactoring:** `pending`
+   - Standardize method naming and improve validation logic.
+   
+3. **StructuralCausalModel Refactoring:** `pending`
+   - Refactor to implement interfaces for model-agnostic usage.
+   
+4. **Structure Inference Models Refactoring:** `pending`
+   - Implement `CausalStructureInferenceModel` interface and adapters.
+   
+5. **Dynamics Prediction Models Refactoring:** `pending`
+   - Implement `InterventionOutcomeModel` interface and adapters.
+   
+6. **Acquisition Strategies Refactoring:** `pending`
+   - Implement `AcquisitionStrategy` interface and strategies.
+   
+7. **Uncertainty Estimation & Model Updating:** `pending`
+   - Implement uncertainty estimators and model updating strategies.
+   
+8. **AmortizedCausalOptimizer Implementation:** `pending`
+   - Create new class using the interface-based design.
+   
+9. **Existing Algorithm Classes Refactoring:** `pending`
+   - Update to implement or use the new interfaces.
+   
+10. **Meta-Learning Components Refactoring:** `pending`
+    - Refactor to use the new interfaces.
+    
+11. **Demo Scripts Refactoring:** `pending`
+    - Update demo scripts to use the new interfaces.
+    
+12. **YAML Configuration Infrastructure:** `pending`
+    - Create a unified configuration schema for all components.
+    
+13. **Demo Script Configuration:** `pending`
+    - Update demo scripts to read configuration from YAML files.
+    
+14. **Training & Benchmarking Configuration:** `pending`
+    - Create a configuration-driven training pipeline.
+    
+15. **Configuration Documentation & Examples:** `pending`
+    - Create comprehensive documentation for configuration options.
 
-## Research Approach
+## Detailed Implementation Plan
 
-This project implements Amortized Causal Discovery (ACD) within a Causal Bayesian Optimization framework. The approach uses neural networks to learn both causal graph structures and dynamics models from data, enabling scalability to larger graphs that wouldn't be feasible with traditional methods. Our implementation follows the tiered inference approach, focusing on neural approximation for both graph structure inference and dynamics modeling.
+### Phase 0: Interface Definition (1 week)
 
-### Project Implementation Plan
-
-#### Task 1: Implement Reliable DAG Generation (Done ✅)
-- Creation of foundational DAG generation tools to provide training data for neural models.
-- Subtask 1.1: Add create_random_dag method signature to GraphFactory (Done ✅)
-- Subtask 1.2: Implement core DAG generation algorithm (Done ✅)
-- Subtask 1.3: Implement edge probability logic (Done ✅)
-- Subtask 1.4: Add DAG validation and verification (Done ✅)
-- Subtask 1.5: Update example script to use the new DAG generator (Done ✅)
-
-#### Task 2: Implement Task Family Generation (Done ✅)
-- Generation of related causal structures for meta-learning and transfer learning.
-- Subtask 2.1: Set up module structure and base function implementation (Done ✅)
-- Subtask 2.2: Implement edge weight variation (Done ✅)
-- Subtask 2.3: Implement structure variation with DAG preservation (Done ✅)
-- Subtask 2.4: Implement node function variation (Deferred ⏸️)
-- Subtask 2.5: Integrate with framework and implement comprehensive testing (Done ✅)
-
-#### Task 3: Integrate StructuralCausalModel Implementation (Done ✅)
-- Foundational SCM implementation that will be used for data generation in training neural models.
-- Subtask 3.1: Review and analyze existing StructuralCausalModel implementation (Done ✅)
-- Subtask 3.2: Implement or extend sample_data method (Done ✅) 
-- Subtask 3.3: Implement or extend perform_intervention method (Done ✅)
-- Subtask 3.4: Implement or extend get_adjacency_matrix method (Done ✅)
-- Subtask 3.5: Update example workflow to use StructuralCausalModel (Done ✅)
-
-#### Task 4: Implement Neural Causal Discovery Components (In Progress 🔄)
-- **Description:** Implement neural network-based components for inferring causal structure from observational and interventional data.
+#### Task 0: Core Interface Design (Pending)
+- **Description:** Define the key abstractions and interfaces for the framework.
 - **Priority:** high
-- **Status:** in-progress
-- **Dependencies:** 1, 2, 3
+- **Status:** pending
+- **Dependencies:** none
 
-- **Subtask 4.1: Implement GraphEncoder neural network (Done ✅)**
-  - Create `GraphEncoder` class in `causal_meta/meta_learning/acd_models.py`
-  - Implement attention-based GNN architecture for encoding time-series data into graph structures
-  - Add sparsity regularization and structural constraints
-  - Implement batched processing functionality
-  - Create comprehensive unit tests
-
-- **Subtask 4.2: Create graph inference utilities (Done ✅)**
-  - Implement threshold mechanism for converting edge probabilities to discrete graphs
-  - Create posterior sampling methods for uncertainty quantification
-  - Implement graph validation to ensure DAG properties
-  - Add metrics for graph recovery accuracy (SHD, precision/recall)
-  - Integrate with existing `CausalGraph` representations
-
-- **Subtask 4.3: Implement graph encoder training pipeline (Done ✅)**
-  - Create loss functions for graph structure learning
-  - Implement curriculum learning for increasingly complex graphs
-  - Add regularization terms for sparsity and acyclicity
-  - Create checkpoint and model saving utilities
-  - Implement early stopping and performance tracking
-
-- **Subtask 4.4: Create synthetic data generation for training (Done ✅)**
-  - Implement `SyntheticDataGenerator` class in `causal_meta/meta_learning/data_generation.py`
-  - Create observational data generation from SCMs
-  - Implement interventional data simulation
-  - Add noise models and data augmentation techniques
-  - Create efficient data loaders and batching utilities
-
-#### Task 5: Implement Amortized Causal Dynamics Modeling (In Progress 🔄)
-- **Description:** Implement neural network components for modeling dynamics and predicting intervention outcomes.
-- **Priority:** high
-- **Status:** in-progress
-- **Dependencies:** 3, 4
-
-- **Subtask 5.1: Implement DynamicsDecoder neural network (Done ✅)**
+- **Subtask 0.1: Define CausalStructureInferenceModel Interface (Done)**
   - **Sequential Thinking Analysis:**
     - **Thought 1: Problem Understanding**
-      - The DynamicsDecoder needs to predict intervention outcomes based on inferred graph structure and observational data
-      - Must be compatible with GraphEncoder outputs and handle different types of interventions
+      - Need to define an interface for models that infer causal structure from data
+      - Interface should be agnostic to the underlying implementation (GNN, MLP, etc.)
+      - Should support both observational and interventional data
+      - Must include methods for uncertainty quantification
+      - Should allow for incremental updates with new data
+
+    - **Thought 2: Component Identification**
+      - Core methods for structure inference
+      - Uncertainty quantification methods
+      - Model updating mechanisms
+      - Evaluation metrics
+      - Serialization/deserialization
+
+    - **Thought 3: Implementation Approach**
+      - Use Python's abstract base classes (ABC) for interface definition
+      - Define minimal required methods with clear signatures
+      - Include type annotations for all methods
+      - Provide default implementations where appropriate
+      - Create utility functions for common operations
+
+    - **Thought 4: Potential Challenges**
+      - Balancing flexibility with specificity
+      - Handling different input data formats
+      - Ensuring backward compatibility with existing code
+      - Managing uncertainty representations
+      - Supporting both eager and lazy evaluation
+
+    - **Thought 5: Implementation Plan**
+      - Define the core interface with abstract methods
+      - Create adapter classes for existing implementations
+      - Write comprehensive tests for interface conformance
+      - Add detailed documentation with examples
+      - Create a template for new implementations
+
+  - **Detailed Implementation Steps:**
+    1. Created new file `causal_meta/inference/interfaces.py`
+    2. Defined `CausalStructureInferenceModel` abstract base class
+    3. Defined required methods: `infer_structure()`, `update_model()`, `estimate_uncertainty()`
+    4. Added type annotations and comprehensive docstrings
+    5. Created adapter class for existing GNN implementation
+    6. Wrote tests in `tests/inference/test_interfaces.py`
+    7. Updated documentation in component registry
+
+  - **Current Status:** done
+  - **Estimated Completion:** May 15, 2024
+
+- **Subtask 0.2: Define InterventionOutcomeModel Interface (Done)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to define an interface for models that predict outcomes of interventions
+      - Should be compatible with different graph representations
+      - Must support various intervention types
       - Should provide uncertainty estimates for predictions
-      - Needs to be differentiable end-to-end for training
+      - Should allow for updating with new interventional data
 
     - **Thought 2: Component Identification**
-      - Neural network architecture that processes graph structure and node features
-      - Intervention conditioning mechanism for different intervention types
-      - Prediction capabilities for counterfactual node values
-      - Uncertainty quantification system
-      - Integration interface with GraphEncoder
-      - Batched processing for efficient training
+      - Core prediction methods
+      - Intervention conditioning mechanism
+      - Uncertainty quantification
+      - Model updating
+      - Evaluation metrics
 
     - **Thought 3: Implementation Approach**
-      - Use Graph Neural Network (GNN) with attention mechanisms
-      - Implement message passing between nodes based on graph structure
-      - Add attention layers to focus on relevant nodes for interventions
-      - Create mechanisms to condition on different intervention types
-      - Implement uncertainty estimation through ensemble or variational methods
-      - Design output layer to generate predictions for all nodes
+      - Use abstract base classes (ABC) for interface definition
+      - Define methods for predicting intervention outcomes
+      - Include uncertainty estimation methods
+      - Allow for different graph representation formats
+      - Support batched predictions for efficiency
 
     - **Thought 4: Potential Challenges**
-      - Ensuring differentiability: Use soft adjacency matrices
-      - Handling different intervention types: Create abstract intervention representation
-      - Computational efficiency: Implement sparse operations
-      - Uncertainty calibration: Use ensemble methods with proper validation
-      - Integration with GraphEncoder: Define clear interfaces
-      - Preventing overfitting: Add graph-specific regularization
-      - Gradient flow: Use skip connections and normalization
+      - Handling different intervention types consistently
+      - Representing and propagating uncertainty
+      - Supporting both eager and lazy evaluation
+      - Maintaining compatibility with existing code
+      - Balancing simplicity with expressiveness
 
     - **Thought 5: Implementation Plan**
-      - Create file structure and class definition
-      - Implement core neural components
-      - Add uncertainty quantification
-      - Create test infrastructure
-      - Integrate with existing components
-      - Add documentation and examples
+      - Define the core interface with abstract methods
+      - Create adapter classes for existing implementations
+      - Implement comprehensive testing
+      - Document with clear examples
+      - Ensure backward compatibility
 
   - **Detailed Implementation Steps:**
-    1. Create new file `causal_meta/meta_learning/dynamics_decoder.py`
-    2. Define `DynamicsDecoder` class inheriting from `nn.Module`
-    3. Implement Graph Attention layers for message passing
-    4. Add intervention conditioning mechanism
-    5. Create uncertainty quantification system
-    6. Write comprehensive tests in `tests/meta_learning/test_dynamics_decoder.py`
-    7. Create integration methods with GraphEncoder
-    8. Add documentation and examples
+    1. Added to `causal_meta/inference/interfaces.py`
+    2. Defined `InterventionOutcomeModel` abstract base class
+    3. Defined required methods: `predict_intervention_outcome()`, `update_model()`, `estimate_uncertainty()`
+    4. Added type annotations and comprehensive docstrings
+    5. Created adapter class for existing dynamics decoder implementation
+    6. Wrote tests in `tests/inference/test_interfaces.py`
+    7. Updated documentation in component registry
 
-  - **Current Status:** Done
-  - **Estimated Completion:** 2025-06-22
+  - **Current Status:** done
+  - **Estimated Completion:** June 1, 2024
 
-- **Subtask 5.2: Implement AmortizedCausalDiscovery class (Done ✅)**
+- **Subtask 0.3: Define AcquisitionStrategy Interface (Done)**
   - **Sequential Thinking Analysis:**
     - **Thought 1: Problem Understanding**
-      - The AmortizedCausalDiscovery class needs to serve as the main interface for the amortized approach
-      - It must combine GraphEncoder for structure inference and DynamicsDecoder for dynamics modeling
-      - Should provide a unified training pipeline for both components
-      - Needs to implement inference methods for graph structure and intervention outcomes
-      - Should include evaluation metrics for assessing performance of both components
+      - Need to define an interface for strategies that select interventions
+      - Should support different optimization objectives
+      - Must be compatible with uncertainty-aware models
+      - Should allow for batch selection of interventions
+      - Must handle budget constraints
 
     - **Thought 2: Component Identification**
-      - Integration Components: GraphEncoder, DynamicsDecoder, data handling utilities
-      - Training Components: Joint loss function, training loop, curriculum learning, checkpointing
-      - Inference Components: Graph structure inference, intervention outcome prediction, uncertainty quantification
-      - Evaluation Components: Structure metrics (SHD, precision, recall), prediction metrics (MSE, MAE)
-      - Interface Components: High-level API, configuration system, serialization
+      - Core acquisition function evaluation
+      - Optimization method for finding best interventions
+      - Batch selection methods
+      - Budget tracking and management
+      - Integration with model interfaces
 
     - **Thought 3: Implementation Approach**
-      - Create a new class inheriting from nn.Module to combine both components
-      - Implement a train method that handles joint training with balanced losses
-      - Create inference methods for both graph structure and dynamics
-      - Implement data handling utilities for proper data flow
-      - Add visualization and evaluation tools for both components
-      - Create a clean, high-level API for easy use
+      - Use abstract base classes (ABC) for interface definition
+      - Define methods for computing acquisition values
+      - Include optimization methods for selecting interventions
+      - Support batch selection with diversity considerations
+      - Allow for custom optimization objectives
 
     - **Thought 4: Potential Challenges**
-      - Gradient Flow: Ensuring proper gradient flow between encoder and decoder
-      - Balancing Learning: Finding the right balance between structure and dynamics objectives
-      - Computational Efficiency: Joint training can be computationally expensive
-      - Data Compatibility: Ensuring both components can process the same data format
-      - Hyperparameter Management: Managing many hyperparameters across components
-      - Evaluation Complexity: Need for different metrics for different aspects
-      - Uncertainty Calibration: Ensuring well-calibrated uncertainty estimates
-
-    - **Thought 5: Implementation Plan**
-      - Set up class structure with proper initialization of components
-      - Implement core methods for joint operation and training
-      - Create combined loss functions with appropriate weighting
-      - Add data processing utilities for joint training
-      - Implement comprehensive testing and evaluation
-      - Finalize with documentation, serialization, and error handling
-
-  - **Detailed Implementation Steps:**
-    1. Create new file `causal_meta/meta_learning/amortized_causal_discovery.py`
-    2. Define `AmortizedCausalDiscovery` class inheriting from `nn.Module`
-    3. Implement initialization to create and configure both components
-    4. Create `forward` method for joint operation of the model
-    5. Implement `train` method with joint training procedure
-    6. Add `infer_causal_graph` method for structure inference
-    7. Create `predict_intervention_outcomes` method for dynamics prediction
-    8. Implement combined loss function with weighting mechanism
-    9. Add data processing utilities for batching and preprocessing
-    10. Create test file with comprehensive test cases
-    11. Implement evaluation metrics and visualization tools
-    12. Add model serialization and configuration validation
-
-  - **Current Status:** Done
-  - **Estimated Completion:** 2025-06-23
-
-- **Subtask 5.3: Implement meta-learning capabilities (Done ✅)**
-  - **Sequential Thinking Analysis:**
-    - **Thought 1: Problem Understanding**
-      - The goal is to add meta-learning functionality to our existing AmortizedCausalDiscovery class
-      - Need to enable few-shot adaptation to new causal structures with minimal data
-      - Implement a meta-learning approach based on MAML (Model-Agnostic Meta-Learning)
-      - Develop task embedding utilities for representing different causal structures
-      - Create adaptation strategies specifically for causal discovery
-      - Test adaptation performance on families of related causal tasks
-
-    - **Thought 2: Component Identification**
-      - Task Representation Components: Task embedding network, task family generator, similarity metrics
-      - Meta-Training Components: Inner loop optimization, outer loop optimization, batch sampling
-      - Adaptation Components: Rapid adaptation methods, parameter initialization, fine-tuning procedures
-      - Evaluation Components: Few-shot metrics, cross-task generalization measurements
-      - Implementation Details: Differential inner loop, higher-order gradients, parameter isolation
-
-    - **Thought 3: Implementation Approach**
-      - Implement MAML-based approach for fast adaptation to new causal structures
-      - Create task embedding network to encode graph structure into fixed-size representations
-      - Design meta-training procedure with inner and outer optimization loops
-      - Develop adaptation strategies for both GraphEncoder and DynamicsDecoder components
-      - Extend AmortizedCausalDiscovery class while maintaining compatibility with existing code
-
-    - **Thought 4: Potential Challenges**
-      - Computational Complexity: Higher-order gradients are computationally intensive
-      - Task Diversity: Ensuring sufficient diversity in meta-training tasks
-      - Few-Shot Performance: Achieving good results with minimal adaptation steps
-      - Balancing Learning: Appropriate balance between structure and dynamics adaptation
-      - Overfitting: Meta-learning is prone to overfitting to the meta-training distribution
-      - Implementation Complexity: MAML requires careful handling of computational graphs
-
-    - **Thought 5: Implementation Plan**
-      - Set up code structure for meta-learning components
-      - Implement core MAML components with inner/outer loop optimization
-      - Create task embedding and representation utilities
-      - Develop complete meta-training procedure
-      - Implement adaptation and evaluation methods
-      - Create comprehensive testing suite
-      - Add detailed documentation and examples
-
-  - **Detailed Implementation Steps:**
-    1. Create new module `causal_meta/meta_learning/meta_learning.py` for meta-learning utilities
-    2. Add meta-learning methods to the AmortizedCausalDiscovery class
-    3. Implement task embedding network as a separate component
-    4. Create inner loop adaptation function with configurable steps and learning rate
-    5. Implement outer loop meta-optimization with appropriate higher-order gradients
-    6. Add task batch sampling for meta-training
-    7. Implement meta_train method with support for episodes and tasks
-    8. Create adapt method for few-shot adaptation to new tasks
-    9. Implement evaluation procedures for adapted models
-    10. Add metrics for measuring adaptation speed and performance
-    11. Create test file with comprehensive tests for meta-learning components
-    12. Add detailed documentation and example scripts
-
-  - **Current Status:** Done
-  - **Estimated Completion:** 2025-06-25
-  - **Implementation Notes:**
-    - Successfully implemented TaskEmbedding class with methods to encode graph structures
-    - Leveraged existing GraphStructureRepresentation from task_representation.py for compatibility
-    - Added MAMLForCausalDiscovery class to integrate with MAML algorithm
-    - Implemented enable_meta_learning and meta_adapt methods in AmortizedCausalDiscovery
-    - Added comprehensive documentation and appropriate type hints
-    - Updated module exports in __init__.py to expose the new components
-
-- **Subtask 5.4: Add uncertainty quantification (Pending ⏱️)**
-  - Implement ensemble methods or dropout-based uncertainty estimation
-  - Create confidence intervals for predictions
-  - Add visualization tools for uncertainty
-  - Implement metrics for calibration assessment
-  - Test uncertainty estimates on held-out data
-
-#### Task 6: Implement Amortized Causal Bayesian Optimization (Done ✅)
-- **Description:** Create the end-to-end system for causal Bayesian optimization using amortized components.
-- **Priority:** high
-- **Status:** done
-- **Dependencies:** 4, 5
-
-- **Subtask 6.1: Implement AmortizedCBO class (Done ✅)**
-  - **Sequential Thinking Analysis:**
-    - **Thought 1: Problem Understanding**
-      - The AmortizedCBO needs to efficiently select interventions in causal systems using our neural network amortized causal discovery framework
-      - Must implement Bayesian optimization techniques specifically for causal structure learning
-      - Needs to leverage the uncertainty in neural network predictions
-      - Should integrate with the meta-learning capabilities for transfer learning
-      - Must balance exploration and exploitation in the intervention selection process
-
-    - **Thought 2: Component Identification**
-      - Acquisition Functions: Expected Improvement, Upper Confidence Bound, Probability of Improvement, Thompson Sampling
-      - Intervention Selection: Strategy for selecting optimal interventions with budget constraints
-      - Model Update: Mechanism to update the model with new observations
-      - Optimization Loop: Full loop for iterative intervention optimization
-      - Meta-Learning Integration: TaskEmbedding and adaptation for transfer learning
-
-    - **Thought 3: Implementation Approach**
-      - Implement neural network compatible versions of standard acquisition functions
-      - Create intervention selection strategy with budget constraints
-      - Develop a mechanism for updating the model with new observations
-      - Implement a full optimization loop with early stopping
-      - Integrate with TaskEmbedding for meta-learning capabilities
-      - Ensure proper error handling and device management
-
-    - **Thought 4: Potential Challenges**
-      - Handling uncertainty estimates from neural networks
+      - Handling different intervention spaces
       - Balancing exploration and exploitation
-      - Efficiently integrating meta-learning for transfer
-      - Managing computational resources for large graphs
-      - Ensuring robust error handling for different model types
-      - Balancing batch processing with sequential decision-making
+      - Supporting batch selection efficiently
+      - Integrating with uncertainty estimates
+      - Maintaining budget constraints
 
     - **Thought 5: Implementation Plan**
-      - Create file structure and class definition
-      - Implement acquisition functions for neural network predictions
-      - Add intervention selection with budget constraints
-      - Implement optimization loop with early stopping
-      - Add model update mechanism
-      - Integrate meta-learning capabilities
-      - Create comprehensive test suite
-      - Implement error handling and edge cases
+      - Define the core interface with abstract methods
+      - Implement common acquisition strategies
+      - Create comprehensive tests
+      - Document interface and implementations
+      - Ensure interoperability with other interfaces
 
   - **Detailed Implementation Steps:**
-    1. Create new file `causal_meta/meta_learning/amortized_cbo.py`
-    2. Define `AmortizedCBO` class
-    3. Implement acquisition functions (EI, UCB, PI, Thompson sampling)
-    4. Add intervention selection mechanism with budget constraints
-    5. Implement model update functionality with meta-learning integration
-    6. Create optimization loop with early stopping
-    7. Add comprehensive error handling and edge cases
-    8. Create test file `tests/meta_learning/test_amortized_cbo.py`
-    9. Update module exports in `causal_meta/meta_learning/__init__.py`
-    10. Implement error handling for mock compatibility in tests
-    11. Add device management for proper tensor operations
-    12. Fix edge cases in type handling and error recovery
+    1. Created `causal_meta/optimization/interfaces.py` with `AcquisitionStrategy` abstract base class
+    2. Defined required methods: `compute_acquisition()`, `select_intervention()`, `select_batch()`
+    3. Implemented `ExpectedImprovement` and `UpperConfidenceBound` strategies
+    4. Added comprehensive tests in `tests/optimization/test_interfaces.py` and `test_acquisition.py`
+    5. Documented in Component Registry with usage examples
 
-  - **Current Status:** Done
-  - **Estimated Completion:** 2025-06-26
-  - **Implementation Notes:**
-    - Successfully implemented AmortizedCBO class with comprehensive acquisition functions
-    - Added robust intervention selection with budget constraints
-    - Implemented full optimization loop with early stopping
-    - Added meta-learning integration with TaskEmbedding
-    - Fixed issues with error handling and device management
-    - Added comprehensive test suite with all tests passing
-    - Ensured compatibility with mock objects for testing
+  - **Current Status:** done
+  - **Estimated Completion:** June 13, 2023
 
-- **Subtask 6.2: Implement acquisition functions (Done ✅)**
-  - **Current Status:** Done (completed as part of 6.1)
-  - **Estimated Completion:** 2025-06-26
-  - **Implementation Notes:**
-    - Implemented Expected Improvement, Upper Confidence Bound, Probability of Improvement
-    - Added Thompson sampling with neural network uncertainty estimates
-    - Created numerical stability improvements for acquisition functions
-    - Ensured proper handling of edge cases and error conditions
-    - All acquisition functions compatible with batched neural network outputs
+- **Subtask 0.4: Define UncertaintyEstimator Interface (Done)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to define an interface for estimating uncertainty in causal inference models
+      - Interface needs to work with different model types (structure inference, dynamics prediction)
+      - Must support different uncertainty estimation strategies (ensemble, dropout, direct, conformal)
+      - Should allow for calibration of uncertainty estimates
+      - Must be compatible with existing model interfaces
 
-- **Subtask 6.3: Create budget-aware intervention selection (Done ✅)**
-  - **Current Status:** Done (completed as part of 6.1)
-  - **Estimated Completion:** 2025-06-26
-  - **Implementation Notes:**
-    - Implemented intervention selection with budget constraints
-    - Added per-node cost specification
-    - Created flexible mechanism for handling single or multiple intervention values
-    - Added comprehensive tests for budget constraints
+    - **Thought 2: Component Identification**
+      - Core uncertainty estimation methods needed
+      - Calibration mechanism
+      - Data handling utilities
+      - Integration with different model types
+      - Specific implementations for different strategies
+      - Testing framework
 
-- **Subtask 6.4: Update example workflow (Done ✅)**
-  - Create end-to-end example workflow in `examples/amortized_cbo_workflow.py`
-  - Add tutorial-style documentation and comments
-  - Create parameter recommendations
-  - Implement progress tracking and visualization
-  - Create a Jupyter notebook tutorial
-  - **Current Status:** Done
-  - **Estimated Completion:** 2025-06-27
-  - **Implementation Notes:**
-    - Successfully implemented end-to-end workflow in `examples/amortized_cbo_workflow.py`
-    - Added comprehensive documentation with step-by-step explanations
-    - Implemented synthetic data generation, model setup, and configuration
-    - Created simplified training approach for demonstration purposes
-    - Added graph inference and visualization components
-    - Implemented full optimization loop for intervention selection
-    - Created results visualization and analysis tools
-    - Ensured all tests are passing with the implemented example
-    - Added parameter recommendations for optimal performance
+    - **Thought 3: Implementation Approach**
+      - Create an abstract base interface with key methods
+      - Implement concrete strategies for different use cases
+      - Design flexible interfaces that work with different model types
+      - Include proper validation and error handling
+      - Use type hints for better code documentation
+      - Create comprehensive tests for each implementation
 
-#### Task 7: Create Evaluation Framework and Benchmarks (Pending ⏱️)
-- **Description:** Develop comprehensive evaluation tools and benchmarks for the amortized approach.
+    - **Thought 4: Potential Challenges**
+      - Different models represent uncertainty differently
+      - Calibration methods might vary by estimator type
+      - Need to handle both probabilistic and non-probabilistic models
+      - Models might not directly support uncertainty estimation
+      - Must maintain computational efficiency
+      - Models might use different data formats
+
+    - **Thought 5: Solution Synthesis**
+      - Create UncertaintyEstimator abstract base class with core methods
+      - Implement common estimators (Ensemble, Dropout, Direct, Conformal)
+      - Design tests to verify interface compliance
+      - Update component registry with documentation
+      - Follow interface-first design pattern
+      - Ensure compatibility with existing interfaces
+
+  - **Detailed Implementation Steps:**
+    1. Created new file `causal_meta/inference/uncertainty.py`
+    2. Defined `UncertaintyEstimator` abstract base class with `estimate_uncertainty` and `calibrate` methods
+    3. Implemented concrete estimators: `EnsembleUncertaintyEstimator`, `DropoutUncertaintyEstimator`, `DirectUncertaintyEstimator`, and `ConformalUncertaintyEstimator`
+    4. Created comprehensive test suite in `tests/inference/test_uncertainty.py`
+    5. Updated `causal_meta/inference/__init__.py` to export the new interfaces and implementations
+    6. Added documentation to Component Registry with usage examples
+    7. Verified all tests pass
+
+  - **Current Status:** done
+  - **Estimated Completion:** July 2, 2024
+
+- **Subtask 0.5: Define Updatable Interface (Done)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to define an interface for models that can be updated with new data
+      - Interface should be applicable to different model types
+      - Must provide clear methods for updating and resetting models
+      - Should be compatible with existing interfaces like CausalStructureInferenceModel and InterventionOutcomeModel
+      - Needs to support various updating strategies
+
+    - **Thought 2: Component Identification**
+      - Core methods needed for all updatable models
+      - Error handling for updates
+      - Reset functionality for restarting learning
+      - Integration with different data formats
+      - Compatibility with existing interfaces
+
+    - **Thought 3: Implementation Approach**
+      - Create an abstract base class with required methods
+      - Define clear return types and error cases
+      - Add comprehensive docstrings
+      - Ensure compatibility with Data type from other interfaces
+      - Make interface minimal but complete
+
+    - **Thought 4: Potential Challenges**
+      - Different models might have different update requirements
+      - Need to handle state management between updates
+      - Models might need different reset behaviors
+      - Error handling for different update scenarios
+      - Balancing interface simplicity with flexibility
+
+    - **Thought 5: Implementation Plan**
+      - Write test cases for the Updatable interface first
+      - Implement the interface in the existing interfaces.py file
+      - Define two core methods: update and reset
+      - Add comprehensive documentation
+      - Verify tests pass after implementation
+
+  - **Detailed Implementation Steps:**
+    1. Added to `causal_meta/inference/interfaces.py`
+    2. Defined `Updatable` abstract base class with `update` and `reset` methods
+    3. Created comprehensive tests in `tests/inference/test_updatable.py` 
+    4. Added documentation with usage examples
+    5. Verified all tests pass
+
+  - **Current Status:** done
+  - **Estimated Completion:** July 12, 2024
+
+### Phase 1: Core Components Refactoring (1-2 weeks)
+
+#### Task 1: Consistency and Standardization of Naming
+
+Status: **in-progress**
+
+This task focuses on ensuring consistent naming across the codebase in preparation for extending the interface-based architecture.
+
+Subtasks:
+
+1. **Standardize Method Naming in the CausalGraph and DirectedGraph classes**  
+   Status: **done**  
+   Priority: High  
+   Description: Ensure consistent method naming conventions across the graph classes. Specifically address the inconsistencies between the `get_nodes()`, `get_edges()`, and similar methods to ensure they return consistent types (List vs. Set).
+   Implementation:
+     - Created a utility function for standardized deprecation warnings in `causal_meta/graph/utils.py`
+     - Updated the base `Graph` class to have consistent return types, with `get_nodes()` and `get_edges()` now returning Lists instead of Sets
+     - Ensured consistent method naming patterns in `DirectedGraph` class
+     - Verified `CausalGraph` inherits the correct behavior
+     - Added a `from_networkx()` class method to `CausalGraph` for better integration with NetworkX
+     - All tests pass for the graph-related functionality
+
+2. **Standardize Graph Indexing and Access Patterns**  
+   Status: **pending**  
+   Priority: High  
+   Description: Establish consistent patterns for accessing nodes, edges, and subgraphs across different graph representations.
+
+#### Task 2: StructuralCausalModel Refactoring (Pending)
+- **Description:** Refactor to implement interfaces for model-agnostic usage.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 1
+
+- **Subtask 2.1: Refactor sample_data Method (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Reduce complexity of the `sample_data` method
+    2. Separate topological sorting and graph validation logic
+    3. Optimize for large graphs
+    4. Add better error reporting
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+- **Subtask 2.2: Standardize Intervention Methods (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Create consistent interface for all intervention types
+    2. Implement adapter pattern for different intervention representations
+    3. Add support for complex interventions
+    4. Update documentation
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+- **Subtask 2.3: Implement Interfaces (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Update SCM to implement new interfaces
+    2. Add adapter classes if needed
+    3. Ensure backward compatibility
+    4. Update documentation in component registry
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+### Phase 2: Model Components Refactoring (2-3 weeks)
+
+#### Task 3: Structure Inference Models Refactoring (Pending)
+- **Description:** Implement `CausalStructureInferenceModel` interface and adapters.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 1
+
+- **Subtask 3.1: Implement CausalStructureInferenceModel Interface (Done)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to create an adapter that makes the existing GraphEncoder implementation compatible with the CausalStructureInferenceModel interface
+      - Interface must infer causal structure from data (observational and interventional)
+      - Must provide uncertainty estimates for inferred structures
+      - Must allow for model updating with new data
+      - Should properly handle different data formats
+
+    - **Thought 2: Component Identification**
+      - GraphEncoder from meta_learning.acd_models for structure inference
+      - CausalStructureInferenceModel interface from inference.interfaces
+      - CausalGraph for representing graph structures
+      - Need to create GraphEncoderAdapter to bridge between them
+
+    - **Thought 3: Implementation Approach**
+      - Wrap the GraphEncoder component with an adapter class
+      - Implement the CausalStructureInferenceModel interface methods
+      - Translate between different method signatures and data formats
+      - Ensure proper uncertainty quantification via edge probabilities
+      - Use GraphEncoder's to_causal_graph method to return proper CausalGraph objects
+
+    - **Thought 4: Potential Challenges**
+      - Ensuring proper data format conversion between interface and GraphEncoder
+      - Managing uncertainty estimation correctly
+      - Supporting both observational and interventional data inputs
+      - Handling model updates effectively given GraphEncoder limitations
+
+    - **Thought 5: Implementation Plan**
+      - Write tests for the GraphEncoderAdapter class
+      - Implement adapter class with proper input validation
+      - Fix existing implementation issues (return CausalGraph instead of array)
+      - Verify all tests pass and document in component registry
+
+  - **Detailed Implementation Steps:**
+    1. Created tests for the GraphEncoderAdapter class
+    2. Examined existing implementation to identify issues
+    3. Fixed the infer_structure method to return a CausalGraph object
+    4. Improved input validation for different data formats
+    5. Fixed the update_model method to handle various situations
+    6. Ensured estimate_uncertainty provides edge probabilities and confidence intervals
+    7. Added documentation to the Component Registry
+    8. Verified all tests pass
+
+  - **Current Status:** done
+  - **Estimated Completion:** 2023-11-17
+
+- **Subtask 3.2: Add Support for Non-GNN Models (Pending)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to implement non-GNN alternatives to the current GNN-based graph encoder
+      - Specifically need MLP and Transformer-based models for structure inference
+      - Models should implement the same interface as the GNN-based models
+      - Need adapters to make these models work with the CausalStructureInferenceModel interface
+      - Models should handle time series data and output adjacency matrices/causal graphs
+
+    - **Thought 2: Component Identification**
+      - Base encoder classes for shared functionality
+      - Model-specific implementations (MLPGraphEncoder, TransformerGraphEncoder)
+      - Adapter classes to implement the interface
+      - Integration with existing graph structure classes
+      - Test cases to validate functionality
+      - Example script to demonstrate usage
+
+    - **Thought 3: Implementation Approach**
+      - Create base classes with shared functionality
+      - Implement MLPGraphEncoder with time series processing
+      - Implement TransformerGraphEncoder with self-attention
+      - Create adapter classes for both models
+      - Update __init__.py files for proper imports
+      - Ensure all test cases pass
+      - Create an example script to demonstrate usage
+
+    - **Thought 4: Potential Challenges**
+      - Ensuring proper handling of time series data formats
+      - Transformer implementation complexity
+      - Consistent interface across different model types
+      - Proper node representation for inference
+      - Ensuring high-quality causal graph output
+      - Making sure to_causal_graph methods work correctly with string-based node IDs
+
+    - **Thought 5: Implementation Plan**
+      - Verify existing code for base classes and specific implementations
+      - Run tests to identify any issues
+      - Fix any issues in the implementations
+      - Update the __init__.py files
+      - Create an example script
+      - Test the complete functionality
+      - Update the implementation plan
+
+  - **Detailed Implementation Steps:**
+    1. Verify existing MLPBaseEncoder and TransformerBaseEncoder classes
+    2. Review and improve the MLPGraphEncoder implementation
+    3. Review and improve the TransformerGraphEncoder implementation
+    4. Update the __init__.py files for proper imports
+    5. Run tests to ensure functionality
+    6. Create example script demonstrating both models
+    7. Update implementation plan to mark as done
+
+  - **Current Status:** done
+  - **Estimated Completion:** 2023-12-14
+
+#### Task 4: Dynamics Prediction Models Refactoring (Pending)
+- **Description:** Implement `InterventionOutcomeModel` interface and adapters.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 2
+
+- **Subtask 4.1: Implement InterventionOutcomeModel Interface (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Create adapter for existing GNN decoders
+    2. Implement required interface methods
+    3. Add comprehensive tests
+    4. Update documentation
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+- **Subtask 4.2: Standardize Uncertainty Quantification (Done)**
+  - **Sequential Thinking Analysis:**
+    - **Thought 1: Problem Understanding**
+      - Need to enhance the DynamicsDecoderAdapter to support standardized uncertainty quantification
+      - Must integrate with the UncertaintyEstimator interface that was previously implemented
+      - Should support various types of uncertainty estimators (ensemble, dropout, direct, conformal)
+      - Need to ensure consistent format for uncertainty outputs
+      - Must provide calibration capabilities for better uncertainty estimates
+
+    - **Thought 2: Component Identification**
+      - DynamicsDecoderAdapter in causal_meta.inference.adapters
+      - UncertaintyEstimator interface and its implementations
+      - InterventionOutcomeModel interface that the adapter implements
+      - Usage patterns and expected formats for uncertainty estimates
+
+    - **Thought 3: Implementation Approach**
+      - Modify the DynamicsDecoderAdapter to accept an optional UncertaintyEstimator
+      - Update the predict_intervention_outcome method to use the estimator when available
+      - Enhance the estimate_uncertainty method to provide standardized uncertainty format
+      - Add a calibrate_uncertainty method for uncertainty calibration
+      - Create a _standardize_uncertainty helper method for consistent formatting
+
+    - **Thought 4: Potential Challenges**
+      - Different uncertainty estimators may return different formats
+      - Balancing built-in uncertainty with external estimators
+      - Ensuring backward compatibility with existing code
+      - Testing all combinations of options and estimators
+      - Handling edge cases like no predictions yet or missing data
+
+    - **Thought 5: Implementation Plan**
+      - Write comprehensive tests for all uncertainty features
+      - Implement the adapter enhancements following TDD principles
+      - Standardize uncertainty format with fallbacks for missing information
+      - Add detailed documentation to the Component Registry
+      - Verify compatibility with all existing code
+
+  - **Detailed Implementation Steps:**
+    1. Implement consistent uncertainty estimation methods
+    2. Add ensemble methods for uncertainty
+    3. Support MC dropout for existing models
+    4. Create tests for uncertainty calibration
+
+  - **Current Status:** done
+  - **Estimated Completion:** July 9, 2024
+
+#### Task 5: Acquisition Strategies Refactoring (Pending)
+- **Description:** Implement `AcquisitionStrategy` interface and strategies.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 3, 4
+
+- **Subtask 5.1: Implement AcquisitionStrategy Interface (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Extract existing acquisition logic
+    2. Implement interface for common strategies
+    3. Add comprehensive tests
+    4. Document usage patterns
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+- **Subtask 5.2: Create Pluggable Strategy Implementations (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Implement common acquisition strategies
+    2. Create mechanism for custom strategies
+    3. Add batch selection support
+    4. Document examples and extensions
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+#### Task 6: Uncertainty Estimation & Model Updating (Pending)
+- **Description:** Implement uncertainty estimators and model updating strategies.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 3, 4
+
+- **Subtask 6.1: Implement UncertaintyEstimator Interface (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Implement concrete estimators
+    2. Add comprehensive tests
+    3. Create adapter for existing implementations
+    4. Document usage patterns
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+- **Subtask 6.2: Implement Updatable Interface (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Implement concrete updaters
+    2. Add comprehensive tests
+    3. Create adapter for existing implementations
+    4. Document usage patterns
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+- **Subtask 6.3: Build UncertaintyThresholdManager (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Implement threshold-based fallback mechanism
+    2. Add support for tiered fallbacks
+    3. Create comprehensive tests
+    4. Document configuration options
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+### Phase 3: Integration Classes Refactoring (2-3 weeks)
+
+#### Task 7: AmortizedCausalOptimizer Implementation (Pending)
+- **Description:** Create new class using the interface-based design.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 3, 4, 5, 6
+
+- **Subtask 7.1: Create New AmortizedCausalOptimizer Class (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Implement new class using interfaces
+    2. Add backward compatibility
+    3. Write comprehensive tests
+    4. Create usage examples
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+#### Task 8: Existing Algorithm Classes Refactoring (Pending)
+- **Description:** Update to implement or use the new interfaces.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 7
+
+- **Subtask 8.1: Update PARENT_SCALE_ACD (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Refactor to use new interfaces
+    2. Improve error handling
+    3. Reduce method complexity
+    4. Optimize memory usage
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+- **Subtask 8.2: Refactor AmortizedCBO (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Update to use new interfaces
+    2. Improve error handling
+    3. Optimize memory usage
+    4. Add better documentation
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+#### Task 9: Meta-Learning Components Refactoring (Pending)
+- **Description:** Refactor to use the new interfaces.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 7, 8
+
+- **Subtask 9.1: Refactor MAML Implementation (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Update to use new interfaces
+    2. Improve hyperparameter handling
+    3. Enhance error diagnostics
+    4. Add detailed documentation
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+### Phase 4: Demo Scripts & Testing (1-2 weeks)
+
+#### Task 10: Demo Scripts Refactoring (Pending)
+- **Description:** Update demo scripts to use the new interfaces.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 7, 8, 9
+
+- **Subtask 10.1: Refactor PARENT_SCALE_ACD Demo (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Update to use new interfaces
+    2. Add better error handling
+    3. Create examples showing interface flexibility
+    4. Improve visualizations
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+- **Subtask 10.2: Refactor Full ACD Pipeline Demo (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Update to use new interfaces
+    2. Add better error handling
+    3. Create examples showing interface flexibility
+    4. Improve visualizations
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+#### Task 11: Testing Infrastructure (Pending)
+- **Description:** Add more comprehensive tests.
+- **Priority:** high
+- **Status:** pending
+- **Dependencies:** 0, 7, 8, 9, 10
+
+- **Subtask 11.1: Add Comprehensive Tests (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Create test fixtures for common scenarios
+    2. Add performance benchmarks
+    3. Create automated system tests
+    4. Implement integration tests
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+### Phase 5: YAML Configuration System (1-2 weeks)
+
+#### Task 12: YAML Configuration Infrastructure (Pending)
+- **Description:** Create a unified configuration schema for all components.
 - **Priority:** medium
 - **Status:** pending
-- **Dependencies:** 6
+- **Dependencies:** 0, 7, 8, 9, 10
 
-- **Subtask 7.1: Implement benchmark suite (Done ✅)**
-  - **Sequential Thinking Analysis:**
-    - **Thought 1: Problem Understanding**
-      - Need to create a comprehensive framework for benchmarking causal discovery and intervention methods
-      - Framework should support evaluating both traditional and neural methods
-      - Must handle multiple metrics across different graph types and sizes
-      - Should enable consistent comparison between different approaches
-
-    - **Thought 2: Component Identification**
-      - Base Benchmark Class: Abstract class defining common benchmark interface
-      - CausalDiscoveryBenchmark: For evaluating graph structure learning methods
-      - CBOBenchmark: For evaluating intervention optimization methods
-      - BenchmarkRunner: For orchestrating multiple benchmarks with common configurations
-
-    - **Thought 3: Implementation Approach**
-      - Design the base Benchmark class with key evaluation metrics and utilities
-      - Implement specialized benchmarks for different tasks
-      - Ensure all benchmarks work with various model interfaces
-      - Add proper visualization and reporting capabilities
-
-    - **Thought 4: Potential Challenges**
-      - Handling different model interfaces consistently
-      - Properly measuring performance with synthetic and real-world datasets
-      - Ensuring fair comparison between methods
-      - Managing computational requirements for large-scale benchmarks
-
-    - **Thought 5: Solution Implementation**
-      - Implemented the core Benchmark abstraction with essential utilities
-      - Created task-specific benchmark implementations
-      - Added comprehensive evaluation metrics and visualization tools
-      - Implemented the BenchmarkRunner for multi-benchmark experiments
-
-  - **Implementation Details:**
-    - Created abstract `Benchmark` class with common functionality
-    - Implemented `CausalDiscoveryBenchmark` for structure learning evaluation
-    - Implemented `CBOBenchmark` for intervention optimization evaluation
-    - Created `BenchmarkRunner` to manage multiple benchmark runs
-    - Added comprehensive metrics: SHD, precision, recall, F1, runtime
-    - Implemented data generation utilities for synthetic benchmark problems
-    - Added visualization tools and reporting capabilities
-
-  - **Bug Fixes:**
-    - Fixed issue with accessing graph nodes properly using `graph.get_nodes()` instead of `graph.nodes`
-    - Added missing `get_best_models` method to BenchmarkRunner class
-    - Fixed `time_performance` method to correctly return both timing results and function results
-    - Updated the CausalGraph creation in tests to properly initialize nodes and edges
-    - Fixed parameter naming in SCM's `sample_interventional_data` calls from `num_samples` to `sample_size`
-    - Modified graph creation to ensure acyclic graphs by controlling edge direction
-    - Added proper variable initialization in SCM setup for both benchmark classes
-    - Updated the Component Registry with comprehensive documentation for all benchmark components
-
-  - **Testing:**
-    - Created unit tests for all benchmark components
-    - Added test fixtures for synthetic graph and data generation
-    - Implemented mock models for testing framework functionality
-    - Verified benchmark results on small test cases
-    - Ensured compatibility with different model interfaces
-    - Added end-to-end test with example script
-
-- **Subtask 7.2: Implement visualization components (Done ✅)**
-  - **Sequential Thinking Analysis:**
-    - **Thought 1: Problem Understanding**
-      - Need to create visualization components for neural causal discovery and optimization results
-      - Must visualize graph inference results, intervention outcomes, optimization progress, and performance comparisons
-      - Should handle different data formats (tensors, DataFrames) and be compatible with existing visualization tools
-      - Need to support both single-instance and batch visualizations for neural models
-
-    - **Thought 2: Component Identification**
-      - Graph Inference Visualization: For comparing ground truth and inferred graphs
-      - Intervention Outcome Visualization: For comparing predicted vs actual intervention effects
-      - Optimization Progress Visualization: For tracking improvement over iterations
-      - Performance Comparison Visualization: For comparing different methods using various metrics
-      - Uncertainty Visualization: For showing confidence intervals in predictions
-
-    - **Thought 3: Implementation Approach**
-      - Create a new `visualization.py` module in `causal_meta/meta_learning/` to complement existing tools
-      - Implement functions for each visualization type following consistent parameter naming and styling
-      - Make all functions compatible with PyTorch tensors, NumPy arrays, and pandas DataFrames
-      - Ensure functions can handle edge cases and have proper error handling
-      - Add comprehensive docstrings and type hints for all functions
-
-    - **Thought 4: Potential Challenges**
-      - Handling different data formats consistently (tensors, arrays, DataFrames)
-      - Ensuring consistent visualization styles with existing tools
-      - Supporting both single-instance and batch visualizations
-      - Efficiently visualizing high-dimensional data
-      - Creating intuitive visualizations for uncertainty
-
-    - **Thought 5: Implementation Plan**
-      - Create new `visualization.py` with all required functions
-      - Implement comprehensive tests in `tests/meta_learning/test_visualization.py`
-      - Create an example script demonstrating all visualization capabilities
-      - Update module exports to make functions easily accessible
-      - Add examples to documentation
-
-  - **Implementation Details:**
-    - Created new `visualization.py` in `causal_meta/meta_learning` with 5 main functions:
-      - `plot_graph_inference_results`: Compares ground truth and inferred graphs with metrics
-      - `plot_intervention_outcomes`: Visualizes predicted vs. actual intervention effects
-      - `plot_optimization_progress`: Shows target variable improvement over iterations
-      - `plot_performance_comparison`: Compares methods using bar, radar, or box plots
-      - `plot_uncertainty`: Visualizes predictions with confidence intervals
-    - Added support for multiple data formats (PyTorch tensors, NumPy arrays, pandas DataFrames)
-    - Implemented comprehensive error handling and type validation
-    - Created methods for visualizing uncertainty with confidence intervals
-    - Added ability to generate confusion matrices and structure learning metrics
-    - Implemented various plot types (bar charts, distributions, radar charts)
-    - Created utilities for handling different input formats and shapes
-
-  - **Testing:**
-    - Created comprehensive test suite in `tests/meta_learning/test_visualization.py`
-    - Added tests for different input formats (DataFrame, NumPy, PyTorch)
-    - Tested all visualization functions with various configuration options
-    - Validated proper handling of edge cases
-    - Created example script `examples/visualization_example.py` with detailed demonstrations
-    - Updated module exports in `__init__.py` to expose the visualization functions
-
-- **Subtask 7.3: Implement scalability testing (Done ✅)**
-  - **Sequential Thinking Analysis:**
-    - **Thought 1: Problem Understanding**
-      - Need to create scalability benchmarks that measure performance as graphs grow in size
-      - Must handle different graph types and sizes to measure scaling behavior
-      - Need to analyze complexity class of different algorithms
-      - Should track both runtime and memory usage across varying graph sizes
-      - Should support analysis of both causal discovery and CBO methods
-
-    - **Thought 2: Component Identification**
-      - ScalabilityBenchmark: Class for measuring scaling behavior
-      - Benchmark tests for different graph sizes
-      - Runtime and memory profiling utilities
-      - Scaling analysis tools for complexity classification
-      - Visualization components for scaling curves
-      - Integration with BenchmarkRunner for consistent interface
-
-    - **Thought 3: Implementation Approach**
-      - Create ScalabilityBenchmark class extending the base Benchmark
-      - Implement automated testing across graph sizes from min to max
-      - Add timeout mechanisms to prevent extremely slow tests
-      - Implement curve fitting for polynomial and exponential scaling
-      - Create visualization components for scaling curves
-      - Add comprehensive analysis reports
-
-    - **Thought 4: Potential Challenges**
-      - Very large graphs might cause memory issues
-      - Some algorithms may time out on larger graphs
-      - Ensuring consistent interfaces across different methods
-      - Handling method errors gracefully
-      - Balancing comprehensive testing with practical runtimes
-
-    - **Thought 5: Implementation Plan**
-      - Create ScalabilityBenchmark class with necessary parameters
-      - Implement setup method to generate test cases of varying sizes
-      - Add memory profiling with proper device support
-      - Implement curve fitting and complexity analysis
-      - Create visualization tools for scaling curves
-      - Add report generation for documentation
-
-  - **Implementation Details:**
-    - Created ScalabilityBenchmark class in causal_meta/meta_learning/benchmark.py
-    - Implemented setup method to generate test problems of varying sizes
-    - Added memory profiling with CPU and GPU support
-    - Implemented timeout mechanisms to handle slow methods
-    - Added curve fitting for polynomial and exponential complexity
-    - Created visualization tools for scaling curves with various metrics
-    - Added report generation with recommendations
-    - Integrated with BenchmarkRunner for consistent benchmarking
-    - Fixed issues with backward compatibility across interface changes
-    - Added comprehensive tests in tests/meta_learning/test_scalability_benchmark.py
-    - Created proper node mapping to handle string node names consistently
-    - Ensured DAG properties for all test graphs
-    - Added consistent interface handling for different method types
-    - Implemented analysis tools that identify scaling complexity class
-    - Added resource usage tracking and limit checks
-
-  - **Current Status:** Done
-  - **Estimated Completion:** 2025-05-04
-
-- **Subtask 7.4: Create comprehensive documentation (In Progress 🔄)**
-  - **Sequential Thinking Analysis:**
-    - **Thought 1: Problem Understanding**
-      - Need to create comprehensive documentation for the benchmarking framework
-      - Documentation should cover basic usage and advanced customization
-      - Should include clear examples for different use cases
-      - Must explain the key concepts and components to users
-      - Should highlight capabilities like structural learning evaluation, intervention optimization, and scalability testing
-      - Need to ensure documentation integrates well with existing component registry
-
-    - **Thought 2: Component Identification**
-      - Comprehensive API documentation for all benchmark classes
-      - Usage examples for common scenarios
-      - Visual guides for understanding benchmark results
-      - Integration examples with neural methods
-      - Performance guidelines and best practices
-      - Documentation updates to Component Registry
-      - Jupyter notebook tutorials for interactive learning
-
-    - **Thought 3: Implementation Approach**
-      - Create comprehensive docstrings for all benchmark classes
-      - Write usage examples for different benchmark types
-      - Develop step-by-step guides for setting up benchmarks
-      - Create visual guides for interpreting results
-      - Implement Jupyter notebook tutorials
-      - Update Component Registry with detailed benchmark information
-      - Add integration examples with neural network components
-
-    - **Thought 4: Potential Challenges**
-      - Ensuring documentation stays synchronized with implementation
-      - Balancing technical details with accessibility
-      - Covering the wide range of configuration options
-      - Providing meaningful examples for different use cases
-      - Demonstrating integration with neural network components
-      - Ensuring documentation covers error handling and edge cases
-
-    - **Thought 5: Implementation Plan**
-      - Update component registry with detailed benchmark information
-      - Create comprehensive API documentation in docstrings
-      - Write README files for benchmark usage
-      - Develop Jupyter notebook tutorials
-      - Create visual guides for interpreting results
-      - Update existing documentation to reference benchmarking capabilities
-      - Add integration examples with neural network components
-
+- **Subtask 12.1: Create Configuration Schema (Pending)**
   - **Detailed Implementation Steps:**
-    1. ✅ Update component registry with detailed benchmark information
-    2. ✅ Create comprehensive API documentation in docstrings
-    3. ✅ Write README files for benchmark usage
-    4. ✅ Create a comprehensive benchmarking tutorial document
-    5. ✅ Create visual guides for interpreting results
-    6. ✅ Update existing documentation to reference benchmarking capabilities
-    7. ✅ Add integration examples with neural network components
+    1. Define YAML schema for all components
+    2. Implement parsing and validation
+    3. Add type checking for config values
+    4. Create default configurations
 
-  - **Current Status:** Done
-  - **Estimated Completion:** Completed on 2023-06-27
-  - **Implementation Notes:**
-    - Successfully created comprehensive benchmarking tutorial document (`examples/benchmarking_tutorial.md`)
-    - Tutorial covers all aspects of the benchmarking framework including:
-      - Basic concepts and overview
-      - Causal discovery benchmarks
-      - Causal Bayesian optimization benchmarks
-      - Scalability benchmarks
-      - Using BenchmarkRunner for multi-benchmark evaluation
-      - Integration with neural network-based methods
-      - Best practices and guidelines
-    - The tutorial is designed to be dual-purpose:
-      - Can be read as a markdown document for reference
-      - Can be executed as a Python script for hands-on learning
-      - Can be converted to a Jupyter notebook using nbconvert
-    - This approach provides more flexibility than a static Jupyter notebook, addressing the issues identified with the original notebook format
-    - Created comprehensive visual guide for interpreting benchmark results (`examples/benchmark_visualization_guide.md`)
-    - Visual guide covers interpretation of:
-      - Causal discovery benchmark visualizations (bar charts, precision-recall plots, confusion matrices)
-      - CBO benchmark visualizations (optimization trajectories, intervention distributions, improvement ratios)
-      - Scalability benchmark visualizations (scaling curves, complexity heatmaps)
-      - Multi-method comparison visualizations (radar charts, ranking tables)
-    - Updated examples directory README.md to reference the benchmarking documentation and provide instructions on how to use the tutorials
-    - Added placeholder image directory structure for the visualization guide
-    - All benchmarking documentation tasks have been completed successfully
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
 
-#### Task 8: Demo Scripts for Supervisor Meeting (In Progress 🔄)
-- **Description:** Create demonstration scripts for showcasing the functionality of the implemented components.
-- **Priority:** high
-- **Status:** in-progress
-- **Dependencies:** 4, 5, 6
+#### Task 13: Demo Script Configuration (Pending)
+- **Description:** Update demo scripts to read configuration from YAML files.
+- **Priority:** medium
+- **Status:** pending
+- **Dependencies:** 10, 12
 
-- **Subtask 8.1: Create Simple Parent-Scaled ACD Demo (Status: `done`)**
-  - **Implementation Details:**
-    - Created a fully functional parent-scaled ACD demo using neural networks for inference
-    - Used causal_meta package components without reliance on dummy implementations
-    - Implemented proper model loading with GraphEncoder and DynamicsDecoder components
-    - Used neural networks for both initial structure inference and structure updates after interventions
-    - Created transparent data flow between graph inference and dynamics modeling components
-    - Added proper visualization of ground truth vs. inferred graphs
-    - Implemented appropriate synthetic data generation with structural equations
-    - Added robust intervention mechanism with parent-count selection strategy
-    - Successfully tested with minimal settings using the --quick flag
-    - Fixed critical issues with structural equation definition to work with SCM validation
-    - Added robust data handling with proper conversions between DataFrames and tensors
-    - Implemented graceful fallbacks for model loading and inference without interventions
-  - **Key Learning:**
-    - Neural networks can effectively replace traditional surrogate models in ACD
-    - Consistent interfaces and data types are crucial for complex ML pipelines
-    - Proper graph representation (using CausalGraph) enables more robust visualization
-    - Handling data shape transformations is crucial for neural network components
-    - Probabilistic structural equations create more realistic synthetic data
-    - Dynamic function generation enables creating proper function signatures
-    - SCM validation requires careful handling of structural equation signatures
+- **Subtask 13.1: Update Demo Scripts (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Update scripts to use YAML config
+    2. Create sample config files
+    3. Add documentation for config options
+    4. Implement command-line overrides
 
-- **Subtask 8.2: Create Full Amortized ACD Pipeline Demo (Status: `in-progress`)**
-  - **Implementation Details:**
-    - Created initial structure for `full_acd_pipeline_demo.py`
-    - Identified issues with graph representation that need to be fixed
-    - Need to apply similar improvements as in parent_scale_acd_demo.py
-    - Needs implementation of proper task family creation and visualization
-    - Requires integration with meta-learning components
-  - **Key Learning:**
-    - Need to ensure consistent graph representations across the pipeline
-    - Meta-learning components require additional error handling
-    - Visualization of task families requires special attention
-    - Training loop needs to be simplified for demonstration purposes
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
 
-- **Subtask 8.3: Create Demo Documentation (Status: `in-progress`)**
-  - **Implementation Details:**
-    - Started creating documentation for demo scripts
-    - Need to document command-line arguments and their effects
-    - Need to add examples of expected outputs and visualizations
-    - Need to create clear instructions for running demos
-  - **Key Learning:**
-    - Documentation should explain both the algorithm and the code structure
-    - Should include example commands for different use cases
-    - Visualization outputs should be documented with explanations
-    - Need to clarify the role of each parameter and component
+#### Task 14: Training & Benchmarking Configuration (Pending)
+- **Description:** Create a configuration-driven training pipeline.
+- **Priority:** medium
+- **Status:** pending
+- **Dependencies:** 11, 12
 
-- **Subtask 8.4: Restructure Demos to Leverage Existing Components (Done ✅)**
-  - **Description:** Refactor demo scripts to properly use existing components from the causal_meta package, following the Component Registry guidelines.
-  - **Acceptance Criteria:** Demo scripts use appropriate components from causal_meta rather than reimplementing functionality.
-  - **Priority:** medium
-  - **Current Status:** done
+- **Subtask 14.1: Create Config-Driven Pipeline (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Implement configurable training pipeline
+    2. Create benchmarking system
+    3. Add experiment tracking
+    4. Create visualization tools
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+#### Task 15: Configuration Documentation & Examples (Pending)
+- **Description:** Create comprehensive documentation for configuration options.
+- **Priority:** medium
+- **Status:** pending
+- **Dependencies:** 12, 13, 14
+
+- **Subtask 15.1: Create Documentation (Pending)**
+  - **Detailed Implementation Steps:**
+    1. Document all configuration options
+    2. Create example config files
+    3. Write configuration tutorials
+    4. Implement validation reporting
+
+  - **Current Status:** pending
+  - **Estimated Completion:** TBD
+
+## Team Coordination & Communication Plan
+
+### Documentation Updates
+- Update memory-bank/architecture.md with new interface-based design
+- Create dedicated refactoring progress document
+- Document interface changes in real-time
+- Use Sequential Thinking template for all changes
+
+### Code Review Process
+- Assign dedicated reviewers for each component
+- Use small, focused pull requests
+- Require comprehensive tests for all changes
+- Document breaking changes explicitly
+
+### Integration Testing
+- Set up continuous integration for interface compliance
+- Create test fixtures for integration points
+- Add smoke tests for full system functionality
+- Implement automated regression testing
+
+## Risk Management
+
+### Potential Issues & Mitigations
+1. **Breaking Changes**
+   - Risk: Interface changes breaking dependent code
+   - Mitigation: Deprecate old interfaces before removing them, provide adapters
+
+2. **Performance Regression**
+   - Risk: Refactoring causing performance degradation
+   - Mitigation: Add performance tests for critical paths
+
+3. **Test Coverage Gaps**
+   - Risk: Missing tests allowing bugs to slip through
+   - Mitigation: Require test coverage metrics for all changes
+
+4. **Knowledge Silos**
+   - Risk: Only certain team members understanding components
+   - Mitigation: Implement pair programming and knowledge sharing
+
+5. **Interface Design Challenges**
+   - Risk: Designing interfaces that are too restrictive or too loose
+   - Mitigation: Start with minimal interfaces and evolve based on feedback
+
+6. **Configuration Complexity**
+   - Risk: Creating overly complex configuration options
+   - Mitigation: Layer configurations with sensible defaults and documentation
+
+## Definition of Done
+
+A component refactoring is considered complete when:
+1. All identified issues are addressed
+2. Code passes all existing and new tests
+3. Documentation is updated
+4. Performance is verified to be maintained or improved
+5. Code review is completed with no major concerns
+6. Integration tests pass with dependent components
+7. The component properly implements any applicable interfaces
+8. YAML configuration support is added where appropriate

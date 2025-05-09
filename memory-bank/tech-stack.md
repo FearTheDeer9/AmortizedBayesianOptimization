@@ -1,6 +1,6 @@
 # Tech Stack
 
-This document lists the primary libraries, frameworks, and tools used or recommended for the Amortized Causal Bayesian Optimization project.
+This document lists the primary libraries, frameworks, and tools used or recommended for the Amortized Causal Meta-Learning Framework.
 
 ## Core Libraries
 
@@ -35,17 +35,51 @@ This document lists the primary libraries, frameworks, and tools used or recomme
     -   Custom implementation of Amortized Causal Discovery.
     -   Custom implementation of meta-learning for neural causal models.
     -   `jaxtyping`: Type annotations for tensor shapes and dtypes.
+-   **Uncertainty Estimation:**
+    -   `pyro`: Probabilistic programming framework for implementing Bayesian neural networks.
+    -   `torch.distributions`: PyTorch's probability distributions for ensemble methods.
+    -   `botorch.posteriors`: Posterior distributions for uncertainty quantification.
+    -   `botorch.acquisition`: Acquisition functions that leverage uncertainty.
+    -   Custom implementation of uncertainty estimation strategies.
+-   **Configuration Management:**
+    -   `hydra-core`: Framework for elegantly configuring complex applications.
+    -   `omegaconf`: Flexible configuration system (used by Hydra).
+    -   `pydantic`: Data validation and settings management using Python type hints.
+    -   `yaml`: YAML parser and emitter for Python.
 
 ## Development & Workflow Aids
 
 -   **Configuration:**
     -   `hydra-core`: Framework for elegantly configuring complex applications.
     -   `omegaconf`: Flexible configuration system (used by Hydra).
+    -   `pydantic`: Data validation and settings management.
+    -   `configupdater`: Library for updating configuration files programmatically.
+    -   `yaml`: YAML parser and emitter for Python.
+-   **Interface Design:**
+    -   `abc`: Python's Abstract Base Classes for interface definition.
+    -   `typing`: Type hints for interface contracts and validation.
+    -   `inspect`: Introspection module for runtime interface checking.
+    -   `functools`: Function decorators for interface implementation.
+-   **Dependency Injection:**
+    -   `dependency_injector`: Container and factories for dependency injection.
+    -   Custom dependency injection system.
 -   **Testing:**
     -   `pytest`: Framework for writing and running tests.
+    -   `pytest-mock`: Mock objects and patching for pytest.
+    -   `pytest-cov`: Coverage reports for pytest.
+    -   `hypothesis`: Property-based testing for Python.
+    -   `pytest-benchmark`: Benchmark timing for pytest.
 -   **Code Quality:**
     -   `ruff`: (Recommended) Linter and formatter (replaces `pylint`, `flake8`, `isort`, `black`).
     -   `pylint`: (Alternative) Static code analysis tool.
+    -   `mypy`: Static type checker for Python.
+    -   `pre-commit`: Git hooks for code quality checks.
+-   **Documentation:**
+    -   `sphinx`: Documentation generator.
+    -   `sphinx-autodoc`: Automatic API documentation.
+    -   `sphinx-rtd-theme`: Read the Docs theme for Sphinx.
+    -   `nbsphinx`: Jupyter notebook support for Sphinx.
+    -   `docstring-parser`: Parse docstrings for documentation.
 -   **Progress Bars:**
     -   `tqdm`: Fast, extensible progress bar.
 -   **Visualization:**
@@ -101,6 +135,8 @@ The benchmarking framework integrates several technologies to provide comprehens
 - **json/pickle**: For serialization of benchmark results and configurations
 - **os/pathlib**: For file and directory operations
 - **tqdm**: For progress tracking during long benchmark runs
+- **yaml**: For configuration file parsing and generation
+- **pydantic**: For validating and serializing complex configurations
 
 ### Integration Points
 
@@ -108,15 +144,58 @@ The benchmarking framework integrates several technologies to provide comprehens
 - **StructuralCausalModel**: For data generation and intervention simulation
 - **AmortizedCausalDiscovery**: For neural model compatibility
 - **AmortizedCBO**: For neural optimization methods
+- **Interface-based adapters**: For connecting different components
 
-This technology stack enables the benchmarking framework to provide:
+## YAML Configuration System
 
-1. **Comprehensive Evaluation**: Across multiple metrics and methods
-2. **Efficient Execution**: Through parallel processing and proper resource management
-3. **Flexible Visualization**: Customizable visualizations for different aspects of performance
-4. **Reliable Statistical Analysis**: For meaningful comparisons between methods
-5. **Seamless Integration**: With both traditional and neural-based approaches
+The YAML Configuration System enables easy experimentation with different model architectures and hyperparameters:
 
-The framework is designed to be extensible, allowing new metrics, visualization methods, and benchmark types to be added as needed.
+### Components
 
-*This list has been updated to reflect the project's pivot to Amortized Causal Discovery, emphasizing neural network components and related tools.* 
+- **ConfigurationManager**: Central system for loading and validating configurations
+- **Schema Validation**: Using Pydantic for configuration validation
+- **Default Configurations**: Pre-defined configurations for common use cases
+- **Configuration Inheritance**: Support for extending base configurations
+- **Command Line Overrides**: Ability to override configuration values from command line
+- **Environment Variable Substitution**: Support for environment variables in configurations
+
+### Example Configuration Structure
+
+```yaml
+# Example configuration for a GNN-based structure inference model
+model:
+  type: GraphEncoder
+  params:
+    hidden_dim: 64
+    num_layers: 3
+    attention_heads: 4
+    dropout: 0.1
+    use_batch_norm: true
+
+training:
+  optimizer:
+    type: Adam
+    params:
+      lr: 0.001
+      weight_decay: 1e-5
+  scheduler:
+    type: CosineAnnealingLR
+    params:
+      T_max: 100
+  num_epochs: 200
+  batch_size: 32
+  early_stopping:
+    patience: 10
+    min_delta: 0.001
+
+evaluation:
+  metrics:
+    - shd
+    - precision
+    - recall
+    - f1
+  test_size: 0.2
+  seed: 42
+```
+
+This technology stack is designed to support the interface-first refactoring approach, providing tools for dependency injection, comprehensive testing, and flexible configuration. 

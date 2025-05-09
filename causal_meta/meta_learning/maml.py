@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple, Optional, Union, Any, Callable, Iterator
 import copy
 import logging
 from collections import OrderedDict
+import torch.nn.functional as F
 
 try:
     import torch_geometric
@@ -20,6 +21,8 @@ try:
     HAS_PYGEOMETRIC = True
 except ImportError:
     HAS_PYGEOMETRIC = False
+
+from causal_meta.graph.causal_graph import CausalGraph
 
 logger = logging.getLogger(__name__)
 
@@ -1449,3 +1452,290 @@ class MAML:
         self.meta_losses = checkpoint.get('meta_losses', [])
 
         logger.info(f"MAML model loaded from {path}")
+
+
+class SimpleMAML(nn.Module):
+    """
+    Simplified MAML implementation for demos.
+    
+    This class provides a basic implementation of Model-Agnostic Meta-Learning
+    to adapt neural networks for causal discovery using interventional data.
+    """
+    
+    def __init__(
+        self,
+        model: nn.Module,
+        inner_lr: float = 0.01,
+        num_inner_steps: int = 3
+    ):
+        """Initialize the MAML model."""
+        super().__init__()
+        self.model = model
+        self.inner_lr = inner_lr
+        self.num_inner_steps = num_inner_steps
+    
+    def clone_model(self) -> nn.Module:
+        """Create a clone of the model for adaptation."""
+        clone = copy.deepcopy(self.model)
+        return clone
+    
+    def prepare_graph_inputs(self, x: torch.Tensor, graph: Optional[CausalGraph] = None):
+        """
+        Prepare graph structured inputs for AmortizedCausalDiscovery models.
+        
+        Args:
+            x: Input tensor [batch_size, seq_length, num_nodes]
+            graph: Optional graph structure
+            
+        Returns:
+            Dictionary with node_features, edge_index, and batch tensors
+        """
+        batch_size, seq_length, num_nodes = x.shape
+        device = x.device
+        
+        # Create node features (mean of sequence for simplicity)
+        node_features = x.mean(dim=1).reshape(batch_size * num_nodes, 1)
+        
+        # Create edge index from fully connected graph if no graph provided
+        if graph is None:
+            # Create a fully connected graph for each batch
+            edge_index_list = []
+            for b in range(batch_size):
+                # Offset for this batch
+                offset = b * num_nodes
+                
+                # Create edges for all possible connections in this batch
+                source_nodes = []
+                target_nodes = []
+                for i in range(num_nodes):
+                    for j in range(num_nodes):
+                        if i != j:  # No self-loops
+                            source_nodes.append(i + offset)
+                            target_nodes.append(j + offset)
+                
+                batch_edge_index = torch.tensor([source_nodes, target_nodes], 
+                                                dtype=torch.long, device=device)
+                edge_index_list.append(batch_edge_index)
+            
+            # Concatenate all batch edge indices
+            edge_index = torch.cat(edge_index_list, dim=1)
+        else:
+            # Extract edge information from the provided graph
+            adj_matrix = torch.tensor(graph.get_adjacency_matrix(), 
+                                     dtype=torch.float32, device=device)
+            
+            # Convert adjacency matrix to edge index
+            edge_index_list = []
+            for b in range(batch_size):
+                # Offset for this batch
+                offset = b * num_nodes
+                
+                # Find edges in the adjacency matrix
+                edges = torch.nonzero(adj_matrix, as_tuple=True)
+                sources, targets = edges[0], edges[1]
+                
+                # Add batch offset
+                sources = sources + offset
+                targets = targets + offset
+                
+                # Stack to create edge index
+                batch_edge_index = torch.stack([sources, targets], dim=0)
+                edge_index_list.append(batch_edge_index)
+            
+            # Concatenate all batch edge indices
+            if edge_index_list:
+                edge_index = torch.cat(edge_index_list, dim=1)
+            else:
+                # If no edges, create empty edge index
+                edge_index = torch.zeros((2, 0), dtype=torch.long, device=device)
+        
+        # Create batch tensor (one batch index per node)
+        batch = torch.repeat_interleave(torch.arange(batch_size, device=device), 
+                                        repeats=num_nodes)
+        
+        return {
+            'node_features': node_features,
+            'edge_index': edge_index,
+            'batch': batch
+        }
+    
+    def adapt(
+        self,
+        support_data: Tuple[torch.Tensor, torch.Tensor],
+        graph: Optional[CausalGraph] = None,
+        num_steps: Optional[int] = None
+    ) -> nn.Module:
+        """
+        Adapt the model using support data.
+        
+        Args:
+            support_data: Tuple of (inputs, targets) for adaptation
+            graph: Causal graph structure (optional)
+            num_steps: Number of adaptation steps (overrides default if provided)
+            
+        Returns:
+            Adapted model
+        """
+        # Initialize parameters for adaptation
+        steps = num_steps if num_steps is not None else self.num_inner_steps
+        
+        # Create a copy of the model for adaptation
+        adapted_model = self.clone_model()
+        adapted_model.train()
+        
+        # Get the inputs and targets from support data
+        inputs, targets = support_data
+        
+        # Create an optimizer for the inner loop
+        optimizer = torch.optim.SGD(adapted_model.parameters(), lr=self.inner_lr)
+        
+        # Prepare graph inputs for AmortizedCausalDiscovery
+        if hasattr(adapted_model, 'graph_encoder') and inputs.dim() >= 3:
+            graph_inputs = self.prepare_graph_inputs(inputs, graph)
+        
+        # Adaptation steps
+        for step in range(steps):
+            # Reset gradients
+            optimizer.zero_grad()
+            
+            # Forward pass 
+            if hasattr(adapted_model, 'graph_encoder') and inputs.dim() >= 3:
+                # For AmortizedCausalDiscovery models with the comprehensive interface
+                try:
+                    # Try with the full interface
+                    outputs = adapted_model(
+                        x=inputs,
+                        node_features=graph_inputs['node_features'],
+                        edge_index=graph_inputs['edge_index'],
+                        batch=graph_inputs['batch']
+                    )
+                    
+                    # Handle different output types
+                    if isinstance(outputs, dict) and 'adjacency' in outputs:
+                        predictions = outputs['adjacency']
+                    elif isinstance(outputs, torch.Tensor):
+                        predictions = outputs
+                    else:
+                        # Just use graph encoder output directly
+                        predictions = adapted_model.graph_encoder(inputs)
+                    
+                    # Ensure predictions and targets have the same shape
+                    if predictions.shape != targets.shape:
+                        # If predictions is [batch, nodes, nodes] and targets is [nodes, nodes]
+                        if predictions.dim() > targets.dim():
+                            targets = targets.unsqueeze(0).expand_as(predictions)
+                        # If targets is [batch, nodes, nodes] and predictions is [nodes, nodes]
+                        elif targets.dim() > predictions.dim():
+                            predictions = predictions.unsqueeze(0).expand_as(targets)
+                    
+                    # Basic MSE loss
+                    loss = F.mse_loss(predictions, targets)
+                except Exception as e:
+                    print(f"Error in forward pass: {e}")
+                    # Fallback to using just the graph encoder
+                    predictions = adapted_model.graph_encoder(inputs)
+                    
+                    # Ensure predictions and targets have the same shape
+                    if predictions.shape != targets.shape:
+                        # If predictions is [batch, nodes, nodes] and targets is [nodes, nodes]
+                        if predictions.dim() > targets.dim():
+                            targets = targets.unsqueeze(0).expand_as(predictions)
+                        # If targets is [batch, nodes, nodes] and predictions is [nodes, nodes]
+                        elif targets.dim() > predictions.dim():
+                            predictions = predictions.unsqueeze(0).expand_as(targets)
+                    
+                    loss = F.mse_loss(predictions, targets)
+            else:
+                # For simpler models
+                outputs = adapted_model(inputs)
+                loss = F.mse_loss(outputs, targets)
+            
+            # Backward pass
+            loss.backward()
+            
+            # Update parameters
+            optimizer.step()
+        
+        # Return the adapted model
+        return adapted_model
+
+
+class MAMLForCausalDiscovery(nn.Module):
+    """
+    MAML implementation for causal discovery.
+    
+    This class integrates the MAML algorithm with AmortizedCausalDiscovery for
+    fast adaptation to new causal structures with interventional data.
+    """
+    
+    def __init__(
+        self,
+        model: nn.Module,
+        inner_lr: float = 0.01,
+        num_inner_steps: int = 3,
+        device: Union[str, torch.device] = "cpu"
+    ):
+        """Initialize the MAML model for causal discovery."""
+        super().__init__()
+        
+        self.model = model
+        self.device = torch.device(device)
+        self.inner_lr = inner_lr
+        self.num_inner_steps = num_inner_steps
+        
+        # Initialize MAML algorithm
+        self.maml = SimpleMAML(
+            model=model,
+            inner_lr=inner_lr,
+            num_inner_steps=num_inner_steps
+        )
+        
+    def adapt(
+        self,
+        graph: CausalGraph,
+        support_data: Tuple[torch.Tensor, torch.Tensor],
+        num_steps: Optional[int] = None
+    ) -> nn.Module:
+        """
+        Adapt the model to a new causal graph using interventional data.
+        
+        Args:
+            graph: Causal graph structure
+            support_data: Tuple of (inputs, targets) for adaptation
+            num_steps: Number of adaptation steps (overrides default if provided)
+            
+        Returns:
+            Adapted model for the given causal graph
+        """
+        # Use the MAML algorithm to adapt the model
+        adapted_model = self.maml.adapt(
+            support_data=support_data,
+            graph=graph,
+            num_steps=num_steps or self.num_inner_steps
+        )
+        
+        return adapted_model
+    
+    def forward(
+        self,
+        x: torch.Tensor,
+        graph: Optional[CausalGraph] = None,
+        adapted_model: Optional[nn.Module] = None
+    ) -> torch.Tensor:
+        """
+        Forward pass through the model.
+        
+        Args:
+            x: Input tensor
+            graph: Optional causal graph (if adaptation is needed)
+            adapted_model: Optional pre-adapted model (if already adapted)
+            
+        Returns:
+            Model predictions
+        """
+        if adapted_model is not None:
+            # Use the pre-adapted model
+            return adapted_model(x)
+        else:
+            # Use the base model without adaptation
+            return self.model(x)

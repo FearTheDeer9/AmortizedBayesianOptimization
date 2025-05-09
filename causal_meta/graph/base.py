@@ -123,23 +123,23 @@ class Graph:
         """
         return (source, target) in self._edges
 
-    def get_nodes(self) -> Set:
+    def get_nodes(self) -> List[Any]:
         """
         Get all nodes in the graph.
 
         Returns:
-            Set: A set of all node identifiers
+            List[Any]: A list of all node identifiers
         """
-        return self._nodes.copy()
+        return list(self._nodes)
 
-    def get_edges(self) -> Set[Tuple]:
+    def get_edges(self) -> List[Tuple[Any, Any]]:
         """
         Get all edges in the graph.
 
         Returns:
-            Set[Tuple]: A set of (source, target) tuples representing edges
+            List[Tuple[Any, Any]]: A list of (source, target) tuples representing edges
         """
-        return self._edges.copy()
+        return list(self._edges)
 
     def get_node_attributes(self, node_id: Any) -> Dict:
         """

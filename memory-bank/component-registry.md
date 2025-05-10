@@ -2125,3 +2125,231 @@ uncertainty = estimator.estimate_uncertainty(model, data)
 validation_data = {"observations": np.random.randn(200, 5)}
 estimator.calibrate(model, validation_data)
 ```
+
+## Causal Graph Structure Learning MVP Components
+
+The following components are designed specifically for the Causal Graph Structure Learning MVP, implementing a simplified approach to demonstrate neural network-based causal structure learning through interventional data.
+
+### SimpleGraphLearner (`causal_meta.structure_learning.simple_graph_learner.SimpleGraphLearner`)
+
+**Purpose**: Simple MLP-based neural network for learning causal graph structure from observational and interventional data.
+
+**Key Methods**:
+- `__init__(num_nodes, hidden_dim=64)`: Constructor for the model
+- `forward(x, intervention_mask)`: Forward pass with explicit intervention information
+- `compute_loss(pred_adj, true_adj=None)`: Compute loss with optional supervision
+- `predict_graph(data, intervention_mask, threshold=0.5)`: Predict binary adjacency matrix
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.simple_graph_learner import SimpleGraphLearner
+
+# Create model
+model = SimpleGraphLearner(num_nodes=5, hidden_dim=64)
+
+# Prepare data
+data = torch.randn(32, 5)  # 32 samples, 5 nodes
+int_mask = torch.zeros(32, 5)  # No interventions initially
+int_mask[:, 2] = 1.0  # Intervene on node 2
+
+# Forward pass
+pred_adj = model(data, int_mask)
+
+# Compute loss (unsupervised)
+loss = model.compute_loss(pred_adj)
+
+# Predict binary graph
+binary_adj = model.predict_graph(data, int_mask, threshold=0.5)
+```
+
+### RandomDAGGenerator (`causal_meta.structure_learning.graph_generators.RandomDAGGenerator`)
+
+**Purpose**: Generates random Directed Acyclic Graphs (DAGs) for experimentation.
+
+**Key Methods**:
+- `generate_random_dag(num_nodes, edge_probability)`: Generate a random DAG
+- `validate_acyclicity(adj_matrix)`: Check if a given adjacency matrix represents a DAG
+- `visualize_dag(adj_matrix)`: Visualize a DAG from its adjacency matrix
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.graph_generators import RandomDAGGenerator
+
+# Generate random DAG
+adj_matrix = RandomDAGGenerator.generate_random_dag(
+    num_nodes=8,
+    edge_probability=0.3
+)
+
+# Validate acyclicity
+is_dag = RandomDAGGenerator.validate_acyclicity(adj_matrix)
+
+# Visualize
+RandomDAGGenerator.visualize_dag(adj_matrix)
+```
+
+### LinearSCMGenerator (`causal_meta.structure_learning.scm_generators.LinearSCMGenerator`)
+
+**Purpose**: Creates linear Structural Causal Models (SCMs) based on a given graph structure.
+
+**Key Methods**:
+- `generate_linear_scm(adj_matrix, noise_scale=0.1)`: Generate a linear SCM
+- `generate_linear_weights(adj_matrix, min_weight=-2, max_weight=2)`: Generate random weights for connections
+- `add_noise_distributions(scm, noise_scale=0.1)`: Add Gaussian noise distributions to the SCM
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.graph_generators import RandomDAGGenerator
+from causal_meta.structure_learning.scm_generators import LinearSCMGenerator
+
+# Generate random DAG
+adj_matrix = RandomDAGGenerator.generate_random_dag(
+    num_nodes=5,
+    edge_probability=0.3
+)
+
+# Create linear SCM
+scm = LinearSCMGenerator.generate_linear_scm(
+    adj_matrix=adj_matrix,
+    noise_scale=0.1
+)
+
+# Sample data
+obs_data = scm.sample_data(sample_size=200)
+```
+
+### InterventionUtils (`causal_meta.structure_learning.intervention_utils.InterventionUtils`)
+
+**Purpose**: Utilities for performing and tracking interventions.
+
+**Key Methods**:
+- `perform_random_intervention(scm, num_samples, node_idx=None)`: Perform random intervention
+- `convert_to_tensor(data, device="cpu")`: Convert data to tensor
+- `create_intervention_mask(num_samples, num_nodes, intervened_node)`: Create binary intervention mask
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.intervention_utils import InterventionUtils
+
+# Perform random intervention
+int_data, intervened_node = InterventionUtils.perform_random_intervention(
+    scm=scm,
+    num_samples=20
+)
+
+# Create intervention mask
+int_mask = InterventionUtils.create_intervention_mask(
+    num_samples=20,
+    num_nodes=5,
+    intervened_node=intervened_node
+)
+
+# Convert to tensor
+int_tensor = InterventionUtils.convert_to_tensor(int_data)
+```
+
+### ExperimentRunner (`causal_meta.structure_learning.experiment_runner.ExperimentRunner`)
+
+**Purpose**: Manages the main experiment loop for progressive causal structure learning.
+
+**Key Methods**:
+- `run_experiment(config)`: Run the main experiment
+- `train_step(model, optimizer, data, intervention_mask, true_adj)`: Perform training step
+- `evaluate_graph(pred_adj, true_adj, threshold=0.5)`: Evaluate predictions
+- `plot_results(true_adj, final_adj, history)`: Plot experiment results
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.experiment_runner import ExperimentRunner
+from causal_meta.structure_learning.config import ExperimentConfig
+
+# Define configuration
+config = ExperimentConfig(
+    num_nodes=8,
+    edge_probability=0.3,
+    num_obs_samples=200,
+    num_int_samples=20,
+    max_iterations=50,
+    hidden_dim=64,
+    learning_rate=0.001,
+    noise_scale=0.1,
+    random_seed=42
+)
+
+# Run experiment
+history, model, true_adj = ExperimentRunner.run_experiment(config)
+```
+
+### ExperimentConfig (`causal_meta.structure_learning.config.ExperimentConfig`)
+
+**Purpose**: Configuration class for experiment parameters.
+
+**Key Attributes**:
+- `num_nodes`: Number of nodes in the causal graph
+- `edge_probability`: Probability of edge between any two nodes
+- `num_obs_samples`: Number of observational samples
+- `num_int_samples`: Number of interventional samples per intervention
+- `max_iterations`: Maximum number of interventions
+- `hidden_dim`: Hidden dimension size for neural network
+- `learning_rate`: Learning rate for optimizer
+- `noise_scale`: Noise scale for linear SCM
+- `random_seed`: Random seed for reproducibility
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.config import ExperimentConfig
+
+# Create configuration
+config = ExperimentConfig(
+    num_nodes=8,
+    edge_probability=0.3,
+    num_obs_samples=200,
+    num_int_samples=20,
+    max_iterations=50,
+    hidden_dim=64,
+    learning_rate=0.001,
+    noise_scale=0.1,
+    random_seed=42
+)
+
+# Access parameters
+print(f"Number of nodes: {config.num_nodes}")
+print(f"Learning rate: {config.learning_rate}")
+```
+
+### GraphMetrics (`causal_meta.structure_learning.metrics.GraphMetrics`)
+
+**Purpose**: Metrics and evaluation utilities for causal graph structure learning.
+
+**Key Methods**:
+- `calculate_shd(pred_adj, true_adj)`: Calculate Structural Hamming Distance
+- `calculate_edge_accuracy(pred_adj, true_adj)`: Calculate edge prediction accuracy
+- `calculate_precision_recall(pred_adj, true_adj)`: Calculate precision and recall
+- `calculate_metrics(pred_adj, true_adj)`: Calculate all metrics
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.metrics import GraphMetrics
+
+# Calculate metrics
+metrics = GraphMetrics.calculate_metrics(pred_adj, true_adj)
+
+print(f"SHD: {metrics['shd']}")
+print(f"Accuracy: {metrics['accuracy']}")
+print(f"Precision: {metrics['precision']}")
+print(f"Recall: {metrics['recall']}")
+```
+
+## Important Note on MVP Components
+
+The components described in this section follow a simplified design specifically for the MVP demonstration. They are intended to show the core concept of learning causal structure from interventional data using neural networks.
+
+When implementing these components:
+
+1. **Validate interfaces** against existing components in the `causal_meta` package
+2. **Reuse existing code** where appropriate, particularly from the `graph`, `environments`, and `meta_learning` modules
+3. **Ensure compatibility** with the broader codebase architecture
+4. **Follow naming conventions** and design patterns established in the existing codebase
+5. **Document clearly** how these components fit with the existing architecture
+
+These MVP components provide a foundation that can be extended with more sophisticated approaches in future iterations.

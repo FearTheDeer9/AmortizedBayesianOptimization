@@ -423,4 +423,122 @@ The configuration system provides a unified approach to managing component confi
    - Defines the structure and data types for component configurations
    - Supports validation of configuration values
    - Provides clear error messages for invalid configurations
-   - Enables documentation generation for configuration options 
+   - Enables documentation generation for configuration options
+
+## MVP Causal Graph Structure Learning
+
+The MVP Causal Graph Structure Learning implementation follows a simplified architecture to demonstrate how neural networks can learn causal graph structures from observational and interventional data. This section outlines the architecture for this specific MVP implementation.
+
+### MVP Component Architecture
+
+```
++-----------------------------------+
+|        ExperimentRunner           |
+|   (Manages experiment workflow)   |
++----------------+------------------+
+                 |
+                 | configures & runs
+                 v
++-----------------------------------+
+|        ExperimentConfig           |
+|   (Configuration parameters)      |
++----------------+------------------+
+                 |
+           +-----+-----+
+           |           |
+           v           v
++-------------------+  +------------------------+
+| RandomDAGGenerator|  |   SimpleGraphLearner   |
+| (Graph generation)|  | (Neural network model) |
++--------+----------+  +-----------+------------+
+         |                         |
+         v                         |
++--------------------+             |
+| LinearSCMGenerator |             |
+| (SCM generation)   |             |
++--------+-----------+             |
+         |                         |
+         |  +---------------------+|
+         |  |   InterventionUtils ||
+         |  | (Intervention tools)||
+         |  +----------+----------+|
+         |             |           |
+         v             v           |
++----------------------------------------+
+|          Data Processing               |
+| (Tensor conversion & formatting)       |
++-------------------+-------------------+
+                    |
+                    v
++----------------------------------------+
+|          GraphMetrics                  |
+| (Evaluation & visualization)           |
++----------------------------------------+
+```
+
+### Data Flow
+
+1. **Configuration**: `ExperimentConfig` defines all parameters for the experiment
+
+2. **Graph & SCM Generation**:
+   - `RandomDAGGenerator` creates a random DAG structure
+   - `LinearSCMGenerator` builds a linear SCM based on the graph
+
+3. **Data Generation**:
+   - SCM generates observational data
+   - `InterventionUtils` performs interventions to generate interventional data
+
+4. **Data Processing**:
+   - Data is converted to appropriate tensor format
+   - Intervention information is encoded as binary masks
+
+5. **Model Training**:
+   - `SimpleGraphLearner` processes both observational and interventional data
+   - Model is progressively updated with each new intervention
+
+6. **Evaluation**:
+   - `GraphMetrics` evaluates predicted graph against true graph
+   - Learning progress is tracked across interventions
+
+7. **Visualization**:
+   - Results are visualized for comparison and analysis
+
+### Integration with Existing Architecture
+
+The MVP components are designed to interact with the existing codebase in the following ways:
+
+1. **Graph Generation**: Leverages `causal_meta.graph.generators` where appropriate, but provides simplified implementations for the MVP requirements.
+
+2. **SCM Generation**: Works with `causal_meta.environments.scm.StructuralCausalModel` for data generation but offers a simplified interface for linear SCMs.
+
+3. **Neural Network**: Provides a standalone `SimpleGraphLearner` implementation rather than using the more complex `AmortizedCausalDiscovery` from the existing codebase, focusing on the core concept demonstration.
+
+4. **Evaluation**: Uses simplified metrics while maintaining compatibility with existing evaluation approaches.
+
+### Architectural Decisions
+
+1. **Simplicity Over Sophistication**: The MVP prioritizes clear demonstration of the core concept over advanced features.
+
+2. **Modularity**: Components are designed with clear interfaces to enable easy replacement or enhancement in future iterations.
+
+3. **Explicit Intervention Encoding**: The approach uses explicit binary masks to encode intervention information for the neural network, making the learning signal clearer.
+
+4. **Progressive Learning**: The architecture implements an iterative process where the model improves with each new intervention, demonstrating the value of active interventions.
+
+5. **Supervised Learning**: For simplicity, the initial implementation uses supervised learning with access to ground truth for clearer demonstration, while maintaining the flexibility to move to unsupervised approaches in future iterations.
+
+6. **Focused Scope**: The architecture focuses solely on structure learning without incorporating dynamics prediction or meta-learning at this stage.
+
+### Future Extensions
+
+The MVP architecture is designed to be extended in the following directions:
+
+1. **Advanced Neural Architectures**: Replace `SimpleGraphLearner` with more sophisticated architectures.
+
+2. **Optimized Intervention Selection**: Implement information-theoretic or uncertainty-based intervention selection strategies.
+
+3. **Integration with Meta-Learning**: Incorporate MAML or other meta-learning approaches for faster adaptation.
+
+4. **Non-linear SCMs**: Extend to non-linear structural causal models.
+
+5. **Joint Structure and Dynamics Learning**: Integrate with dynamics prediction components for joint learning. 

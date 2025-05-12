@@ -123,7 +123,9 @@ class ProgressiveInterventionLoop:
             edge_prob_bias=0.7,  # Increase this to encourage edge prediction
             expected_density=getattr(self.config, 'expected_density', 0.3),
             density_weight=getattr(self.config, 'density_weight', 0.1),
-            intervention_weight=50.0
+            intervention_weight=50.0,
+            temperature=getattr(self.config, 'temperature', 0.5),
+            edge_temperature=getattr(self.config, 'edge_temperature', 0.5)
         )
         # Move to device
         model = model.to(self.device)
@@ -425,6 +427,11 @@ class ProgressiveInterventionLoop:
                 data=self.obs_tensor,
                 checkpoint_path=checkpoint_path if self.config.save_checkpoints else None
             )
+        # Debug print for loss components
+        print("\nDetailed loss components:")
+        for key, value in train_history.items():
+            if isinstance(value, list) and len(value) > 0:
+                print(f"  {key}: {value[-1]:.4f}")
         metrics = self.evaluate_model(self.all_tensor, iteration=self.iteration, print_every=print_every)
         if self.iteration % print_every == 0:
             print("Key metrics:")

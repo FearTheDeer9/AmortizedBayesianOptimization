@@ -37,6 +37,9 @@ class SimpleGraphLearner(nn.Module):
         edge_prob_bias: Bias for edge probability (higher values encourage more edges)
         expected_density: Expected edge density (if provided, adds regularization toward this density)
         density_weight: Weight for density regularization
+        intervention_weight: Weight for intervention-based learning
+        temperature: Temperature parameter for edge probability scaling
+        edge_temperature: Lower temperature = sharper probabilities
     """
     
     def __init__(
@@ -52,7 +55,9 @@ class SimpleGraphLearner(nn.Module):
         edge_prob_bias: float = 0.0,
         expected_density: Optional[float] = None,
         density_weight: float = 0.1,
-        intervention_weight=10.0
+        intervention_weight=10.0,
+        temperature: float = 0.5,
+        edge_temperature: float = 0.5
     ):
         """Initialize the SimpleGraphLearner."""
         super().__init__()
@@ -70,6 +75,8 @@ class SimpleGraphLearner(nn.Module):
         self.expected_density = expected_density
         self.density_weight = density_weight
         self.intervention_weight = intervention_weight
+        self.temperature = temperature
+        self.edge_temperature = edge_temperature
         
         # Node feature encoder: takes raw node values and extracts features
         node_encoder_layers = []
@@ -113,7 +120,7 @@ class SimpleGraphLearner(nn.Module):
         self._init_weights()
 
         intervention_predictor_layers = []
-        intervention_predictor_layers.append(nn.Linear(input_dim * 2, hidden_dim))
+        intervention_predictor_layers.append(nn.Linear(input_dim * 3, hidden_dim))
         intervention_predictor_layers.append(nn.ReLU())
         intervention_predictor_layers.append(nn.Dropout(dropout))
         
@@ -235,10 +242,10 @@ class SimpleGraphLearner(nn.Module):
         if return_logits:
             return edge_logits
         else:
-            # Anti-clumping: stronger scaling and bias
-            edge_logits_scaled = edge_logits * 5.0  # Increased from 3.0
-            noise = torch.randn_like(edge_logits) * 0.1
-            edge_probs = torch.sigmoid(edge_logits_scaled + noise + self.edge_prob_bias + 0.1)  # Slightly increased bias
+            # Stronger scaling and temperature
+            edge_logits_scaled = edge_logits * 10.0  # Much stronger scaling
+            noise = torch.randn_like(edge_logits) * 0.05  # Reduced noise
+            edge_probs = torch.sigmoid((edge_logits_scaled + noise + self.edge_prob_bias) / self.edge_temperature)
             n_variables = edge_probs.shape[0]
             diag_mask = torch.eye(n_variables, device=edge_probs.device)
             edge_probs = edge_probs * (1 - diag_mask)
@@ -387,7 +394,7 @@ class SimpleGraphLearner(nn.Module):
             direct_edges = self.derive_structure_from_interventions(pre_data, intervention_mask, post_data)
             structure_loss = F.binary_cross_entropy(
                 edge_probabilities, direct_edges, reduction='mean')
-            loss_components['direct_structure'] = structure_loss * 15.0
+            loss_components['direct_structure'] = structure_loss * 100.0  # Much stronger signal
         else:
             structure_loss = torch.tensor(0.0, device=edge_probs.device)
             loss_components['direct_structure'] = structure_loss
@@ -469,34 +476,19 @@ class SimpleGraphLearner(nn.Module):
         if self.expected_density is not None:
             loss_components['density'] = density_reg * self.density_weight
         
-        # Total loss calculation prioritizing intervention learning
+        # Add a U-shaped loss that penalizes probabilities in the middle range
+        uncertainty_penalty = -((edge_probabilities - 0.5).abs() * 2.0).mean() * 50.0
+        loss_components['uncertainty_penalty'] = uncertainty_penalty
+        
+        # Fix the priority in total loss calculation
         if has_intervention_data:
-            # When we have intervention data, use it as the primary learning signal
-            total_loss = loss_components['intervention']
-            
-            # Add a gradually decreasing weight to supervised loss if provided
-            # This helps transition from supervised to intervention-based learning
-            if target is not None:
-                # Start with some weight on supervised loss, but decrease over time
-                supervision_weight = 0.1  # Much lower than before
-                total_loss += supervised_loss * supervision_weight
+            # Prioritize direct structure learning and intervention loss
+            total_loss = loss_components['direct_structure'] * 1.0 + loss_components['intervention'] * 0.2
+            # Add regularization terms with much lower weight
+            total_loss += loss_components['acyclicity'] * 0.1 + loss_components['sparsity'] * 0.05
         else:
-            # If no intervention data yet, fall back to supervised loss if available
-            if target is not None:
-                total_loss = supervised_loss
-            else:
-                # If neither is available, just use regularization losses
-                total_loss = torch.tensor(0.0, device=edge_probs.device)
-        
-        # Add regularization terms
-        total_loss += loss_components['acyclicity'] + loss_components['sparsity']
-        if self.consistency_weight > 0:
-            total_loss += loss_components['consistency']
-        if self.expected_density is not None:
-            total_loss += loss_components['density']
-        
-        total_loss += anti_sparsity_reg  # Add the anti-sparsity term
-        total_loss += loss_components['direct_structure']
+            total_loss = supervised_loss if target is not None else torch.tensor(0.0, device=edge_probs.device)
+        total_loss += loss_components['uncertainty_penalty']
         
         edge_count = edge_probabilities.sum()
         expected_edges = n * self.expected_density if self.expected_density else n * 0.3
@@ -579,26 +571,38 @@ class SimpleGraphLearner(nn.Module):
     
     def predict_intervention_outcomes(self, data, intervention_mask, edge_probs):
         """
-        Predict outcomes after interventions based on current graph structure
-        
-        Args:
-            data: Input data tensor [batch_size, n_variables]
-            intervention_mask: Binary mask for interventions [batch_size, n_variables]
-            edge_probs: Current graph edge probabilities [n_variables, n_variables]
-            
-        Returns:
-            Predicted post-intervention values [batch_size, n_variables]
+        Predict outcomes after interventions based on current graph structure.
+        This version explicitly uses edge probabilities for predictions.
         """
         # Guard against None inputs
-        if data is None or intervention_mask is None:
+        if data is None or intervention_mask is None or edge_probs is None:
             return None
-            
-        # Combine data and intervention info as input
-        batch_size = data.shape[0]
-        intervention_info = intervention_mask * data  # Values at intervention points
-        combined_input = torch.cat([data, intervention_info], dim=1)
         
-        # Predict the post-intervention values
+        batch_size, n_vars = data.shape
+        
+        # First, create representations of each node's state
+        node_states = []
+        for i in range(n_vars):
+            node_state = data[:, i].view(-1, 1)
+            node_states.append(node_state)
+        
+        # Calculate the influence of each node on others using edge probabilities
+        influenced_states = torch.zeros_like(data)
+        for i in range(n_vars):  # Source node
+            for j in range(n_vars):  # Target node
+                if i != j:  # No self-loops
+                    # Weight the influence by edge probability
+                    influence = data[:, i].view(-1, 1) * edge_probs[i, j]
+                    influenced_states[:, j] += influence.view(-1)
+        
+        # Combine original data, influenced states, and intervention info
+        combined_input = torch.cat([
+            data,  # Original values
+            influenced_states,  # Values influenced by graph structure
+            intervention_mask * data  # Intervention values
+        ], dim=1)
+        
+        # Get predictions from the intervention predictor
         predictions = self.intervention_predictor(combined_input)
         
         # Where interventions occurred, use the intervention values
@@ -639,28 +643,37 @@ class SimpleGraphLearner(nn.Module):
         return loss
 
     def derive_structure_from_interventions(self, pre_data, intervention_mask, post_data):
-        """Enhanced direct structure learning from interventions: uses Cohen's d and higher threshold/sigmoid scaling."""
+        """Improved direct structure learning from interventions."""
         n_vars = pre_data.shape[1]
         edge_evidence = torch.zeros((n_vars, n_vars), device=pre_data.device)
-        effect_threshold = 0.15  # More selective
+        
+        # Increased threshold for more decisive edge detection
+        effect_threshold = 0.2  # Up from 0.05
+        
         for i in range(n_vars):
             intervention_samples = (intervention_mask[:, i] > 0).nonzero(as_tuple=True)[0]
             if len(intervention_samples) == 0:
                 continue
+            
             pre_values = pre_data[intervention_samples]
             post_values = post_data[intervention_samples]
-            # Cohen's d: mean difference divided by pooled std
-            mean_diff = (post_values - pre_values).mean(dim=0)
-            std_pre = pre_values.std(dim=0) + 1e-6
-            std_post = post_values.std(dim=0) + 1e-6
-            pooled_std = torch.sqrt((std_pre ** 2 + std_post ** 2) / 2)
-            effect_size = torch.abs(mean_diff / pooled_std)
-            effect_size[i] = 0.0
+            
+            # Calculate standardized changes
+            delta = post_values - pre_values
+            delta_mean = delta.mean(dim=0)
+            delta_std = delta.std(dim=0) + 1e-6
+            delta_z = torch.abs(delta_mean / delta_std)
+            delta_z[i] = 0.0  # No self-loops
+            
             for j in range(n_vars):
-                if j != i and effect_size[j] > effect_threshold:
-                    edge_evidence[i, j] += effect_size[j]
+                if j != i and delta_z[j] > effect_threshold:
+                    # Square the effect to emphasize stronger ones
+                    edge_evidence[i, j] += delta_z[j]**2
+        
         if edge_evidence.max() > 0:
             edge_evidence = edge_evidence / edge_evidence.max()
-            return torch.sigmoid(edge_evidence * 12.0)  # Sharper separation
+            # Much stronger sigmoid scaling for clearer separation
+            return torch.sigmoid(edge_evidence * 20.0)  # Up from 8.0
         else:
-            return 0.1 * torch.ones((n_vars, n_vars), device=pre_data.device)
+            # Lower baseline probability to reduce false positives
+            return 0.05 * torch.ones((n_vars, n_vars), device=pre_data.device)  # Down from 0.1

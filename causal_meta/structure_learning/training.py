@@ -374,6 +374,28 @@ class SimpleGraphLearnerTrainer:
                 if key not in loss_component_values:
                     loss_component_values[key] = []
                 loss_component_values[key].append(value)
+                
+            # Add debugging output for every 20 batches
+            if batch_idx % 20 == 0:  # Print every 20 batches
+                print("\nDetailed loss components:")
+                for key, value in loss_components.items():
+                    if isinstance(value, torch.Tensor):
+                        print(f"  {key}: {value.item():.4f}")
+                
+                # Print edge probability stats for true edges vs false edges
+                if true_adj is not None:
+                    with torch.no_grad():
+                        true_edge_mask = true_adj > 0
+                        edge_probs_numpy = edge_probs.detach().cpu().numpy()
+                        true_adj_numpy = true_adj.detach().cpu().numpy()
+                        
+                        true_probs = edge_probs_numpy[true_adj_numpy > 0]
+                        false_probs = edge_probs_numpy[(true_adj_numpy == 0) & 
+                                                     (~np.eye(edge_probs.shape[0], dtype=bool))]
+                        
+                        print(f"  True edge probs: mean={true_probs.mean():.4f}, min={true_probs.min():.4f}, max={true_probs.max():.4f}")
+                        print(f"  False edge probs: mean={false_probs.mean():.4f}, min={false_probs.min():.4f}, max={false_probs.max():.4f}")
+                
             if not first_batch_printed and epoch % print_every == 0:
                 with torch.no_grad():
                     edge_probs = self.model(batch_pre, batch_mask)

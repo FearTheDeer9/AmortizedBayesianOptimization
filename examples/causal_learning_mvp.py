@@ -67,6 +67,8 @@ def create_config(model_type="enhanced", strategy="uncertainty", seed=42):
         config.threshold = 0.25    # Lower, fixed threshold for edge detection
         config.epochs = 400        # Longer training for proof of concept
         config.num_int_samples = 100 # More samples per intervention for stronger signal
+        config.temperature = 0.5    # Temperature for sigmoid scaling
+        config.edge_temperature = 0.3  # Sharper edge probability temperature (lower = sharper)
     
     return config
 

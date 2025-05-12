@@ -331,14 +331,11 @@ class SimpleGraphLearnerTrainer:
         pre_intervention_data: torch.Tensor,
         post_intervention_data: torch.Tensor,
         true_adj: Optional[torch.Tensor] = None,
-        batch_size: int = 32
+        batch_size: int = 32,
+        epoch: int = 0,
+        print_every: int = 20
     ) -> Dict[str, float]:
-        """
-        Train the model using only intervention data.
-        """
         self.model.train()
-        
-        # Only use the intervention data for training
         intervention_dataset = TensorDataset(
             pre_intervention_data,
             train_intervention_mask[:len(pre_intervention_data)],
@@ -351,7 +348,6 @@ class SimpleGraphLearnerTrainer:
         )
         total_losses = []
         loss_component_values = {}
-        # Print edge probability stats only once per epoch (first batch)
         first_batch_printed = False
         for batch_idx, batch in enumerate(intervention_dataloader):
             batch_pre, batch_mask, batch_post = batch
@@ -366,7 +362,8 @@ class SimpleGraphLearnerTrainer:
                 mask=None,
                 pre_data=batch_pre,
                 intervention_mask=batch_mask,
-                post_data=batch_post
+                post_data=batch_post,
+                epoch=epoch
             )
             loss.backward()
             self.optimizer.step()
@@ -377,10 +374,10 @@ class SimpleGraphLearnerTrainer:
                 if key not in loss_component_values:
                     loss_component_values[key] = []
                 loss_component_values[key].append(value)
-            if not first_batch_printed:
+            if not first_batch_printed and epoch % print_every == 0:
                 with torch.no_grad():
                     edge_probs = self.model(batch_pre, batch_mask)
-                    print(f"Batch 0: Edge probs min={edge_probs.min().item():.4f}, max={edge_probs.max().item():.4f}, mean={edge_probs.mean().item():.4f}")
+                    print(f"[Epoch {epoch}] Batch 0: Edge probs min={edge_probs.min().item():.4f}, max={edge_probs.max().item():.4f}, mean={edge_probs.mean().item():.4f}")
                     first_batch_printed = True
         avg_loss = sum(total_losses) / len(total_losses) if total_losses else 0
         avg_component_losses = {
@@ -598,29 +595,27 @@ class SimpleGraphLearnerTrainer:
         
         # Training loop
         for epoch in range(epochs):
-            # Reset edge weights every 25 epochs to break symmetry
             if epoch > 0 and epoch % 25 == 0 and hasattr(self.model, 'reset_edge_weights'):
-                self.model.reset_edge_weights()
-            # Use intervention-based training if data is available
+                self.model.reset_edge_weights(epoch=epoch, print_every=20)
             if pre_intervention_data is not None and post_intervention_data is not None:
                 train_losses = self.train_epoch_with_interventions(
                     train_data=train_tensor,
                     train_intervention_mask=train_intervention_mask,
                     pre_intervention_data=pre_intervention_tensor,
                     post_intervention_data=post_intervention_tensor,
-                    true_adj=None,  # Don't use true_adj for learning!
-                    batch_size=batch_size
+                    true_adj=None,
+                    batch_size=batch_size,
+                    epoch=epoch,
+                    print_every=20
                 )
             else:
-                # Fall back to regular training without supervision
                 train_losses = self.train_epoch(
                     train_data=train_tensor,
                     train_intervention_mask=train_intervention_mask,
-                    true_adj=None,  # Don't use true_adj for learning!
+                    true_adj=None,
                     batch_size=batch_size
                 )
             
-            # Store training losses
             self.history['train_loss'].append(train_losses['total_loss'])
             
             # Keep existing validation and early stopping code
@@ -629,7 +624,7 @@ class SimpleGraphLearnerTrainer:
                 pass
             
             # Print progress
-            if verbose and (epoch + 1) % 10 == 0:
+            if verbose and (epoch + 1) % 20 == 0:
                 time_elapsed = time.time() - start_time
                 print(f"Epoch {epoch+1}/{epochs}, Loss: {train_losses['total_loss']:.4f}, Time: {time_elapsed:.2f}s")
                 if 'intervention' in train_losses:
@@ -786,7 +781,9 @@ class SimpleGraphLearnerTrainer:
         true_adj: Optional[Union[np.ndarray, torch.Tensor]] = None,
         pre_intervention_data: Optional[torch.Tensor] = None,
         post_intervention_data: Optional[torch.Tensor] = None,
-        thresholds: Optional[list] = None
+        thresholds: Optional[list] = None,
+        epoch: int = 0,
+        print_every: int = 20
     ) -> Tuple[Dict[str, float], float]:
         """
         Evaluate model with multiple thresholds and select the best based on F1 score.
@@ -801,7 +798,6 @@ class SimpleGraphLearnerTrainer:
             off_diag_probs = edge_probs[off_diag_mask.bool()]
             prob_range = edge_probs.max() - edge_probs.min()
             if prob_range < 0.2:
-                # Use percentile-based thresholds
                 for percentile in [50, 60, 70, 80, 90]:
                     if len(off_diag_probs) > 0:
                         threshold = torch.quantile(off_diag_probs, 1 - percentile/100)
@@ -813,7 +809,6 @@ class SimpleGraphLearnerTrainer:
                                 best_metrics = metrics
                                 best_threshold = float(threshold)
             else:
-                # Use standard thresholds
                 for threshold in [0.1, 0.2, 0.3, 0.4, 0.5]:
                     pred_adj = (edge_probs > threshold).float()
                     pred_adj.fill_diagonal_(0)
@@ -822,9 +817,9 @@ class SimpleGraphLearnerTrainer:
                         if best_metrics is None or metrics.get('f1', 0) > best_metrics.get('f1', 0):
                             best_metrics = metrics
                             best_threshold = threshold
-        if best_metrics:
-            best_metrics['selected_threshold'] = best_threshold
-            print(f"Selected threshold: {best_threshold:.4f} with F1: {best_metrics.get('f1', 0):.4f}")
+            if best_metrics and epoch % print_every == 0:
+                best_metrics['selected_threshold'] = best_threshold
+                print(f"[Epoch {epoch}] Selected threshold: {best_threshold:.4f} with F1: {best_metrics.get('f1', 0):.4f}")
         return best_metrics, best_threshold
 
 def train_simple_graph_learner(

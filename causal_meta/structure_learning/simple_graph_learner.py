@@ -136,15 +136,16 @@ class SimpleGraphLearner(nn.Module):
         # Initialize final layer with random small biases to break symmetry
         nn.init.uniform_(self.final_layer.bias, -0.1, 0.1)
     
-    def reset_edge_weights(self):
-        """Reset edge prediction weights to break out of local minima."""
+    def reset_edge_weights(self, epoch=None, print_every=20):
+        """Reset edge prediction weights to break out of local minima. Only print every N epochs if epoch is provided."""
         old_weights = self.final_layer.weight.data.clone()
         old_bias = self.final_layer.bias.data.clone()
         nn.init.xavier_normal_(self.final_layer.weight)
         nn.init.uniform_(self.final_layer.bias, -0.2, 0.2)
         self.final_layer.weight.data = 0.8 * old_weights + 0.2 * self.final_layer.weight.data
         self.final_layer.bias.data = 0.8 * old_bias + 0.2 * self.final_layer.bias.data
-        print("Edge prediction weights partially reset to break symmetry")
+        if epoch is not None and epoch % print_every == 0:
+            print("Edge prediction weights partially reset to break symmetry")
     
     def forward(
         self,
@@ -234,9 +235,10 @@ class SimpleGraphLearner(nn.Module):
         if return_logits:
             return edge_logits
         else:
-            edge_logits_scaled = edge_logits * 3.0
+            # Anti-clumping: stronger scaling and bias
+            edge_logits_scaled = edge_logits * 5.0  # Increased from 3.0
             noise = torch.randn_like(edge_logits) * 0.1
-            edge_probs = torch.sigmoid(edge_logits_scaled + noise + self.edge_prob_bias)
+            edge_probs = torch.sigmoid(edge_logits_scaled + noise + self.edge_prob_bias + 0.1)  # Slightly increased bias
             n_variables = edge_probs.shape[0]
             diag_mask = torch.eye(n_variables, device=edge_probs.device)
             edge_probs = edge_probs * (1 - diag_mask)
@@ -355,7 +357,8 @@ class SimpleGraphLearner(nn.Module):
         mask: Optional[torch.Tensor] = None,
         pre_data=None,
         intervention_mask=None,
-        post_data=None
+        post_data=None,
+        epoch=0
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         Calculate loss for the model with priority on intervention-based learning.
@@ -367,6 +370,7 @@ class SimpleGraphLearner(nn.Module):
             pre_data: Pre-intervention data (for intervention learning)
             intervention_mask: Intervention mask (for intervention learning)
             post_data: Post-intervention data (for intervention learning)
+            epoch: Current training epoch
             
         Returns:
             Total loss and dictionary of individual loss components
@@ -447,18 +451,19 @@ class SimpleGraphLearner(nn.Module):
         # Keep existing regularization losses
         acyclicity_reg = self.calculate_acyclicity_regularization(edge_probabilities)
         sparsity_reg = self.calculate_sparsity_regularization(edge_probabilities)
+        # Progressive sparsity penalty: increases with epoch
+        progressive_sparsity = sparsity_reg * (self.sparsity_weight * (1.5 + 0.01 * epoch))
+        loss_components['sparsity'] = progressive_sparsity
         consistency_reg = self.calculate_consistency_regularization(edge_probabilities)
         density_reg = self.calculate_density_regularization(edge_probabilities)
         n = edge_probs.shape[0]
         off_diag_mask = 1.0 - torch.eye(n, device=edge_probs.device)
         mean_edge_prob = (edge_probs * off_diag_mask).sum() / (n * (n-1))
-        anti_sparsity_reg = -torch.log(mean_edge_prob + 1e-6) * 0.5
-        
-        # Add this term to the loss components
+        # Stronger anti-sparsity regularization
+        anti_sparsity_reg = -torch.log(mean_edge_prob + 1e-6) * 1.0
         loss_components['anti_sparsity'] = anti_sparsity_reg
         
         loss_components['acyclicity'] = acyclicity_reg * self.acyclicity_weight
-        loss_components['sparsity'] = sparsity_reg * (self.sparsity_weight * 1.5)
         loss_components['consistency'] = consistency_reg * self.consistency_weight
         
         if self.expected_density is not None:
@@ -492,26 +497,38 @@ class SimpleGraphLearner(nn.Module):
         
         total_loss += anti_sparsity_reg  # Add the anti-sparsity term
         total_loss += loss_components['direct_structure']
-        loss_components['total'] = total_loss
         
         edge_count = edge_probabilities.sum()
         expected_edges = n * self.expected_density if self.expected_density else n * 0.3
         if edge_count > expected_edges:
-            fp_penalty = (edge_count - expected_edges) * 0.1
+            fp_penalty = (edge_count - expected_edges) * 0.2  # Increased penalty
             loss_components['fp_penalty'] = fp_penalty
         else:
             loss_components['fp_penalty'] = torch.tensor(0.0, device=edge_probs.device)
         
+        # Penalty for false positives based on intervention data
+        if has_intervention_data:
+            fp_matrix = (edge_probabilities > 0.5) & (direct_edges < 0.5)
+            fp_intervention_penalty = fp_matrix.float().sum() * 0.2
+            loss_components['fp_intervention_penalty'] = fp_intervention_penalty
+        else:
+            loss_components['fp_intervention_penalty'] = torch.tensor(0.0, device=edge_probs.device)
+        
+        total_loss += loss_components['fp_penalty'] + loss_components['fp_intervention_penalty']
+        
+        loss_components['total'] = total_loss
+        
         return total_loss, loss_components
         
-    def threshold_edge_probabilities(self, edge_probs, threshold=0.5):
-        """Simplified thresholding with minimal output."""
+    def threshold_edge_probabilities(self, edge_probs, threshold=0.5, epoch=None, print_every=20):
+        """Simplified thresholding with minimal output. Only print every N epochs if epoch is provided."""
         if torch.max(edge_probs) > 1.0 or torch.min(edge_probs) < 0.0:
             edge_probs = torch.sigmoid(edge_probs)
-        print(f"Edge probability range: [{edge_probs.min().item():.4f}, {edge_probs.max().item():.4f}], mean: {edge_probs.mean().item():.4f}")
+        if epoch is not None and epoch % print_every == 0:
+            print(f"Edge probability range: [{edge_probs.min().item():.4f}, {edge_probs.max().item():.4f}], mean: {edge_probs.mean().item():.4f}")
+            print(f"Edges detected at threshold {threshold}: {adj_matrix.sum().item()}")
         adj_matrix = (edge_probs > threshold).float()
         adj_matrix.fill_diagonal_(0)
-        print(f"Edges detected at threshold {threshold}: {adj_matrix.sum().item()}")
         return adj_matrix
 
 
@@ -622,25 +639,28 @@ class SimpleGraphLearner(nn.Module):
         return loss
 
     def derive_structure_from_interventions(self, pre_data, intervention_mask, post_data):
-        """Improved direct structure learning from interventions."""
+        """Enhanced direct structure learning from interventions: uses Cohen's d and higher threshold/sigmoid scaling."""
         n_vars = pre_data.shape[1]
         edge_evidence = torch.zeros((n_vars, n_vars), device=pre_data.device)
-        effect_threshold = 0.05
+        effect_threshold = 0.15  # More selective
         for i in range(n_vars):
             intervention_samples = (intervention_mask[:, i] > 0).nonzero(as_tuple=True)[0]
             if len(intervention_samples) == 0:
                 continue
             pre_values = pre_data[intervention_samples]
             post_values = post_data[intervention_samples]
-            delta_mean = (post_values - pre_values).mean(dim=0)
-            delta_std = (post_values - pre_values).std(dim=0) + 1e-6
-            delta_z = torch.abs(delta_mean / delta_std)
-            delta_z[i] = 0.0
+            # Cohen's d: mean difference divided by pooled std
+            mean_diff = (post_values - pre_values).mean(dim=0)
+            std_pre = pre_values.std(dim=0) + 1e-6
+            std_post = post_values.std(dim=0) + 1e-6
+            pooled_std = torch.sqrt((std_pre ** 2 + std_post ** 2) / 2)
+            effect_size = torch.abs(mean_diff / pooled_std)
+            effect_size[i] = 0.0
             for j in range(n_vars):
-                if j != i and delta_z[j] > effect_threshold:
-                    edge_evidence[i, j] += delta_z[j]
+                if j != i and effect_size[j] > effect_threshold:
+                    edge_evidence[i, j] += effect_size[j]
         if edge_evidence.max() > 0:
             edge_evidence = edge_evidence / edge_evidence.max()
-            return torch.sigmoid(edge_evidence * 8.0)
+            return torch.sigmoid(edge_evidence * 12.0)  # Sharper separation
         else:
             return 0.1 * torch.ones((n_vars, n_vars), device=pre_data.device)

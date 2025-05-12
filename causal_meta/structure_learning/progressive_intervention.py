@@ -190,17 +190,28 @@ class ProgressiveInterventionLoop:
         return train_history 
         
 
-    def evaluate_model(self, data, intervention_mask=None):
+    def evaluate_model(self, data, intervention_mask=None, iteration=0, print_every=20):
         """Evaluate with different thresholds and debugging."""
-        # Use the new threshold selection method
+        with torch.no_grad():
+            edge_probs = self.model(data, intervention_mask)
+            print("\nRaw edge probability matrix:")
+            np_edge_probs = edge_probs.cpu().detach().numpy()
+            import numpy as np
+            np.set_printoptions(precision=3, suppress=True)
+            print(np_edge_probs)
+            print("\nTrue adjacency matrix:")
+            if self.true_adj_matrix is not None:
+                print(self.true_adj_matrix)
+            self.calculate_edge_differentiation(edge_probs)
         best_metrics, best_threshold = self.trainer.evaluate_with_multiple_thresholds(
             data=data,
             intervention_mask=intervention_mask,
             true_adj=self.true_adj_matrix,
             pre_intervention_data=self.pre_int_tensor if hasattr(self, 'pre_int_tensor') else None,
-            post_intervention_data=self.post_int_tensor if hasattr(self, 'post_int_tensor') else None
+            post_intervention_data=self.post_int_tensor if hasattr(self, 'post_int_tensor') else None,
+            epoch=iteration,
+            print_every=print_every
         )
-        # Add debug evaluation
         debug_metrics = self.trainer.evaluate_with_debug(
             data=data,
             intervention_mask=intervention_mask,
@@ -209,11 +220,30 @@ class ProgressiveInterventionLoop:
             post_intervention_data=self.post_int_tensor if hasattr(self, 'post_int_tensor') else None,
             threshold=best_threshold
         )
-        # Combine best metrics and debug metrics
         metrics = dict(best_metrics)
         metrics['selected_threshold'] = best_threshold
         metrics.update(debug_metrics)
         return metrics
+
+    def calculate_edge_differentiation(self, edge_probs):
+        """Calculate how well the model differentiates true from false edges."""
+        if self.true_adj_matrix is None:
+            return None
+        import numpy as np
+        if isinstance(edge_probs, torch.Tensor):
+            edge_probs = edge_probs.detach().cpu().numpy()
+        true_edge_mask = self.true_adj_matrix > 0
+        false_edge_mask = (self.true_adj_matrix == 0) & (~np.eye(self.true_adj_matrix.shape[0], dtype=bool))
+        true_edge_probs = edge_probs[true_edge_mask]
+        false_edge_probs = edge_probs[false_edge_mask]
+        mean_true_prob = true_edge_probs.mean() if len(true_edge_probs) > 0 else 0
+        mean_false_prob = false_edge_probs.mean() if len(false_edge_probs) > 0 else 0
+        separation = mean_true_prob - mean_false_prob
+        print(f"\nEdge Differentiation:")
+        print(f"  Mean probability for true edges: {mean_true_prob:.4f}")
+        print(f"  Mean probability for false edges: {mean_false_prob:.4f}")
+        print(f"  Separation: {separation:.4f}")
+        return separation
 
     def select_intervention(self, data: torch.Tensor) -> Dict[str, Any]:
         """
@@ -240,7 +270,9 @@ class ProgressiveInterventionLoop:
     
     def perform_intervention(
         self,
-        intervention: Dict[str, Any]
+        intervention: Dict[str, Any],
+        iteration: int = 0,
+        print_every: int = 20
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Perform the specified intervention and generate data.
@@ -249,7 +281,8 @@ class ProgressiveInterventionLoop:
         value = intervention['value']
         scm_variables = self.scm.get_variable_names()
         node_name = self.column_mapping.get(target_node, f"x{target_node}") if hasattr(self, 'column_mapping') else f"x{target_node}"
-        print(f"Performing intervention on node {target_node} (name: {node_name}) with value {value}")
+        if iteration % print_every == 0:
+            print(f"Performing intervention on node {target_node} (name: {node_name}) with value {value}")
         pre_int_data = generate_observational_data(
             scm=self.scm,
             n_samples=self.config.num_int_samples,
@@ -366,11 +399,10 @@ class ProgressiveInterventionLoop:
         """
         Run a single iteration of the intervention loop with intervention-based learning.
         """
-        # Increment iteration counter
         self.iteration += 1
-        # Print simplified header for iteration
-        print(f"\nIteration {self.iteration}/{self.config.num_iterations}")
-        # 1. Train the model on current data
+        print_every = 20
+        if self.iteration % print_every == 0:
+            print(f"\nIteration {self.iteration}/{self.config.num_iterations}")
         checkpoint_path = os.path.join(self.output_dir, f"model_iter_{self.iteration}.pt")
         if hasattr(self, 'pre_int_tensor') and hasattr(self, 'post_int_tensor'):
             train_history = self.trainer.train(
@@ -393,21 +425,16 @@ class ProgressiveInterventionLoop:
                 data=self.obs_tensor,
                 checkpoint_path=checkpoint_path if self.config.save_checkpoints else None
             )
-        # 2. Evaluate the model (using true_adj only for evaluation)
-        metrics = self.evaluate_model(self.all_tensor)
-        # Print only key metrics in a condensed format
-        print("Key metrics:")
-        key_metrics = ['accuracy', 'precision', 'recall', 'f1', 'shd']
-        for key in key_metrics:
-            if key in metrics:
-                print(f"  {key}: {metrics[key]:.4f}")
-        # 3. Select an intervention
+        metrics = self.evaluate_model(self.all_tensor, iteration=self.iteration, print_every=print_every)
+        if self.iteration % print_every == 0:
+            print("Key metrics:")
+            key_metrics = ['accuracy', 'precision', 'recall', 'f1', 'shd']
+            for key in key_metrics:
+                if key in metrics:
+                    print(f"  {key}: {metrics[key]:.4f}")
         intervention = self.select_intervention(self.all_tensor)
-        # 4. Perform the intervention and generate data
-        pre_int_data, post_int_data, int_mask = self.perform_intervention(intervention)
-        # 5. Update the dataset
+        pre_int_data, post_int_data, int_mask = self.perform_intervention(intervention, iteration=self.iteration, print_every=print_every)
         self.update_data(pre_int_data, post_int_data, int_mask)
-        # Store results
         result = {
             'iteration': self.iteration,
             'model': self.model,

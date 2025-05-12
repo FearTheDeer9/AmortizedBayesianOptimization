@@ -1,4 +1,4 @@
-Running strategy comparison experiment...
+Running random intervention experiment...
 Generating random DAG and SCM...
 True adjacency matrix:
 [[0 0 1 1]
@@ -7,97 +7,157 @@ True adjacency matrix:
  [0 0 0 0]]
 Generating observational data...
 
-=== Running experiment with strategic interventions ===
-normalize_data: data columns = Index(['x0', 'x1', 'x2', 'x3'], dtype='object')
+=== Running experiment with random interventions ===
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
 Starting progressive intervention experiment with 5 iterations
 Initial training on observational data...
-Starting training for 100 epochs...
+Starting training for 400 epochs...
 Using device: cpu
 No intervention data available yet, using regularization only
-Epoch 10/100, Loss: 0.5816, Time: 0.12s
+Epoch 20/400, Loss: 1.8001, Time: 0.21s
   Intervention Loss: 0.0000
-Epoch 20/100, Loss: 0.5763, Time: 0.21s
+Epoch 40/400, Loss: 1.7802, Time: 0.39s
   Intervention Loss: 0.0000
-Edge prediction weights partially reset to break symmetry
-Epoch 30/100, Loss: 0.5768, Time: 0.31s
+Epoch 60/400, Loss: 1.7561, Time: 0.57s
   Intervention Loss: 0.0000
-Epoch 40/100, Loss: 0.5803, Time: 0.41s
+Epoch 80/400, Loss: 1.7494, Time: 0.77s
   Intervention Loss: 0.0000
-Epoch 50/100, Loss: 0.5714, Time: 0.51s
-  Intervention Loss: 0.0000
-Edge prediction weights partially reset to break symmetry
-Epoch 60/100, Loss: 0.5649, Time: 0.61s
-  Intervention Loss: 0.0000
-Epoch 70/100, Loss: 0.5924, Time: 0.70s
+Epoch 100/400, Loss: 1.7470, Time: 0.95s
   Intervention Loss: 0.0000
 Edge prediction weights partially reset to break symmetry
-Epoch 80/100, Loss: 0.5674, Time: 0.80s
+Epoch 120/400, Loss: 1.7499, Time: 1.14s
   Intervention Loss: 0.0000
-Epoch 90/100, Loss: 0.5684, Time: 0.89s
+Epoch 140/400, Loss: 1.7514, Time: 1.34s
   Intervention Loss: 0.0000
-Epoch 100/100, Loss: 0.5748, Time: 0.99s
+Epoch 160/400, Loss: 1.7683, Time: 1.54s
+  Intervention Loss: 0.0000
+Epoch 180/400, Loss: 1.7500, Time: 1.74s
+  Intervention Loss: 0.0000
+Epoch 200/400, Loss: 1.7590, Time: 1.94s
+  Intervention Loss: 0.0000
+Edge prediction weights partially reset to break symmetry
+Epoch 220/400, Loss: 1.7500, Time: 2.12s
+  Intervention Loss: 0.0000
+Epoch 240/400, Loss: 1.7473, Time: 2.30s
+  Intervention Loss: 0.0000
+Epoch 260/400, Loss: 1.7474, Time: 2.49s
+  Intervention Loss: 0.0000
+Epoch 280/400, Loss: 1.7677, Time: 2.67s
+  Intervention Loss: 0.0000
+Epoch 300/400, Loss: 1.7536, Time: 2.85s
+  Intervention Loss: 0.0000
+Edge prediction weights partially reset to break symmetry
+Epoch 320/400, Loss: 1.7513, Time: 3.03s
+  Intervention Loss: 0.0000
+Epoch 340/400, Loss: 1.7544, Time: 3.22s
+  Intervention Loss: 0.0000
+Epoch 360/400, Loss: 1.7472, Time: 3.47s
+  Intervention Loss: 0.0000
+Epoch 380/400, Loss: 1.7618, Time: 3.65s
+  Intervention Loss: 0.0000
+Epoch 400/400, Loss: 1.7458, Time: 3.83s
   Intervention Loss: 0.0000
 
 Training complete!
-Final train loss: -0.0069
-Selected threshold: 0.1000 with F1: 0.4000
-Edge probability range: [0.0000, 0.3792], mean: 0.2547
-Edges detected at threshold 0.1: 12.0
+Final train loss: -0.1337
+
+Raw edge probability matrix:
+[[0.    0.259 0.237 0.278]
+ [0.248 0.    0.216 0.263]
+ [0.251 0.268 0.    0.251]
+ [0.224 0.235 0.239 0.   ]]
+
+True adjacency matrix:
+[[0 0 1 1]
+ [0 0 1 0]
+ [0 0 0 0]
+ [0 0 0 0]]
+
+Edge Differentiation:
+  Mean probability for true edges: 0.2437
+  Mean probability for false edges: 0.2485
+  Separation: -0.0048
+[Epoch 0] Selected threshold: 0.1000 with F1: 0.4000
 Edge probability stats:
-  Min: 0.0000, Max: 0.3702
-  Mean: 0.2522, Non-zero: 12
+  Min: 0.0000, Max: 0.2781
+  Mean: 0.1821, Non-zero: 12
 
 Iteration 1/5
-
-Iteration 1/5
-Starting training for 100 epochs...
+Starting training for 400 epochs...
 Using device: cpu
 No intervention data available yet, using regularization only
-Epoch 10/100, Loss: 0.5645, Time: 0.10s
+Epoch 20/400, Loss: 1.7454, Time: 0.18s
   Intervention Loss: 0.0000
-Epoch 20/100, Loss: 0.5701, Time: 0.20s
+Epoch 40/400, Loss: 1.7458, Time: 0.37s
   Intervention Loss: 0.0000
-Edge prediction weights partially reset to break symmetry
-Epoch 30/100, Loss: 0.5617, Time: 0.29s
+Epoch 60/400, Loss: 1.7486, Time: 0.55s
   Intervention Loss: 0.0000
-Epoch 40/100, Loss: 0.5671, Time: 0.39s
+Epoch 80/400, Loss: 1.7445, Time: 0.74s
   Intervention Loss: 0.0000
-Epoch 50/100, Loss: 0.5612, Time: 0.49s
-  Intervention Loss: 0.0000
-Edge prediction weights partially reset to break symmetry
-Epoch 60/100, Loss: 0.5697, Time: 0.59s
-  Intervention Loss: 0.0000
-Epoch 70/100, Loss: 0.5742, Time: 0.69s
+Epoch 100/400, Loss: 1.7545, Time: 0.92s
   Intervention Loss: 0.0000
 Edge prediction weights partially reset to break symmetry
-Epoch 80/100, Loss: 0.5744, Time: 0.79s
+Epoch 120/400, Loss: 1.7449, Time: 1.10s
   Intervention Loss: 0.0000
-Epoch 90/100, Loss: 0.5618, Time: 0.88s
+Epoch 140/400, Loss: 1.7432, Time: 1.28s
   Intervention Loss: 0.0000
-Epoch 100/100, Loss: 0.5641, Time: 0.98s
+Epoch 160/400, Loss: 1.7643, Time: 1.47s
+  Intervention Loss: 0.0000
+Epoch 180/400, Loss: 1.7503, Time: 1.65s
+  Intervention Loss: 0.0000
+Epoch 200/400, Loss: 1.7516, Time: 1.83s
+  Intervention Loss: 0.0000
+Edge prediction weights partially reset to break symmetry
+Epoch 220/400, Loss: 1.7588, Time: 2.02s
+  Intervention Loss: 0.0000
+Epoch 240/400, Loss: 1.7602, Time: 2.20s
+  Intervention Loss: 0.0000
+Epoch 260/400, Loss: 1.7460, Time: 2.39s
+  Intervention Loss: 0.0000
+Epoch 280/400, Loss: 1.7450, Time: 2.57s
+  Intervention Loss: 0.0000
+Epoch 300/400, Loss: 1.7445, Time: 2.76s
+  Intervention Loss: 0.0000
+Edge prediction weights partially reset to break symmetry
+Epoch 320/400, Loss: 1.7471, Time: 2.94s
+  Intervention Loss: 0.0000
+Epoch 340/400, Loss: 1.7474, Time: 3.12s
+  Intervention Loss: 0.0000
+Epoch 360/400, Loss: 1.7489, Time: 3.31s
+  Intervention Loss: 0.0000
+Epoch 380/400, Loss: 1.7469, Time: 3.49s
+  Intervention Loss: 0.0000
+Epoch 400/400, Loss: 1.7512, Time: 3.67s
   Intervention Loss: 0.0000
 
 Training complete!
-Final train loss: -0.0311
-Selected threshold: 0.1000 with F1: 0.4000
-Edge probability range: [0.0000, 0.3626], mean: 0.2382
-Edges detected at threshold 0.1: 12.0
+Final train loss: -0.1003
+
+Raw edge probability matrix:
+[[0.    0.287 0.285 0.313]
+ [0.262 0.    0.246 0.252]
+ [0.259 0.264 0.    0.296]
+ [0.246 0.267 0.255 0.   ]]
+
+True adjacency matrix:
+[[0 0 1 1]
+ [0 0 1 0]
+ [0 0 0 0]
+ [0 0 0 0]]
+
+Edge Differentiation:
+  Mean probability for true edges: 0.2816
+  Mean probability for false edges: 0.2653
+  Separation: 0.0163
 Edge probability stats:
-  Min: 0.0000, Max: 0.3520
-  Mean: 0.2349, Non-zero: 12
-Key metrics:
-  accuracy: 0.4375
-  precision: 0.2500
-  recall: 1.0000
-  f1: 0.4000
-  shd: 9.0000
-Performing intervention on node 3 (name: x3) with value -2.0
-Pre-intervention data columns: Index(['x0', 'x1', 'x2', 'x3'], dtype='object')
-Post-intervention data columns: Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
-Observational data columns: Index(['x0', 'x1', 'x2', 'x3'], dtype='object')
-Reordered columns to match: ['x0', 'x1', 'x2', 'x3']
-normalize_data: data columns = Index(['x0', 'x1', 'x2', 'x3'], dtype='object')
-normalize_data: data columns = Index(['x0', 'x1', 'x2', 'x3'], dtype='object')
+  Min: 0.0000, Max: 0.3000
+  Mean: 0.2016, Non-zero: 12
+Pre-intervention data columns: Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+Post-intervention data columns: Index(['x2', 'x1', 'x0', 'x3'], dtype='object')
+Observational data columns: Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+Reordered columns to match: ['x1', 'x0', 'x2', 'x3']
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
 Iteration 1 metrics:
   accuracy: 0.4375
   precision: 0.2500
@@ -109,10 +169,10 @@ Iteration 1 metrics:
   tn: 4.0000
   fn: 0.0000
   selected_threshold: 0.1000
-  total_loss: -0.0365
-  acyclicity: 0.0658
-  sparsity: 3.8113
-  consistency: -1.4046
+  total_loss: -0.1002
+  acyclicity: 0.0326
+  sparsity: 3.2152
+  consistency: -1.6502
   forced_accuracy: 0.4375
   forced_precision: 0.2500
   forced_recall: 1.0000
@@ -124,265 +184,517 @@ Iteration 1 metrics:
   forced_fn: 0.0000
 
 Iteration 2/5
-
-Iteration 2/5
-Starting training for 100 epochs...
+Starting training for 400 epochs...
 Using device: cpu
-Using intervention-based learning with 20 pairs of pre/post data
-Batch 0: Edge probs min=0.0000, max=0.4361, mean=0.2681
-Batch 0: Edge probs min=0.0000, max=0.4631, mean=0.3113
-Batch 0: Edge probs min=0.0000, max=0.5579, mean=0.3658
-Batch 0: Edge probs min=0.0000, max=0.5723, mean=0.3948
-Batch 0: Edge probs min=0.0000, max=0.6325, mean=0.4207
-Batch 0: Edge probs min=0.0000, max=0.6516, mean=0.4326
-Batch 0: Edge probs min=0.0000, max=0.6590, mean=0.4423
-Batch 0: Edge probs min=0.0000, max=0.6470, mean=0.4394
-Batch 0: Edge probs min=0.0000, max=0.6449, mean=0.4398
-Batch 0: Edge probs min=0.0000, max=0.6099, mean=0.4205
-Epoch 10/100, Loss: 316.2382, Time: 0.05s
-  Intervention Loss: 316.2382
-Batch 0: Edge probs min=0.0000, max=0.6549, mean=0.3989
-Batch 0: Edge probs min=0.0000, max=0.6231, mean=0.3858
-Batch 0: Edge probs min=0.0000, max=0.6087, mean=0.3748
-Batch 0: Edge probs min=0.0000, max=0.5690, mean=0.3706
-Batch 0: Edge probs min=0.0000, max=0.5860, mean=0.3494
-Batch 0: Edge probs min=0.0000, max=0.5649, mean=0.3390
-Batch 0: Edge probs min=0.0000, max=0.5884, mean=0.3404
-Batch 0: Edge probs min=0.0000, max=0.5938, mean=0.3319
-Batch 0: Edge probs min=0.0000, max=0.6086, mean=0.3390
-Batch 0: Edge probs min=0.0000, max=0.6307, mean=0.3574
-Epoch 20/100, Loss: 309.8206, Time: 0.09s
-  Intervention Loss: 309.8206
-Batch 0: Edge probs min=0.0000, max=0.6689, mean=0.3697
-Batch 0: Edge probs min=0.0000, max=0.6800, mean=0.3780
-Batch 0: Edge probs min=0.0000, max=0.7294, mean=0.3746
-Batch 0: Edge probs min=0.0000, max=0.7442, mean=0.3984
-Batch 0: Edge probs min=0.0000, max=0.7144, mean=0.4033
+Using intervention-based learning with 100 pairs of pre/post data
+[Epoch 0] Batch 0: Edge probs min=0.0000, max=0.5364, mean=0.2657
+Epoch 20/400, Loss: 319.6817, Time: 0.26s
+  Intervention Loss: 319.6817
+[Epoch 20] Batch 0: Edge probs min=0.0000, max=0.7550, mean=0.4033
+Epoch 40/400, Loss: 266.6770, Time: 0.52s
+  Intervention Loss: 266.6770
+[Epoch 40] Batch 0: Edge probs min=0.0000, max=0.6414, mean=0.3358
+Epoch 60/400, Loss: 320.6490, Time: 0.77s
+  Intervention Loss: 320.6490
+[Epoch 60] Batch 0: Edge probs min=0.0000, max=0.6406, mean=0.3568
+Epoch 80/400, Loss: 246.4935, Time: 1.02s
+  Intervention Loss: 246.4935
+[Epoch 80] Batch 0: Edge probs min=0.0000, max=0.7022, mean=0.3261
+Epoch 100/400, Loss: 245.6681, Time: 1.28s
+  Intervention Loss: 245.6681
 Edge prediction weights partially reset to break symmetry
-Batch 0: Edge probs min=0.0000, max=0.7610, mean=0.4383
-Batch 0: Edge probs min=0.0000, max=0.7873, mean=0.4337
-Batch 0: Edge probs min=0.0000, max=0.7440, mean=0.4202
-Batch 0: Edge probs min=0.0000, max=0.7346, mean=0.4080
-Batch 0: Edge probs min=0.0000, max=0.7555, mean=0.3849
-Epoch 30/100, Loss: 299.6111, Time: 0.13s
-  Intervention Loss: 299.6111
-Batch 0: Edge probs min=0.0000, max=0.6908, mean=0.3638
-Batch 0: Edge probs min=0.0000, max=0.7447, mean=0.3738
-Batch 0: Edge probs min=0.0000, max=0.7308, mean=0.3592
-Batch 0: Edge probs min=0.0000, max=0.7371, mean=0.3467
-Batch 0: Edge probs min=0.0000, max=0.7291, mean=0.3549
-Batch 0: Edge probs min=0.0000, max=0.7406, mean=0.3402
-Batch 0: Edge probs min=0.0000, max=0.7743, mean=0.3524
-Batch 0: Edge probs min=0.0000, max=0.8047, mean=0.3585
-Batch 0: Edge probs min=0.0000, max=0.7755, mean=0.3550
-Batch 0: Edge probs min=0.0000, max=0.7931, mean=0.3702
-Epoch 40/100, Loss: 299.7186, Time: 0.17s
-  Intervention Loss: 299.7186
-Batch 0: Edge probs min=0.0000, max=0.7705, mean=0.3844
-Batch 0: Edge probs min=0.0000, max=0.8306, mean=0.3989
-Batch 0: Edge probs min=0.0000, max=0.8230, mean=0.3910
-Batch 0: Edge probs min=0.0000, max=0.8264, mean=0.3904
-Batch 0: Edge probs min=0.0000, max=0.8268, mean=0.4048
-Batch 0: Edge probs min=0.0000, max=0.8372, mean=0.4055
-Batch 0: Edge probs min=0.0000, max=0.8286, mean=0.3961
-Batch 0: Edge probs min=0.0000, max=0.8139, mean=0.4000
-Batch 0: Edge probs min=0.0000, max=0.7992, mean=0.3977
-Batch 0: Edge probs min=0.0000, max=0.8115, mean=0.3947
-Epoch 50/100, Loss: 295.1414, Time: 0.22s
-  Intervention Loss: 295.1414
+[Epoch 100] Batch 0: Edge probs min=0.0000, max=0.7429, mean=0.3885
+Epoch 120/400, Loss: 280.7226, Time: 1.53s
+  Intervention Loss: 280.7226
+[Epoch 120] Batch 0: Edge probs min=0.0000, max=0.6699, mean=0.3400
+Epoch 140/400, Loss: 254.3636, Time: 1.79s
+  Intervention Loss: 254.3636
+[Epoch 140] Batch 0: Edge probs min=0.0000, max=0.7102, mean=0.2993
+Epoch 160/400, Loss: 293.7704, Time: 2.05s
+  Intervention Loss: 293.7704
+[Epoch 160] Batch 0: Edge probs min=0.0000, max=0.7030, mean=0.3341
+Epoch 180/400, Loss: 293.8074, Time: 2.30s
+  Intervention Loss: 293.8074
+[Epoch 180] Batch 0: Edge probs min=0.0000, max=0.6630, mean=0.3310
+Epoch 200/400, Loss: 266.5674, Time: 2.56s
+  Intervention Loss: 266.5674
 Edge prediction weights partially reset to break symmetry
-Batch 0: Edge probs min=0.0000, max=0.7686, mean=0.4292
-Batch 0: Edge probs min=0.0000, max=0.7897, mean=0.4211
-Batch 0: Edge probs min=0.0000, max=0.7644, mean=0.4044
-Batch 0: Edge probs min=0.0000, max=0.7478, mean=0.3801
-Batch 0: Edge probs min=0.0000, max=0.6958, mean=0.3556
-Batch 0: Edge probs min=0.0000, max=0.6790, mean=0.3495
-Batch 0: Edge probs min=0.0000, max=0.7158, mean=0.3425
-Batch 0: Edge probs min=0.0000, max=0.6843, mean=0.3383
-Batch 0: Edge probs min=0.0000, max=0.7383, mean=0.3352
-Batch 0: Edge probs min=0.0000, max=0.7359, mean=0.3334
-Epoch 60/100, Loss: 288.2127, Time: 0.26s
-  Intervention Loss: 288.2127
-Batch 0: Edge probs min=0.0000, max=0.7749, mean=0.3466
-Batch 0: Edge probs min=0.0000, max=0.7828, mean=0.3593
-Batch 0: Edge probs min=0.0000, max=0.8068, mean=0.3964
-Batch 0: Edge probs min=0.0000, max=0.8048, mean=0.3944
-Batch 0: Edge probs min=0.0000, max=0.8354, mean=0.3985
-Batch 0: Edge probs min=0.0000, max=0.8274, mean=0.4046
-Batch 0: Edge probs min=0.0000, max=0.8529, mean=0.4162
-Batch 0: Edge probs min=0.0000, max=0.8348, mean=0.4065
-Batch 0: Edge probs min=0.0000, max=0.8459, mean=0.4227
-Batch 0: Edge probs min=0.0000, max=0.8756, mean=0.3978
-Epoch 70/100, Loss: 285.6031, Time: 0.30s
-  Intervention Loss: 285.6031
-Batch 0: Edge probs min=0.0000, max=0.8409, mean=0.3976
-Batch 0: Edge probs min=0.0000, max=0.8397, mean=0.3859
-Batch 0: Edge probs min=0.0000, max=0.8181, mean=0.3696
-Batch 0: Edge probs min=0.0000, max=0.8289, mean=0.3871
-Batch 0: Edge probs min=0.0000, max=0.7868, mean=0.3696
+[Epoch 200] Batch 0: Edge probs min=0.0000, max=0.7702, mean=0.4177
+Epoch 220/400, Loss: 290.7336, Time: 2.81s
+  Intervention Loss: 290.7336
+[Epoch 220] Batch 0: Edge probs min=0.0000, max=0.6389, mean=0.3149
+Epoch 240/400, Loss: 219.6847, Time: 3.07s
+  Intervention Loss: 219.6847
+[Epoch 240] Batch 0: Edge probs min=0.0000, max=0.6685, mean=0.3627
+Epoch 260/400, Loss: 288.1468, Time: 3.32s
+  Intervention Loss: 288.1468
+[Epoch 260] Batch 0: Edge probs min=0.0000, max=0.6762, mean=0.3513
+Epoch 280/400, Loss: 279.0332, Time: 3.57s
+  Intervention Loss: 279.0332
+[Epoch 280] Batch 0: Edge probs min=0.0000, max=0.6697, mean=0.3402
+Epoch 300/400, Loss: 253.0749, Time: 3.83s
+  Intervention Loss: 253.0749
 Edge prediction weights partially reset to break symmetry
-Batch 0: Edge probs min=0.0000, max=0.7725, mean=0.3710
-Batch 0: Edge probs min=0.0000, max=0.8049, mean=0.3550
-Batch 0: Edge probs min=0.0000, max=0.7273, mean=0.3533
-Batch 0: Edge probs min=0.0000, max=0.7912, mean=0.3659
-Batch 0: Edge probs min=0.0000, max=0.7721, mean=0.3632
-Epoch 80/100, Loss: 286.7254, Time: 0.34s
-  Intervention Loss: 286.7254
-Batch 0: Edge probs min=0.0000, max=0.7671, mean=0.3624
-Batch 0: Edge probs min=0.0000, max=0.7489, mean=0.3799
-Batch 0: Edge probs min=0.0000, max=0.7769, mean=0.3693
-Batch 0: Edge probs min=0.0000, max=0.8000, mean=0.3829
-Batch 0: Edge probs min=0.0000, max=0.7856, mean=0.3710
-Batch 0: Edge probs min=0.0000, max=0.7866, mean=0.3945
-Batch 0: Edge probs min=0.0000, max=0.8019, mean=0.3874
-Batch 0: Edge probs min=0.0000, max=0.8145, mean=0.3873
-Batch 0: Edge probs min=0.0000, max=0.8107, mean=0.3907
-Batch 0: Edge probs min=0.0000, max=0.7646, mean=0.3933
-Epoch 90/100, Loss: 276.8554, Time: 0.38s
-  Intervention Loss: 276.8554
-Batch 0: Edge probs min=0.0000, max=0.7819, mean=0.3743
-Batch 0: Edge probs min=0.0000, max=0.7928, mean=0.3972
-Batch 0: Edge probs min=0.0000, max=0.7768, mean=0.3853
-Batch 0: Edge probs min=0.0000, max=0.7888, mean=0.3849
-Batch 0: Edge probs min=0.0000, max=0.7787, mean=0.3753
-Batch 0: Edge probs min=0.0000, max=0.8076, mean=0.3823
-Batch 0: Edge probs min=0.0000, max=0.8253, mean=0.3739
-Batch 0: Edge probs min=0.0000, max=0.7957, mean=0.3822
-Batch 0: Edge probs min=0.0000, max=0.8109, mean=0.3756
-Batch 0: Edge probs min=0.0000, max=0.7673, mean=0.3919
-Epoch 100/100, Loss: 269.9386, Time: 0.42s
-  Intervention Loss: 269.9386
+[Epoch 300] Batch 0: Edge probs min=0.0000, max=0.7080, mean=0.3524
+Epoch 320/400, Loss: 254.4783, Time: 4.08s
+  Intervention Loss: 254.4783
+[Epoch 320] Batch 0: Edge probs min=0.0000, max=0.7378, mean=0.3649
+Epoch 340/400, Loss: 222.0854, Time: 4.34s
+  Intervention Loss: 222.0854
+[Epoch 340] Batch 0: Edge probs min=0.0000, max=0.6596, mean=0.3278
+Epoch 360/400, Loss: 190.1002, Time: 4.59s
+  Intervention Loss: 190.1002
+[Epoch 360] Batch 0: Edge probs min=0.0000, max=0.7320, mean=0.3355
+Epoch 380/400, Loss: 232.8236, Time: 4.85s
+  Intervention Loss: 232.8236
+[Epoch 380] Batch 0: Edge probs min=0.0000, max=0.6337, mean=0.2922
+Epoch 400/400, Loss: 268.6824, Time: 5.10s
+  Intervention Loss: 268.6824
 
 Training complete!
-Final train loss: 0.2057
-Selected threshold: 0.4000 with F1: 0.4444
-Edge probability range: [0.0000, 0.5111], mean: 0.3069
-Edges detected at threshold 0.4: 6.0
+Final train loss: 0.0459
+
+Raw edge probability matrix:
+[[0.    0.425 0.29  0.456]
+ [0.401 0.    0.247 0.418]
+ [0.191 0.157 0.    0.147]
+ [0.437 0.382 0.254 0.   ]]
+
+True adjacency matrix:
+[[0 0 1 1]
+ [0 0 1 0]
+ [0 0 0 0]
+ [0 0 0 0]]
+
+Edge Differentiation:
+  Mean probability for true edges: 0.3311
+  Mean probability for false edges: 0.3124
+  Separation: 0.0186
 Edge probability stats:
-  Min: 0.0000, Max: 0.4919
-  Mean: 0.3056, Non-zero: 12
-Key metrics:
-  accuracy: 0.6875
-  precision: 0.3333
-  recall: 0.6667
-  f1: 0.4444
-  shd: 5.0000
-Performing intervention on node 2 (name: x2) with value 0.5
-Pre-intervention data columns: Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
-Post-intervention data columns: Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
-Observational data columns: Index(['x0', 'x1', 'x2', 'x3'], dtype='object')
-Reordered columns to match: ['x0', 'x1', 'x2', 'x3']
-normalize_data: data columns = Index(['x0', 'x1', 'x2', 'x3'], dtype='object')
-normalize_data: data columns = Index(['x0', 'x1', 'x2', 'x3'], dtype='object')
+  Min: 0.0000, Max: 0.4518
+  Mean: 0.2350, Non-zero: 12
+Pre-intervention data columns: Index(['x2', 'x1', 'x0', 'x3'], dtype='object')
+Post-intervention data columns: Index(['x2', 'x1', 'x0', 'x3'], dtype='object')
+Observational data columns: Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+Reordered columns to match: ['x1', 'x0', 'x2', 'x3']
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
 Iteration 2 metrics:
-  accuracy: 0.6875
+  accuracy: 0.6250
   precision: 0.3333
-  recall: 0.6667
-  f1: 0.4444
-  shd: 5.0000
-  tp: 2.0000
-  fp: 4.0000
-  tn: 9.0000
-  fn: 1.0000
-  selected_threshold: 0.4000
-  total_loss: 0.1432
-  acyclicity: 0.2081
-  sparsity: 4.9104
-  consistency: -1.1394
-  forced_accuracy: 0.7500
-  forced_precision: 0.4286
+  recall: 1.0000
+  f1: 0.5000
+  shd: 6.0000
+  tp: 3.0000
+  fp: 6.0000
+  tn: 7.0000
+  fn: 0.0000
+  selected_threshold: 0.2000
+  total_loss: -0.0179
+  acyclicity: 0.0985
+  sparsity: 3.7833
+  consistency: -1.5422
+  forced_accuracy: 0.6250
+  forced_precision: 0.3333
   forced_recall: 1.0000
-  forced_f1: 0.6000
-  forced_shd: 4.0000
+  forced_f1: 0.5000
+  forced_shd: 6.0000
   forced_tp: 3.0000
-  forced_fp: 4.0000
-  forced_tn: 9.0000
+  forced_fp: 6.0000
+  forced_tn: 7.0000
   forced_fn: 0.0000
 
 Iteration 3/5
-
-Iteration 3/5
-Starting training for 100 epochs...
+Starting training for 400 epochs...
 Using device: cpu
-Using intervention-based learning with 40 pairs of pre/post data
-Batch 0: Edge probs min=0.0000, max=0.6122, mean=0.2947
-Batch 0: Edge probs min=0.0000, max=0.7079, mean=0.3607
-Batch 0: Edge probs min=0.0000, max=0.7781, mean=0.4510
-Batch 0: Edge probs min=0.0000, max=0.8291, mean=0.4888
-Batch 0: Edge probs min=0.0000, max=0.8498, mean=0.4925
-Batch 0: Edge probs min=0.0000, max=0.8385, mean=0.4830
-Batch 0: Edge probs min=0.0000, max=0.8398, mean=0.4533
-Batch 0: Edge probs min=0.0000, max=0.8147, mean=0.4070
-Batch 0: Edge probs min=0.0000, max=0.7355, mean=0.3765
-Batch 0: Edge probs min=0.0000, max=0.7318, mean=0.3632
-Epoch 10/100, Loss: 409.4270, Time: 0.07s
-  Intervention Loss: 409.4270
-Batch 0: Edge probs min=0.0000, max=0.7981, mean=0.3881
-Batch 0: Edge probs min=0.0000, max=0.8262, mean=0.3887
-Batch 0: Edge probs min=0.0000, max=0.8543, mean=0.4267
-Batch 0: Edge probs min=0.0000, max=0.8657, mean=0.4425
-Batch 0: Edge probs min=0.0000, max=0.8835, mean=0.4554
-Batch 0: Edge probs min=0.0000, max=0.8572, mean=0.4575
-Batch 0: Edge probs min=0.0000, max=0.8472, mean=0.4426
-Batch 0: Edge probs min=0.0000, max=0.8843, mean=0.4401
-Batch 0: Edge probs min=0.0000, max=0.8548, mean=0.4111
-Batch 0: Edge probs min=0.0000, max=0.8717, mean=0.4094
-Epoch 20/100, Loss: 303.6324, Time: 0.15s
-  Intervention Loss: 303.6324
-Batch 0: Edge probs min=0.0000, max=0.8769, mean=0.4064
-Batch 0: Edge probs min=0.0000, max=0.8562, mean=0.3990
-Batch 0: Edge probs min=0.0000, max=0.8993, mean=0.3935
-Batch 0: Edge probs min=0.0000, max=0.8635, mean=0.4051
-Batch 0: Edge probs min=0.0000, max=0.8440, mean=0.4049
+Using intervention-based learning with 200 pairs of pre/post data
+[Epoch 0] Batch 0: Edge probs min=0.0000, max=0.6453, mean=0.2825
+Epoch 20/400, Loss: 583.3232, Time: 0.46s
+  Intervention Loss: 583.3232
+[Epoch 20] Batch 0: Edge probs min=0.0000, max=0.9245, mean=0.3780
+Epoch 40/400, Loss: 582.3679, Time: 0.92s
+  Intervention Loss: 582.3679
+[Epoch 40] Batch 0: Edge probs min=0.0000, max=0.9804, mean=0.3602
+Epoch 60/400, Loss: 509.2500, Time: 1.38s
+  Intervention Loss: 509.2500
+[Epoch 60] Batch 0: Edge probs min=0.0000, max=0.9470, mean=0.3704
+Epoch 80/400, Loss: 479.0330, Time: 1.84s
+  Intervention Loss: 479.0330
+[Epoch 80] Batch 0: Edge probs min=0.0000, max=0.9671, mean=0.4062
+Epoch 100/400, Loss: 425.2506, Time: 2.29s
+  Intervention Loss: 425.2506
 Edge prediction weights partially reset to break symmetry
-Batch 0: Edge probs min=0.0000, max=0.8417, mean=0.4137
-Batch 0: Edge probs min=0.0000, max=0.8179, mean=0.4309
-Batch 0: Edge probs min=0.0000, max=0.8090, mean=0.4181
-Batch 0: Edge probs min=0.0000, max=0.8377, mean=0.4238
-Batch 0: Edge probs min=0.0000, max=0.7968, mean=0.4106
-Epoch 30/100, Loss: 308.9760, Time: 0.23s
-  Intervention Loss: 308.9760
-Batch 0: Edge probs min=0.0000, max=0.7813, mean=0.4007
-Batch 0: Edge probs min=0.0000, max=0.8352, mean=0.4025
-Batch 0: Edge probs min=0.0000, max=0.8478, mean=0.4118
-Batch 0: Edge probs min=0.0000, max=0.8636, mean=0.4295
-Batch 0: Edge probs min=0.0000, max=0.8614, mean=0.4129
-Batch 0: Edge probs min=0.0000, max=0.8788, mean=0.4170
-Batch 0: Edge probs min=0.0000, max=0.8730, mean=0.4333
-Batch 0: Edge probs min=0.0000, max=0.8704, mean=0.4306
-Batch 0: Edge probs min=0.0000, max=0.8425, mean=0.4152
-Batch 0: Edge probs min=0.0000, max=0.8818, mean=0.4106
-Epoch 40/100, Loss: 320.3377, Time: 0.30s
-  Intervention Loss: 320.3377
-Batch 0: Edge probs min=0.0000, max=0.8160, mean=0.4016
-Batch 0: Edge probs min=0.0000, max=0.8646, mean=0.4099
-Batch 0: Edge probs min=0.0000, max=0.8080, mean=0.4102
-Batch 0: Edge probs min=0.0000, max=0.8722, mean=0.4231
-Batch 0: Edge probs min=0.0000, max=0.8675, mean=0.4136
-Batch 0: Edge probs min=0.0000, max=0.8647, mean=0.4278
-Batch 0: Edge probs min=0.0000, max=0.8632, mean=0.4322
-Batch 0: Edge probs min=0.0000, max=0.8700, mean=0.4306
-Batch 0: Edge probs min=0.0000, max=0.8460, mean=0.4226
-Batch 0: Edge probs min=0.0000, max=0.8312, mean=0.4121
-Epoch 50/100, Loss: 296.3827, Time: 0.38s
-  Intervention Loss: 296.3827
+[Epoch 100] Batch 0: Edge probs min=0.0000, max=0.9750, mean=0.3756
+Epoch 120/400, Loss: 426.4627, Time: 2.75s
+  Intervention Loss: 426.4627
+[Epoch 120] Batch 0: Edge probs min=0.0000, max=0.9976, mean=0.3826
+Epoch 140/400, Loss: 422.6663, Time: 3.21s
+  Intervention Loss: 422.6663
+[Epoch 140] Batch 0: Edge probs min=0.0000, max=0.9944, mean=0.3777
+Epoch 160/400, Loss: 430.0547, Time: 3.66s
+  Intervention Loss: 430.0547
+[Epoch 160] Batch 0: Edge probs min=0.0000, max=0.9830, mean=0.3750
+Epoch 180/400, Loss: 423.5898, Time: 4.11s
+  Intervention Loss: 423.5898
+[Epoch 180] Batch 0: Edge probs min=0.0000, max=0.9765, mean=0.3554
+Epoch 200/400, Loss: 431.9749, Time: 4.57s
+  Intervention Loss: 431.9749
 Edge prediction weights partially reset to break symmetry
-Batch 0: Edge probs min=0.0000, max=0.8006, mean=0.4173
-Batch 0: Edge probs min=0.0000, max=0.8382, mean=0.4132
-Batch 0: Edge probs min=0.0000, max=0.7879, mean=0.4285
-Batch 0: Edge probs min=0.0000, max=0.7895, mean=0.3959
-Batch 0: Edge probs min=0.0000, max=0.7846, mean=0.4055
-Batch 0: Edge probs min=0.0000, max=0.8276, mean=0.3987
-Batch 0: Edge probs min=0.0000, max=0.8393, mean=0.3929
-Batch 0: Edge probs min=0.0000, max=0.7782, mean=0.4059
-Batch 0: Edge probs min=0.0000, max=0.8415, mean=0.4110
-Batch 0: Edge probs min=0.0000, max=0.8691, mean=0.4194
-Epoch 60/100, Loss: 304.3231, Time: 0.46s
-  Intervention Loss: 304.3231
-Batch 0: Edge probs min=0.0000, max=0.8649, mean=0.4136
-Batch 0: Edge probs min=0.0000, max=0.8149, mean=0.4176
-Batch 0: Edge probs min=0.0000, max=0.8263, mean=0.4147
-Batch 0: Edge probs min=0.0000, max=0.8509, mean=0.4181
-Batch 0: Edge probs min=0.0000, max=0.8343, mean=0.4163
-Batch 0: Edge probs min=0.0000, max=0.8599, mean=0.4178
-Batch 0: Edge probs min=0.0000, max=0.8706, mean=0.4266
+[Epoch 200] Batch 0: Edge probs min=0.0000, max=0.9882, mean=0.4095
+Epoch 220/400, Loss: 411.2358, Time: 5.04s
+  Intervention Loss: 411.2358
+[Epoch 220] Batch 0: Edge probs min=0.0000, max=0.9970, mean=0.3764
+Epoch 240/400, Loss: 410.7892, Time: 5.49s
+  Intervention Loss: 410.7892
+[Epoch 240] Batch 0: Edge probs min=0.0000, max=0.9956, mean=0.3699
+Epoch 260/400, Loss: 416.2978, Time: 5.94s
+  Intervention Loss: 416.2978
+[Epoch 260] Batch 0: Edge probs min=0.0000, max=0.9950, mean=0.3855
+Epoch 280/400, Loss: 382.8755, Time: 6.40s
+  Intervention Loss: 382.8755
+[Epoch 280] Batch 0: Edge probs min=0.0000, max=0.9927, mean=0.3914
+Epoch 300/400, Loss: 421.2773, Time: 6.85s
+  Intervention Loss: 421.2773
+Edge prediction weights partially reset to break symmetry
+[Epoch 300] Batch 0: Edge probs min=0.0000, max=0.9758, mean=0.3595
+Epoch 320/400, Loss: 373.2119, Time: 7.31s
+  Intervention Loss: 373.2119
+[Epoch 320] Batch 0: Edge probs min=0.0000, max=0.9990, mean=0.3682
+Epoch 340/400, Loss: 373.7389, Time: 7.77s
+  Intervention Loss: 373.7389
+[Epoch 340] Batch 0: Edge probs min=0.0000, max=0.9945, mean=0.3671
+Epoch 360/400, Loss: 398.9096, Time: 8.22s
+  Intervention Loss: 398.9096
+[Epoch 360] Batch 0: Edge probs min=0.0000, max=0.9976, mean=0.4000
+Epoch 380/400, Loss: 437.5896, Time: 8.68s
+  Intervention Loss: 437.5896
+[Epoch 380] Batch 0: Edge probs min=0.0000, max=0.9942, mean=0.3694
+Epoch 400/400, Loss: 383.4076, Time: 9.14s
+  Intervention Loss: 383.4076
+
+Training complete!
+Final train loss: -0.0278
+
+Raw edge probability matrix:
+[[0.    0.333 0.462 0.316]
+ [0.167 0.    0.358 0.133]
+ [0.558 0.429 0.    0.474]
+ [0.186 0.118 0.405 0.   ]]
+
+True adjacency matrix:
+[[0 0 1 1]
+ [0 0 1 0]
+ [0 0 0 0]
+ [0 0 0 0]]
+
+Edge Differentiation:
+  Mean probability for true edges: 0.3790
+  Mean probability for false edges: 0.3115
+  Separation: 0.0675
+Edge probability stats:
+  Min: 0.0000, Max: 0.5046
+  Mean: 0.2408, Non-zero: 12
+Pre-intervention data columns: Index(['x2', 'x1', 'x0', 'x3'], dtype='object')
+Post-intervention data columns: Index(['x2', 'x1', 'x0', 'x3'], dtype='object')
+Observational data columns: Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+Reordered columns to match: ['x1', 'x0', 'x2', 'x3']
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+Iteration 3 metrics:
+  accuracy: 0.6875
+  precision: 0.3750
+  recall: 1.0000
+  f1: 0.5455
+  shd: 5.0000
+  tp: 3.0000
+  fp: 5.0000
+  tn: 8.0000
+  fn: 0.0000
+  selected_threshold: 0.3000
+  total_loss: 0.0127
+  acyclicity: 0.1300
+  sparsity: 3.9483
+  consistency: -1.5673
+  forced_accuracy: 0.6875
+  forced_precision: 0.3750
+  forced_recall: 1.0000
+  forced_f1: 0.5455
+  forced_shd: 5.0000
+  forced_tp: 3.0000
+  forced_fp: 5.0000
+  forced_tn: 8.0000
+  forced_fn: 0.0000
+
+Iteration 4/5
+Starting training for 400 epochs...
+Using device: cpu
+Using intervention-based learning with 300 pairs of pre/post data
+[Epoch 0] Batch 0: Edge probs min=0.0000, max=0.9866, mean=0.3610
+Epoch 20/400, Loss: 429.2730, Time: 0.67s
+  Intervention Loss: 429.2730
+[Epoch 20] Batch 0: Edge probs min=0.0000, max=0.9998, mean=0.3861
+Epoch 40/400, Loss: 408.1270, Time: 1.34s
+  Intervention Loss: 408.1270
+[Epoch 40] Batch 0: Edge probs min=0.0000, max=0.9986, mean=0.3838
+Epoch 60/400, Loss: 417.7562, Time: 2.00s
+  Intervention Loss: 417.7562
+[Epoch 60] Batch 0: Edge probs min=0.0000, max=0.9976, mean=0.3825
+Epoch 80/400, Loss: 425.6225, Time: 2.67s
+  Intervention Loss: 425.6225
+[Epoch 80] Batch 0: Edge probs min=0.0000, max=0.9958, mean=0.3734
+Epoch 100/400, Loss: 388.5406, Time: 3.33s
+  Intervention Loss: 388.5406
+Edge prediction weights partially reset to break symmetry
+[Epoch 100] Batch 0: Edge probs min=0.0000, max=0.9964, mean=0.3314
+Epoch 120/400, Loss: 391.8310, Time: 4.01s
+  Intervention Loss: 391.8310
+[Epoch 120] Batch 0: Edge probs min=0.0000, max=0.9906, mean=0.3807
+Epoch 140/400, Loss: 405.5088, Time: 4.68s
+  Intervention Loss: 405.5088
+[Epoch 140] Batch 0: Edge probs min=0.0000, max=0.9975, mean=0.3974
+Epoch 160/400, Loss: 331.5008, Time: 5.34s
+  Intervention Loss: 331.5008
+[Epoch 160] Batch 0: Edge probs min=0.0000, max=0.9968, mean=0.3748
+Epoch 180/400, Loss: 380.9441, Time: 6.00s
+  Intervention Loss: 380.9441
+[Epoch 180] Batch 0: Edge probs min=0.0000, max=0.9918, mean=0.3983
+Epoch 200/400, Loss: 375.1924, Time: 6.66s
+  Intervention Loss: 375.1924
+Edge prediction weights partially reset to break symmetry
+[Epoch 200] Batch 0: Edge probs min=0.0000, max=0.9997, mean=0.4193
+Epoch 220/400, Loss: 362.7323, Time: 7.31s
+  Intervention Loss: 362.7323
+[Epoch 220] Batch 0: Edge probs min=0.0000, max=0.9994, mean=0.3840
+Epoch 240/400, Loss: 405.5535, Time: 7.97s
+  Intervention Loss: 405.5535
+[Epoch 240] Batch 0: Edge probs min=0.0000, max=0.9739, mean=0.3733
+Epoch 260/400, Loss: 363.3026, Time: 8.63s
+  Intervention Loss: 363.3026
+[Epoch 260] Batch 0: Edge probs min=0.0000, max=0.9998, mean=0.3709
+Epoch 280/400, Loss: 355.5326, Time: 9.29s
+  Intervention Loss: 355.5326
+[Epoch 280] Batch 0: Edge probs min=0.0000, max=1.0000, mean=0.3764
+Epoch 300/400, Loss: 366.5919, Time: 9.95s
+  Intervention Loss: 366.5919
+Edge prediction weights partially reset to break symmetry
+[Epoch 300] Batch 0: Edge probs min=0.0000, max=0.9956, mean=0.4169
+Epoch 320/400, Loss: 364.7629, Time: 10.60s
+  Intervention Loss: 364.7629
+[Epoch 320] Batch 0: Edge probs min=0.0000, max=0.9980, mean=0.3721
+Epoch 340/400, Loss: 332.8185, Time: 11.26s
+  Intervention Loss: 332.8185
+[Epoch 340] Batch 0: Edge probs min=0.0000, max=0.9997, mean=0.3716
+Epoch 360/400, Loss: 339.6285, Time: 11.92s
+  Intervention Loss: 339.6285
+[Epoch 360] Batch 0: Edge probs min=0.0000, max=0.9985, mean=0.3728
+Epoch 380/400, Loss: 332.7940, Time: 12.58s
+  Intervention Loss: 332.7940
+[Epoch 380] Batch 0: Edge probs min=0.0000, max=1.0000, mean=0.3789
+Epoch 400/400, Loss: 334.5684, Time: 13.24s
+  Intervention Loss: 334.5684
+
+Training complete!
+Final train loss: 0.3257
+
+Raw edge probability matrix:
+[[0.    0.456 0.425 0.397]
+ [0.3   0.    0.437 0.369]
+ [0.444 0.44  0.    0.437]
+ [0.369 0.446 0.461 0.   ]]
+
+True adjacency matrix:
+[[0 0 1 1]
+ [0 0 1 0]
+ [0 0 0 0]
+ [0 0 0 0]]
+
+Edge Differentiation:
+  Mean probability for true edges: 0.4198
+  Mean probability for false edges: 0.4136
+  Separation: 0.0062
+Edge probability stats:
+  Min: 0.0000, Max: 0.5051
+  Mean: 0.3149, Non-zero: 12
+Pre-intervention data columns: Index(['x2', 'x1', 'x0', 'x3'], dtype='object')
+Post-intervention data columns: Index(['x2', 'x1', 'x0', 'x3'], dtype='object')
+Observational data columns: Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+Reordered columns to match: ['x1', 'x0', 'x2', 'x3']
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+Iteration 4 metrics:
+  accuracy: 0.4375
+  precision: 0.2500
+  recall: 1.0000
+  f1: 0.4000
+  shd: 9.0000
+  tp: 3.0000
+  fp: 9.0000
+  tn: 4.0000
+  fn: 0.0000
+  selected_threshold: 0.1000
+  total_loss: 0.1390
+  acyclicity: 0.2007
+  sparsity: 4.9841
+  consistency: -1.1153
+  forced_accuracy: 0.4375
+  forced_precision: 0.2500
+  forced_recall: 1.0000
+  forced_f1: 0.4000
+  forced_shd: 9.0000
+  forced_tp: 3.0000
+  forced_fp: 9.0000
+  forced_tn: 4.0000
+  forced_fn: 0.0000
+
+Iteration 5/5
+Starting training for 400 epochs...
+Using device: cpu
+Using intervention-based learning with 400 pairs of pre/post data
+[Epoch 0] Batch 0: Edge probs min=0.0000, max=1.0000, mean=0.3853
+Epoch 20/400, Loss: 455.4993, Time: 0.87s
+  Intervention Loss: 455.4993
+[Epoch 20] Batch 0: Edge probs min=0.0000, max=0.9617, mean=0.4281
+Epoch 40/400, Loss: 402.7357, Time: 1.73s
+  Intervention Loss: 402.7357
+[Epoch 40] Batch 0: Edge probs min=0.0000, max=0.9580, mean=0.4218
+Epoch 60/400, Loss: 379.7746, Time: 2.60s
+  Intervention Loss: 379.7746
+[Epoch 60] Batch 0: Edge probs min=0.0000, max=0.9805, mean=0.4234
+Epoch 80/400, Loss: 379.6864, Time: 3.47s
+  Intervention Loss: 379.6864
+[Epoch 80] Batch 0: Edge probs min=0.0000, max=0.9750, mean=0.3962
+Epoch 100/400, Loss: 360.2604, Time: 4.34s
+  Intervention Loss: 360.2604
+Edge prediction weights partially reset to break symmetry
+[Epoch 100] Batch 0: Edge probs min=0.0000, max=0.9800, mean=0.4710
+Epoch 120/400, Loss: 358.8517, Time: 5.21s
+  Intervention Loss: 358.8517
+[Epoch 120] Batch 0: Edge probs min=0.0000, max=0.8347, mean=0.4224
+Epoch 140/400, Loss: 354.6421, Time: 6.08s
+  Intervention Loss: 354.6421
+[Epoch 140] Batch 0: Edge probs min=0.0000, max=0.9453, mean=0.4255
+Epoch 160/400, Loss: 356.2722, Time: 6.96s
+  Intervention Loss: 356.2722
+[Epoch 160] Batch 0: Edge probs min=0.0000, max=0.9114, mean=0.4298
+Epoch 180/400, Loss: 384.2339, Time: 7.83s
+  Intervention Loss: 384.2339
+[Epoch 180] Batch 0: Edge probs min=0.0000, max=0.9840, mean=0.4176
+Epoch 200/400, Loss: 335.7815, Time: 8.70s
+  Intervention Loss: 335.7815
+Edge prediction weights partially reset to break symmetry
+[Epoch 200] Batch 0: Edge probs min=0.0000, max=0.9692, mean=0.4834
+Epoch 220/400, Loss: 367.3158, Time: 9.57s
+  Intervention Loss: 367.3158
+[Epoch 220] Batch 0: Edge probs min=0.0000, max=0.9884, mean=0.4278
+Epoch 240/400, Loss: 360.0230, Time: 10.44s
+  Intervention Loss: 360.0230
+[Epoch 240] Batch 0: Edge probs min=0.0000, max=0.9331, mean=0.4040
+Epoch 260/400, Loss: 345.8282, Time: 11.30s
+  Intervention Loss: 345.8282
+[Epoch 260] Batch 0: Edge probs min=0.0000, max=0.9872, mean=0.4403
+Epoch 280/400, Loss: 353.9426, Time: 12.17s
+  Intervention Loss: 353.9426
+[Epoch 280] Batch 0: Edge probs min=0.0000, max=0.9891, mean=0.4359
+Epoch 300/400, Loss: 340.8705, Time: 13.05s
+  Intervention Loss: 340.8705
+Edge prediction weights partially reset to break symmetry
+[Epoch 300] Batch 0: Edge probs min=0.0000, max=0.9239, mean=0.5183
+Epoch 320/400, Loss: 325.7618, Time: 13.92s
+  Intervention Loss: 325.7618
+[Epoch 320] Batch 0: Edge probs min=0.0000, max=0.9384, mean=0.4042
+Epoch 340/400, Loss: 322.6053, Time: 14.78s
+  Intervention Loss: 322.6053
+[Epoch 340] Batch 0: Edge probs min=0.0000, max=0.9948, mean=0.4086
+Epoch 360/400, Loss: 336.1535, Time: 15.65s
+  Intervention Loss: 336.1535
+[Epoch 360] Batch 0: Edge probs min=0.0000, max=0.9724, mean=0.4011
+Epoch 380/400, Loss: 326.2709, Time: 16.53s
+  Intervention Loss: 326.2709
+[Epoch 380] Batch 0: Edge probs min=0.0000, max=0.9723, mean=0.3933
+Epoch 400/400, Loss: 326.0756, Time: 17.40s
+  Intervention Loss: 326.0756
+
+Training complete!
+Final train loss: 0.7248
+
+Raw edge probability matrix:
+[[0.    0.592 0.373 0.61 ]
+ [0.377 0.    0.424 0.47 ]
+ [0.689 0.717 0.    0.697]
+ [0.367 0.403 0.344 0.   ]]
+
+True adjacency matrix:
+[[0 0 1 1]
+ [0 0 1 0]
+ [0 0 0 0]
+ [0 0 0 0]]
+
+Edge Differentiation:
+  Mean probability for true edges: 0.4691
+  Mean probability for false edges: 0.5173
+  Separation: -0.0482
+Edge probability stats:
+  Min: 0.0000, Max: 0.7377
+  Mean: 0.3841, Non-zero: 12
+Pre-intervention data columns: Index(['x2', 'x1', 'x0', 'x3'], dtype='object')
+Post-intervention data columns: Index(['x2', 'x1', 'x0', 'x3'], dtype='object')
+Observational data columns: Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+Reordered columns to match: ['x1', 'x0', 'x2', 'x3']
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+normalize_data: data columns = Index(['x1', 'x0', 'x2', 'x3'], dtype='object')
+Iteration 5 metrics:
+  accuracy: 0.4375
+  precision: 0.2500
+  recall: 1.0000
+  f1: 0.4000
+  shd: 9.0000
+  tp: 3.0000
+  fp: 9.0000
+  tn: 4.0000
+  fn: 0.0000
+  selected_threshold: 0.1000
+  total_loss: 0.3895
+  acyclicity: 0.4467
+  sparsity: 6.0950
+  consistency: -1.1817
+  forced_accuracy: 0.4375
+  forced_precision: 0.2500
+  forced_recall: 1.0000
+  forced_f1: 0.4000
+  forced_shd: 9.0000
+  forced_tp: 3.0000
+  forced_fp: 9.0000
+  forced_tn: 4.0000
+  forced_fn: 0.0000
+Saving results to results/enhanced_model_random_20250512_181014/causal_mvp_enhanced_random_20250512_181014
+
+=== Creating diagnostic visualizations ===
+
+Comparison visualizations saved to: results/strategy_comparison_20250512_181108
+
+=== Final Metrics (Random Interventions) ===
+  accuracy: 0.4375
+  precision: 0.2500
+  recall: 1.0000
+  f1: 0.4000
+  shd: 9.0000
+
+Final raw edge probability matrix:
+[[0.    0.536 0.383 0.585]
+ [0.459 0.    0.558 0.567]
+ [0.601 0.697 0.    0.677]
+ [0.431 0.444 0.415 0.   ]]
+
+True adjacency matrix:
+[[0 0 1 1]
+ [0 0 1 0]
+ [0 0 0 0]
+ [0 0 0 0]]
+
+Edge Differentiation:
+  Mean probability for true edges: 0.5085
+  Mean probability for false edges: 0.5363
+  Separation: -0.0278
+NOT PERFECT RECOVERY
+
+Experiment complete!

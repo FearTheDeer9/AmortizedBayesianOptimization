@@ -127,15 +127,24 @@ class SimpleGraphLearner(nn.Module):
         self.intervention_predictor = nn.Sequential(*intervention_predictor_layers)
         
     def _init_weights(self):
-        """Initialize network weights with bias adjustment for edge probabilities."""
+        """Initialize weights with better defaults for edge detection."""
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
+                nn.init.xavier_normal_(m.weight)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-        
-        logit_bias = 2.0  # Much higher starting bias
-        nn.init.constant_(self.final_layer.bias, logit_bias)
+        # Initialize final layer with random small biases to break symmetry
+        nn.init.uniform_(self.final_layer.bias, -0.1, 0.1)
+    
+    def reset_edge_weights(self):
+        """Reset edge prediction weights to break out of local minima."""
+        old_weights = self.final_layer.weight.data.clone()
+        old_bias = self.final_layer.bias.data.clone()
+        nn.init.xavier_normal_(self.final_layer.weight)
+        nn.init.uniform_(self.final_layer.bias, -0.2, 0.2)
+        self.final_layer.weight.data = 0.8 * old_weights + 0.2 * self.final_layer.weight.data
+        self.final_layer.bias.data = 0.8 * old_bias + 0.2 * self.final_layer.bias.data
+        print("Edge prediction weights partially reset to break symmetry")
     
     def forward(
         self,
@@ -225,16 +234,12 @@ class SimpleGraphLearner(nn.Module):
         if return_logits:
             return edge_logits
         else:
-            # Apply a strong positive bias to the logits before sigmoid
-            # This will shift all probabilities toward 1.0
-            edge_logits_with_bias = edge_logits + 5.0  # Large positive bias
-            edge_probs = torch.sigmoid(edge_logits_with_bias)
-            
-            # Add the diagonal adjustment - diagonal elements should be exactly 0.5
-            n = edge_probs.shape[0]
-            diag_mask = torch.eye(n, device=edge_probs.device)
-            edge_probs = edge_probs * (1 - diag_mask) + 0.5 * diag_mask
-            
+            edge_logits_scaled = edge_logits * 3.0
+            noise = torch.randn_like(edge_logits) * 0.1
+            edge_probs = torch.sigmoid(edge_logits_scaled + noise + self.edge_prob_bias)
+            n_variables = edge_probs.shape[0]
+            diag_mask = torch.eye(n_variables, device=edge_probs.device)
+            edge_probs = edge_probs * (1 - diag_mask)
             return edge_probs
         
     # Add this new method for debugging
@@ -373,6 +378,16 @@ class SimpleGraphLearner(nn.Module):
         if torch.max(edge_probs) > 1.0 or torch.min(edge_probs) < 0.0:
             edge_probabilities = torch.sigmoid(edge_probs)
         
+        # Add direct structure learning when intervention data is available
+        if pre_data is not None and intervention_mask is not None and post_data is not None:
+            direct_edges = self.derive_structure_from_interventions(pre_data, intervention_mask, post_data)
+            structure_loss = F.binary_cross_entropy(
+                edge_probabilities, direct_edges, reduction='mean')
+            loss_components['direct_structure'] = structure_loss * 15.0
+        else:
+            structure_loss = torch.tensor(0.0, device=edge_probs.device)
+            loss_components['direct_structure'] = structure_loss
+        
         # Intervention prediction loss (Primary learning signal)
         has_intervention_data = (pre_data is not None and intervention_mask is not None and post_data is not None)
         
@@ -443,7 +458,7 @@ class SimpleGraphLearner(nn.Module):
         loss_components['anti_sparsity'] = anti_sparsity_reg
         
         loss_components['acyclicity'] = acyclicity_reg * self.acyclicity_weight
-        loss_components['sparsity'] = sparsity_reg * (self.sparsity_weight * 0.1)
+        loss_components['sparsity'] = sparsity_reg * (self.sparsity_weight * 1.5)
         loss_components['consistency'] = consistency_reg * self.consistency_weight
         
         if self.expected_density is not None:
@@ -476,35 +491,27 @@ class SimpleGraphLearner(nn.Module):
             total_loss += loss_components['density']
         
         total_loss += anti_sparsity_reg  # Add the anti-sparsity term
+        total_loss += loss_components['direct_structure']
         loss_components['total'] = total_loss
+        
+        edge_count = edge_probabilities.sum()
+        expected_edges = n * self.expected_density if self.expected_density else n * 0.3
+        if edge_count > expected_edges:
+            fp_penalty = (edge_count - expected_edges) * 0.1
+            loss_components['fp_penalty'] = fp_penalty
+        else:
+            loss_components['fp_penalty'] = torch.tensor(0.0, device=edge_probs.device)
         
         return total_loss, loss_components
         
-    def threshold_edge_probabilities(
-        self,
-        edge_probs: torch.Tensor,
-        threshold: float = 0.1  # Changed from 0.5 to 0.1
-    ) -> torch.Tensor:
-        """
-        Convert edge probabilities to binary adjacency matrix using a threshold.
-        """
-        # Check if we need to convert logits to probabilities
+    def threshold_edge_probabilities(self, edge_probs, threshold=0.5):
+        """Simplified thresholding with minimal output."""
         if torch.max(edge_probs) > 1.0 or torch.min(edge_probs) < 0.0:
-            # These are logits, convert to probabilities
             edge_probs = torch.sigmoid(edge_probs)
-        
-        # Print debugging info
         print(f"Edge probability range: [{edge_probs.min().item():.4f}, {edge_probs.max().item():.4f}], mean: {edge_probs.mean().item():.4f}")
-        
         adj_matrix = (edge_probs > threshold).float()
-        
-        # Ensure no self-loops
         adj_matrix.fill_diagonal_(0)
-        
-        # Print number of edges
-        edge_count = adj_matrix.sum().item()
-        print(f"Edges detected at threshold {threshold}: {edge_count}")
-        
+        print(f"Edges detected at threshold {threshold}: {adj_matrix.sum().item()}")
         return adj_matrix
 
 
@@ -613,3 +620,27 @@ class SimpleGraphLearner(nn.Module):
         loss = torch.sum(squared_errors, dim=1).mean()
         
         return loss
+
+    def derive_structure_from_interventions(self, pre_data, intervention_mask, post_data):
+        """Improved direct structure learning from interventions."""
+        n_vars = pre_data.shape[1]
+        edge_evidence = torch.zeros((n_vars, n_vars), device=pre_data.device)
+        effect_threshold = 0.05
+        for i in range(n_vars):
+            intervention_samples = (intervention_mask[:, i] > 0).nonzero(as_tuple=True)[0]
+            if len(intervention_samples) == 0:
+                continue
+            pre_values = pre_data[intervention_samples]
+            post_values = post_data[intervention_samples]
+            delta_mean = (post_values - pre_values).mean(dim=0)
+            delta_std = (post_values - pre_values).std(dim=0) + 1e-6
+            delta_z = torch.abs(delta_mean / delta_std)
+            delta_z[i] = 0.0
+            for j in range(n_vars):
+                if j != i and delta_z[j] > effect_threshold:
+                    edge_evidence[i, j] += delta_z[j]
+        if edge_evidence.max() > 0:
+            edge_evidence = edge_evidence / edge_evidence.max()
+            return torch.sigmoid(edge_evidence * 8.0)
+        else:
+            return 0.1 * torch.ones((n_vars, n_vars), device=pre_data.device)

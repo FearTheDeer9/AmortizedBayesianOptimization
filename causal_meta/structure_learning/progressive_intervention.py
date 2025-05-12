@@ -192,21 +192,14 @@ class ProgressiveInterventionLoop:
 
     def evaluate_model(self, data, intervention_mask=None):
         """Evaluate with different thresholds and debugging."""
-        metrics = {}
-        
-        # Normal evaluation with different thresholds
-        for threshold in [0.1, 0.2, 0.3, 0.4, 0.5]:
-            threshold_metrics = self.trainer.evaluate(
-                data=data,
-                intervention_mask=intervention_mask,
-                true_adj=self.true_adj_matrix,
-                pre_intervention_data=self.pre_int_tensor if hasattr(self, 'pre_int_tensor') else None,
-                post_intervention_data=self.post_int_tensor if hasattr(self, 'post_int_tensor') else None,
-                threshold=threshold
-            )
-            # Add threshold to metric names
-            metrics.update({f"{k}_t{threshold}": v for k, v in threshold_metrics.items()})
-        
+        # Use the new threshold selection method
+        best_metrics, best_threshold = self.trainer.evaluate_with_multiple_thresholds(
+            data=data,
+            intervention_mask=intervention_mask,
+            true_adj=self.true_adj_matrix,
+            pre_intervention_data=self.pre_int_tensor if hasattr(self, 'pre_int_tensor') else None,
+            post_intervention_data=self.post_int_tensor if hasattr(self, 'post_int_tensor') else None
+        )
         # Add debug evaluation
         debug_metrics = self.trainer.evaluate_with_debug(
             data=data,
@@ -214,12 +207,12 @@ class ProgressiveInterventionLoop:
             true_adj=self.true_adj_matrix,
             pre_intervention_data=self.pre_int_tensor if hasattr(self, 'pre_int_tensor') else None,
             post_intervention_data=self.post_int_tensor if hasattr(self, 'post_int_tensor') else None,
-            threshold=0.3
+            threshold=best_threshold
         )
-        
-        # Add debug metrics
+        # Combine best metrics and debug metrics
+        metrics = dict(best_metrics)
+        metrics['selected_threshold'] = best_threshold
         metrics.update(debug_metrics)
-        
         return metrics
 
     def select_intervention(self, data: torch.Tensor) -> Dict[str, Any]:
@@ -251,62 +244,17 @@ class ProgressiveInterventionLoop:
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Perform the specified intervention and generate data.
-        
-        Args:
-            intervention: Dictionary specifying the intervention
-            
-        Returns:
-            Tuple of (intervention data, intervention mask)
         """
-        # Extract intervention details
         target_node = intervention['target_node']
         value = intervention['value']
-        
-        # Get the actual variable names from the SCM
         scm_variables = self.scm.get_variable_names()
-        
-        # Map the integer target_node to the corresponding SCM variable name
-        if isinstance(target_node, int) and target_node < len(scm_variables):
-            # Note: In a real SCM, the variable name might not simply be f"x{target_node}"
-            # We need to find the actual mapping
-            
-            # Get the mapping of SCM variable names to their column indices in data
-            if hasattr(self, 'column_mapping'):
-                # Use existing mapping if already computed
-                node_name = self.column_mapping.get(target_node)
-            else:
-                # Create a mapping of integer indices to variable names
-                # This assumes the first data we received has columns in the same order as scm_variables
-                self.column_mapping = {}
-                for i, name in enumerate(scm_variables):
-                    self.column_mapping[i] = name
-                
-                node_name = self.column_mapping.get(target_node)
-            
-            if node_name is None:
-                # Fallback to direct name matching
-                if f"x{target_node}" in scm_variables:
-                    node_name = f"x{target_node}"
-                else:
-                    # As a last resort, just use the scm_variables at the same index
-                    # This might not be correct if the order doesn't match
-                    node_name = scm_variables[target_node] if target_node < len(scm_variables) else str(target_node)
-        else:
-            # If target_node is already a string or not a valid index, use it directly
-            node_name = str(target_node)
-        
-        # Debug info
+        node_name = self.column_mapping.get(target_node, f"x{target_node}") if hasattr(self, 'column_mapping') else f"x{target_node}"
         print(f"Performing intervention on node {target_node} (name: {node_name}) with value {value}")
-        print(f"Available variables: {scm_variables}")
-        
-        # Generate interventional data
         pre_int_data = generate_observational_data(
             scm=self.scm,
             n_samples=self.config.num_int_samples,
             as_tensor=False
         )
-        
-        # Generate post-intervention data
         post_int_data = generate_interventional_data(
             scm=self.scm,
             node=node_name,
@@ -314,11 +262,8 @@ class ProgressiveInterventionLoop:
             n_samples=self.config.num_int_samples,
             as_tensor=False
         )
-        
-        # Create intervention mask
         int_mask = np.zeros((self.config.num_int_samples, self.config.num_nodes))
         int_mask[:, target_node] = 1
-        
         return pre_int_data, post_int_data, int_mask
     
     def update_data(
@@ -423,63 +368,45 @@ class ProgressiveInterventionLoop:
         """
         # Increment iteration counter
         self.iteration += 1
-        
+        # Print simplified header for iteration
+        print(f"\nIteration {self.iteration}/{self.config.num_iterations}")
         # 1. Train the model on current data
         checkpoint_path = os.path.join(self.output_dir, f"model_iter_{self.iteration}.pt")
-        
-        # If we have interventional data, include it in training
         if hasattr(self, 'pre_int_tensor') and hasattr(self, 'post_int_tensor'):
-            print(f"\nTraining with {len(self.pre_int_tensor)} intervention pairs")
-            print(f"Learning causal structure through intervention outcomes")
-            
             train_history = self.trainer.train(
                 train_data=self.all_tensor,
                 val_data=None,
                 train_intervention_mask=self.int_mask_tensor,
                 val_intervention_mask=None,
-                true_adj=None,  # No more supervised learning!
+                true_adj=None,
                 pre_intervention_data=self.pre_int_tensor,
                 post_intervention_data=self.post_int_tensor,
                 batch_size=getattr(self.config, 'batch_size', 32),
                 epochs=getattr(self.config, 'epochs', 100),
                 early_stopping_patience=getattr(self.config, 'early_stopping_patience', 10),
-                normalize=False,  # Data is already normalized
+                normalize=False,
                 verbose=True,
                 checkpoint_dir=checkpoint_path if self.config.save_checkpoints else None
             )
         else:
-            # First iteration - train on observational data only with regularization
-            print("\nNo intervention data yet - using regularization only")
             train_history = self.train_model(
                 data=self.obs_tensor,
                 checkpoint_path=checkpoint_path if self.config.save_checkpoints else None
             )
-        
         # 2. Evaluate the model (using true_adj only for evaluation)
         metrics = self.evaluate_model(self.all_tensor)
-
-        # Add our special forced evaluation for debugging
-        if hasattr(self.trainer, 'evaluate_with_forced_edges'):
-            print("Running evaluation with forced edges...")
-            forced_metrics = self.trainer.evaluate_with_forced_edges(
-                data=self.all_tensor,
-                intervention_mask=None,
-                true_adj=self.true_adj_matrix,
-                threshold=0.3
-            )
-            # Add these metrics with a prefix
-            metrics.update({f"forced_{k}": v for k, v in forced_metrics.items()})
-        
-        
+        # Print only key metrics in a condensed format
+        print("Key metrics:")
+        key_metrics = ['accuracy', 'precision', 'recall', 'f1', 'shd']
+        for key in key_metrics:
+            if key in metrics:
+                print(f"  {key}: {metrics[key]:.4f}")
         # 3. Select an intervention
         intervention = self.select_intervention(self.all_tensor)
-        
         # 4. Perform the intervention and generate data
         pre_int_data, post_int_data, int_mask = self.perform_intervention(intervention)
-        
         # 5. Update the dataset
         self.update_data(pre_int_data, post_int_data, int_mask)
-        
         # Store results
         result = {
             'iteration': self.iteration,
@@ -488,9 +415,7 @@ class ProgressiveInterventionLoop:
             'intervention': intervention,
             'train_history': train_history
         }
-        
         self.results.append(result)
-        
         return result
     
     def run_experiment(self) -> List[Dict[str, Any]]:

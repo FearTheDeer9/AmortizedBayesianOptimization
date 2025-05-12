@@ -244,135 +244,80 @@ def standardize_tensor_shape(
 # Node naming utilities with improved consistency
 def get_node_name(node_id: Union[int, str]) -> str:
     """
-    Get standardized node name from node ID with improved validation.
-    
+    Get standardized node name (format: 'x{index}').
     Args:
         node_id: Integer index or string name
-        
     Returns:
-        Standardized string node name (format: "X_{index}")
+        Standardized string node name (format: 'x{index}')
     """
-    if node_id is None:
-        raise ValueError("Node ID cannot be None")
-        
-    if isinstance(node_id, str):
-        # If already in the right format, return as is
-        if node_id.startswith('X_'):
-            return node_id
-        # Try to convert string to int if possible
-        try:
-            node_id = int(node_id)
-        except ValueError:
-            # If not possible, use the string directly
-            return f"X_{node_id}"
-    
-    return f"X_{node_id}"
+    if isinstance(node_id, str) and node_id.startswith('x'):
+        return node_id
+    return f"x{int(node_id)}"
 
 def get_node_id(node_name: Union[int, str]) -> int:
     """
-    Get node ID from node name with improved validation.
-    
+    Get node ID from node name.
     Args:
         node_name: String node name or integer index
-        
     Returns:
         Integer node index
+    Raises:
+        ValueError: If the node_name format is invalid
     """
-    if node_name is None:
-        raise ValueError("Node name cannot be None")
-        
     if isinstance(node_name, int):
         return node_name
-        
-    # Handle string node names
-    if node_name.startswith('X_'):
+    elif isinstance(node_name, str) and node_name.startswith('x'):
         try:
-            # Extract the numeric part after 'X_'
-            return int(node_name[2:])
-        except ValueError:
-            raise ValueError(f"Invalid node name format: {node_name}. " +
-                           "Expected format 'X_<integer>'.")
+            return int(node_name[1:])
+        except (IndexError, ValueError):
+            raise ValueError(f"Invalid node name format: {node_name}")
     else:
-        # Try to convert the entire string to int
-        try:
-            return int(node_name)
-        except ValueError:
-            raise ValueError(f"Invalid node name format: {node_name}. " +
-                           "Cannot extract numeric ID.")
+        raise ValueError(f"Invalid node name format: {node_name}")
 
-def format_interventions(interventions, for_tensor=False, num_nodes=None, device=None):
+def format_interventions(
+    interventions: Dict[Union[int, str], float],
+    for_tensor: bool = False,
+    num_nodes: Optional[int] = None,
+    device: Optional[torch.device] = None
+) -> Union[Dict[str, float], Dict[str, torch.Tensor]]:
     """
-    Format interventions into a standardized format for various components.
-    
-    This function now provides both dictionary and tensor mask formats:
-    - Dictionary format: {'X_0': value, 'X_1': value, ...}
-    - Tensor mask format: A binary mask tensor of shape [batch_size, num_nodes]
-                          where 1 indicates an intervened node
-    
+    Format interventions to use standardized node names or tensor format.
     Args:
-        interventions: Dictionary mapping node names to intervention values
-                      Format: {'X_0': value} or {0: value}
-        for_tensor: Whether to return a tensor format (mask) instead of dict
-        num_nodes: Number of nodes in the graph (required for tensor format)
-        device: PyTorch device for the tensor format
-        
+        interventions: Dictionary mapping node IDs or names to intervention values
+        for_tensor: Whether to format for neural network tensor input
+        num_nodes: Number of nodes in the graph (required if for_tensor=True)
+        device: PyTorch device for tensor creation
     Returns:
-        Formatted interventions as dict or tensor mask
+        Formatted interventions dictionary
     """
-    if interventions is None:
-        return None
-    
-    # Convert to standardized dictionary format
-    formatted_dict = {}
-    
-    for node, value in interventions.items():
-        # Handle different node name formats
-        if isinstance(node, str):
-            if node.startswith('X_'):
-                node_name = node
-                node_idx = int(node[2:])
-            else:
-                node_idx = int(node)
-                node_name = f'X_{node_idx}'
-        else:
-            node_idx = int(node)
-            node_name = f'X_{node_idx}'
-        
-        # Store both representations
-        formatted_dict[node_name] = value
-        formatted_dict[node_idx] = value
-    
-    # Return dict format if not requesting tensor format
     if not for_tensor:
-        return formatted_dict
-    
-    # Create tensor mask for the model if requested
+        # Simple string name formatting
+        return {get_node_name(node): value for node, value in interventions.items()}
+    # Format for tensor input to neural networks
     if num_nodes is None:
-        # Try to infer number of nodes from the intervention keys
-        node_indices = [int(k[2:]) if isinstance(k, str) and k.startswith('X_') else int(k) 
-                        for k in interventions.keys() if isinstance(k, (str, int))]
-        if node_indices:
-            num_nodes = max(node_indices) + 1
+        raise ValueError("num_nodes must be provided when for_tensor=True")
+    # Extract intervention targets and values
+    targets = []
+    values = []
+    for node, value in interventions.items():
+        # Convert to node ID if it's a string name
+        if isinstance(node, str):
+            node_id = get_node_id(node)
         else:
-            raise ValueError("Cannot determine number of nodes. Please provide num_nodes.")
-    
-    # Default to CPU if no device specified
-    if device is None:
-        device = torch.device('cpu')
-    
-    # Create a binary intervention mask [batch_size, num_nodes]
-    # We use batch_size=1 by default
-    intervention_mask = torch.zeros(1, num_nodes, device=device)
-    
-    # Mark intervened nodes with 1
-    for node, _ in interventions.items():
-        if isinstance(node, str) and node.startswith('X_'):
-            node_idx = int(node[2:])
-        else:
-            node_idx = int(node)
-        intervention_mask[0, node_idx] = 1.0
-    
-    return intervention_mask
+            node_id = node
+        targets.append(node_id)
+        values.append(value)
+    # Convert to tensors
+    targets_tensor = torch.tensor(targets, dtype=torch.long)
+    values_tensor = torch.tensor(values, dtype=torch.float32)
+    # Move to device if specified
+    if device is not None:
+        targets_tensor = targets_tensor.to(device)
+        values_tensor = values_tensor.to(device)
+    return {
+        'targets': targets_tensor,
+        'values': values_tensor
+    }
 
 def create_causal_graph_from_adjacency(
     adj_matrix: Union[np.ndarray, torch.Tensor],
@@ -384,7 +329,7 @@ def create_causal_graph_from_adjacency(
     
     Args:
         adj_matrix: Adjacency matrix as numpy array or torch tensor
-        node_names: List of node names (default: "X_0", "X_1", etc.)
+        node_names: List of node names (default: "x0", "x1", etc.)
         threshold: Threshold for binarizing probabilistic edges
         
     Returns:
@@ -795,7 +740,7 @@ def visualize_graph(
                 G = nx.DiGraph()
                 
                 # Get node names
-                node_names = getattr(graph, 'get_nodes', lambda: [f"X_{i}" for i in range(adj_matrix.shape[0])])()
+                node_names = getattr(graph, 'get_nodes', lambda: [f"x{i}" for i in range(adj_matrix.shape[0])])()
                 
                 # Add nodes
                 G.add_nodes_from(node_names)
@@ -904,7 +849,7 @@ class DummyGraph:
         
     def get_nodes(self):
         """Return the node names."""
-        return [f"X_{i}" for i in range(self.adjacency_matrix.shape[0])]
+        return [f"x{i}" for i in range(self.adjacency_matrix.shape[0])]
         
     def get_edges(self):
         """Return the edges as a list of tuples."""
@@ -912,7 +857,7 @@ class DummyGraph:
         for i in range(self.adjacency_matrix.shape[0]):
             for j in range(self.adjacency_matrix.shape[1]):
                 if self.adjacency_matrix[i, j] > 0.5:  # Threshold for edge existence
-                    edges.append((f"X_{i}", f"X_{j}"))
+                    edges.append((f"x{i}", f"x{j}"))
         return edges
 
 def convert_to_structural_equation_model(
@@ -934,13 +879,13 @@ def convert_to_structural_equation_model(
     # Extract adjacency matrix and node names
     if isinstance(graph, np.ndarray):
         adj_matrix = graph
-        node_names = node_names or [f"X_{i}" for i in range(adj_matrix.shape[0])]
+        node_names = node_names or [f"x{i}" for i in range(adj_matrix.shape[0])]
     elif isinstance(graph, torch.Tensor):
         adj_matrix = graph.detach().cpu().numpy()
-        node_names = node_names or [f"X_{i}" for i in range(adj_matrix.shape[0])]
+        node_names = node_names or [f"x{i}" for i in range(adj_matrix.shape[0])]
     elif hasattr(graph, 'get_adjacency_matrix'):
         adj_matrix = graph.get_adjacency_matrix()
-        node_names = node_names or (graph.get_nodes() if hasattr(graph, 'get_nodes') else [f"X_{i}" for i in range(adj_matrix.shape[0])])
+        node_names = node_names or (graph.get_nodes() if hasattr(graph, 'get_nodes') else [f"x{i}" for i in range(adj_matrix.shape[0])])
     else:
         logger.error("Unsupported graph type for SCM conversion")
         return None
@@ -1053,7 +998,7 @@ def select_intervention_target_by_parent_count(graph: Any) -> str:
         try:
             # Try to get adjacency matrix and infer nodes
             adj_matrix = graph.get_adjacency_matrix()
-            nodes = [f"X_{i}" for i in range(adj_matrix.shape[0])]
+            nodes = [f"x{i}" for i in range(adj_matrix.shape[0])]
         except:
             raise ValueError("Cannot determine nodes in the graph")
     
@@ -1066,9 +1011,9 @@ def select_intervention_target_by_parent_count(graph: Any) -> str:
         elif hasattr(graph, 'adj_matrix'):
             # Use adjacency matrix to find parents
             idx = None
-            if isinstance(node, str) and node.startswith('X_'):
+            if isinstance(node, str) and node.startswith('x'):
                 try:
-                    idx = int(node[2:])
+                    idx = int(node[1:])
                 except:
                     idx = nodes.index(node) if node in nodes else None
             else:
@@ -1117,7 +1062,7 @@ class DummySCM:
         elif hasattr(graph, 'node_names'):
             self.node_names = graph.node_names
         else:
-            self.node_names = [f"X_{i}" for i in range(self.adj_matrix.shape[0])]
+            self.node_names = [f"x{i}" for i in range(self.adj_matrix.shape[0])]
         
         # Create structural equations with random coefficients
         self.equations = self._create_structural_equations()
@@ -1208,9 +1153,9 @@ class DummySCM:
                     node_idx = self.node_names.index(node)
                 except ValueError:
                     # Try extracting index from node name
-                    if node.startswith('X_'):
+                    if node.startswith('x'):
                         try:
-                            node_idx = int(node[2:])
+                            node_idx = int(node[1:])
                         except:
                             logger.warning(f"Invalid node name: {node}")
                             continue
@@ -1250,7 +1195,7 @@ def fallback_plot_graph(adj_matrix, ax=None, title=None, layout='spring', highli
     
     # Add nodes
     num_nodes = adj_matrix.shape[0]
-    node_names = [f"X_{i}" for i in range(num_nodes)]
+    node_names = [f"x{i}" for i in range(num_nodes)]
     G.add_nodes_from(node_names)
     
     # Add edges
@@ -1265,9 +1210,9 @@ def fallback_plot_graph(adj_matrix, ax=None, title=None, layout='spring', highli
         highlight_indices = []
         for node in highlight_nodes:
             if isinstance(node, str):
-                if node.startswith('X_'):
+                if node.startswith('x'):
                     try:
-                        idx = int(node[2:])
+                        idx = int(node[1:])
                         if 0 <= idx < num_nodes:
                             highlight_indices.append(idx)
                     except:
@@ -1412,7 +1357,7 @@ def visualize_graph_comparison(graph1, graph2, title="Graph Comparison"):
     if hasattr(graph1, 'get_nodes'):
         node_names = graph1.get_nodes()
     else:
-        node_names = [f"X_{i}" for i in range(num_nodes)]
+        node_names = [f"x{i}" for i in range(num_nodes)]
     
     # Create networkx graphs
     G1 = nx.DiGraph()
@@ -1461,4 +1406,38 @@ def visualize_graph_comparison(graph1, graph2, title="Graph Comparison"):
     return fig
 
 # Initialize logging when the module is imported
-logger.info("Refactored utilities module loaded successfully") 
+logger.info("Refactored utilities module loaded successfully")
+
+def test_get_node_name_and_id():
+    # Integer input
+    assert get_node_name(0) == 'x0'
+    assert get_node_name(5) == 'x5'
+    # String input (int)
+    assert get_node_name('2') == 'x2'
+    # Already correct
+    assert get_node_name('x3') == 'x3'
+    # get_node_id
+    assert get_node_id('x0') == 0
+    assert get_node_id('x12') == 12
+    assert get_node_id(7) == 7
+    # Error on bad input
+    try:
+        get_node_id('foo')
+        assert False, 'Should raise ValueError'
+    except ValueError:
+        pass
+
+def test_format_interventions():
+    # Dict with int keys
+    interventions = {0: 1.0, 1: 2.0}
+    formatted = format_interventions(interventions)
+    assert formatted == {'x0': 1.0, 'x1': 2.0, 0: 1.0, 1: 2.0}
+    # Dict with string keys
+    interventions = {'x0': 1.0, 'x1': 2.0}
+    formatted = format_interventions(interventions)
+    assert formatted == {'x0': 1.0, 'x1': 2.0, 0: 1.0, 1: 2.0}
+    # Tensor format
+    import torch
+    mask = format_interventions({'x0': 1.0}, for_tensor=True, num_nodes=2)
+    assert mask[0, 0] == 1.0
+    assert mask[0, 1] == 0.0 

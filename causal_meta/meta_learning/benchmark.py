@@ -518,11 +518,11 @@ class CausalDiscoveryBenchmark(Benchmark):
                 seed=self.seed + i if self.seed is not None else None
             )
             
-            # Ensure nodes are named X0, X1, etc. if not already
+            # Ensure nodes are named x0, x1, etc. if not already
             node_mapping = {}
             for j, node in enumerate(graph.get_nodes()):
-                if not isinstance(node, str) or not node.startswith('X'):
-                    node_name = f"X{j}"
+                if not isinstance(node, str) or not node.startswith('x'):
+                    node_name = f"x{j}"
                     node_mapping[node] = node_name
             
             # If we need to rename nodes
@@ -530,7 +530,7 @@ class CausalDiscoveryBenchmark(Benchmark):
                 new_graph = CausalGraph()
                 # Add nodes
                 for j in range(self.num_nodes):
-                    new_graph.add_node(f"X{j}")
+                    new_graph.add_node(f"x{j}")
                 
                 # Add edges (ensuring lower index -> higher index for acyclicity)
                 for u in graph.get_nodes():
@@ -539,7 +539,7 @@ class CausalDiscoveryBenchmark(Benchmark):
                         v_name = node_mapping.get(v, v)
                         
                         # Extract indices to ensure acyclicity
-                        if u_name.startswith('X') and v_name.startswith('X'):
+                        if u_name.startswith('x') and v_name.startswith('x'):
                             u_idx = int(u_name[1:])
                             v_idx = int(v_name[1:])
                             
@@ -554,11 +554,11 @@ class CausalDiscoveryBenchmark(Benchmark):
                         # Create a simple chain as fallback
                         fallback_graph = CausalGraph()
                         for j in range(self.num_nodes):
-                            fallback_graph.add_node(f"X{j}")
+                            fallback_graph.add_node(f"x{j}")
                         
-                        # Add edges in a chain: X0->X1->X2->...
+                        # Add edges in a chain: x0->x1->x2->...
                         for j in range(self.num_nodes - 1):
-                            fallback_graph.add_edge(f"X{j}", f"X{j+1}")
+                            fallback_graph.add_edge(f"x{j}", f"x{j+1}")
                         
                         graph = fallback_graph
             else:
@@ -567,11 +567,11 @@ class CausalDiscoveryBenchmark(Benchmark):
                     # Create a simple chain as fallback
                     fallback_graph = CausalGraph()
                     for j in range(self.num_nodes):
-                        fallback_graph.add_node(f"X{j}")
+                        fallback_graph.add_node(f"x{j}")
                     
-                    # Add edges in a chain: X0->X1->X2->...
+                    # Add edges in a chain: x0->x1->x2->...
                     for j in range(self.num_nodes - 1):
-                        fallback_graph.add_edge(f"X{j}", f"X{j+1}")
+                        fallback_graph.add_edge(f"x{j}", f"x{j+1}")
                     
                     graph = fallback_graph
             
@@ -620,7 +620,7 @@ class CausalDiscoveryBenchmark(Benchmark):
             
             for idx in intervention_indices:
                 # Create a do-intervention
-                target_name = f"X{idx}"
+                target_name = f"x{idx}"
                 intervention_value = np.random.normal(0, 1)
                 interventions[target_name] = intervention_value
                 
@@ -756,7 +756,7 @@ class CausalDiscoveryBenchmark(Benchmark):
                 if hasattr(method, "predict_intervention_outcomes") or hasattr(method, "sample_interventional_data"):
                     # Choose a random intervention
                     target_idx = np.random.randint(0, self.num_nodes)
-                    target_var = f"X{target_idx}"
+                    target_var = f"x{target_idx}"
                     intervention_value = 1.0  # Simple intervention value
                     
                     # Evaluate intervention prediction
@@ -825,7 +825,7 @@ class CausalDiscoveryBenchmark(Benchmark):
                 graph = CausalGraph()
                 
                 # Add nodes with proper names
-                node_names = obs_data.columns if len(obs_data.columns) == adj_matrix.shape[0] else [f"X{i}" for i in range(adj_matrix.shape[0])]
+                node_names = obs_data.columns if len(obs_data.columns) == adj_matrix.shape[0] else [f"x{i}" for i in range(adj_matrix.shape[0])]
                 for node_name in node_names:
                     graph.add_node(node_name)
                 
@@ -851,7 +851,7 @@ class CausalDiscoveryBenchmark(Benchmark):
                     graph = CausalGraph()
                     
                     # Add nodes with proper names
-                    node_names = obs_data.columns if len(obs_data.columns) == result.shape[0] else [f"X{i}" for i in range(result.shape[0])]
+                    node_names = obs_data.columns if len(obs_data.columns) == result.shape[0] else [f"x{i}" for i in range(result.shape[0])]
                     for node_name in node_names:
                         graph.add_node(node_name)
                     
@@ -1144,11 +1144,11 @@ class CBOBenchmark(Benchmark):
                 seed=self.seed + i if self.seed is not None else None
             )
             
-            # Ensure nodes are named X0, X1, etc. if not already
+            # Ensure nodes are named x0, x1, etc. if not already
             node_mapping = {}
             for j, node in enumerate(graph.get_nodes()):
-                if not isinstance(node, str) or not node.startswith('X'):
-                    node_name = f"X{j}"
+                if not isinstance(node, str) or not node.startswith('x'):
+                    node_name = f"x{j}"
                     node_mapping[node] = node_name
             
             # If we need to rename nodes
@@ -1156,7 +1156,7 @@ class CBOBenchmark(Benchmark):
                 new_graph = CausalGraph()
                 # Add nodes
                 for j in range(self.num_nodes):
-                    new_graph.add_node(f"X{j}")
+                    new_graph.add_node(f"x{j}")
                 
                 # Add edges (ensuring lower index -> higher index for acyclicity)
                 for u in graph.get_nodes():
@@ -1165,7 +1165,7 @@ class CBOBenchmark(Benchmark):
                         v_name = node_mapping.get(v, v)
                         
                         # Extract indices to ensure acyclicity
-                        if u_name.startswith('X') and v_name.startswith('X'):
+                        if u_name.startswith('x') and v_name.startswith('x'):
                             u_idx = int(u_name[1:])
                             v_idx = int(v_name[1:])
                             
@@ -1180,11 +1180,11 @@ class CBOBenchmark(Benchmark):
                         # Create a simple chain as fallback
                         fallback_graph = CausalGraph()
                         for j in range(self.num_nodes):
-                            fallback_graph.add_node(f"X{j}")
+                            fallback_graph.add_node(f"x{j}")
                         
-                        # Add edges in a chain: X0->X1->X2->...
+                        # Add edges in a chain: x0->x1->x2->...
                         for j in range(self.num_nodes - 1):
-                            fallback_graph.add_edge(f"X{j}", f"X{j+1}")
+                            fallback_graph.add_edge(f"x{j}", f"x{j+1}")
                         
                         graph = fallback_graph
             else:
@@ -1193,11 +1193,11 @@ class CBOBenchmark(Benchmark):
                     # Create a simple chain as fallback
                     fallback_graph = CausalGraph()
                     for j in range(self.num_nodes):
-                        fallback_graph.add_node(f"X{j}")
+                        fallback_graph.add_node(f"x{j}")
                     
-                    # Add edges in a chain: X0->X1->X2->...
+                    # Add edges in a chain: x0->x1->x2->...
                     for j in range(self.num_nodes - 1):
-                        fallback_graph.add_edge(f"X{j}", f"X{j+1}")
+                        fallback_graph.add_edge(f"x{j}", f"x{j+1}")
                     
                     graph = fallback_graph
             
@@ -1928,7 +1928,7 @@ class ScalabilityBenchmark(Benchmark):
                 # Add nodes with string names
                 node_map = {}
                 for j, node in enumerate(raw_graph.get_nodes()):
-                    node_name = f"X{j}"
+                    node_name = f"x{j}"
                     graph.add_node(node_name)
                     node_map[node] = node_name
                 

@@ -541,4 +541,5 @@ The MVP architecture is designed to be extended in the following directions:
 
 4. **Non-linear SCMs**: Extend to non-linear structural causal models.
 
-5. **Joint Structure and Dynamics Learning**: Integrate with dynamics prediction components for joint learning. 
+5. **Joint Structure and Dynamics Learning**: Integrate with dynamics prediction components for joint learning.
+

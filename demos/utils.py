@@ -176,36 +176,31 @@ def standardize_tensor_shape(
 # Node naming utilities
 def get_node_name(node_id: Union[int, str]) -> str:
     """
-    Get standardized node name from node ID.
-    
+    Get standardized node name (format: 'x{index}').
     Args:
         node_id: Integer index or string name
-        
     Returns:
-        Standardized string node name (format: "X_index")
+        Standardized string node name (format: 'x{index}')
     """
-    if isinstance(node_id, str) and node_id.startswith('X_'):
+    if isinstance(node_id, str) and node_id.startswith('x'):
         return node_id
-    return f"X_{node_id}"
+    return f"x{int(node_id)}"
 
 def get_node_id(node_name: Union[int, str]) -> int:
     """
     Get node ID from node name.
-    
     Args:
         node_name: String node name or integer index
-        
     Returns:
         Integer node index
-        
     Raises:
         ValueError: If the node_name format is invalid
     """
     if isinstance(node_name, int):
         return node_name
-    elif isinstance(node_name, str) and node_name.startswith('X_'):
+    elif isinstance(node_name, str) and node_name.startswith('x'):
         try:
-            return int(node_name.split('_')[1])
+            return int(node_name[1:])
         except (IndexError, ValueError):
             raise ValueError(f"Invalid node name format: {node_name}")
     else:
@@ -219,47 +214,38 @@ def format_interventions(
 ) -> Union[Dict[str, float], Dict[str, torch.Tensor]]:
     """
     Format interventions to use standardized node names or tensor format.
-    
     Args:
         interventions: Dictionary mapping node IDs or names to intervention values
         for_tensor: Whether to format for neural network tensor input
         num_nodes: Number of nodes in the graph (required if for_tensor=True)
         device: PyTorch device for tensor creation
-        
     Returns:
         Formatted interventions dictionary
     """
     if not for_tensor:
         # Simple string name formatting
         return {get_node_name(node): value for node, value in interventions.items()}
-    
     # Format for tensor input to neural networks
     if num_nodes is None:
         raise ValueError("num_nodes must be provided when for_tensor=True")
-    
     # Extract intervention targets and values
     targets = []
     values = []
-    
     for node, value in interventions.items():
         # Convert to node ID if it's a string name
         if isinstance(node, str):
             node_id = get_node_id(node)
         else:
             node_id = node
-        
         targets.append(node_id)
         values.append(value)
-    
     # Convert to tensors
     targets_tensor = torch.tensor(targets, dtype=torch.long)
     values_tensor = torch.tensor(values, dtype=torch.float32)
-    
     # Move to device if specified
     if device is not None:
         targets_tensor = targets_tensor.to(device)
         values_tensor = values_tensor.to(device)
-    
     return {
         'targets': targets_tensor,
         'values': values_tensor
@@ -578,7 +564,7 @@ class DummyGraph:
         
         # Use provided node names or generate default names
         if node_names is None:
-            self._node_names = [f"X_{i}" for i in range(self.num_nodes)]
+            self._node_names = [f"x{i}" for i in range(self.num_nodes)]
         else:
             if len(node_names) != self.num_nodes:
                 raise ValueError(f"Expected {self.num_nodes} node names, got {len(node_names)}")
@@ -685,7 +671,7 @@ class DummyGraph:
                 node_idx = self._node_names.index(node_id)
             else:
                 try:
-                    node_idx = int(node_id.split('_')[1])
+                    node_idx = int(node_id[1:])
                 except (IndexError, ValueError):
                     raise ValueError(f"Invalid node name: {node_id}")
         else:
@@ -953,3 +939,37 @@ def convert_to_structural_equation_model(graph, node_names=None, num_samples=100
         import pandas as pd
         
         return DummySCM(graph, node_names) 
+
+def test_get_node_name_and_id():
+    # Integer input
+    assert get_node_name(0) == 'x0'
+    assert get_node_name(5) == 'x5'
+    # String input (int)
+    assert get_node_name('2') == 'x2'
+    # Already correct
+    assert get_node_name('x3') == 'x3'
+    # get_node_id
+    assert get_node_id('x0') == 0
+    assert get_node_id('x12') == 12
+    assert get_node_id(7) == 7
+    # Error on bad input
+    try:
+        get_node_id('foo')
+        assert False, 'Should raise ValueError'
+    except ValueError:
+        pass
+
+def test_format_interventions():
+    # Dict with int keys
+    interventions = {0: 1.0, 1: 2.0}
+    formatted = format_interventions(interventions)
+    assert formatted == {'x0': 1.0, 'x1': 2.0}
+    # Dict with string keys
+    interventions = {'x0': 1.0, 'x1': 2.0}
+    formatted = format_interventions(interventions)
+    assert formatted == {'x0': 1.0, 'x1': 2.0}
+    # Tensor format
+    import torch
+    mask = format_interventions({'x0': 1.0}, for_tensor=True, num_nodes=2)
+    assert mask['targets'].tolist() == [0]
+    assert mask['values'].tolist() == [1.0] 

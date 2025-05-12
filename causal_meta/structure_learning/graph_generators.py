@@ -97,9 +97,9 @@ class RandomDAGGenerator:
         
         # Add nodes
         if node_names is None:
-            node_names = {i: str(i) for i in range(n)}
+            node_names = {i: f"x{i}" for i in range(n)}
         for i in range(n):
-            nx_graph.add_node(i, label=node_names.get(i, str(i)))
+            nx_graph.add_node(i, label=node_names.get(i, f"x{i}"))
         
         # Add edges
         for i in range(n):

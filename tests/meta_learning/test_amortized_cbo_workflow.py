@@ -59,15 +59,15 @@ def mock_model():
     
     # Set up to_causal_graph method
     mock_graph = CausalGraph()
-    mock_graph.add_node('X0')
-    mock_graph.add_node('X1')
-    mock_graph.add_node('X2')
-    mock_graph.add_node('X3')
-    mock_graph.add_node('X4')
-    mock_graph.add_edge('X0', 'X1')
-    mock_graph.add_edge('X1', 'X2')
-    mock_graph.add_edge('X2', 'X3')
-    mock_graph.add_edge('X3', 'X4')
+    mock_graph.add_node('x0')
+    mock_graph.add_node('x1')
+    mock_graph.add_node('x2')
+    mock_graph.add_node('x3')
+    mock_graph.add_node('x4')
+    mock_graph.add_edge('x0', 'x1')
+    mock_graph.add_edge('x1', 'x2')
+    mock_graph.add_edge('x2', 'x3')
+    mock_graph.add_edge('x3', 'x4')
     mock.to_causal_graph.return_value = mock_graph
     
     # Set up train_epoch method
@@ -137,15 +137,15 @@ def sample_data():
 @pytest.fixture
 def mock_causal_graph():
     """Create a mock causal graph for testing."""
-    # Create a simple causal graph X0 -> X1 -> X2 -> X3 -> X4
+    # Create a simple causal graph x0 -> x1 -> x2 -> x3 -> x4
     graph = CausalGraph()
     for i in range(5):
-        graph.add_node(f'X{i}')
+        graph.add_node(f'x{i}')
     
-    graph.add_edge('X0', 'X1')
-    graph.add_edge('X1', 'X2')
-    graph.add_edge('X2', 'X3')
-    graph.add_edge('X3', 'X4')
+    graph.add_edge('x0', 'x1')
+    graph.add_edge('x1', 'x2')
+    graph.add_edge('x2', 'x3')
+    graph.add_edge('x3', 'x4')
     
     return graph
 
@@ -251,7 +251,7 @@ class TestAmortizedCBOWorkflow:
             
             mock_module.visualize_results(
                 results=results,
-                target_names=['X0', 'X1', 'X2', 'X3', 'X4'],
+                target_names=['x0', 'x1', 'x2', 'x3', 'x4'],
                 save_path='test_plot.png'
             )
                 

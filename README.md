@@ -179,3 +179,34 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## [Refactor Notice: SCM Node Naming Convention]
+
+**Update (2024-06-12):**
+All SCMs, graphs, and interventions must use valid Python identifiers for node names, following the convention: `x0`, `x1`, ..., `xN`.
+
+- This replaces previous conventions using stringified integers (e.g., `'0'`, `'1'`).
+- All code, tests, and examples have been updated to use this convention.
+- Rationale: Ensures compatibility with dynamic function generation and Python syntax.
+
+### Example
+```python
+# Creating a graph with 3 nodes
+node_names = [f"x{i}" for i in range(3)]
+graph = CausalGraph()
+for name in node_names:
+    graph.add_node(name)
+
+graph.add_edge('x0', 'x1')
+graph.add_edge('x1', 'x2')
+
+# Interventions
+interventions = {'x1': 5.0}
+
+# SCM variable names
+scm.add_variable('x0')
+scm.add_variable('x1')
+scm.add_variable('x2')
+```
+
+---

@@ -155,8 +155,8 @@ class TestLinearSCMGenerator(unittest.TestCase):
         self.assertEqual(data.shape, (self.n_samples, num_nodes))
         
         # Interventions should work
-        intervened_scm = scm.do_intervention(node_names[0], 1.0)
-        int_data = intervened_scm.sample_data(self.n_samples)
+        scm.do_intervention(node_names[0], 1.0)
+        int_data = scm.sample_data(self.n_samples)
         
         # Check intervention effect
         self.assertTrue(np.allclose(int_data[node_names[0]], 1.0))

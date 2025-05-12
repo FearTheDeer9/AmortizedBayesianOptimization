@@ -79,7 +79,7 @@ class LinearSCMGenerator:
                 scm.define_probabilistic_equation(
                     variable=node_id,
                     equation_function=lambda noise: noise,
-                    noise_distribution=lambda n, rs=None: random_state.normal(0, noise_scale, n)
+                    noise_distribution=lambda sample_size, random_state=None: (random_state or random_state or np.random).normal(0, noise_scale, sample_size)
                 )
             else:
                 # Get the weights for this node's parents

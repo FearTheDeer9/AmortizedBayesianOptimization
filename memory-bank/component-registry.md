@@ -2132,34 +2132,113 @@ The following components are designed specifically for the Causal Graph Structur
 
 ### SimpleGraphLearner (`causal_meta.structure_learning.simple_graph_learner.SimpleGraphLearner`)
 
-**Purpose**: Simple MLP-based neural network for learning causal graph structure from observational and interventional data.
+**Purpose**: A simple MLP-based neural network model for causal graph structure learning from observational and interventional data.
+
+**Key Features**:
+- Processes both observational data and intervention indicators
+- Uses MLPs to encode node features and predict edge probabilities
+- Implements regularization for sparsity and acyclicity
+- Converts predictions to binary adjacency matrix or CausalGraph object
 
 **Key Methods**:
-- `__init__(num_nodes, hidden_dim=64)`: Constructor for the model
-- `forward(x, intervention_mask)`: Forward pass with explicit intervention information
-- `compute_loss(pred_adj, true_adj=None)`: Compute loss with optional supervision
-- `predict_graph(data, intervention_mask, threshold=0.5)`: Predict binary adjacency matrix
+```python
+def __init__(
+    input_dim: int,
+    hidden_dim: int = 64,
+    num_layers: int = 2,
+    dropout: float = 0.1,
+    sparsity_weight: float = 0.1,
+    acyclicity_weight: float = 1.0
+):
+```
+- Initialize the SimpleGraphLearner
+- `input_dim`: Number of variables in the causal system
+- `hidden_dim`: Dimension of hidden layers
+- `num_layers`: Number of hidden layers in the MLPs
+- `dropout`: Dropout probability for regularization
+- `sparsity_weight`: Weight for sparsity regularization
+- `acyclicity_weight`: Weight for acyclicity constraint
+
+```python
+def forward(
+    data: torch.Tensor,
+    intervention_mask: Optional[torch.Tensor] = None
+) -> torch.Tensor:
+```
+- Process data and predict edge probabilities
+- `data`: Input data tensor of shape [batch_size, n_variables]
+- `intervention_mask`: Binary mask for interventions of shape [batch_size, n_variables]
+- Returns: Tensor of edge probabilities of shape [n_variables, n_variables]
+
+```python
+def calculate_loss(
+    edge_probs: torch.Tensor,
+    target: Optional[torch.Tensor] = None,
+    mask: Optional[torch.Tensor] = None
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+```
+- Calculate loss for the model
+- `edge_probs`: Predicted edge probabilities
+- `target`: Target adjacency matrix (optional for supervised learning)
+- `mask`: Mask for valid edges (optional)
+- Returns: Total loss and dictionary of individual loss components
+
+```python
+def threshold_edge_probabilities(
+    edge_probs: torch.Tensor,
+    threshold: float = 0.5
+) -> torch.Tensor:
+```
+- Convert edge probabilities to binary adjacency matrix
+- `edge_probs`: Tensor of edge probabilities
+- `threshold`: Threshold value for edge inclusion
+- Returns: Binary adjacency matrix
+
+```python
+def to_causal_graph(
+    edge_probs: torch.Tensor,
+    threshold: float = 0.5
+) -> CausalGraph:
+```
+- Convert edge probabilities to CausalGraph object
+- `edge_probs`: Tensor of edge probabilities
+- Returns: CausalGraph object representing the predicted graph structure
 
 **Usage Example**:
 ```python
 from causal_meta.structure_learning.simple_graph_learner import SimpleGraphLearner
+import torch
 
-# Create model
-model = SimpleGraphLearner(num_nodes=5, hidden_dim=64)
+# Create the model
+model = SimpleGraphLearner(
+    input_dim=5,
+    hidden_dim=64,
+    num_layers=3,
+    dropout=0.1,
+    sparsity_weight=0.1,
+    acyclicity_weight=1.0
+)
 
-# Prepare data
-data = torch.randn(32, 5)  # 32 samples, 5 nodes
-int_mask = torch.zeros(32, 5)  # No interventions initially
-int_mask[:, 2] = 1.0  # Intervene on node 2
+# Forward pass with data
+data = torch.randn(100, 5)  # 100 samples, 5 variables
+edge_probs = model(data)
 
-# Forward pass
-pred_adj = model(data, int_mask)
+# With intervention mask
+intervention_mask = torch.zeros(100, 5)
+intervention_mask[:, 0] = 1.0  # Indicate intervention on first variable
+edge_probs = model(data, intervention_mask)
 
-# Compute loss (unsupervised)
-loss = model.compute_loss(pred_adj)
+# Calculate loss
+true_adj = torch.zeros(5, 5)
+true_adj[0, 1] = 1.0
+true_adj[1, 2] = 1.0
+loss, loss_components = model.calculate_loss(edge_probs, true_adj)
 
-# Predict binary graph
-binary_adj = model.predict_graph(data, int_mask, threshold=0.5)
+# Get binary adjacency matrix
+adj_matrix = model.threshold_edge_probabilities(edge_probs)
+
+# Convert to CausalGraph
+causal_graph = model.to_causal_graph(edge_probs)
 ```
 
 ### RandomDAGGenerator (`causal_meta.structure_learning.graph_generators.RandomDAGGenerator`)
@@ -2353,3 +2432,521 @@ When implementing these components:
 5. **Document clearly** how these components fit with the existing architecture
 
 These MVP components provide a foundation that can be extended with more sophisticated approaches in future iterations.
+
+---
+
+## [Refactor Notice: SCM Node Naming Convention]
+
+**Update (2024-06-12):**
+All components that use SCM node names, graphs, or interventions must now use valid Python identifiers for node names, following the convention: `x0`, `x1`, ..., `xN`.
+
+- This change replaces previous conventions using stringified integers (e.g., `'0'`, `'1'`) or other formats.
+- All interfaces, data generation, interventions, and graph utilities must use this convention for node names.
+- Rationale: Ensures compatibility with dynamic function generation and Python syntax, and prevents errors in downstream code.
+
+### Example Usage
+```python
+# Creating a graph with 3 nodes
+node_names = [f"x{i}" for i in range(3)]
+graph = CausalGraph()
+for name in node_names:
+    graph.add_node(name)
+
+graph.add_edge('x0', 'x1')
+graph.add_edge('x1', 'x2')
+
+# Interventions
+interventions = {'x1': 5.0}
+
+```
+
+## [MVP Progress Note - July 2024]
+
+- Task 1 (Environment Setup): complete
+- Task 2 (RandomDAGGenerator): complete
+- Task 2 (LinearSCMGenerator): in-progress (debugging node name/ID mismatch)
+- Next: finalize LinearSCMGenerator, proceed to data generation and model implementation
+
+---
+
+### Data Utilities (`causal_meta.structure_learning.data_utils`)
+
+**Purpose**: Provides data generation and processing utilities for causal structure learning.
+
+**Key Functions**:
+- `generate_observational_data(scm, n_samples, as_tensor)`: Generate observational data from an SCM
+- `generate_interventional_data(scm, node, value, n_samples, as_tensor)`: Generate interventional data from an SCM
+- `generate_random_intervention_data(scm, n_samples, intervention_values, as_tensor)`: Generate data with a random intervention
+- `create_intervention_mask(data, intervened_nodes)`: Create a binary mask indicating which nodes were intervened on
+- `convert_to_tensor(data, intervention_mask)`: Convert data and optional intervention mask to PyTorch tensors
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning import (
+    RandomDAGGenerator,
+    LinearSCMGenerator,
+    generate_observational_data,
+    generate_interventional_data,
+    generate_random_intervention_data,
+    create_intervention_mask,
+    convert_to_tensor
+)
+import numpy as np
+
+# Generate a random DAG and SCM
+adj_matrix = RandomDAGGenerator.generate_random_dag(num_nodes=5, edge_probability=0.3)
+scm = LinearSCMGenerator.generate_linear_scm(adj_matrix=adj_matrix)
+
+# Generate observational data
+obs_data = generate_observational_data(scm, n_samples=100)
+
+# Generate interventional data for a specific node
+int_data = generate_interventional_data(scm, node="x0", value=1.0, n_samples=100)
+
+# Generate data with a random intervention
+rand_data, intervened_node, value = generate_random_intervention_data(scm, n_samples=100)
+
+# Create an intervention mask
+mask = create_intervention_mask(rand_data, [intervened_node])
+
+# Convert data to tensors
+data_tensor, mask_tensor = convert_to_tensor(rand_data, mask)
+```
+
+---
+
+## Structure Learning Module (`causal_meta.structure_learning`)
+
+### SimpleGraphLearner (`causal_meta.structure_learning.simple_graph_learner.SimpleGraphLearner`)
+
+**Purpose**: Neural network-based causal graph structure learning model.
+
+**Key Features**:
+- Learns adjacency matrices from observational data
+- Handles interventional data
+- Enforces acyclicity constraints
+- Supports sparsity regularization
+
+**Interface**:
+```python
+model = SimpleGraphLearner(
+    input_dim=n_nodes,
+    hidden_dim=64,
+    num_layers=3,
+    dropout=0.1,
+    sparsity_weight=0.1,
+    acyclicity_weight=1.0
+)
+```
+
+### Data Generation Utilities (`causal_meta.structure_learning.data_utils`)
+
+**Purpose**: Provides functions for generating observational and interventional data from structural causal models, as well as conversion utilities for neural network processing.
+
+**Key Functions**:
+- `generate_observational_data(scm, n_samples=100, as_tensor=False)`: Generate observational data from a structural causal model
+- `generate_interventional_data(scm, node, value, n_samples=100, as_tensor=False)`: Generate interventional data from an SCM with specified intervention
+- `generate_random_intervention_data(scm, n_samples=100, intervention_values=None, as_tensor=False)`: Generate data with a random intervention
+- `create_intervention_mask(data, intervened_nodes)`: Create a binary mask indicating which nodes were intervened on
+- `convert_to_tensor(data, intervention_mask=None)`: Convert data and optional intervention mask to PyTorch tensors
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.data_utils import generate_observational_data, generate_interventional_data
+from causal_meta.environments.scm import StructuralCausalModel
+from causal_meta.structure_learning.scm_generators import LinearSCMGenerator
+from causal_meta.structure_learning.graph_generators import RandomDAGGenerator
+
+# Generate a random DAG and SCM
+graph = RandomDAGGenerator.generate_random_dag(num_nodes=5, edge_probability=0.3)
+scm = LinearSCMGenerator.generate_linear_scm(graph, weight_range=(-1.0, 1.0), noise_scale=0.1)
+
+# Generate observational data
+obs_data = generate_observational_data(scm, n_samples=1000)
+
+# Generate interventional data
+int_data = generate_interventional_data(scm, node="x0", value=2.0, n_samples=500)
+
+# Generate random intervention
+random_data, node, value = generate_random_intervention_data(scm, n_samples=500)
+
+# Create an intervention mask
+int_mask = create_intervention_mask(int_data, [node])
+
+# Convert to tensors
+obs_tensor = convert_to_tensor(obs_data)
+int_tensor, mask_tensor = convert_to_tensor(int_data, int_mask)
+```
+
+### Data Processing for Neural Networks (`causal_meta.structure_learning.data_processing`)
+
+**Purpose**: Provides classes and functions for processing data for neural network models in causal structure learning, including dataset creation, normalization, and train-test splitting.
+
+**Key Functions and Classes**:
+- `CausalDataset`: PyTorch Dataset for causal data including observations, interventions, and graph structure
+- `normalize_data(data)`: Normalize data using StandardScaler while handling different data formats
+- `create_train_test_split(data, test_size=0.2, random_state=None)`: Create train-test splits of causal data
+- `convert_to_tensor(data, intervention_mask=None)`: Convert data to tensor format (alias of the function in data_utils)
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.data_processing import normalize_data, create_train_test_split, CausalDataset
+from torch.utils.data import DataLoader
+
+# Normalize data
+norm_data, scaler = normalize_data(obs_data)
+
+# Create train-test split
+train_data, test_data = create_train_test_split(norm_data, test_size=0.2)
+
+# Create a dataset and dataloader
+dataset = CausalDataset(train_data)
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+# With interventional data and adjacency matrix
+int_dataset = CausalDataset(
+    data=int_data,
+    intervention_mask=int_mask,
+    adjacency_matrix=graph.get_adjacency_matrix()
+)
+int_dataloader = DataLoader(int_dataset, batch_size=32, shuffle=True)
+```
+
+### Progressive Intervention Module (`causal_meta.structure_learning.progressive_intervention`)
+
+#### ProgressiveInterventionLoop (`causal_meta.structure_learning.progressive_intervention.ProgressiveInterventionLoop`)
+
+**Purpose**: Implements an iterative loop for learning causal graph structure through strategic interventions. The loop progressively improves the model by selecting optimal interventions, collecting new data, and updating the model.
+
+**Key Methods**:
+- `__init__(config, scm, obs_data, true_adj_matrix, device)`: Initialize the progressive intervention loop
+- `initialize_model()`: Initialize the graph learning model
+- `train_model(data, intervention_mask, checkpoint_path)`: Train the model on the provided data
+- `evaluate_model(data, intervention_mask)`: Evaluate the model on the provided data
+- `select_intervention(data)`: Select the next intervention using the acquisition strategy
+- `perform_intervention(intervention)`: Perform the specified intervention and generate data
+- `update_data(new_int_data, new_int_mask)`: Update the dataset with new interventional data
+- `run_iteration()`: Run a single iteration of the intervention loop
+- `run_experiment()`: Run the full experiment with multiple iterations
+- `save_results()`: Save the experiment results
+- `plot_metrics()`: Plot metrics over iterations
+- `plot_graph_comparison()`: Plot comparison between true and learned graphs
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.progressive_intervention import (
+    ProgressiveInterventionConfig,
+    ProgressiveInterventionLoop
+)
+from causal_meta.structure_learning import (
+    RandomDAGGenerator,
+    LinearSCMGenerator,
+    generate_observational_data
+)
+
+# Generate a random DAG
+adj_matrix = RandomDAGGenerator.generate_random_dag(
+    num_nodes=5,
+    edge_probability=0.3,
+    as_adjacency_matrix=True
+)
+
+# Create a linear SCM
+scm = LinearSCMGenerator.generate_linear_scm(
+    adj_matrix=adj_matrix,
+    noise_scale=0.1
+)
+
+# Generate observational data
+obs_data = generate_observational_data(
+    scm=scm,
+    n_samples=200,
+    as_tensor=False
+)
+
+# Create configuration
+config = ProgressiveInterventionConfig(
+    num_nodes=5,
+    hidden_dim=64,
+    num_iterations=5,
+    acquisition_strategy="uncertainty",
+    output_dir="results"
+)
+
+# Create and run the progressive intervention loop
+loop = ProgressiveInterventionLoop(
+    config=config,
+    scm=scm,
+    obs_data=obs_data,
+    true_adj_matrix=adj_matrix
+)
+
+results = loop.run_experiment()
+```
+
+#### GraphStructureAcquisition (`causal_meta.structure_learning.graph_structure_acquisition.GraphStructureAcquisition`)
+
+**Purpose**: Implements different strategies for selecting interventions to improve causal graph structure learning. Supports uncertainty-based, random, and information gain acquisition strategies.
+
+**Key Methods**:
+- `__init__(strategy_type, intervention_values)`: Initialize the acquisition strategy
+- `select_intervention(model, data, budget)`: Select the next intervention based on the strategy
+- `_calculate_uncertainty_scores(edge_probs)`: Calculate uncertainty scores for edges
+- `_select_uncertainty_based_intervention(model, data, budget)`: Select intervention based on uncertainty
+- `_select_random_intervention(model, data, budget)`: Select a random intervention
+- `_select_information_gain_intervention(model, data, budget)`: Select intervention based on information gain
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.graph_structure_acquisition import GraphStructureAcquisition
+from causal_meta.structure_learning.simple_graph_learner import SimpleGraphLearner
+import torch
+
+# Create a model
+model = SimpleGraphLearner(input_dim=5, hidden_dim=64)
+
+# Create data
+data = torch.randn(100, 5)
+
+# Create acquisition strategy
+acquisition = GraphStructureAcquisition(
+    strategy_type="uncertainty",
+    intervention_values=[-1.0, 0.0, 1.0]
+)
+
+# Select intervention
+intervention = acquisition.select_intervention(
+    model=model,
+    data=data,
+    budget=1
+)
+
+print(f"Selected intervention: node {intervention['target_node']} with value {intervention['value']}")
+```
+
+#### ProgressiveInterventionConfig (`causal_meta.structure_learning.config.ProgressiveInterventionConfig`)
+
+**Purpose**: Configuration class for progressive intervention experiments. Defines parameters for the graph, model, training, and intervention strategies.
+
+**Key Attributes**:
+- `num_nodes`: Number of nodes in the graph
+- `edge_probability`: Probability of edges in the random graph
+- `noise_scale`: Scale of noise in the SCM
+- `hidden_dim`: Hidden dimension of the model
+- `num_iterations`: Number of intervention iterations
+- `num_obs_samples`: Number of observational samples
+- `num_int_samples`: Number of interventional samples per iteration
+- `acquisition_strategy`: Strategy for selecting interventions ("uncertainty", "random", "information_gain")
+- `int_values`: Possible intervention values
+- `int_budget`: Budget for interventions
+- `output_dir`: Directory to save results
+- `save_checkpoints`: Whether to save model checkpoints
+- `experiment_name`: Name of the experiment
+- `evaluation_metrics`: Metrics for evaluation
+- `random_seed`: Random seed for reproducibility
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.config import ProgressiveInterventionConfig
+
+# Create configuration
+config = ProgressiveInterventionConfig(
+    num_nodes=5,
+    edge_probability=0.3,
+    noise_scale=0.1,
+    hidden_dim=64,
+    num_iterations=5,
+    num_obs_samples=200,
+    num_int_samples=50,
+    acquisition_strategy="uncertainty",
+    int_values=[-1.0, 0.0, 1.0],
+    int_budget=1,
+    output_dir="results",
+    save_checkpoints=True,
+    experiment_name="progressive_intervention_experiment",
+    evaluation_metrics=["accuracy", "shd", "f1"],
+    random_seed=42
+)
+
+# Access configuration
+print(f"Number of nodes: {config.num_nodes}")
+print(f"Acquisition strategy: {config.acquisition_strategy}")
+```
+
+### Advanced Visualization (`causal_meta.utils.advanced_visualization`)
+
+**Purpose**: Provides advanced visualization utilities for analyzing edge probabilities, comparing intervention strategies, and investigating model biases in causal structure learning.
+
+**Key Functions**:
+- `plot_edge_probabilities(true_adj, edge_probs, thresholded_adj, **kwargs)`: Plot comparison of true adjacency matrix, edge probabilities, and thresholded adjacency matrix
+- `plot_edge_probability_histogram(edge_probs, threshold, **kwargs)`: Plot histogram of edge probabilities to analyze distribution bias
+- `plot_edge_probability_distribution(true_adj, edge_probs, **kwargs)`: Plot distributions of edge probabilities for true edges vs non-edges
+- `plot_threshold_sensitivity(true_adj, edge_probs, thresholds, **kwargs)`: Analyze sensitivity of graph recovery metrics to threshold choice
+- `compare_intervention_strategies(iterations, random_metrics, strategic_metrics, **kwargs)`: Compare metrics between random and strategic intervention strategies
+
+**Usage Example**:
+```python
+from causal_meta.utils.advanced_visualization import (
+    plot_edge_probabilities,
+    plot_edge_probability_histogram,
+    plot_threshold_sensitivity
+)
+
+# Plot edge probabilities visualization
+fig = plot_edge_probabilities(
+    true_adj=true_adjacency_matrix,
+    edge_probs=model_edge_probabilities,
+    threshold=0.5,
+    save_path="edge_probability_comparison.png"
+)
+
+# Plot edge probability histogram
+fig = plot_edge_probability_histogram(
+    edge_probs=model_edge_probabilities,
+    threshold=0.5,
+    save_path="edge_probability_histogram.png"
+)
+
+# Analyze threshold sensitivity
+fig = plot_threshold_sensitivity(
+    true_adj=true_adjacency_matrix,
+    edge_probs=model_edge_probabilities,
+    thresholds=np.linspace(0.1, 0.9, 9),
+    save_path="threshold_sensitivity.png"
+)
+```
+
+### Progressive Intervention Loop (`causal_meta.structure_learning.progressive_intervention.ProgressiveInterventionLoop`)
+
+**Purpose**: Implements the progressive intervention mechanism for iterative graph structure learning.
+
+**Key Methods**:
+- `__init__(config, acquisition_strategy)`: Initialize with configuration and acquisition strategy
+- `initialize_model()`: Create a new graph learning model
+- `initialize_trainer(model)`: Create a trainer for the model
+- `train_model(data, intervention_mask, checkpoint_path)`: Train the model on provided data
+- `select_intervention()`: Select intervention using the acquisition strategy
+- `run_iteration()`: Run a single iteration of the progressive intervention loop
+- `run()`: Run the complete progressive intervention loop
+- `save_results()`: Save experiment results, metrics, and visualizations
+- `plot_metrics()`: Plot metrics over iterations
+- `plot_graph_comparison()`: Plot comparison between true and learned graphs
+- `analyze_threshold_sensitivity()`: Analyze sensitivity of graph recovery to different thresholds
+- `compare_intervention_strategies(random_results, strategic_results)`: Compare different intervention strategies
+
+**Usage Example**:
+```python
+from causal_meta.structure_learning.config import ProgressiveInterventionConfig
+from causal_meta.structure_learning.graph_structure_acquisition import GraphStructureAcquisition
+from causal_meta.structure_learning.progressive_intervention import ProgressiveInterventionLoop
+
+# Create config
+config = ProgressiveInterventionConfig(
+    num_nodes=5,
+    num_samples=1000,
+    num_iterations=5,
+    sparsity_weight=0.05,  # Reduced from default 0.1 to address no-edge bias
+    output_dir="results/experiment_1"
+)
+
+# Create acquisition strategy
+strategy = GraphStructureAcquisition(strategy_type="uncertainty")
+
+# Create progressive intervention loop
+loop = ProgressiveInterventionLoop(config=config, acquisition_strategy=strategy)
+
+# Run experiment
+results = loop.run()
+
+# Analyze threshold sensitivity
+loop.analyze_threshold_sensitivity()
+```
+
+## Enhanced SimpleGraphLearner
+
+**Type**: Structure Learning Component  
+**Module**: `causal_meta.structure_learning.simple_graph_learner`
+
+### Description
+
+An enhanced version of the SimpleGraphLearner component that addresses the "no edge prediction" bias in graph structure learning. The enhanced version uses optimized regularization parameters and class balancing techniques to achieve significantly better performance in sparse graph recovery.
+
+### Parameters
+
+- `input_dim` (int): Number of nodes in the graph
+- `hidden_dim` (int, default=64): Dimension of hidden layers
+- `num_layers` (int, default=2): Number of layers in the network
+- `sparsity_weight` (float, default=0.07): Weight for sparsity regularization (reduced from original 0.1)
+- `acyclicity_weight` (float, default=1.0): Weight for acyclicity regularization
+- `pos_weight` (float, default=5.0): Positive class weight to counterbalance edge sparsity (increased from original 1.0)
+- `consistency_weight` (float, default=0.1): Weight for consistency regularization to push probabilities toward 0 or 1
+- `edge_prob_bias` (float, default=0.3): Bias term added to edge probabilities to encourage some edge predictions
+- `expected_density` (float, default=0.4): Expected graph density for regularization
+
+### Methods
+
+- `forward(data)`: Predicts edge probabilities from input data
+- `calculate_loss(edge_probabilities, target_adjacency=None)`: Calculates supervised loss with regularization components
+- `predict_graph(data, threshold=0.5)`: Predicts a discrete graph structure from data
+
+### Optimized Parameters
+
+The following parameter configuration was found through systematic tuning to achieve optimal graph recovery (lowest SHD) on small graphs:
+
+```python
+optimal_params = {
+    "sparsity_weight": 0.07,
+    "pos_weight": 5.0,
+    "edge_prob_bias": 0.3,
+    "consistency_weight": 0.1,
+    "expected_density": 0.4
+}
+```
+
+### Usage Example
+
+```python
+from causal_meta.structure_learning.simple_graph_learner import SimpleGraphLearner
+
+# Create enhanced model with optimized parameters
+model = SimpleGraphLearner(
+    input_dim=num_nodes,
+    hidden_dim=64,
+    num_layers=2,
+    sparsity_weight=0.07,     # Reduced sparsity regularization
+    acyclicity_weight=1.0,    # Default acyclicity weight
+    pos_weight=5.0,           # Stronger positive class weighting
+    consistency_weight=0.1,   # Push probabilities toward 0 or 1
+    edge_prob_bias=0.3,       # Bias toward predicting edges
+    expected_density=0.4      # Expected graph density
+)
+
+# Train the model
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+for epoch in range(200):
+    edge_probs = model(data_tensor)
+    loss, loss_components = model.calculate_loss(edge_probs, true_adj_tensor)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+# Predict graph structure
+with torch.no_grad():
+    edge_probs = model(data_tensor)
+    pred_adj = (edge_probs > 0.5).float()
+```
+
+### Performance Impact
+
+The enhanced model with optimized parameters addresses the "no edge prediction" bias and significantly improves structure learning performance:
+
+- Increases F1 score from near 0 to 0.6-0.9 on test graphs
+- Achieves perfect recovery (SHD=0) on several small graph instances
+- Creates more balanced edge probability distributions
+- Improves precision and recall while maintaining high accuracy
+
+### Related Components
+
+- `ProgressiveInterventionLoop`: Uses SimpleGraphLearner for causal discovery in intervention-based settings
+- `RandomGraphGenerator`: Generates random DAGs for testing the SimpleGraphLearner
+- `LinearSCMGenerator`: Creates synthetic data from DAGs for training

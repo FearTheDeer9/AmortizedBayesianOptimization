@@ -188,14 +188,13 @@ class ProgressiveInterventionLoop:
         )
         
         return train_history 
-    
+        
 
-    # In evaluate_model method of ProgressiveInterventionLoop:
     def evaluate_model(self, data, intervention_mask=None):
-        """Evaluate with different thresholds."""
+        """Evaluate with different thresholds and debugging."""
         metrics = {}
         
-        # Evaluate with different thresholds
+        # Normal evaluation with different thresholds
         for threshold in [0.1, 0.2, 0.3, 0.4, 0.5]:
             threshold_metrics = self.trainer.evaluate(
                 data=data,
@@ -208,9 +207,21 @@ class ProgressiveInterventionLoop:
             # Add threshold to metric names
             metrics.update({f"{k}_t{threshold}": v for k, v in threshold_metrics.items()})
         
-        # Return standard metrics with 0.5 threshold
+        # Add debug evaluation
+        debug_metrics = self.trainer.evaluate_with_debug(
+            data=data,
+            intervention_mask=intervention_mask,
+            true_adj=self.true_adj_matrix,
+            pre_intervention_data=self.pre_int_tensor if hasattr(self, 'pre_int_tensor') else None,
+            post_intervention_data=self.post_int_tensor if hasattr(self, 'post_int_tensor') else None,
+            threshold=0.3
+        )
+        
+        # Add debug metrics
+        metrics.update(debug_metrics)
+        
         return metrics
-    
+
     def select_intervention(self, data: torch.Tensor) -> Dict[str, Any]:
         """
         Select the next intervention using the acquisition strategy.
@@ -446,6 +457,19 @@ class ProgressiveInterventionLoop:
         
         # 2. Evaluate the model (using true_adj only for evaluation)
         metrics = self.evaluate_model(self.all_tensor)
+
+        # Add our special forced evaluation for debugging
+        if hasattr(self.trainer, 'evaluate_with_forced_edges'):
+            print("Running evaluation with forced edges...")
+            forced_metrics = self.trainer.evaluate_with_forced_edges(
+                data=self.all_tensor,
+                intervention_mask=None,
+                true_adj=self.true_adj_matrix,
+                threshold=0.3
+            )
+            # Add these metrics with a prefix
+            metrics.update({f"forced_{k}": v for k, v in forced_metrics.items()})
+        
         
         # 3. Select an intervention
         intervention = self.select_intervention(self.all_tensor)

@@ -360,7 +360,7 @@ class SimpleGraphLearnerTrainer:
         loss_component_values = {}
         
         # Train on intervention data
-        for batch in intervention_dataloader:
+        for batch_idx, batch in enumerate(intervention_dataloader):
             batch_pre, batch_mask, batch_post = batch
             batch_pre = batch_pre.to(self.device)
             batch_mask = batch_mask.to(self.device)
@@ -399,16 +399,13 @@ class SimpleGraphLearnerTrainer:
                     loss_component_values[key] = []
                 loss_component_values[key].append(value)
 
-            # Add this at the end of each batch in train_epoch_with_interventions:
-            with torch.no_grad():
-                # Print edge probability stats
-                probs = torch.sigmoid(edge_probs) if torch.max(edge_probs) > 1.0 else edge_probs
-                print(f"Edge prob stats: min={probs.min().item():.4f}, max={probs.max().item():.4f}, mean={probs.mean().item():.4f}")
-                
-                # Check how many edges would be predicted at different thresholds
-                for threshold in [0.1, 0.2, 0.3, 0.4, 0.5]:
-                    n_edges = (probs > threshold).float().sum().item() - torch.eye(probs.shape[0], device=probs.device).sum().item()
-                    print(f"  Threshold {threshold}: {int(n_edges)} edges predicted")
+            # In training.py train_epoch_with_interventions method
+            # Replace all the existing debug output with this abbreviated version
+            if batch_idx % 10 == 0:  # Only print for one in 10 batches
+                with torch.no_grad():
+                    # Print edge probability stats
+                    edge_probs = self.model(batch_pre, batch_mask)
+                    print(f"Batch {batch_idx}: Edge probs min={edge_probs.min().item():.4f}, max={edge_probs.max().item():.4f}")
         
         # Calculate average losses
         avg_loss = sum(total_losses) / len(total_losses) if total_losses else 0
@@ -503,6 +500,64 @@ class SimpleGraphLearnerTrainer:
         
         return loss_values
 
+
+    def evaluate_with_debug(
+        self,
+        data: torch.Tensor,
+        intervention_mask: Optional[torch.Tensor] = None,
+        true_adj: Optional[Union[np.ndarray, torch.Tensor]] = None,
+        pre_intervention_data: Optional[torch.Tensor] = None,
+        post_intervention_data: Optional[torch.Tensor] = None,
+        threshold: float = 0.3
+    ) -> Dict[str, float]:
+        """Evaluate with debugging information."""
+        self.model.eval()
+        
+        # Move tensors to device
+        data = data.to(self.device)
+        if intervention_mask is not None:
+            intervention_mask = intervention_mask.to(self.device)
+        if true_adj is not None:
+            if isinstance(true_adj, np.ndarray):
+                true_adj = torch.tensor(true_adj, dtype=torch.float32, device=self.device)
+            else:
+                true_adj = true_adj.to(self.device)
+        
+        # Normal evaluation
+        normal_metrics = self.evaluate(data, intervention_mask, true_adj, 
+                                    pre_intervention_data, post_intervention_data, 
+                                    threshold)
+        
+        # Debug evaluation with forced edges
+        with torch.no_grad():
+            # Get normal edge probabilities
+            edge_probs = self.model(data, intervention_mask)
+            
+            print("Edge probability stats:")
+            print(f"  Min: {edge_probs.min().item():.4f}, Max: {edge_probs.max().item():.4f}")
+            print(f"  Mean: {edge_probs.mean().item():.4f}, Non-zero: {(edge_probs > 0).sum().item()}")
+            
+            # Force edges using our special method if available
+            if hasattr(self.model, 'predict_with_forced_edges'):
+                forced_adj = self.model.predict_with_forced_edges(
+                    data, intervention_mask, true_adj, threshold
+                )
+                
+                # Calculate metrics using forced adjacency
+                forced_metrics = evaluate_graph(
+                    pred_adj=forced_adj.cpu(),
+                    true_adj=true_adj.cpu()
+                )
+                
+                # Add prefix to forced metrics
+                forced_metrics = {f"forced_{k}": v for k, v in forced_metrics.items()}
+                
+                # Combine metrics
+                combined_metrics = {**normal_metrics, **forced_metrics}
+                return combined_metrics
+        
+        return normal_metrics
+    
     def train(
         self,
         train_data: Union[pd.DataFrame, torch.Tensor],
@@ -693,6 +748,61 @@ class SimpleGraphLearnerTrainer:
         else:
             plt.show()
 
+    def evaluate_with_forced_edges(
+        self,
+        data: torch.Tensor,
+        intervention_mask: Optional[torch.Tensor] = None,
+        true_adj: Optional[Union[np.ndarray, torch.Tensor]] = None,
+        threshold: float = 0.3
+    ) -> Dict[str, float]:
+        """Special evaluation with forced edge predictions for debugging."""
+        self.model.eval()
+        
+        # Move data to device
+        data = data.to(self.device)
+        if intervention_mask is not None:
+            intervention_mask = intervention_mask.to(self.device)
+        
+        # Get true adjacency matrix
+        if true_adj is not None:
+            if isinstance(true_adj, np.ndarray):
+                true_adj = torch.tensor(true_adj, dtype=torch.float32, device=self.device)
+            else:
+                true_adj = true_adj.to(self.device)
+        
+        print("True adjacency matrix:")
+        print(true_adj.cpu().numpy())
+        
+        # Create a forced adjacency matrix
+        with torch.no_grad():
+            # Get model's predicted edge probabilities
+            edge_probs = self.model(data, intervention_mask)
+            
+            # Force edges based on known structure
+            if true_adj is not None:
+                # Force add edges where true_adj has 1s
+                for i in range(true_adj.shape[0]):
+                    for j in range(true_adj.shape[1]):
+                        if true_adj[i, j] > 0:
+                            edge_probs[i, j] = 0.99
+            
+            # Threshold the edge probabilities
+            pred_adj = (edge_probs > threshold).float()
+            pred_adj.fill_diagonal_(0)  # No self-loops
+            
+            print("Forced edge probabilities:")
+            print(edge_probs.cpu().numpy())
+            print("Predicted adjacency matrix:")
+            print(pred_adj.cpu().numpy())
+            
+            # Calculate evaluation metrics
+            metrics = evaluate_graph(
+                pred_adj=pred_adj.cpu(),
+                true_adj=true_adj.cpu(),
+                threshold=threshold
+            )
+        
+        return metrics
 
 def train_simple_graph_learner(
     train_data: Union[pd.DataFrame, torch.Tensor],

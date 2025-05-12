@@ -51,7 +51,8 @@ class SimpleGraphLearner(nn.Module):
         consistency_weight: float = 0.1,
         edge_prob_bias: float = 0.0,
         expected_density: Optional[float] = None,
-        density_weight: float = 0.1
+        density_weight: float = 0.1,
+        intervention_weight=10.0
     ):
         """Initialize the SimpleGraphLearner."""
         super().__init__()
@@ -68,6 +69,7 @@ class SimpleGraphLearner(nn.Module):
         self.edge_prob_bias = edge_prob_bias
         self.expected_density = expected_density
         self.density_weight = density_weight
+        self.intervention_weight = intervention_weight
         
         # Node feature encoder: takes raw node values and extracts features
         node_encoder_layers = []
@@ -109,7 +111,21 @@ class SimpleGraphLearner(nn.Module):
         
         # Initialize weights
         self._init_weights()
-    
+
+        intervention_predictor_layers = []
+        intervention_predictor_layers.append(nn.Linear(input_dim * 2, hidden_dim))
+        intervention_predictor_layers.append(nn.ReLU())
+        intervention_predictor_layers.append(nn.Dropout(dropout))
+        
+        for _ in range(num_layers - 1):
+            intervention_predictor_layers.append(nn.Linear(hidden_dim, hidden_dim))
+            intervention_predictor_layers.append(nn.ReLU())
+            intervention_predictor_layers.append(nn.Dropout(dropout))
+        
+        intervention_predictor_layers.append(nn.Linear(hidden_dim, input_dim))
+        
+        self.intervention_predictor = nn.Sequential(*intervention_predictor_layers)
+        
     def _init_weights(self):
         """Initialize network weights with bias adjustment for edge probabilities."""
         for m in self.modules():
@@ -118,13 +134,8 @@ class SimpleGraphLearner(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
         
-        # Initialize the bias of the final layer to encourage more edge predictions
-        # A positive bias makes the initial predictions favor edges more
-        if self.edge_prob_bias != 0.0:
-            # Convert the desired probability bias to logit space
-            logit_bias = np.log(self.edge_prob_bias / (1 - self.edge_prob_bias)) if self.edge_prob_bias > 0 else 0
-            # Set the bias of the final layer
-            nn.init.constant_(self.final_layer.bias, logit_bias)
+        logit_bias = 2.0  # Much higher starting bias
+        nn.init.constant_(self.final_layer.bias, logit_bias)
     
     def forward(
         self,
@@ -300,28 +311,45 @@ class SimpleGraphLearner(nn.Module):
         self,
         edge_probs: torch.Tensor,
         target: Optional[torch.Tensor] = None,
-        mask: Optional[torch.Tensor] = None
+        mask: Optional[torch.Tensor] = None,
+        pre_data=None,
+        intervention_mask=None,
+        post_data=None
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        Calculate loss for the model.
+        Calculate loss for the model with priority on intervention-based learning.
         
         Args:
             edge_probs: Predicted edge probabilities or logits
-            target: Target adjacency matrix (optional)
+            target: Target adjacency matrix (optional, gradually phase out)
             mask: Mask for valid edges (optional)
+            pre_data: Pre-intervention data (for intervention learning)
+            intervention_mask: Intervention mask (for intervention learning)
+            post_data: Post-intervention data (for intervention learning)
             
         Returns:
             Total loss and dictionary of individual loss components
         """
         loss_components = {}
         
-        # Get edge probabilities for regularization terms (if edge_probs are logits)
+        # Get edge probabilities for regularization terms
         edge_probabilities = edge_probs
         if torch.max(edge_probs) > 1.0 or torch.min(edge_probs) < 0.0:
-            # These are logits, convert to probabilities for regularization
             edge_probabilities = torch.sigmoid(edge_probs)
         
-        # Supervised loss if target is provided
+        # Intervention prediction loss (Primary learning signal)
+        has_intervention_data = (pre_data is not None and intervention_mask is not None and post_data is not None)
+        
+        if has_intervention_data:
+            intervention_loss = self.calculate_intervention_loss(
+                pre_data, intervention_mask, post_data, edge_probabilities)
+            loss_components['intervention'] = intervention_loss * self.intervention_weight
+        else:
+            intervention_loss = torch.tensor(0.0, device=edge_probs.device)
+            loss_components['intervention'] = intervention_loss
+        
+        # Supervised loss if target is provided (gradually phase this out)
+        supervised_loss = torch.tensor(0.0, device=edge_probs.device)
         if target is not None:
             # Create positive weight tensor for BCE loss if needed
             pos_weight = None
@@ -334,12 +362,10 @@ class SimpleGraphLearner(nn.Module):
                     n_pos = target.sum()
                     n_neg = target.numel() - n_pos
                 
-                # Calculate weight based on class imbalance, ensuring we don't divide by zero
+                # Calculate weight based on class imbalance
                 if n_pos > 0:
-                    # The weight will be self.pos_weight * (n_neg / n_pos)
                     pos_weight = torch.tensor(self.pos_weight * (n_neg / n_pos), device=target.device)
                 else:
-                    # If no positive examples, set a default high weight
                     pos_weight = torch.tensor(self.pos_weight * 10.0, device=target.device)
             
             if mask is not None:
@@ -349,28 +375,25 @@ class SimpleGraphLearner(nn.Module):
                 
                 # If edge_probs are probabilities, convert to logits
                 if torch.max(edge_probs) <= 1.0 and torch.min(edge_probs) >= 0.0:
-                    # Convert probabilities to logits
                     edge_probs_masked = torch.log(edge_probs_masked / (1 - edge_probs_masked + 1e-7) + 1e-7)
                 
                 supervised_loss = F.binary_cross_entropy_with_logits(
                     edge_probs_masked, target_masked, pos_weight=pos_weight
                 )
             else:
-                # For the full matrix case
-                # If edge_probs are probabilities, convert to logits
+                # Full matrix case
                 if torch.max(edge_probs) <= 1.0 and torch.min(edge_probs) >= 0.0:
-                    # Convert probabilities to logits
-                    edge_probs = torch.log(edge_probs / (1 - edge_probs + 1e-7) + 1e-7)
-                
+                    edge_probs_logits = torch.log(edge_probs / (1 - edge_probs + 1e-7) + 1e-7)
+                else:
+                    edge_probs_logits = edge_probs
+                    
                 supervised_loss = F.binary_cross_entropy_with_logits(
-                    edge_probs, target, pos_weight=pos_weight
+                    edge_probs_logits, target, pos_weight=pos_weight
                 )
             
             loss_components['supervised'] = supervised_loss
-        else:
-            supervised_loss = 0.0
         
-        # Regularization losses
+        # Keep existing regularization losses
         acyclicity_reg = self.calculate_acyclicity_regularization(edge_probabilities)
         sparsity_reg = self.calculate_sparsity_regularization(edge_probabilities)
         consistency_reg = self.calculate_consistency_regularization(edge_probabilities)
@@ -383,29 +406,41 @@ class SimpleGraphLearner(nn.Module):
         if self.expected_density is not None:
             loss_components['density'] = density_reg * self.density_weight
         
-        # Total loss
-        if target is not None:
-            total_loss = supervised_loss + loss_components['acyclicity'] + loss_components['sparsity']
-            if self.consistency_weight > 0:
-                total_loss += loss_components['consistency']
-            if self.expected_density is not None:
-                total_loss += loss_components['density']
+        # Total loss calculation prioritizing intervention learning
+        if has_intervention_data:
+            # When we have intervention data, use it as the primary learning signal
+            total_loss = loss_components['intervention']
+            
+            # Add a gradually decreasing weight to supervised loss if provided
+            # This helps transition from supervised to intervention-based learning
+            if target is not None:
+                # Start with some weight on supervised loss, but decrease over time
+                supervision_weight = 0.1  # Much lower than before
+                total_loss += supervised_loss * supervision_weight
         else:
-            # If no supervised loss, regularization becomes primary loss
-            total_loss = loss_components['acyclicity'] + loss_components['sparsity']
-            if self.consistency_weight > 0:
-                total_loss += loss_components['consistency']
-            if self.expected_density is not None:
-                total_loss += loss_components['density']
+            # If no intervention data yet, fall back to supervised loss if available
+            if target is not None:
+                total_loss = supervised_loss
+            else:
+                # If neither is available, just use regularization losses
+                total_loss = torch.tensor(0.0, device=edge_probs.device)
+        
+        # Add regularization terms
+        total_loss += loss_components['acyclicity'] + loss_components['sparsity']
+        if self.consistency_weight > 0:
+            total_loss += loss_components['consistency']
+        if self.expected_density is not None:
+            total_loss += loss_components['density']
         
         loss_components['total'] = total_loss
         
         return total_loss, loss_components
     
+
     def threshold_edge_probabilities(
         self,
         edge_probs: torch.Tensor,
-        threshold: float = 0.5
+        threshold: float = 0.1
     ) -> torch.Tensor:
         """
         Convert edge probabilities to binary adjacency matrix using a threshold.
@@ -473,3 +508,64 @@ class SimpleGraphLearner(nn.Module):
             causal_graph.add_edge(source, target)
         
         return causal_graph 
+    
+    def predict_intervention_outcomes(self, data, intervention_mask, edge_probs):
+        """
+        Predict outcomes after interventions based on current graph structure
+        
+        Args:
+            data: Input data tensor [batch_size, n_variables]
+            intervention_mask: Binary mask for interventions [batch_size, n_variables]
+            edge_probs: Current graph edge probabilities [n_variables, n_variables]
+            
+        Returns:
+            Predicted post-intervention values [batch_size, n_variables]
+        """
+        # Guard against None inputs
+        if data is None or intervention_mask is None:
+            return None
+            
+        # Combine data and intervention info as input
+        batch_size = data.shape[0]
+        intervention_info = intervention_mask * data  # Values at intervention points
+        combined_input = torch.cat([data, intervention_info], dim=1)
+        
+        # Predict the post-intervention values
+        predictions = self.intervention_predictor(combined_input)
+        
+        # Where interventions occurred, use the intervention values
+        # For non-intervention values, use the predictions
+        intervention_values = intervention_mask * data
+        non_intervention_mask = 1.0 - intervention_mask
+        
+        return intervention_values + predictions * non_intervention_mask
+    
+    def calculate_intervention_loss(self, pre_data, intervention_mask, post_data, edge_probs):
+        """
+        Calculate loss based on intervention prediction accuracy
+        
+        Args:
+            pre_data: Pre-intervention data [batch_size, n_variables]
+            intervention_mask: Intervention mask [batch_size, n_variables]
+            post_data: Post-intervention data [batch_size, n_variables]
+            edge_probs: Current graph edge probabilities [n_variables, n_variables]
+            
+        Returns:
+            Intervention prediction loss
+        """
+        # Guard against None inputs
+        if pre_data is None or intervention_mask is None or post_data is None:
+            return torch.tensor(0.0, device=edge_probs.device)
+            
+        # Predict post-intervention outcomes
+        predicted_outcomes = self.predict_intervention_outcomes(
+            pre_data, intervention_mask, edge_probs)
+        
+        # Calculate prediction error (MSE) on non-intervened variables
+        non_intervention_mask = 1.0 - intervention_mask
+        squared_errors = ((predicted_outcomes - post_data) * non_intervention_mask) ** 2
+        
+        # Sum over variables, mean over batch
+        loss = torch.sum(squared_errors, dim=1).mean()
+        
+        return loss

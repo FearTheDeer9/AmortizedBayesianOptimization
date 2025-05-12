@@ -114,18 +114,17 @@ class ProgressiveInterventionLoop:
         model = SimpleGraphLearner(
             input_dim=self.config.num_nodes,
             hidden_dim=self.config.hidden_dim,
-            num_layers=getattr(self.config, 'num_layers', 2),  # Default to 2 if not present
-            dropout=getattr(self.config, 'dropout', 0.1),  # Default to 0.1 if not present
-            sparsity_weight=getattr(self.config, 'sparsity_weight', 0.1),  # Default to 0.1 if not present
-            acyclicity_weight=getattr(self.config, 'acyclicity_weight', 1.0),  # Default to 1.0 if not present
-            # Add anti-bias parameters
-            pos_weight=getattr(self.config, 'pos_weight', 5.0),  # Default to 5.0 if not present
-            consistency_weight=getattr(self.config, 'consistency_weight', 0.1),  # Default to 0.1 if not present
-            edge_prob_bias=getattr(self.config, 'edge_prob_bias', 0.1),  # Default to 0.1 if not present
-            expected_density=getattr(self.config, 'expected_density', 0.3),  # Default to 0.3 if not present
-            density_weight=getattr(self.config, 'density_weight', 0.1)  # Default to 0.1 if not present
+            num_layers=getattr(self.config, 'num_layers', 2),
+            dropout=getattr(self.config, 'dropout', 0.1),
+            sparsity_weight=0.01,  # Reduce this from the default 0.1
+            acyclicity_weight=getattr(self.config, 'acyclicity_weight', 1.0),
+            pos_weight=getattr(self.config, 'pos_weight', 5.0),
+            consistency_weight=getattr(self.config, 'consistency_weight', 0.1),
+            edge_prob_bias=0.7,  # Increase this to encourage edge prediction
+            expected_density=getattr(self.config, 'expected_density', 0.3),
+            density_weight=getattr(self.config, 'density_weight', 0.1),
+            intervention_weight=50.0
         )
-        
         # Move to device
         model = model.to(self.device)
         
@@ -158,15 +157,7 @@ class ProgressiveInterventionLoop:
         checkpoint_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Train the model on the provided data.
-        
-        Args:
-            data: Training data tensor
-            intervention_mask: Optional intervention mask tensor
-            checkpoint_path: Optional path to save the model checkpoint
-            
-        Returns:
-            Dictionary with training history
+        Train the model without supervision from true adjacency matrix.
         """
         # Create model if not exists
         if self.model is None:
@@ -175,70 +166,49 @@ class ProgressiveInterventionLoop:
         # Create trainer if not exists
         if self.trainer is None:
             self.trainer = self.initialize_trainer(self.model)
-            
-        # Validate input sizes
-        if intervention_mask is not None and data.size(0) != intervention_mask.size(0):
-            print(f"Size mismatch: data {data.size()} vs mask {intervention_mask.size()}")
-            # Create a new mask that matches the data size
-            new_mask = torch.zeros((data.size(0), self.config.num_nodes), dtype=torch.float32)
-            # Copy the intervention mask values up to the min length
-            min_len = min(data.size(0), intervention_mask.size(0))
-            new_mask[:min_len] = intervention_mask[:min_len]
-            intervention_mask = new_mask
-            print(f"Adjusted mask size to: {intervention_mask.size()}")
         
-        # Get default values for missing attributes
-        batch_size = getattr(self.config, 'batch_size', 32)  # Default to 32 if not present
-        epochs = getattr(self.config, 'epochs', 100)  # Default to 100 if not present
-        early_stopping_patience = getattr(self.config, 'early_stopping_patience', 10)  # Default to 10 if not present
+        # Get training parameters
+        batch_size = getattr(self.config, 'batch_size', 32)
+        epochs = getattr(self.config, 'epochs', 100)
+        early_stopping_patience = getattr(self.config, 'early_stopping_patience', 10)
         
-        # Train the model
+        # Train the model without true adjacency matrix
         train_history = self.trainer.train(
             train_data=data,
             val_data=None,
             train_intervention_mask=intervention_mask,
             val_intervention_mask=None,
-            true_adj=self.true_adj_matrix,
+            true_adj=None,  # No more supervision!
             batch_size=batch_size,
             epochs=epochs,
             early_stopping_patience=early_stopping_patience,
-            normalize=False,  # Data is already normalized
+            normalize=False,
             verbose=True,
             checkpoint_dir=checkpoint_path
         )
         
-        return train_history
+        return train_history 
     
-    def evaluate_model(
-        self,
-        data: torch.Tensor,
-        intervention_mask: Optional[torch.Tensor] = None
-    ) -> Dict[str, float]:
-        """
-        Evaluate the model on the provided data.
+
+    # In evaluate_model method of ProgressiveInterventionLoop:
+    def evaluate_model(self, data, intervention_mask=None):
+        """Evaluate with different thresholds."""
+        metrics = {}
         
-        Args:
-            data: Input data tensor
-            intervention_mask: Intervention mask tensor (optional)
-            
-        Returns:
-            Dictionary with evaluation metrics
-        """
-        # Ensure model exists
-        if self.model is None:
-            raise ValueError("Model has not been trained yet")
+        # Evaluate with different thresholds
+        for threshold in [0.1, 0.2, 0.3, 0.4, 0.5]:
+            threshold_metrics = self.trainer.evaluate(
+                data=data,
+                intervention_mask=intervention_mask,
+                true_adj=self.true_adj_matrix,
+                pre_intervention_data=self.pre_int_tensor if hasattr(self, 'pre_int_tensor') else None,
+                post_intervention_data=self.post_int_tensor if hasattr(self, 'post_int_tensor') else None,
+                threshold=threshold
+            )
+            # Add threshold to metric names
+            metrics.update({f"{k}_t{threshold}": v for k, v in threshold_metrics.items()})
         
-        # Get model prediction
-        with torch.no_grad():
-            edge_probs = self.model(data, intervention_mask)
-            adj_pred = self.model.threshold_edge_probabilities(edge_probs).detach().cpu().numpy()
-        
-        # Evaluate against true adjacency matrix
-        if self.true_adj_matrix is not None:
-            metrics = evaluate_graph(adj_pred, self.true_adj_matrix)
-        else:
-            metrics = {}
-        
+        # Return standard metrics with 0.5 threshold
         return metrics
     
     def select_intervention(self, data: torch.Tensor) -> Dict[str, Any]:
@@ -319,7 +289,14 @@ class ProgressiveInterventionLoop:
         print(f"Available variables: {scm_variables}")
         
         # Generate interventional data
-        int_data = generate_interventional_data(
+        pre_int_data = generate_observational_data(
+            scm=self.scm,
+            n_samples=self.config.num_int_samples,
+            as_tensor=False
+        )
+        
+        # Generate post-intervention data
+        post_int_data = generate_interventional_data(
             scm=self.scm,
             node=node_name,
             value=value,
@@ -331,115 +308,107 @@ class ProgressiveInterventionLoop:
         int_mask = np.zeros((self.config.num_int_samples, self.config.num_nodes))
         int_mask[:, target_node] = 1
         
-        return int_data, int_mask
+        return pre_int_data, post_int_data, int_mask
     
     def update_data(
         self,
-        new_int_data: Union[pd.DataFrame, np.ndarray],
-        new_int_mask: np.ndarray
+        pre_int_data: Union[pd.DataFrame, np.ndarray],
+        post_int_data: Union[pd.DataFrame, np.ndarray],
+        int_mask: np.ndarray
     ) -> None:
         """
         Update the dataset with new interventional data.
         
         Args:
-            new_int_data: New interventional data (DataFrame or numpy array)
-            new_int_mask: New intervention mask
+            pre_int_data: Pre-intervention data
+            post_int_data: Post-intervention data
+            int_mask: Intervention mask
         """
-        # Ensure the new intervention data is a DataFrame with proper column names
-        if not isinstance(new_int_data, pd.DataFrame):
+        # Ensure pre_int_data and post_int_data are DataFrames with proper column names
+        if not isinstance(pre_int_data, pd.DataFrame):
             # If it's a numpy array, convert to DataFrame with proper column names
-            # Get column names from the original data
             if hasattr(self.scm, 'get_variable_names'):
-                # Use variable names from SCM if available
                 var_names = self.scm.get_variable_names()
             elif isinstance(self.obs_data, pd.DataFrame):
-                # Use column names from observational data if available
                 var_names = list(self.obs_data.columns)
             else:
-                # Fallback to generic names
-                var_names = [f'x{i}' for i in range(new_int_data.shape[1])]
+                var_names = [f'x{i}' for i in range(pre_int_data.shape[1])]
             
-            # Convert to DataFrame
-            new_int_data = pd.DataFrame(new_int_data, columns=var_names)
+            pre_int_data = pd.DataFrame(pre_int_data, columns=var_names)
+            post_int_data = pd.DataFrame(post_int_data, columns=var_names)
         
         # Print debug info
-        print(f"New intervention data columns: {new_int_data.columns}")
+        print(f"Pre-intervention data columns: {pre_int_data.columns}")
+        print(f"Post-intervention data columns: {post_int_data.columns}")
         print(f"Observational data columns: {self.obs_data.columns if isinstance(self.obs_data, pd.DataFrame) else 'not a DataFrame'}")
         
-        # Handle potential column order issues safely by converting to numpy arrays
-        # Instead of trying to fix column orders, which can be tricky, we'll just use the values
-        new_int_data_np = new_int_data.values
         
-        # Apply normalization using the scaler's transform method directly
-        if hasattr(self.scaler, 'transform'):
-            new_int_data_norm_np = self.scaler.transform(new_int_data_np)
-            # Convert back to DataFrame with matching column order
-            if hasattr(self.scaler, 'feature_names_in_'):
-                new_int_data_norm = pd.DataFrame(
-                    new_int_data_norm_np, 
-                    columns=self.scaler.feature_names_in_
-                )
-            else:
-                new_int_data_norm = pd.DataFrame(
-                    new_int_data_norm_np,
-                    columns=new_int_data.columns
-                )
-        else:
-            # Fallback to using normalize_data
-            new_int_data_norm = normalize_data(new_int_data, self.scaler)[0]
+        # Ensure consistent column order (add this before normalization)
+        if isinstance(self.obs_data, pd.DataFrame) and isinstance(post_int_data, pd.DataFrame):
+            # Get the expected column order from observational data
+            expected_columns = list(self.obs_data.columns)
         
-        # If this is the first intervention
-        if self.int_data is None:
-            self.int_data = new_int_data
-            self.int_data_norm = new_int_data_norm
-            self.int_mask = new_int_mask
+             # Reorder the columns in pre_int_data and post_int_data
+            pre_int_data = pre_int_data[expected_columns]
+            post_int_data = post_int_data[expected_columns]
+            
+            print(f"Reordered columns to match: {expected_columns}")
+            
+        # Apply normalization
+        pre_int_data_norm = normalize_data(pre_int_data, self.scaler)
+        post_int_data_norm = normalize_data(post_int_data, self.scaler)
+        
+        # Initialize new intervention data structures if this is the first intervention
+        if not hasattr(self, 'pre_int_data'):
+            self.pre_int_data = pre_int_data
+            self.pre_int_data_norm = pre_int_data_norm
+            self.post_int_data = post_int_data
+            self.post_int_data_norm = post_int_data_norm
+            self.int_mask = int_mask
+            
+            # Initialize the original int_data attributes for compatibility
+            self.int_data = post_int_data
+            self.int_data_norm = post_int_data_norm
         else:
-            # Handle case where existing data might be a numpy array but new data is DataFrame
-            if not isinstance(self.int_data, pd.DataFrame) and isinstance(new_int_data, pd.DataFrame):
-                # Convert old data to DataFrame with same columns
-                self.int_data = pd.DataFrame(self.int_data, columns=new_int_data.columns)
-                self.int_data_norm = pd.DataFrame(self.int_data_norm, columns=new_int_data_norm.columns)
+            # Append to existing data
+            self.pre_int_data = pd.concat([self.pre_int_data, pre_int_data], ignore_index=True)
+            self.pre_int_data_norm = pd.concat([self.pre_int_data_norm, pre_int_data_norm], ignore_index=True)
+            self.post_int_data = pd.concat([self.post_int_data, post_int_data], ignore_index=True)
+            self.post_int_data_norm = pd.concat([self.post_int_data_norm, post_int_data_norm], ignore_index=True)
             
-            # Append to existing interventional data
-            if isinstance(self.int_data, pd.DataFrame) and isinstance(new_int_data, pd.DataFrame):
-                self.int_data = pd.concat([self.int_data, new_int_data], ignore_index=True)
-                self.int_data_norm = pd.concat([self.int_data_norm, new_int_data_norm], ignore_index=True)
-            else:
-                # Fallback to numpy concatenation
-                self.int_data = np.concatenate([self.int_data, new_int_data], axis=0)
-                self.int_data_norm = np.concatenate([self.int_data_norm, new_int_data_norm], axis=0)
+            # Update int_mask
+            self.int_mask = np.concatenate([self.int_mask, int_mask], axis=0)
             
-            self.int_mask = np.concatenate([self.int_mask, new_int_mask], axis=0)
+            # Update original int_data attributes for compatibility
+            self.int_data = pd.concat([self.int_data, post_int_data], ignore_index=True)
+            self.int_data_norm = pd.concat([self.int_data_norm, post_int_data_norm], ignore_index=True)
+        
+        # Update tensors
+        self.pre_int_tensor = torch.tensor(self.pre_int_data_norm.values, dtype=torch.float32)
+        self.post_int_tensor = torch.tensor(self.post_int_data_norm.values, dtype=torch.float32)
+        self.int_tensor = torch.tensor(self.int_data_norm.values, dtype=torch.float32)
+        self.int_mask_tensor = torch.tensor(self.int_mask, dtype=torch.float32)
         
         # Update all data
-        # Convert to numpy for concatenation to avoid column order issues
-        obs_data_np = self.obs_data.values if isinstance(self.obs_data, pd.DataFrame) else self.obs_data
-        int_data_np = self.int_data.values if isinstance(self.int_data, pd.DataFrame) else self.int_data
-        self.all_data = np.concatenate([obs_data_np, int_data_np], axis=0)
+        if isinstance(self.obs_data, pd.DataFrame):
+            self.all_data = pd.concat([self.obs_data, self.post_int_data], ignore_index=True)
+        else:
+            obs_data_df = pd.DataFrame(self.obs_data, columns=post_int_data.columns)
+            self.all_data = pd.concat([obs_data_df, self.post_int_data], ignore_index=True)
         
         # Similar handling for normalized data
-        obs_data_norm_np = self.obs_data_norm.values if isinstance(self.obs_data_norm, pd.DataFrame) else self.obs_data_norm
-        int_data_norm_np = self.int_data_norm.values if isinstance(self.int_data_norm, pd.DataFrame) else self.int_data_norm
-        self.all_data_norm = np.concatenate([obs_data_norm_np, int_data_norm_np], axis=0)
+        if isinstance(self.obs_data_norm, pd.DataFrame):
+            self.all_data_norm = pd.concat([self.obs_data_norm, self.post_int_data_norm], ignore_index=True)
+        else:
+            obs_data_norm_df = pd.DataFrame(self.obs_data_norm, columns=post_int_data_norm.columns)
+            self.all_data_norm = pd.concat([obs_data_norm_df, self.post_int_data_norm], ignore_index=True)
         
-        # Convert to tensors
-        self.int_tensor = torch.tensor(self.int_data_norm.values if isinstance(self.int_data_norm, pd.DataFrame) else self.int_data_norm, dtype=torch.float32)
-        self.int_mask_tensor = torch.tensor(self.int_mask, dtype=torch.float32)
-        self.all_tensor = torch.tensor(self.all_data_norm.values if isinstance(self.all_data_norm, pd.DataFrame) else self.all_data_norm, dtype=torch.float32)
-    
+        # Update all_tensor
+        self.all_tensor = torch.tensor(self.all_data_norm.values, dtype=torch.float32)    
+
     def run_iteration(self) -> Dict[str, Any]:
         """
-        Run a single iteration of the intervention loop.
-        
-        This method performs the following steps:
-        1. Train the model on current data
-        2. Evaluate the model
-        3. Select an intervention
-        4. Perform the intervention and generate data
-        5. Update the dataset
-        
-        Returns:
-            Dictionary with iteration results
+        Run a single iteration of the intervention loop with intervention-based learning.
         """
         # Increment iteration counter
         self.iteration += 1
@@ -448,30 +417,44 @@ class ProgressiveInterventionLoop:
         checkpoint_path = os.path.join(self.output_dir, f"model_iter_{self.iteration}.pt")
         
         # If we have interventional data, include it in training
-        if self.int_data is not None:
-            train_history = self.train_model(
-                data=self.all_tensor,
-                intervention_mask=self.int_mask_tensor if self.int_mask is not None else None,
-                checkpoint_path=checkpoint_path if self.config.save_checkpoints else None
+        if hasattr(self, 'pre_int_tensor') and hasattr(self, 'post_int_tensor'):
+            print(f"\nTraining with {len(self.pre_int_tensor)} intervention pairs")
+            print(f"Learning causal structure through intervention outcomes")
+            
+            train_history = self.trainer.train(
+                train_data=self.all_tensor,
+                val_data=None,
+                train_intervention_mask=self.int_mask_tensor,
+                val_intervention_mask=None,
+                true_adj=None,  # No more supervised learning!
+                pre_intervention_data=self.pre_int_tensor,
+                post_intervention_data=self.post_int_tensor,
+                batch_size=getattr(self.config, 'batch_size', 32),
+                epochs=getattr(self.config, 'epochs', 100),
+                early_stopping_patience=getattr(self.config, 'early_stopping_patience', 10),
+                normalize=False,  # Data is already normalized
+                verbose=True,
+                checkpoint_dir=checkpoint_path if self.config.save_checkpoints else None
             )
         else:
-            # First iteration - train on observational data only
+            # First iteration - train on observational data only with regularization
+            print("\nNo intervention data yet - using regularization only")
             train_history = self.train_model(
                 data=self.obs_tensor,
                 checkpoint_path=checkpoint_path if self.config.save_checkpoints else None
             )
         
-        # 2. Evaluate the model
+        # 2. Evaluate the model (using true_adj only for evaluation)
         metrics = self.evaluate_model(self.all_tensor)
         
         # 3. Select an intervention
         intervention = self.select_intervention(self.all_tensor)
         
         # 4. Perform the intervention and generate data
-        int_data, int_mask = self.perform_intervention(intervention)
+        pre_int_data, post_int_data, int_mask = self.perform_intervention(intervention)
         
         # 5. Update the dataset
-        self.update_data(int_data, int_mask)
+        self.update_data(pre_int_data, post_int_data, int_mask)
         
         # Store results
         result = {
@@ -550,7 +533,7 @@ class ProgressiveInterventionLoop:
         # Get the final learned graph
         with torch.no_grad():
             edge_probs = self.model(self.all_tensor)
-            learned_adj = self.model.threshold_edge_probabilities(edge_probs).detach().cpu().numpy()
+            learned_adj = self.model.threshold_edge_probabilities(edge_probs, threshold=self.config.threshold).detach().cpu().numpy()
         
         # Create the basic plot (existing functionality)
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))

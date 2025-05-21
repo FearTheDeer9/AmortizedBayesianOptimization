@@ -1,23 +1,17 @@
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "causal_bayes_opt"
+name = "causal-bayes-opt"
 version = "0.1.0"
-description = "Causal Bayesian Optimization Framework"
+description = ""
+authors = [
+    {name = "Harel",email = "hl1824@ic.ac.uk"}
+]
 readme = "README.md"
-# Add other metadata like authors, license, etc. if desired
-requires-python = ">=3.9"
-# Add project dependencies here if not managed elsewhere (e.g., requirements.txt)
-# dependencies = [
-#     "numpy",
-#     "pandas",
-#     "pytest",
-# ]
+requires-python = ">=3.13"
+dependencies = [
+    "pyrsistent (>=0.20.0,<0.21.0)"
+]
 
-[tool.setuptools.packages.find]
-# Automatically find packages under the root directory
-# Assumes your source code is directly in the root (e.g., ./causal_meta)
-# If your code was in src/, you'd use: where = ["src"]
-where = ["."] 
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

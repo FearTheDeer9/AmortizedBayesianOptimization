@@ -86,7 +86,7 @@ pyr.PMap - Mapping of variable names to their values
 ```python
 # Get all values from a sample
 values = get_values(sample)
-print(values)  # pyr.m({'X': 2.5, 'Y': 7.1, 'Z': True})
+print(values)  # pyr.m(**{'X': 2.5, 'Y': 7.1, 'Z': True})
 ```
 
 ### get_value(sample, variable)
@@ -195,7 +195,7 @@ print(timestamp)  # "2025-05-21T10:30:00"
 
 # Get all metadata
 all_meta = get_metadata(sample_with_meta)
-print(all_meta)  # pyr.m({'timestamp': '2025-05-21T10:30:00'})
+print(all_meta)  # pyr.m(**{'timestamp': '2025-05-21T10:30:00'})
 ```
 
 ### merge_samples(sample1, sample2)
@@ -217,7 +217,7 @@ Intervention information is preserved from sample1.
 sample1 = create_sample({"X": 1, "Y": 2})
 sample2 = create_sample({"Y": 3, "Z": 4})
 merged = merge_samples(sample1, sample2)
-print(get_values(merged))  # pyr.m({'X': 1, 'Y': 3, 'Z': 4})
+print(get_values(merged))  # pyr.m(**{'X': 1, 'Y': 3, 'Z': 4})
 ```
 
 ### filter_variables(sample, variables)
@@ -235,7 +235,7 @@ pyr.PMap - A new sample with only the specified variables
 # Filter a sample to keep only specific variables
 sample = create_sample({"X": 1, "Y": 2, "Z": 3})
 filtered = filter_variables(sample, pyr.s("X", "Z"))
-print(get_values(filtered))  # pyr.m({'X': 1, 'Z': 3})
+print(get_values(filtered))  # pyr.m(**{'X': 1, 'Z': 3})
 ```
 
 ## Batch Operations

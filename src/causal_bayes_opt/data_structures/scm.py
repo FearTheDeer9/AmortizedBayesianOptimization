@@ -7,6 +7,7 @@ Structural Causal Models using pure functional programming principles.
 
 import pyrsistent as pyr
 from typing import FrozenSet, Dict, Callable, Optional, Any, Tuple, List, Set
+import functools
 
 def create_scm(
     variables: FrozenSet[str],
@@ -28,19 +29,21 @@ def create_scm(
     Returns:
         An immutable SCM representation
     """
-    # Convert inputs to immutable structures
-    immutable_variables = pyr.s(*variables) if not isinstance(variables, pyr.PSet) else variables
-    immutable_edges = pyr.s(*edges) if not isinstance(edges, pyr.PSet) else edges
-    immutable_mechanisms = pyr.pmap(mechanisms)
-    immutable_metadata = pyr.pmap(metadata or {})
+    # More efficient conversion - avoid multiple type checks
+    immutable_variables = pyr.s(*variables) if isinstance(variables, (set, list, tuple)) else variables
+    immutable_edges = pyr.s(*edges) if isinstance(edges, (set, list, tuple)) else edges
+    
+    # Store mechanism names instead of functions to avoid pyrsistent issues
+    mechanism_names = pyr.pmap({k: k for k in mechanisms.keys()})
     
     # Create the immutable SCM
     return pyr.m(
         variables=immutable_variables,
         edges=immutable_edges,
-        mechanisms=immutable_mechanisms,
+        mechanism_names=mechanism_names,
+        mechanisms=mechanisms,  # Keep as regular dict for function storage
         target=target,
-        metadata=immutable_metadata
+        metadata=pyr.pmap(metadata or {})
     )
 
 def get_variables(scm: pyr.PMap) -> FrozenSet[str]:
@@ -51,9 +54,10 @@ def get_edges(scm: pyr.PMap) -> FrozenSet[Tuple[str, str]]:
     """Get the set of edges in the SCM."""
     return scm['edges']
 
-def get_mechanisms(scm: pyr.PMap) -> pyr.PMap:
+def get_mechanisms(scm: pyr.PMap) -> Dict[str, Callable]:
     """Get the mechanisms dictionary of the SCM."""
     return scm['mechanisms']
+
 
 def get_parents(scm: pyr.PMap, variable: str) -> FrozenSet[str]:
     """
@@ -81,6 +85,7 @@ def get_children(scm: pyr.PMap, variable: str) -> FrozenSet[str]:
     """
     return pyr.s(*(child for parent, child in scm['edges'] if parent == variable))
 
+@functools.lru_cache(maxsize=128)
 def get_ancestors(scm: pyr.PMap, variable: str) -> FrozenSet[str]:
     """
     Get all ancestors of a variable in the SCM.
@@ -92,7 +97,12 @@ def get_ancestors(scm: pyr.PMap, variable: str) -> FrozenSet[str]:
     Returns:
         A frozen set of ancestor variable names
     """
-    # Use recursive depth-first search to find all ancestors
+    # Convert scm to a hashable form for caching
+    scm_key = (scm['variables'], scm['edges'])
+    return _get_ancestors_impl(scm_key, scm, variable)
+
+def _get_ancestors_impl(scm_key, scm: pyr.PMap, variable: str) -> FrozenSet[str]:
+    """Internal implementation for get_ancestors."""
     visited = set()
     
     def visit(node):
@@ -105,6 +115,7 @@ def get_ancestors(scm: pyr.PMap, variable: str) -> FrozenSet[str]:
     visit(variable)
     return pyr.s(*visited)
 
+@functools.lru_cache(maxsize=128)
 def get_descendants(scm: pyr.PMap, variable: str) -> FrozenSet[str]:
     """
     Get all descendants of a variable in the SCM.
@@ -116,7 +127,12 @@ def get_descendants(scm: pyr.PMap, variable: str) -> FrozenSet[str]:
     Returns:
         A frozen set of descendant variable names
     """
-    # Use recursive depth-first search to find all descendants
+    # Convert scm to a hashable form for caching
+    scm_key = (scm['variables'], scm['edges'])
+    return _get_descendants_impl(scm_key, scm, variable)
+
+def _get_descendants_impl(scm_key, scm: pyr.PMap, variable: str) -> FrozenSet[str]:
+    """Internal implementation for get_descendants."""
     visited = set()
     
     def visit(node):

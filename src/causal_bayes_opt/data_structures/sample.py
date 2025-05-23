@@ -26,11 +26,11 @@ def create_sample(
     pyr.PMap
         An immutable Sample representation
     """
-    return pyr.m({
-        'values': pyr.m(values),
+    return pyr.m(**{
+        'values': pyr.m(**values),
         'intervention_type': intervention_type,
         'intervention_targets': intervention_targets if intervention_targets is not None else pyr.s(),
-        'metadata': pyr.m(metadata) if metadata is not None else pyr.m()
+        'metadata': pyr.m(**metadata) if metadata is not None else pyr.m()
     })
 
 def is_observational(sample: pyr.PMap) -> bool:
@@ -166,3 +166,70 @@ def aggregate_variable_values(
     """
     values = [get_value(sample, variable) for sample in samples]
     return aggregation_fn(values)
+
+# Convenience factory functions
+def create_observational_sample(values: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None) -> pyr.PMap:
+    """
+    Convenience factory for observational samples.
+    
+    Parameters:
+    -----------
+    values : Dict[str, Any]
+        Mapping from variable names to their values
+    metadata : Optional[Dict[str, Any]]
+        Additional metadata about the sample
+        
+    Returns:
+    --------
+    pyr.PMap
+        An immutable observational Sample
+    """
+    return create_sample(values=values, metadata=metadata)
+
+def create_interventional_sample(
+    values: Dict[str, Any], 
+    intervention_type: str,
+    targets: FrozenSet[str],
+    metadata: Optional[Dict[str, Any]] = None
+) -> pyr.PMap:
+    """
+    Convenience factory for interventional samples.
+    
+    Parameters:
+    -----------
+    values : Dict[str, Any]
+        Mapping from variable names to their values
+    intervention_type : str
+        Type of intervention (e.g., 'perfect', 'imperfect', 'soft')
+    targets : FrozenSet[str]
+        Set of variables that were intervened upon
+    metadata : Optional[Dict[str, Any]]
+        Additional metadata about the sample
+        
+    Returns:
+    --------
+    pyr.PMap
+        An immutable interventional Sample
+    """
+    return create_sample(
+        values=values,
+        intervention_type=intervention_type,
+        intervention_targets=targets,
+        metadata=metadata
+    )
+
+def create_perfect_intervention_sample(
+    values: Dict[str, Any],
+    targets: FrozenSet[str],
+    metadata: Optional[Dict[str, Any]] = None
+) -> pyr.PMap:
+    """Convenience factory specifically for perfect intervention samples."""
+    return create_interventional_sample(values, "perfect", targets, metadata)
+
+def create_soft_intervention_sample(
+    values: Dict[str, Any],
+    targets: FrozenSet[str],
+    metadata: Optional[Dict[str, Any]] = None
+) -> pyr.PMap:
+    """Convenience factory specifically for soft intervention samples."""
+    return create_interventional_sample(values, "soft", targets, metadata)

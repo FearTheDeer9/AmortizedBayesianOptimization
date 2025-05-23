@@ -24,7 +24,7 @@ def mechanism_z(noise):
 def mechanism_y(values, noise):
     return 2 * values["X"] - 1.5 * values["Z"] + noise
 
-mechanisms = pyr.m({
+mechanisms = pyr.m(**{
     "X": mechanism_x,
     "Z": mechanism_z,
     "Y": mechanism_y

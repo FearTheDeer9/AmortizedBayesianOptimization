@@ -6,12 +6,15 @@ This architecture integrates AVICI's amortized inference with PARENT_SCALE's cau
 
 `Surrogate Model → Acquisition Model → SCM Environment → Surrogate Model`
 
-## Core Principles
+## Implementation Principles
 
-- **Functional Design**: Pure functions, immutable data structures, minimal state
-- **Separation of Concerns**: Clear component boundaries with explicit interfaces
-- **Scalability**: Designed to handle increasing graph complexity
-- **Extensibility**: Easily add new intervention types or reward functions
+- **Functional Core, Imperative Shell**: Pure functions for algorithms, efficient mutable state where needed
+- Use **selective immutability** based on usage patterns and performance requirements
+- Design pure functions for data transformation and computation
+- Maintain **clear component boundaries** with explicit interfaces
+- Include comprehensive docstrings and type hintsW
+- Choose data structures based on **performance characteristics** rather than ideology
+- **Explicit state management** rather than hidden mutation
 
 ## Core Components
 

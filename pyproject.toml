@@ -8,7 +8,8 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "pyrsistent (>=0.20.0,<0.21.0)"
+    "pyrsistent (>=0.20.0,<0.21.0)",
+    "jax (>=0.6.1,<0.7.0)"
 ]
 
 

@@ -38,6 +38,14 @@ from .analysis import (
     debug_sample_conversion,
 )
 
+
+# Import data utilities (Phase 1.3)
+from .data_utils import (
+    target_aware_standardize_default,
+    target_aware_get_x,
+    target_aware_get_train_x,
+)
+
 # Import type aliases for user convenience
 from .conversion import (
     SampleList,
@@ -65,6 +73,17 @@ __all__ = [
     "get_variable_order_from_scm",
     "compare_data_conversions",
     "debug_sample_conversion",
+    
+    # Note: Target-aware model classes removed (deprecated in favor of modular architecture)
+    
+    # Note: Parent set classes moved to modular parent_set/ package
+    
+    # Note: Simple training utilities moved to tests/examples/
+    
+    # Data utilities (Phase 1.3)
+    "target_aware_standardize_default",
+    "target_aware_get_x",
+    "target_aware_get_train_x",
     
     # Type aliases
     "SampleList",

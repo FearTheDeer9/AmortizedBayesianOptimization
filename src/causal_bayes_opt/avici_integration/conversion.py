@@ -182,9 +182,9 @@ def create_training_batch(
         }
     }
     
-    logger.info(
-        f"Created training batch: {len(samples)} samples, {n_vars} variables, "
-        f"target='{target_variable}', standardized={standardize}"
-    )
+    # logger.info(
+    #     f"Created training batch: {len(samples)} samples, {n_vars} variables, "
+    #     f"target='{target_variable}', standardized={standardize}"
+    # )
     
     return batch

@@ -1,95 +1,89 @@
 """
-AVICI Integration Module
+AVICI Integration Module - Clean Public API
 
-This module provides the data format bridge between our functional SCM implementation
-and AVICI's neural network architecture. It enables target-aware causal discovery
-by extending AVICI's input format from [N, d, 2] to [N, d, 3] with target conditioning.
-
-Key functionality:
-- Convert Sample objects to AVICI-compatible tensor format
-- Support target-aware learning with conditioning channel
-- Preserve all information during conversion
-- Provide validation and analysis utilities
-
-Main functions:
-- samples_to_avici_format: Core conversion function
-- create_training_batch: AVICI-compatible batch creation
-- validate_data_conversion: Information preservation validation
-- analyze_avici_data: Data analysis and debugging utilities
+Provides functional interface for converting SCM data to AVICI format.
 """
 
-# Import core conversion functions (main public API)
-from .conversion import (
-    samples_to_avici_format,
-    create_training_batch,
+# Main user-facing functions
+from .core.conversion import (
+    samples_to_avici_format_validated as samples_to_avici_format,
+    create_training_batch_validated as create_training_batch,
 )
 
-# Import key validation functions
-from .validation import (
-    validate_data_conversion,
+# Standardization utilities (for advanced users)
+from .core.standardization import (
+    compute_standardization_params,
+    apply_standardization,
+    reverse_standardization,
+    StandardizationType,
+    StandardizationParams,
 )
 
-# Import analysis and debugging utilities
-from .analysis import (
+# Validation (for advanced users)
+from .core.validation import (
+    validate_conversion_inputs,
+    validate_training_batch_inputs,
+    validate_avici_data_structure,
+    validate_training_batch_structure,
+)
+
+# Analysis utilities
+from .utils.analysis import (
     analyze_avici_data,
-    reconstruct_samples_from_avici_data,
-    get_variable_order_from_scm,
-    compare_data_conversions,
-    debug_sample_conversion,
+    compare_conversions,
+    compute_data_quality_metrics,
 )
 
-
-# Import data utilities (Phase 1.3)
-from .data_utils import (
-    target_aware_standardize_default,
-    target_aware_get_x,
-    target_aware_get_train_x,
+# Parent set functionality (unchanged)
+from .parent_set import (
+    create_parent_set_model,
+    predict_parent_sets,
+    ParentSetPredictionModel,
+    compute_loss,
+    create_train_step,
 )
 
-# Import type aliases for user convenience
-from .conversion import (
-    SampleList,
-    VariableOrder,
-    AVICIDataBatch,
-)
+# Type aliases for user convenience
+from typing import List, Dict, Any
+import pyrsistent as pyr
+import jax.numpy as jnp
 
-# Module metadata
-__version__ = "0.1.0"
-__author__ = "Harel Lidar"
-__description__ = "AVICI Integration for Target-Aware Causal Discovery"
+SampleList = List[pyr.PMap]
+VariableOrder = List[str]
+AVICIDataBatch = Dict[str, Any]
 
-# Export all public functions
 __all__ = [
-    # Core conversion functions (most important)
+    # Main API (what most users will use)
     "samples_to_avici_format",
     "create_training_batch",
     
-    # Validation functions
-    "validate_data_conversion",
+    # Advanced standardization
+    "compute_standardization_params",
+    "apply_standardization", 
+    "reverse_standardization",
+    "StandardizationType",
+    "StandardizationParams",
     
-    # Analysis and debugging utilities
+    # Validation
+    "validate_conversion_inputs",
+    "validate_training_batch_inputs",
+    "validate_avici_data_structure",
+    "validate_training_batch_structure",
+    
+    # Analysis
     "analyze_avici_data",
-    "reconstruct_samples_from_avici_data", 
-    "get_variable_order_from_scm",
-    "compare_data_conversions",
-    "debug_sample_conversion",
+    "compare_conversions",
+    "compute_data_quality_metrics",
     
-    # Note: Target-aware model classes removed (deprecated in favor of modular architecture)
-    
-    # Note: Parent set classes moved to modular parent_set/ package
-    
-    # Note: Simple training utilities moved to tests/examples/
-    
-    # Data utilities (Phase 1.3)
-    "target_aware_standardize_default",
-    "target_aware_get_x",
-    "target_aware_get_train_x",
+    # Parent set model (unchanged API)
+    "create_parent_set_model", 
+    "predict_parent_sets",
+    "ParentSetPredictionModel",
+    "compute_loss",
+    "create_train_step",
     
     # Type aliases
     "SampleList",
-    "VariableOrder",
+    "VariableOrder", 
     "AVICIDataBatch",
 ]
-
-# Note: Internal modules (_helpers.py) are not exposed in __all__
-# Users should only import from the public API defined above

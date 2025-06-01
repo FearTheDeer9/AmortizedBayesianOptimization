@@ -26,14 +26,15 @@ import optax
 
 from causal_bayes_opt.experiments.test_scms import create_simple_test_scm
 from causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
-from causal_bayes_opt.avici_integration.conversion import create_training_batch
-from causal_bayes_opt.avici_integration.parent_set import (
+# Updated imports for new module structure
+from causal_bayes_opt.avici_integration import (
+    create_training_batch,
     create_parent_set_model,
     predict_parent_sets,
     compute_loss,
     create_train_step
 )
-from causal_bayes_opt.avici_integration.debug_utils import (
+from causal_bayes_opt.avici_integration.testing.debug_tools import (
     debug_parent_set_enumeration,
     debug_training_step,
     debug_logits_and_probabilities

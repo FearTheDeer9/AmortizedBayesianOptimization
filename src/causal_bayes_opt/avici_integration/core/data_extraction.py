@@ -1,31 +1,20 @@
-"""
-Internal helper functions for AVICI data format bridge.
+"""Pure data extraction functions."""
 
-This module contains private implementation details for data conversion.
-These functions should not be imported directly by users.
-"""
-
-# Standard library imports
-from typing import List
-
-# Third-party imports
 import jax.numpy as jnp
 import pyrsistent as pyr
+from typing import List
 
 # Type aliases
 SampleList = List[pyr.PMap]
 VariableOrder = List[str]
 
-# Constants
-EPSILON = 1e-8  # Small epsilon for numerical stability
 
-
-def _extract_values_matrix(
+def extract_values_matrix(
     samples: SampleList,
     variable_order: VariableOrder
 ) -> jnp.ndarray:
     """
-    Extract variable values from samples into a matrix.
+    Pure function: Extract values matrix [N, d] from samples.
     
     Args:
         samples: List of Sample objects
@@ -51,12 +40,12 @@ def _extract_values_matrix(
     return values_matrix
 
 
-def _extract_intervention_indicators(
+def extract_intervention_indicators(
     samples: SampleList,
     variable_order: VariableOrder
 ) -> jnp.ndarray:
     """
-    Extract intervention indicators from samples.
+    Pure function: Extract intervention indicators [N, d].
     
     Args:
         samples: List of Sample objects
@@ -85,13 +74,13 @@ def _extract_intervention_indicators(
     return intervention_matrix
 
 
-def _create_target_indicators(
+def create_target_indicators(
     target_variable: str,
     variable_order: VariableOrder,
     n_samples: int
 ) -> jnp.ndarray:
     """
-    Create target indicators matrix.
+    Pure function: Create target indicators [N, d].
     
     Args:
         target_variable: Name of target variable
@@ -114,45 +103,29 @@ def _create_target_indicators(
     return target_indicators
 
 
-def _standardize_values(
-    values: jnp.ndarray,
-    standardization_type: str = "default"
+def extract_ground_truth_adjacency(
+    scm: pyr.PMap,
+    variable_order: VariableOrder
 ) -> jnp.ndarray:
     """
-    Standardize variable values following AVICI's approach.
+    Pure function: Extract adjacency matrix from SCM.
     
     Args:
-        values: JAX array of shape [N, d] with variable values
-        standardization_type: Type of standardization ("default" or "count")
+        scm: The structural causal model
+        variable_order: Ordered list of variable names
         
     Returns:
-        Standardized values array of same shape
+        JAX array of shape [d, d] with adjacency matrix
+        (1 if edge exists from parent to child, 0 otherwise)
     """
-    if standardization_type == "default":
-        # Z-standardization: (x - mean) / std
-        mean = jnp.mean(values, axis=0, keepdims=True)
-        std = jnp.std(values, axis=0, keepdims=True)
-        
-        # Avoid division by zero
-        std = jnp.where(std == 0.0, 1.0, std)
-        
-        standardized = (values - mean) / std
-        
-    elif standardization_type == "count":
-        # Count-based standardization (simplified version of AVICI's approach)
-        # For now, just apply log transformation and then z-standardization
-        
-        # Apply log transformation (add small epsilon to avoid log(0))
-        log_values = jnp.log(values + EPSILON)
-        
-        # Then z-standardize
-        mean = jnp.mean(log_values, axis=0, keepdims=True)
-        std = jnp.std(log_values, axis=0, keepdims=True)
-        std = jnp.where(std == 0.0, 1.0, std)
-        
-        standardized = (log_values - mean) / std
-        
-    else:
-        raise ValueError(f"Unknown standardization type: {standardization_type}")
+    n_vars = len(variable_order)
+    g_matrix = jnp.zeros((n_vars, n_vars), dtype=jnp.float32)
     
-    return standardized
+    # Fill in ground truth edges from SCM
+    edges = scm['edges']
+    for parent, child in edges:
+        parent_idx = variable_order.index(parent)
+        child_idx = variable_order.index(child)
+        g_matrix = g_matrix.at[parent_idx, child_idx].set(1.0)
+    
+    return g_matrix

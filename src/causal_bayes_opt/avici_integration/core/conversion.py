@@ -204,3 +204,81 @@ def create_training_batch_validated(
     return create_avici_batch_from_components(
         x_data, g_matrix, target_variable, variable_order, is_count_data
     )
+
+
+def get_variable_order_from_scm(scm: pyr.PMap) -> VariableOrder:
+    """
+    Get a consistent variable ordering from an SCM.
+    
+    Args:
+        scm: The structural causal model
+        
+    Returns:
+        List of variable names in topological order if possible, otherwise sorted
+        
+    Note:
+        Uses topological sorting to respect causal dependencies when possible.
+        Falls back to alphabetical sorting if topological sort fails.
+    """
+    variables = scm['variables']
+    
+    # Handle different variable representations
+    if isinstance(variables, (set, frozenset, pyr.PSet)):
+        variables_set = set(variables)
+        # Try to get topological order if edges are available
+        if 'edges' in scm and scm['edges']:
+            try:
+                return _topological_sort(variables_set, scm['edges'])
+            except:
+                # Fall back to sorted order if topological sort fails
+                return sorted(variables_set)
+        else:
+            return sorted(variables_set)
+    elif isinstance(variables, (list, tuple)):
+        return list(variables)
+    else:
+        raise ValueError(f"SCM variables must be a set or list, got {type(variables)}")
+
+
+def _topological_sort(variables: set, edges: set) -> List[str]:
+    """
+    Simple topological sort implementation using Kahn's algorithm.
+    
+    Args:
+        variables: Set of variable names
+        edges: Set of (parent, child) edges
+        
+    Returns:
+        Topologically sorted variable list
+        
+    Raises:
+        ValueError: If graph has cycles
+    """
+    # Build adjacency list and in-degree count
+    adj_list = {var: [] for var in variables}
+    in_degree = {var: 0 for var in variables}
+    
+    for parent, child in edges:
+        if parent in variables and child in variables:
+            adj_list[parent].append(child)
+            in_degree[child] += 1
+    
+    # Kahn's algorithm
+    queue = [var for var in variables if in_degree[var] == 0]
+    result = []
+    
+    while queue:
+        # Sort queue for deterministic ordering
+        queue.sort()
+        var = queue.pop(0)
+        result.append(var)
+        
+        for neighbor in adj_list[var]:
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+    
+    if len(result) != len(variables):
+        raise ValueError("Graph has cycles - cannot compute topological order")
+    
+    return result

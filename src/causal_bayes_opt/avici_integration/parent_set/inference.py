@@ -6,23 +6,38 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 import optax
-from typing import Dict, List, FrozenSet
+from typing import Dict, List, FrozenSet, Optional
+
+from .posterior import ParentSetPosterior, create_parent_set_posterior
 
 
-def predict_parent_sets(net, params, x, variable_order, target_variable):
+def predict_parent_posterior(
+    net, params, x, variable_order, target_variable, metadata=None
+) -> ParentSetPosterior:
     """
-    Predict parent set probabilities.
+    Predict parent set posterior distribution.
+    
+    This is the main function for getting parent set predictions from the model.
+    Returns a structured ParentSetPosterior with rich analysis capabilities.
     
     Args:
         net: Transformed Haiku model
         params: Model parameters
-        x: Input data
+        x: Input data [N, d, 3]
         variable_order: Variable names in order
         target_variable: Target variable name
+        metadata: Optional metadata to include in posterior
         
     Returns:
-        Dictionary with parent sets and their probabilities
+        ParentSetPosterior object with probabilities and utilities
+        
+    Example:
+        >>> posterior = predict_parent_posterior(net, params, data, vars, 'Y')
+        >>> most_likely = posterior.top_k_sets[0][0]  # Most likely parent set
+        >>> summary = summarize_posterior(posterior)   # Rich analysis
+        >>> marginals = get_marginal_parent_probabilities(posterior, vars)
     """
+    # Get model output
     output = net.apply(
         params, random.PRNGKey(0), x, variable_order, target_variable, False
     )
@@ -30,12 +45,26 @@ def predict_parent_sets(net, params, x, variable_order, target_variable):
     # Convert logits to probabilities
     logits = output['parent_set_logits']
     probabilities = jax.nn.softmax(logits)
+    parent_sets = output['parent_sets'][:output['k']]
     
-    return {
-        'parent_sets': output['parent_sets'][:output['k']],
-        'probabilities': probabilities[:output['k']],
-        'k': output['k']
-    }
+    # Add model metadata
+    if metadata is None:
+        metadata = {}
+    
+    metadata.update({
+        'model_k': output['k'],
+        'all_variables': variable_order,
+        'prediction_method': 'ParentSetPredictionModel'
+    })
+    
+    # Create formal posterior
+    return create_parent_set_posterior(
+        target_variable=target_variable,
+        parent_sets=parent_sets,
+        probabilities=probabilities[:output['k']],
+        metadata=metadata
+    )
+
 
 def compute_loss(net, params, x, variable_order, target_variable, true_parent_set, is_training=True):
     """

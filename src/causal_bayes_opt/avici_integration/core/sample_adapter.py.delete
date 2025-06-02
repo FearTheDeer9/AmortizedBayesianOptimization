@@ -1,0 +1,63 @@
+"""
+Sample data structure compatibility layer.
+
+This adapter ensures our current Sample usage is compatible with the documented API.
+"""
+
+import pyrsistent as pyr
+from typing import Optional, Any
+
+def create_sample_from_legacy(
+    values: dict,
+    intervention_type: Optional[str] = None,
+    intervention_targets: Optional[set] = None,
+    metadata: Optional[dict] = None
+) -> pyr.PMap:
+    """
+    Create documented Sample format from our current usage.
+    
+    Args:
+        values: Variable values dictionary
+        intervention_type: Legacy intervention type 
+        intervention_targets: Legacy intervention targets
+        metadata: Additional metadata
+        
+    Returns:
+        Sample in documented format with intervention object
+    """
+    # Convert to documented format
+    if intervention_type is not None and intervention_targets:
+        # Create intervention object (simplified)
+        intervention = pyr.m(
+            type=intervention_type,
+            variables=pyr.s(*intervention_targets),
+            parameters=pyr.m()
+        )
+    else:
+        intervention = None
+        
+    return pyr.m(
+        values=pyr.m(**values),
+        intervention=intervention,
+        metadata=pyr.m(**(metadata or {}))
+    )
+
+def extract_legacy_format(sample: pyr.PMap) -> tuple[Optional[str], set]:
+    """
+    Extract legacy format from documented Sample for backward compatibility.
+    
+    Args:
+        sample: Sample in documented format
+        
+    Returns:
+        Tuple of (intervention_type, intervention_targets)
+    """
+    intervention = sample.get('intervention')
+    if intervention is not None:
+        intervention_type = intervention['type']
+        intervention_targets = set(intervention['variables'])
+    else:
+        intervention_type = None
+        intervention_targets = set()
+        
+    return intervention_type, intervention_targets

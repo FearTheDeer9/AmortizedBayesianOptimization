@@ -22,12 +22,22 @@ from .scm import (
 
 from .sample import (
     create_sample,
+    create_observational_sample,
+    create_interventional_sample,
+    create_perfect_intervention_sample,
     get_values,
     get_interventional_samples,
     get_observational_samples,
     get_metadata,
     is_observational,
     is_interventional,
+)
+
+from .buffer import (
+    ExperienceBuffer,
+    BufferStatistics,
+    create_empty_buffer,
+    create_buffer_from_samples,
 )
 
 __all__ = [
@@ -47,10 +57,19 @@ __all__ = [
     
     # Sample functions
     'create_sample',
+    'create_observational_sample',
+    'create_interventional_sample',
+    'create_perfect_intervention_sample',
     'get_values',
     'get_interventional_samples',
     'get_observational_samples',
     'get_metadata',
     'is_observational',
     'is_interventional',
+    
+    # Buffer classes and functions
+    'ExperienceBuffer',
+    'BufferStatistics',
+    'create_empty_buffer',
+    'create_buffer_from_samples',
 ]

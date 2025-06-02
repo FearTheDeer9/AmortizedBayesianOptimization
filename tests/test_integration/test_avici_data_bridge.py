@@ -9,15 +9,11 @@ import jax.numpy as jnp
 import jax.random as random
 import pyrsistent as pyr
 
-from causal_bayes_opt.avici_integration.conversion import (
+from causal_bayes_opt.avici_integration import (
     samples_to_avici_format,
     create_training_batch,
-)
-from causal_bayes_opt.avici_integration.validation import (
-    validate_data_conversion
-)
-from causal_bayes_opt.avici_integration.analysis import (
-    analyze_avici_data
+    validate_data_conversion,
+    analyze_avici_data,
 )
 from causal_bayes_opt.experiments.test_scms import create_simple_test_scm
 from causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
@@ -378,14 +374,14 @@ class TestIntegrationWithSCM:
         
         analysis = analyze_avici_data(avici_data, variable_order)
         
-        assert analysis['n_samples'] == 30
-        assert analysis['n_variables'] == 3
-        assert analysis['variable_order'] == variable_order
-        assert analysis['target_stats']['target_variable'] == test_scm['target']
+        assert analysis["structure"]['n_samples'] == 30
+        assert analysis["structure"]['n_variables'] == 3
+        assert analysis["structure"]['variable_order'] == variable_order
+        assert analysis['targets']['target_variable'] == test_scm['target']
         
         # For observational data, no interventions
-        assert analysis['intervention_stats']['total_interventions'] == 0
-        assert analysis['intervention_stats']['samples_with_interventions'] == 0
+        assert analysis['interventions']['total_interventions'] == 0
+        assert analysis['interventions']['samples_with_interventions'] == 0
 
 
 @pytest.mark.integration

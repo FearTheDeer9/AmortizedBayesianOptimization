@@ -88,7 +88,7 @@ def analyze_avici_data(
     }
 
 
-def compare_conversions(
+def compare_data_conversions(
     conversion1: jnp.ndarray,
     conversion2: jnp.ndarray,
     variable_order: VariableOrder,
@@ -302,3 +302,107 @@ def _compute_overall_quality_score(
     total_weight += 0.3
     
     return score / total_weight if total_weight > 0 else 0.0
+
+
+def reconstruct_samples_from_avici_data(
+    avici_data: jnp.ndarray,
+    variable_order: VariableOrder,
+    unstandardize: bool = False,
+    standardization_params: Optional[Dict] = None
+) -> SampleList:
+    """
+    Reconstruct Sample objects from AVICI data format.
+    
+    This function is primarily for analysis, debugging, and validation purposes.
+    It converts AVICI data tensor back to the original Sample format.
+    
+    Args:
+        avici_data: AVICI data tensor [N, d, 3]
+        variable_order: Variable order used in original conversion
+        unstandardize: Whether to reverse standardization (requires standardization_params)
+        standardization_params: Parameters used for original standardization
+        
+    Returns:
+        List of reconstructed Sample objects
+        
+    Raises:
+        ValueError: If unstandardize=True but no standardization_params provided
+    """
+    if unstandardize and standardization_params is None:
+        raise ValueError("standardization_params required when unstandardize=True")
+    
+    n_samples, n_vars, _ = avici_data.shape
+    
+    # Extract channels
+    values = avici_data[:, :, 0]  # [N, d]
+    interventions = avici_data[:, :, 1]  # [N, d]
+    targets = avici_data[:, :, 2]  # [N, d]
+    
+    # Reverse standardization if requested
+    if unstandardize and standardization_params:
+        values = _reverse_standardization(values, standardization_params)
+    
+    # Reconstruct samples
+    samples = []
+    
+    for i in range(n_samples):
+        # Extract variable values for this sample
+        sample_values = {}
+        for j, var_name in enumerate(variable_order):
+            sample_values[var_name] = float(values[i, j])
+        
+        # Determine intervention information
+        intervention_indicators = interventions[i, :]
+        intervened_variables = {
+            variable_order[j] for j in range(n_vars)
+            if intervention_indicators[j] > 0.5  # Use 0.5 threshold for binary detection
+        }
+        
+        # Determine intervention type and targets
+        if len(intervened_variables) == 0:
+            intervention_type = None
+            intervention_targets = pyr.pset()
+        else:
+            intervention_type = "intervention"  # Generic type since we can't determine specifics
+            intervention_targets = pyr.pset(intervened_variables)
+        
+        # Create sample object
+        sample = pyr.pmap({
+            'values': pyr.pmap(sample_values),
+            'intervention_type': intervention_type,
+            'intervention_targets': intervention_targets,
+            'metadata': pyr.pmap({
+                'reconstructed_from_avici': True,
+                'original_sample_index': i
+            })
+        })
+        
+        samples.append(sample)
+    
+    return samples
+
+
+def _reverse_standardization(
+    standardized_values: jnp.ndarray,
+    standardization_params: Dict
+) -> jnp.ndarray:
+    """
+    Reverse standardization using stored parameters.
+    
+    Args:
+        standardized_values: Standardized data [N, d]
+        standardization_params: Parameters from original standardization
+        
+    Returns:
+        Original scale data [N, d]
+    """
+    if 'means' in standardization_params and 'stds' in standardization_params:
+        means = jnp.array(standardization_params['means'])
+        stds = jnp.array(standardization_params['stds'])
+        return standardized_values * stds + means
+    elif 'scale_factor' in standardization_params:
+        # For simple scaling
+        return standardized_values * standardization_params['scale_factor']
+    else:
+        # No standardization parameters available, return as-is
+        return standardized_values

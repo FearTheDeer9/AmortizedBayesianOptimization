@@ -5,7 +5,8 @@ from .conversion import (
     samples_to_avici_format_validated,
     create_training_batch_validated,
     samples_to_avici_format,
-    create_avici_batch_from_components
+    create_avici_batch_from_components,
+    get_variable_order_from_scm
 )
 
 # Export validation functions
@@ -13,7 +14,8 @@ from .validation import (
     validate_conversion_inputs,
     validate_training_batch_inputs,
     validate_avici_data_structure,
-    validate_training_batch_structure
+    validate_training_batch_structure,
+    validate_data_conversion
 )
 
 # Export standardization utilities

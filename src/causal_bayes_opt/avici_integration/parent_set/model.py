@@ -20,7 +20,7 @@ class ParentSetPredictionModel(hk.Module):
     """
     Model that predicts top-k parent sets for a target variable.
     
-    IMPROVED: Uses MLP for scoring instead of simple dot product.
+    Uses MLP for scoring instead of simple dot product.
     """
     
     def __init__(self,
@@ -85,14 +85,14 @@ class ParentSetPredictionModel(hk.Module):
     @hk.transparent  
     def _score_parent_set(self, target_embedding, parent_set_embedding, dropout_rate):
         """
-        IMPROVED: Use MLP to score target-parent compatibility instead of dot product.
+        Use MLP to score target-parent compatibility instead of dot product.
         
         This gives the model more expressive power to learn complex relationships.
         """
         # Concatenate target and parent set embeddings
         combined = jnp.concatenate([target_embedding, parent_set_embedding], axis=-1)
         
-        # MLP to compute compatibility score - apply dropout correctly
+        # MLP to compute compatibility score - apply dropout 
         # First layer
         x = hk.Linear(self.dim, w_init=self.w_init)(combined)
         x = jax.nn.relu(x)

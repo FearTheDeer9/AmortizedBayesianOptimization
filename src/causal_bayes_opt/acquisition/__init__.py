@@ -34,6 +34,14 @@ from .policy import (
     validate_policy_output,
 )
 
+from .rewards import (
+    RewardComponents,
+    compute_verifiable_reward,
+    analyze_reward_trends,
+    validate_reward_config,
+    create_default_reward_config,
+)
+
 __all__ = [
     # Core state representation
     'AcquisitionState',
@@ -62,4 +70,11 @@ __all__ = [
     'compute_policy_entropy',
     'analyze_policy_output',
     'validate_policy_output',
+    
+    # Multi-component verifiable rewards
+    'RewardComponents',
+    'compute_verifiable_reward',
+    'analyze_reward_trends',
+    'validate_reward_config',
+    'create_default_reward_config',
 ]

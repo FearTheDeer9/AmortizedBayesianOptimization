@@ -1019,10 +1019,9 @@ testing = ["fields", "hunter", "process-tests", "pytest-xdist", "virtualenv"]
 name = "ruff"
 version = "0.11.12"
 description = "An extremely fast Python linter and code formatter, written in Rust."
-optional = true
+optional = false
 python-versions = ">=3.7"
-groups = ["main"]
-markers = "extra == \"dev\""
+groups = ["main", "dev"]
 files = [
     {file = "ruff-0.11.12-py3-none-linux_armv6l.whl", hash = "sha256:c7680aa2f0d4c4f43353d1e72123955c7a2159b8646cd43402de6d4a3a25d7cc"},
     {file = "ruff-0.11.12-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:2cad64843da9f134565c20bcc430642de897b8ea02e2e79e6e02a76b8dcad7c3"},
@@ -1298,4 +1297,4 @@ test = ["hypothesis", "pytest", "pytest-cov"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9"
-content-hash = "99320910cb855eaf17fd633aa94d304d8ebfbd47af820b6995f68a0aaa4ace6c"
+content-hash = "095fae22016d46d8680f6dff742bd612d5509f426be51839abbc449d6a78d8be"

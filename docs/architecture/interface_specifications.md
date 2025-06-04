@@ -1,85 +1,150 @@
-# ACBO Key Interface Specifications
+# Causal Bayes Opt Interface Specifications
 
 ## Core Data Structures
 
+All core data structures use **pyrsistent** for immutability and functional programming patterns.
+
 ### SCM (Structural Causal Model)
 ```python
-from dataclasses import dataclass
-from typing import FrozenSet, Mapping, Callable, Any
 import pyrsistent as pyr
+from typing import FrozenSet, Dict, Callable, Any
 
-@dataclass(frozen=True)
-class SCM:
-    """Immutable representation of a Structural Causal Model."""
-    variables: FrozenSet[str]
-    edges: FrozenSet[tuple[str, str]]  # (parent, child) pairs
-    target: str
-    mechanisms: pyr.PMap[str, Callable]  # variable -> mechanism function
-    
-    def __post_init__(self):
-        """Validates SCM consistency (no cycles, valid target, etc.)"""
+# SCM is a pyrsistent PMap with these keys:
+SCM = pyr.PMap[str, Any]
+
+def create_scm(
+    variables: FrozenSet[str],
+    edges: FrozenSet[tuple[str, str]], 
+    target: str,
+    mechanisms: Dict[str, Callable],
+    mechanism_names: Dict[str, str] = None
+) -> SCM:
+    """Factory function for creating validated SCMs."""
+
+# SCM structure:
+# {
+#   'variables': frozenset of variable names,
+#   'edges': frozenset of (parent, child) tuples,
+#   'target': str target variable name,
+#   'mechanisms': dict mapping variables to mechanism functions,
+#   'mechanism_names': dict mapping variables to mechanism type names
+# }
 ```
 
 ### Sample
 ```python
-@dataclass(frozen=True)
-class Sample:
-    """Immutable representation of variable assignments."""
-    values: pyr.PMap[str, Any]  # variable -> value
-    intervention: 'Intervention | None' = None
-    metadata: pyr.PMap[str, Any] = pyr.m()  # timestamp, noise_seed, etc.
+# Sample is a pyrsistent PMap with these keys:
+Sample = pyr.PMap[str, Any]
+
+def create_sample(
+    values: Dict[str, Any],
+    intervention_type: str = "observational",
+    intervention_targets: FrozenSet[str] = frozenset(),
+    metadata: Dict[str, Any] = None
+) -> Sample:
+    """Factory function for creating samples."""
+
+# Sample structure:
+# {
+#   'values': pyr.pmap of variable -> value,
+#   'intervention_type': str ("observational", "perfect", etc.),
+#   'intervention_targets': frozenset of intervened variables,
+#   'metadata': pyr.pmap of additional info
+# }
 ```
 
-### Intervention
+### Interventions
 ```python
-@dataclass(frozen=True)
-class Intervention:
-    """Immutable intervention specification."""
-    type: str  # "perfect", "imperfect", "soft"
-    variables: FrozenSet[str]
-    parameters: pyr.PMap[str, Any]  # type-specific parameters
-    
-    def apply(self, scm: SCM) -> SCM:
-        """Apply intervention to SCM using registry pattern."""
+# Interventions are pyrsistent PMaps, no dedicated class
+Intervention = pyr.PMap[str, Any]
+
+def create_3_intervention(
+    targets: FrozenSet[str],
+    values: Dict[str, float],
+    metadata: Dict[str, Any] = None
+) -> Intervention:
+    """Create perfect intervention specification."""
+
+def apply_intervention(scm: SCM, intervention: Intervention) -> SCM:
+    """Apply intervention to SCM using registry pattern."""
+
+# Registry for intervention handlers
+@register_intervention_handler("perfect")
+def handle_perfect_intervention(scm: SCM, intervention: Intervention) -> SCM:
+    """Handler for perfect interventions."""
 ```
 
 ### ExperienceBuffer
 ```python
+from dataclasses import dataclass
+
+@dataclass
+class BufferStatistics:
+    """Statistics computed from buffer contents."""
+    total_samples: int
+    observational_count: int
+    interventional_count: int
+    unique_intervention_targets: FrozenSet[str]
+    intervention_types: Dict[str, int]
+
 class ExperienceBuffer:
-    """Mutable, append-only buffer for storing intervention-outcome pairs."""
+    """Mutable, performance-optimized buffer with sophisticated indexing."""
     
     def __init__(self):
-        self._observations: list[Sample] = []
-        self._interventions: list[tuple[Intervention, Sample]] = []
-        self._indices = {}  # for fast querying
+        # Core storage
+        self._samples: List[Sample] = []
+        
+        # Performance indices
+        self._obs_by_variables: Dict[FrozenSet[str], List[int]] = {}
+        self._int_by_targets: Dict[FrozenSet[str], List[int]] = {}
+        self._int_by_type: Dict[str, List[int]] = {}
+        
+        # Statistics cache
+        self._stats: Optional[BufferStatistics] = None
     
-    def add_observation(self, sample: Sample) -> None:
-        """Add observational data."""
+    def add_sample(self, sample: Sample) -> None:
+        """Add sample and update indices."""
     
-    def add_intervention(self, intervention: Intervention, outcome: Sample) -> None:
-        """Add interventional data."""
+    def get_samples(self) -> List[Sample]:
+        """Get all samples."""
     
-    def get_observations(self) -> list[Sample]:
-        """Get all observational samples."""
+    def filter_by_variables(self, variables: FrozenSet[str]) -> List[Sample]:
+        """Get samples containing specified variables."""
     
-    def get_interventions(self) -> list[tuple[Intervention, Sample]]:
-        """Get all intervention-outcome pairs."""
+    def filter_interventions_by_targets(self, targets: FrozenSet[str]) -> List[Sample]:
+        """Get interventional samples targeting specified variables."""
     
-    def filter_by_variables(self, variables: FrozenSet[str]) -> 'ExperienceBuffer':
-        """Create filtered view of buffer."""
+    def get_statistics(self) -> BufferStatistics:
+        """Get cached buffer statistics."""
+    
+    def sample_batch(self, size: int, intervention_ratio: float = 0.5) -> List[Sample]:
+        """Sample balanced batch of observations and interventions."""
 ```
 
-## Core Module Interfaces
+## Actual Module Interfaces
 
-### acbo.core.scm
+### data_structures.scm
 ```python
 def create_scm(
     variables: FrozenSet[str],
     edges: FrozenSet[tuple[str, str]], 
     target: str,
-    mechanisms: Mapping[str, Callable]
+    mechanisms: Dict[str, Callable],
+    mechanism_names: Dict[str, str] = None
 ) -> SCM:
     """Factory function for creating validated SCMs."""
+
+def get_variables(scm: SCM) -> FrozenSet[str]:
+    """Get all variables in SCM."""
+
+def get_edges(scm: SCM) -> FrozenSet[tuple[str, str]]:
+    """Get all edges in SCM."""
+
+def get_target(scm: SCM) -> str:
+    """Get target variable."""
+
+def get_mechanisms(scm: SCM) -> Dict[str, Callable]:
+    """Get mechanism functions."""
 
 def get_parents(scm: SCM, variable: str) -> FrozenSet[str]:
     """Get parent variables of a node."""
@@ -87,290 +152,234 @@ def get_parents(scm: SCM, variable: str) -> FrozenSet[str]:
 def get_children(scm: SCM, variable: str) -> FrozenSet[str]:
     """Get child variables of a node."""
 
-def get_ancestors(scm: SCM, variable: str) -> FrozenSet[str]:
-    """Get all ancestor variables of a node."""
-
-def get_descendants(scm: SCM, variable: str) -> FrozenSet[str]:
-    """Get all descendant variables of a node."""
-
-def topological_order(scm: SCM) -> list[str]:
+def topological_sort(scm: SCM) -> List[str]:
     """Get topologically sorted variable ordering."""
 
-def validate_scm(scm: SCM) -> list[str]:
-    """Validate SCM consistency, return list of issues."""
+def validate_scm(scm: SCM) -> None:
+    """Validate SCM consistency, raises ValueError if invalid."""
 ```
 
-### acbo.core.intervention
+### interventions.registry
 ```python
 # Intervention registry
 InterventionHandler = Callable[[SCM, Intervention], SCM]
-_intervention_registry: dict[str, InterventionHandler] = {}
 
-def register_intervention_handler(intervention_type: str, handler: InterventionHandler) -> None:
-    """Register handler for intervention type."""
+def register_intervention_handler(intervention_type: str):
+    """Decorator to register intervention handler."""
 
 def apply_intervention(scm: SCM, intervention: Intervention) -> SCM:
     """Apply intervention using registered handler."""
 
-# Factory functions
-def perfect_intervention(variables: FrozenSet[str], values: Mapping[str, Any]) -> Intervention:
-    """Create perfect intervention."""
-
-def soft_intervention(variable: str, strength: float, target_value: Any) -> Intervention:
-    """Create soft intervention."""
-
-def imperfect_intervention(
-    variable: str, 
-    noise_scale: float, 
-    target_value: Any
+def create_perfect_intervention(
+    targets: FrozenSet[str],
+    values: Dict[str, float],
+    metadata: Dict[str, Any] = None
 ) -> Intervention:
-    """Create imperfect intervention."""
+    """Create perfect intervention specification."""
 ```
 
-## Mechanisms Module Interfaces
-
-### acbo.mechanisms.factories
+### mechanisms.base
 ```python
-def linear_mechanism(
-    coefficients: Mapping[str, float],
+from abc import ABC, abstractmethod
+
+class Mechanism(ABC):
+    """Base class for all causal mechanisms."""
+    
+    @abstractmethod
+    def sample(self, parent_values: Dict[str, float], key: jax.Array) -> float:
+        """Sample from mechanism given parent values and random key."""
+```
+
+### mechanisms.linear
+```python
+class LinearMechanism(Mechanism):
+    """Linear mechanism: Y = sum(coef * parent) + intercept + noise."""
+    
+    def __init__(
+        self,
+        parents: List[str],
+        coefficients: Dict[str, float],
+        intercept: float = 0.0,
+        noise_scale: float = 1.0
+    ):
+        """Initialize linear mechanism."""
+    
+    def sample(self, parent_values: Dict[str, float], key: jax.Array) -> float:
+        """Sample from linear mechanism."""
+
+def create_linear_mechanism(
+    parents: List[str],
+    coefficients: Dict[str, float],
     intercept: float = 0.0,
     noise_scale: float = 1.0
-) -> Callable:
-    """Create linear mechanism: Y = sum(coef * X) + intercept + noise."""
-
-def nonlinear_mechanism(
-    function: Callable[[Mapping[str, Any]], float],
-    noise_scale: float = 1.0
-) -> Callable:
-    """Create nonlinear mechanism with custom function."""
-
-def polynomial_mechanism(
-    variable: str,
-    degree: int,
-    coefficients: list[float],
-    noise_scale: float = 1.0
-) -> Callable:
-    """Create polynomial mechanism."""
+) -> LinearMechanism:
+    """Factory for linear mechanisms."""
 ```
 
-## Sampling Module Interfaces
-
-### acbo.sampling.observational
-```python
-def sample_from_scm(scm: SCM, num_samples: int = 1, seed: int | None = None) -> list[Sample]:
-    """Generate observational samples from SCM."""
-
-def sample_single(scm: SCM, seed: int | None = None) -> Sample:
-    """Generate single observational sample."""
-```
-
-### acbo.sampling.interventional
+### environments.sampling
 ```python
 def sample_with_intervention(
-    scm: SCM, 
-    intervention: Intervention, 
-    num_samples: int = 1,
-    seed: int | None = None
-) -> list[Sample]:
-    """Generate samples under intervention."""
-```
-
-### acbo.sampling.batch
-```python
-def generate_observational_batch(
     scm: SCM,
-    batch_size: int,
-    seed: int | None = None
-) -> list[Sample]:
-    """Generate batch of observational data."""
+    intervention: Intervention,
+    n_samples: int = 1,
+    key: jax.Array = None
+) -> List[Sample]:
+    """Sample from SCM under intervention."""
 
-def generate_intervention_batch(
+def sample_observational(
     scm: SCM,
-    interventions: list[Intervention],
-    samples_per_intervention: int,
-    seed: int | None = None
-) -> list[tuple[Intervention, list[Sample]]]:
-    """Generate batch of interventional data."""
+    n_samples: int = 1,
+    key: jax.Array = None
+) -> List[Sample]:
+    """Sample observational data from SCM."""
+
+def generate_mixed_dataset(
+    scm: SCM,
+    n_observational: int,
+    n_interventional: int,
+    intervention_targets: List[str] = None,
+    key: jax.Array = None
+) -> List[Sample]:
+    """Generate mixed observational/interventional dataset."""
 ```
 
-## Surrogate Model Interfaces
-
-### acbo.surrogate.posterior
+### avici_integration.core.conversion
 ```python
-@dataclass(frozen=True)
-class ParentSetPosterior:
-    """Immutable posterior over parent sets."""
-    target_variable: str
-    posterior_probs: pyr.PMap[FrozenSet[str], float]  # parent_set -> probability
-    uncertainty: float
-    metadata: pyr.PMap[str, Any] = pyr.m()
+def samples_to_avici_data(
+    samples: List[Sample],
+    variable_order: List[str],
+    target_variable: str = None
+) -> jnp.ndarray:
+    """Convert samples to AVICI format [N, d, 3]."""
 
-def get_most_likely_parents(posterior: ParentSetPosterior, top_k: int = 1) -> list[FrozenSet[str]]:
-    """Get top-k most likely parent sets."""
+def standardize_avici_data(data: jnp.ndarray) -> jnp.ndarray:
+    """Standardize AVICI data format."""
 
-def compute_uncertainty(posterior: ParentSetPosterior) -> float:
-    """Compute entropy-based uncertainty measure."""
+def validate_avici_data(data: jnp.ndarray, variable_order: List[str]) -> None:
+    """Validate AVICI data format and consistency."""
 ```
 
-### acbo.surrogate.encoding
+### avici_integration.parent_set.model
 ```python
-def encode_data(buffer: ExperienceBuffer, config: pyr.PMap) -> tuple[Any, pyr.PMap]:
-    """Encode buffer data for neural network input."""
+class ParentSetPredictionModel:
+    """Neural network for predicting parent set posteriors."""
+    
+    def __init__(
+        self,
+        n_vars: int,
+        max_parents: int = 5,
+        hidden_dim: int = 128,
+        n_layers: int = 8
+    ):
+        """Initialize parent set model."""
+    
+    def predict_posterior(
+        self,
+        data: jnp.ndarray,
+        target_idx: int
+    ) -> jnp.ndarray:
+        """Predict parent set posterior for target variable."""
 
-def decode_posterior(
-    encoded_output: Any, 
-    metadata: pyr.PMap, 
-    target: str
-) -> ParentSetPosterior:
-    """Decode neural network output to posterior."""
+    def train_step(
+        self,
+        data: jnp.ndarray,
+        targets: jnp.ndarray,
+        learning_rate: float = 1e-3
+    ) -> Dict[str, float]:
+        """Single training step."""
 ```
 
-### acbo.surrogate.avici_adapter
+### acquisition.state
 ```python
-def initialize_surrogate_model(
-    buffer: ExperienceBuffer,
-    target: str,
-    config: pyr.PMap
-) -> Any:  # PyTorch model
-    """Initialize AVICI-based surrogate model."""
+@dataclass
+class AcquisitionState:
+    """Rich state representation for acquisition decisions."""
+    
+    parent_posterior: jnp.ndarray
+    buffer_statistics: BufferStatistics
+    optimization_target: str
+    best_target_value: float
+    intervention_history: List[Sample]
+    uncertainty_bits: float
+    marginal_parent_probs: Dict[str, float]
+    
+    def get_optimization_progress(self) -> float:
+        """Compute optimization progress metric."""
+    
+    def get_exploration_coverage(self) -> float:
+        """Compute exploration coverage metric."""
+    
+    def summary(self) -> Dict[str, Any]:
+        """Get state summary for logging."""
 
-def update_surrogate_model(
-    model: Any,
-    buffer: ExperienceBuffer,
-    learning_rate: float,
-    num_epochs: int
-) -> Any:
-    """Update surrogate model with new data."""
+def create_acquisition_state(
+    samples: List[Sample],
+    parent_posterior: jnp.ndarray,
+    target_variable: str,
+    variable_order: List[str]
+) -> AcquisitionState:
+    """Factory for acquisition state."""
 ```
 
-## Acquisition Model Interfaces
-
-### acbo.acquisition.policy
-```python
-@dataclass(frozen=True)
-class State:
-    """Immutable state representation for RL."""
-    posterior: ParentSetPosterior
-    buffer: ExperienceBuffer
-    best_value: float
-    metadata: pyr.PMap[str, Any] = pyr.m()
-
-def initialize_policy_network(state_dim: int, action_dim: int, config: pyr.PMap) -> Any:
-    """Initialize policy network."""
-
-def select_intervention(
-    state: State, 
-    policy_network: Any, 
-    exploration_rate: float = 0.1
-) -> Intervention:
-    """Select intervention using policy network."""
-```
-
-### acbo.acquisition.rewards
+### acquisition.rewards
 ```python
 def compute_reward(
-    state: State,
+    state: AcquisitionState,
     intervention: Intervention,
     outcome: Sample,
-    next_posterior: ParentSetPosterior,
-    config: pyr.PMap
+    next_state: AcquisitionState,
+    alpha: float = 0.5
 ) -> float:
-    """Compute verifiable reward combining optimization and structure discovery."""
+    """Compute multi-objective verifiable reward."""
+
+def structure_learning_reward(
+    current_posterior: jnp.ndarray,
+    next_posterior: jnp.ndarray
+) -> float:
+    """Information gain reward for structure learning."""
 
 def optimization_reward(
-    state: State, 
-    outcome: Sample, 
-    target: str
+    current_best: float,
+    outcome_value: float,
+    target_variable: str
 ) -> float:
-    """Reward based on target variable improvement."""
-
-def structure_discovery_reward(
-    current_posterior: ParentSetPosterior,
-    next_posterior: ParentSetPosterior
-) -> float:
-    """Reward based on information gain in structure."""
+    """Reward for target optimization."""
 ```
 
-### acbo.acquisition.grpo
+### acquisition.policy
 ```python
-def update_policy_grpo(
-    policy_network: Any,
-    trajectories: list[tuple[State, Intervention, float, State]],
-    group_size: int,
-    learning_rate: float,
-    kl_coeff: float
-) -> Any:
-    """Update policy using GRPO algorithm."""
-```
-
-## Training Module Interfaces
-
-### acbo.training.pipeline
-```python
-def initialize_models(
-    buffer: ExperienceBuffer,
-    target: str,
-    config: pyr.PMap,
-    seed: int = 42
-) -> tuple[Any, Any]:  # (surrogate_params, acquisition_params)
-    """Initialize both surrogate and acquisition models."""
-
-def training_step(
-    surrogate_model: Any,
-    acquisition_model: Any,
-    scm: SCM,
-    buffer: ExperienceBuffer,
-    config: pyr.PMap
-) -> tuple[Any, Any, ExperienceBuffer]:
-    """Single training step of the complete pipeline."""
-
-def train_system(
-    scm: SCM,
-    initial_buffer: ExperienceBuffer,
-    config: pyr.PMap,
-    num_steps: int
-) -> tuple[Any, Any, ExperienceBuffer]:
-    """Train complete ACBO system."""
-```
-
-## Evaluation Module Interfaces
-
-### acbo.evaluation.posterior_metrics
-```python
-def evaluate_posterior_accuracy(
-    posterior: ParentSetPosterior,
-    true_parents: FrozenSet[str]
-) -> pyr.PMap[str, float]:
-    """Evaluate posterior accuracy against ground truth."""
-
-def compute_calibration_metrics(
-    posteriors: list[ParentSetPosterior],
-    true_parent_sets: list[FrozenSet[str]]
-) -> pyr.PMap[str, float]:
-    """Compute calibration metrics for uncertainty quantification."""
-```
-
-### acbo.evaluation.optimization_metrics
-```python
-def evaluate_optimization_performance(
-    buffer: ExperienceBuffer,
-    target: str,
-    true_optimum: float | None = None
-) -> pyr.PMap[str, float]:
-    """Evaluate optimization performance metrics."""
+class AcquisitionPolicyNetwork:
+    """Neural network for intervention selection."""
+    
+    def __init__(
+        self,
+        n_vars: int,
+        hidden_dim: int = 128,
+        n_layers: int = 4
+    ):
+        """Initialize policy network."""
+    
+    def select_intervention(
+        self,
+        state: AcquisitionState,
+        exploration_rate: float = 0.1,
+        key: jax.Array = None
+    ) -> Intervention:
+        """Select intervention given current state."""
 ```
 
 ## Type Aliases and Constants
 
 ```python
-# Common type aliases
-VariableName = str
-EdgeSet = FrozenSet[tuple[str, str]]
-ParentSet = FrozenSet[str]
-VariableValue = float | int | str | bool
+# Core types
+SCM = pyr.PMap[str, Any]
+Sample = pyr.PMap[str, Any] 
+Intervention = pyr.PMap[str, Any]
 
-# Configuration schemas
-SurrogateConfig = pyr.PMap[str, Any]
-AcquisitionConfig = pyr.PMap[str, Any]
-TrainingConfig = pyr.PMap[str, Any]
+# Convenience aliases
+VariableName = str
+ParentSet = FrozenSet[str]
+VariableValue = float
+NodeId = str
+InterventionValue = float
 ```

@@ -78,3 +78,7 @@ include = '\.pyi?$'
 select = ["E", "F", "W", "I"]
 line-length = 100
 target-version = "py39"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.11.12"
+

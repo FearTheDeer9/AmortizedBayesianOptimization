@@ -1,171 +1,185 @@
-# ACBO Module Structure Diagram
+# Causal Bayes Opt Module Structure
 
-## Core Package Structure
+## Actual Package Structure
 
 ```
-acbo/
-├── core/                          # Core data structures and interfaces
+causal_bayes_opt/
+├── data_structures/               # Core data structures
 │   ├── __init__.py
-│   ├── scm.py                     # SCM representation and graph utilities
-│   ├── sample.py                  # Sample representation and utilities
-│   ├── intervention.py            # Intervention types and registry
-│   └── buffer.py                  # Experience buffer implementation
+│   ├── scm.py                     # Immutable SCM representation
+│   ├── sample.py                  # Sample dataclass
+│   └── buffer.py                  # Mutable experience buffer
 │
-├── mechanisms/                    # Mechanism framework
+├── mechanisms/                    # Causal mechanisms
 │   ├── __init__.py
-│   ├── factories.py              # Mechanism factory functions
-│   ├── linear.py                 # Linear mechanisms
-│   ├── nonlinear.py              # Nonlinear mechanisms
-│   └── noise.py                  # Noise generation utilities
+│   ├── base.py                    # Base mechanism interface
+│   └── linear.py                  # Linear mechanism implementation
 │
-├── sampling/                      # Sampling functionality
+├── interventions/                 # Intervention handling
 │   ├── __init__.py
-│   ├── observational.py          # Observational data sampling
-│   ├── interventional.py         # Interventional data sampling
-│   └── batch.py                  # Batch sampling utilities
+│   ├── handlers.py                # Intervention handler implementations
+│   └── registry.py                # Intervention registry pattern
 │
-├── surrogate/                     # Surrogate model (AVICI adaptation)
+├── environments/                  # SCM environment
 │   ├── __init__.py
-│   ├── gnn/                      # Graph neural network architectures
+│   └── sampling.py                # Sampling with/without interventions
+│
+├── avici_integration/             # AVICI model integration
+│   ├── __init__.py
+│   ├── core/                      # Core integration utilities
 │   │   ├── __init__.py
-│   │   ├── gat.py               # Graph Attention Networks
-│   │   ├── transformer.py       # Graph Transformers
-│   │   └── gated_gcn.py         # GatedGCN implementation
-│   ├── avici_adapter.py          # AVICI integration layer
-│   ├── posterior.py              # Posterior representation and utilities
-│   ├── encoding.py               # Data encoding for neural networks
-│   └── training.py               # Multi-loss training framework
+│   │   ├── conversion.py          # Sample to AVICI format conversion
+│   │   ├── data_extraction.py    # Extract data from samples
+│   │   ├── standardization.py    # Data standardization
+│   │   └── validation.py          # Data validation utilities
+│   ├── parent_set/                # Parent set prediction
+│   │   ├── __init__.py
+│   │   ├── model.py               # ParentSetPredictionModel
+│   │   ├── encoding.py            # Parent set encoding/decoding
+│   │   ├── enumeration.py         # Enumerate possible parent sets
+│   │   ├── inference.py           # Posterior inference
+│   │   └── posterior.py           # Posterior representation
+│   ├── testing/                   # Testing utilities
+│   │   ├── __init__.py
+│   │   └── debug_tools.py         # Debug and analysis tools
+│   └── utils/                     # Additional utilities
+│       ├── __init__.py
+│       └── analysis.py            # Data analysis functions
 │
-├── acquisition/                   # Acquisition model (RL with GRPO)
+├── acquisition/                   # Acquisition model (RL)
 │   ├── __init__.py
-│   ├── history_encoder.py        # Intervention history encoding
-│   ├── policy.py                 # Policy network implementation
-│   ├── rewards.py                # Verifiable reward system
-│   ├── grpo.py                   # GRPO algorithm implementation
-│   └── exploration.py            # Exploration strategies
+│   ├── policy.py                  # AcquisitionPolicyNetwork
+│   ├── state.py                   # AcquisitionState representation
+│   ├── rewards.py                 # Verifiable reward computation
+│   └── trajectory.py              # TrajectoryBuffer for RL
 │
-├── training/                      # Training infrastructure
-│   ├── __init__.py
-│   ├── curriculum.py             # Curriculum learning implementation
-│   ├── pipeline.py               # Multi-stage training pipeline
-│   ├── parent_scale.py           # PARENT_SCALE integration
-│   └── utils.py                  # Training utilities
-│
-├── evaluation/                    # Evaluation and metrics
-│   ├── __init__.py
-│   ├── posterior_metrics.py      # Posterior accuracy evaluation
-│   ├── optimization_metrics.py   # Optimization performance metrics
-│   ├── intervention_metrics.py   # Intervention quality assessment
-│   └── visualization.py          # Results visualization
-│
-└── utils/                         # General utilities
+└── experiments/                   # Experimental utilities
     ├── __init__.py
-    ├── validation.py             # Input validation functions
-    ├── logging.py                # Logging and debugging utilities
-    └── config.py                 # Configuration management
+    └── test_scms.py               # Pre-defined test SCMs
 ```
 
 ## Module Dependencies
 
 ```mermaid
 graph TD
-    %% Core dependencies
-    A[core/scm.py] --> B[core/sample.py]
-    A --> C[core/intervention.py] 
-    B --> D[core/buffer.py]
+    %% Data structure dependencies
+    SCM[data_structures/scm.py]
+    Sample[data_structures/sample.py]
+    Buffer[data_structures/buffer.py]
+    
+    Sample --> Buffer
+    SCM --> Sample
     
     %% Mechanism dependencies
-    E[mechanisms/factories.py] --> F[mechanisms/linear.py]
-    E --> G[mechanisms/nonlinear.py]
-    E --> H[mechanisms/noise.py]
-    A --> E
+    MechBase[mechanisms/base.py]
+    MechLinear[mechanisms/linear.py]
     
-    %% Sampling dependencies
-    I[sampling/observational.py] --> A
-    I --> E
-    J[sampling/interventional.py] --> A
-    J --> C
-    J --> E
-    K[sampling/batch.py] --> I
-    K --> J
+    MechLinear --> MechBase
+    SCM --> MechBase
     
-    %% Surrogate model dependencies
-    L[surrogate/encoding.py] --> D
-    M[surrogate/gnn/*] --> L
-    N[surrogate/avici_adapter.py] --> M
-    N --> L
-    O[surrogate/posterior.py] --> N
-    P[surrogate/training.py] --> O
-    P --> M
+    %% Intervention dependencies
+    IntHandlers[interventions/handlers.py]
+    IntRegistry[interventions/registry.py]
     
-    %% Acquisition model dependencies
-    Q[acquisition/history_encoder.py] --> D
-    R[acquisition/policy.py] --> Q
-    R --> O
-    S[acquisition/rewards.py] --> O
-    S --> D
-    T[acquisition/grpo.py] --> R
-    T --> S
-    U[acquisition/exploration.py] --> R
+    IntHandlers --> IntRegistry
+    IntHandlers --> Sample
     
-    %% Training dependencies
-    V[training/parent_scale.py] --> A
-    V --> K
-    W[training/curriculum.py] --> V
-    X[training/pipeline.py] --> P
-    X --> T
-    X --> W
+    %% Environment dependencies
+    Sampling[environments/sampling.py]
     
-    %% Evaluation dependencies
-    Y[evaluation/posterior_metrics.py] --> O
-    Z[evaluation/optimization_metrics.py] --> D
-    AA[evaluation/intervention_metrics.py] --> D
-    AA --> A
-    BB[evaluation/visualization.py] --> Y
-    BB --> Z
-    BB --> AA
+    Sampling --> SCM
+    Sampling --> Sample
+    Sampling --> IntHandlers
+    Sampling --> MechBase
+    
+    %% AVICI integration dependencies
+    Conversion[avici_integration/core/conversion.py]
+    DataExtract[avici_integration/core/data_extraction.py]
+    Standardize[avici_integration/core/standardization.py]
+    Validation[avici_integration/core/validation.py]
+    
+    Conversion --> DataExtract
+    Conversion --> Standardize
+    Conversion --> Validation
+    DataExtract --> Sample
+    
+    PSModel[avici_integration/parent_set/model.py]
+    PSEncoding[avici_integration/parent_set/encoding.py]
+    PSEnum[avici_integration/parent_set/enumeration.py]
+    PSInference[avici_integration/parent_set/inference.py]
+    PSPosterior[avici_integration/parent_set/posterior.py]
+    
+    PSModel --> PSEncoding
+    PSInference --> PSModel
+    PSInference --> PSEnum
+    PSInference --> PSPosterior
+    PSPosterior --> PSEncoding
+    
+    %% Acquisition dependencies
+    AcqPolicy[acquisition/policy.py]
+    AcqState[acquisition/state.py]
+    AcqRewards[acquisition/rewards.py]
+    AcqTraj[acquisition/trajectory.py]
+    
+    AcqPolicy --> AcqState
+    AcqRewards --> AcqState
+    AcqRewards --> PSPosterior
+    AcqTraj --> AcqState
+    AcqTraj --> Sample
+    
+    %% Experiments
+    TestSCMs[experiments/test_scms.py]
+    
+    TestSCMs --> SCM
+    TestSCMs --> MechLinear
 ```
 
 ## Key Design Principles per Module
 
-### Core Modules
-- **Immutable data structures** for SCM, Sample, Intervention
-- **Mutable performance-optimized** buffer with append-only operations
-- **Pure functions** for all data transformations
+### Data Structures
+- **Immutable SCM and Sample**: Using `pyrsistent` for thread-safety and predictability
+- **Mutable ExperienceBuffer**: Performance-optimized with append-only operations
+- **Pure functions** for all data transformations and queries
 
 ### Mechanisms
-- **Factory pattern** for mechanism creation
-- **Composable building blocks** for complex mechanisms
-- **Pure functions** with explicit noise handling
+- **Base class pattern** for extensibility
+- **Pure sampling functions** with explicit random key threading
+- **Composable** linear mechanisms with noise
 
-### Sampling
-- **Topological ordering** for causal consistency
-- **Batch processing** capabilities
-- **Intervention-aware** sampling logic
+### Interventions
+- **Registry pattern** for extensible intervention types
+- **Handler abstraction** for different intervention strategies
+- **Immutable intervention representations**
 
-### Surrogate Model
-- **Standard PyTorch** mutable parameters for neural networks
-- **Immutable configurations** and hyperparameters
-- **Pure functions** for data encoding/decoding
+### Environments
+- **Pure sampling functions** respecting causal order
+- **Intervention-aware** sampling with topological sorting
+- **Batch processing** support for efficiency
 
-### Acquisition Model
-- **Standard RL** mutable training state
-- **Immutable policy configurations**
-- **Pure functions** for reward computation
+### AVICI Integration
+- **Clean data bridge** between internal and AVICI formats
+- **Modular parent set handling** with enumeration and encoding
+- **JAX-based neural networks** following AVICI patterns
+- **Target-aware conditioning** throughout
 
-### Training
-- **Explicit state management** for training loops
-- **Immutable curriculum specifications**
-- **Efficient checkpointing** system
+### Acquisition
+- **State-based decision making** with rich context
+- **Verifiable rewards** without human feedback
+- **Trajectory buffer** for GRPO training
+- **Pure reward computation** functions
+
+### Experiments
+- **Pre-defined test cases** for consistent evaluation
+- **Variety of SCM structures** (chains, forks, colliders)
 
 ## Interface Contracts
 
 Each module exposes a clean interface through its `__init__.py`:
 
-- **Core**: SCM, Sample, Intervention, Buffer classes and their factories
-- **Mechanisms**: Mechanism factories and noise generators
-- **Sampling**: Sampling functions (observational, interventional, batch)
-- **Surrogate**: encode_data, decode_posterior, training utilities
-- **Acquisition**: Policy networks, GRPO algorithm, reward functions
-- **Training**: Training pipelines and curriculum learning
-- **Evaluation**: Metrics computation and visualization tools
+- **data_structures**: `create_scm()`, `create_sample()`, `ExperienceBuffer`
+- **mechanisms**: `Mechanism` base class, `create_linear_mechanism()`
+- **interventions**: `@register_intervention_handler`, `apply_intervention()`
+- **environments**: `sample_with_intervention()`, `generate_mixed_dataset()`
+- **avici_integration**: `samples_to_avici_data()`, `ParentSetPredictionModel`
+- **acquisition**: `AcquisitionPolicyNetwork`, `compute_rewards()`, `AcquisitionState`
+- **experiments**: Pre-configured test SCMs for evaluation

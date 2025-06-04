@@ -22,6 +22,18 @@ from .trajectory import (
     migrate_experience_to_trajectory_buffer,
 )
 
+from .policy import (
+    PolicyConfig,
+    AlternatingAttentionEncoder,
+    AcquisitionPolicyNetwork,
+    create_acquisition_policy,
+    sample_intervention_from_policy,
+    compute_action_log_probability,
+    compute_policy_entropy,
+    analyze_policy_output,
+    validate_policy_output,
+)
+
 __all__ = [
     # Core state representation
     'AcquisitionState',
@@ -39,4 +51,15 @@ __all__ = [
     'create_trajectory_buffer',
     'create_trajectory_step',
     'migrate_experience_to_trajectory_buffer',
+    
+    # Policy network with alternating attention
+    'PolicyConfig',
+    'AlternatingAttentionEncoder',
+    'AcquisitionPolicyNetwork',
+    'create_acquisition_policy',
+    'sample_intervention_from_policy',
+    'compute_action_log_probability',
+    'compute_policy_entropy',
+    'analyze_policy_output',
+    'validate_policy_output',
 ]

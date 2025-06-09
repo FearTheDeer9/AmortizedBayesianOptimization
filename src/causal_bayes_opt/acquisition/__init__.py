@@ -42,6 +42,28 @@ from .rewards import (
     create_default_reward_config,
 )
 
+from .grpo import (
+    GRPOConfig,
+    GRPOUpdate,
+    SampleReuseManager,
+    create_grpo_trainer,
+    collect_grpo_batch,
+    collect_grpo_batch_with_reuse,
+    create_grpo_batch_from_samples,
+    create_grpo_batch_from_buffer,
+    create_sample_reuse_manager,
+)
+
+from .exploration import (
+    ExplorationConfig,
+    UncertaintyGuidedExploration,
+    AdaptiveExploration,
+    create_exploration_strategy,
+    compute_exploration_value,
+    select_exploration_intervention,
+    balance_exploration_exploitation,
+)
+
 __all__ = [
     # Core state representation
     'AcquisitionState',
@@ -77,4 +99,24 @@ __all__ = [
     'analyze_reward_trends',
     'validate_reward_config',
     'create_default_reward_config',
+    
+    # GRPO algorithm for RL training (enhanced with open-r1 features)
+    'GRPOConfig',
+    'GRPOUpdate',
+    'SampleReuseManager',
+    'create_grpo_trainer',
+    'collect_grpo_batch',
+    'collect_grpo_batch_with_reuse',
+    'create_grpo_batch_from_samples',
+    'create_grpo_batch_from_buffer',
+    'create_sample_reuse_manager',
+    
+    # Exploration strategies
+    'ExplorationConfig',
+    'UncertaintyGuidedExploration',
+    'AdaptiveExploration',
+    'create_exploration_strategy',
+    'compute_exploration_value',
+    'select_exploration_intervention',
+    'balance_exploration_exploitation',
 ]

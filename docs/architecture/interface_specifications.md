@@ -368,6 +368,60 @@ class AcquisitionPolicyNetwork:
         """Select intervention given current state."""
 ```
 
+### acquisition.grpo ✅
+```python
+@dataclass
+class GRPOConfig:
+    """Configuration for GRPO algorithm following DeepSeek literature."""
+    group_size: int = 64
+    clip_ratio: float = 0.2
+    entropy_coeff: float = 0.01
+    kl_penalty_coeff: float = 0.1
+    max_grad_norm: float = 1.0
+    learning_rate: float = 3e-4
+
+@dataclass
+class GRPOUpdate:
+    """Results from a GRPO update step."""
+    policy_loss: float
+    entropy_loss: float
+    kl_penalty: float
+    total_loss: float
+    grad_norm: float
+    group_baseline: float
+    mean_reward: float
+    reward_std: float
+    mean_advantage: float
+    advantage_std: float
+    mean_entropy: float
+    approx_kl: float
+
+def create_grpo_trainer(
+    policy_network: Any,
+    config: GRPOConfig
+) -> Tuple[Callable, Callable]:
+    """Create GRPO training infrastructure."""
+
+def collect_grpo_batch(
+    policy_network: Any,
+    params: Any,
+    states: List[AcquisitionState],
+    scms: List[pyr.PMap],
+    surrogate_model: Any,
+    surrogate_params: Any,
+    config: GRPOConfig,
+    reward_config: pyr.PMap,
+    key: jax.Array
+) -> Dict[str, Any]:
+    """Collect batch of experience for GRPO training."""
+
+def create_grpo_batch_from_samples(
+    samples: List[Tuple[AcquisitionState, pyr.PMap, float, float]],
+    config: GRPOConfig
+) -> Dict[str, Any]:
+    """Create GRPO training batch from pre-collected samples."""
+```
+
 ## Type Aliases and Constants
 
 ```python

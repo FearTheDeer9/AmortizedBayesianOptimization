@@ -51,7 +51,8 @@ causal_bayes_opt/
 │   ├── policy.py                  # AcquisitionPolicyNetwork
 │   ├── state.py                   # AcquisitionState representation
 │   ├── rewards.py                 # Verifiable reward computation
-│   └── trajectory.py              # TrajectoryBuffer for RL
+│   ├── trajectory.py              # TrajectoryBuffer for RL
+│   └── grpo.py                    # GRPO algorithm implementation ✅
 │
 └── experiments/                   # Experimental utilities
     ├── __init__.py
@@ -120,12 +121,17 @@ graph TD
     AcqState[acquisition/state.py]
     AcqRewards[acquisition/rewards.py]
     AcqTraj[acquisition/trajectory.py]
+    AcqGRPO[acquisition/grpo.py]
     
     AcqPolicy --> AcqState
     AcqRewards --> AcqState
     AcqRewards --> PSPosterior
     AcqTraj --> AcqState
     AcqTraj --> Sample
+    AcqGRPO --> AcqPolicy
+    AcqGRPO --> AcqState
+    AcqGRPO --> AcqRewards
+    AcqGRPO --> AcqTraj
     
     %% Experiments
     TestSCMs[experiments/test_scms.py]
@@ -166,6 +172,9 @@ graph TD
 - **State-based decision making** with rich context
 - **Verifiable rewards** without human feedback
 - **Trajectory buffer** for GRPO training
+- **Pure GRPO implementation** following DeepSeek literature ✅
+- **Group-based advantages** with no value network
+- **Literature-compliant** KL divergence and normalization
 - **Pure reward computation** functions
 
 ### Experiments

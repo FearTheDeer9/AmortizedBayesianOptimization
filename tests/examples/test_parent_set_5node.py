@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Enhanced validation test showcasing ParentSetPosterior API.
+Enhanced validation test showcasing ParentSetPosterior API with a 5-node SCM.
 
 This test validates the complete parent set prediction system using the clean
-ParentSetPosterior API with rich analysis capabilities.
+ParentSetPosterior API with rich analysis capabilities on a more complex 5-node SCM.
 
-Tests the standard SCM: X → Y ← Z
+Tests the 5-node SCM: A → B → D ← E, A → C → D
 """
 
 import sys
@@ -21,7 +21,7 @@ import jax.numpy as jnp
 import jax.random as random
 import optax
 
-from causal_bayes_opt.experiments.test_scms import create_simple_test_scm
+from causal_bayes_opt.experiments.test_scms import create_simple_linear_scm
 from causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
 # Clean ParentSetPosterior API
 from causal_bayes_opt.avici_integration import (
@@ -44,20 +44,53 @@ from causal_bayes_opt.avici_integration.testing.debug_tools import (
 )
 
 
+def create_five_node_test_scm(noise_scale: float = 1.0, target: str = "D"):
+    """
+    Create a 5-node test SCM with complex structure.
+    
+    Structure: A → B → D ← E, A → C → D
+    
+    This creates a diamond-like structure where:
+    - A is a root node affecting both B and C
+    - B and C are intermediate nodes, both paths lead to D
+    - E is another root node that directly affects D
+    - D is the confluence point with three parents: B, C, and E
+    """
+    return create_simple_linear_scm(
+        variables=['A', 'B', 'C', 'D', 'E'],
+        edges=[
+            ('A', 'B'),  # A influences B
+            ('A', 'C'),  # A influences C
+            ('B', 'D'),  # B influences D
+            ('C', 'D'),  # C influences D
+            ('E', 'D'),  # E influences D
+        ],
+        coefficients={
+            ('A', 'B'): 1.5,
+            ('A', 'C'): 2.0,
+            ('B', 'D'): 1.0,
+            ('C', 'D'): -0.8,
+            ('E', 'D'): 1.2,
+        },
+        noise_scales={var: noise_scale for var in ['A', 'B', 'C', 'D', 'E']},
+        target=target
+    )
+
+
 def create_simple_config():
     """Simple config for quick testing."""
     return {
         'model_kwargs': {
-            'layers': 2,  # Smaller for quick testing
-            'dim': 32,    # Smaller for quick testing
-            'key_size': 8,
-            'num_heads': 2,
-            'dropout': 0.0,  # No dropout for testing
+            'layers': 3,      # Increased for more complex SCM
+            'dim': 64,        # Increased for more complex SCM
+            'key_size': 16,
+            'num_heads': 4,
+            'dropout': 0.0,   # No dropout for testing
         },
         'learning_rate': 1e-3,  # Fixed learning rate
-        'batch_size': 16,
+        'batch_size': 32,       # Larger batch for 5-node
         'gradient_clip_norm': 1.0,
-        'max_parent_size': 3,  # Allow up to 3 parents for full SCM
+        'max_parent_size': 5,   # Allow up to 5 parents (all nodes)
     }
 
 
@@ -70,17 +103,25 @@ def create_improved_optimizer(config):
 
 
 def test_posterior_api_features():
-    """Demonstrate the comprehensive ParentSetPosterior API features."""
-    print("🔮 PARENT SET POSTERIOR API FEATURES")
-    print("=" * 50)
+    """Demonstrate the comprehensive ParentSetPosterior API features with 5-node SCM."""
+    print("🔮 PARENT SET POSTERIOR API FEATURES (5-NODE SCM)")
+    print("=" * 60)
     print("Demonstrating comprehensive ParentSetPosterior capabilities")
-    print("=" * 50)
+    print("with a more complex 5-node causal structure")
+    print("=" * 60)
     
     # Setup
     config = create_simple_config()
-    scm = create_simple_test_scm(noise_scale=1.0, target="Y")
+    scm = create_five_node_test_scm(noise_scale=1.0, target="D")
     from causal_bayes_opt.data_structures.scm import get_variables
     variables = sorted(get_variables(scm))
+    
+    print(f"\n📊 SCM STRUCTURE:")
+    print(f"  Variables: {variables}")
+    print(f"  Causal graph: A → B → D ← E")
+    print(f"                A → C → D")
+    print(f"  Target variable: D")
+    print(f"  Expected parents of D: {{B, C, E}}")
     
     net = create_parent_set_model(
         model_kwargs=config['model_kwargs'],
@@ -89,14 +130,14 @@ def test_posterior_api_features():
     
     # Generate test data
     samples = sample_from_linear_scm(scm, n_samples=config['batch_size'], seed=42)
-    batch = create_training_batch(scm, samples, "Y")
-    params = net.init(random.PRNGKey(42), batch['x'], variables, "Y", True)
+    batch = create_training_batch(scm, samples, "D")
+    params = net.init(random.PRNGKey(42), batch['x'], variables, "D", True)
     
     print(f"\n🎯 CORE API:")
     print("-" * 30)
     
     # Main prediction API
-    posterior = predict_parent_posterior(net, params, batch['x'], variables, "Y")
+    posterior = predict_parent_posterior(net, params, batch['x'], variables, "D")
     print(f"✅ predict_parent_posterior() -> ParentSetPosterior")
     print(f"  Target: {posterior.target_variable}")
     print(f"  Parent sets: {len(posterior.parent_set_probs)}")
@@ -117,49 +158,55 @@ def test_posterior_api_features():
     marginals = get_marginal_parent_probabilities(posterior, variables)
     print(f"\n📈 get_marginal_parent_probabilities():")
     for var, prob in marginals.items():
-        print(f"  P({var} is parent of Y) = {prob:.3f}")
+        is_true_parent = var in {'B', 'C', 'E'}
+        mark = "✓" if is_true_parent else " "
+        print(f"  {mark} P({var} is parent of D) = {prob:.3f}")
     
     # 3. Top-k extraction
-    top_3 = get_most_likely_parents(posterior, k=3)
-    print(f"\n🏆 get_most_likely_parents(k=3):")
-    for i, ps in enumerate(top_3):
+    top_5 = get_most_likely_parents(posterior, k=5)
+    print(f"\n🏆 get_most_likely_parents(k=5):")
+    for i, ps in enumerate(top_5):
         ps_str = set(ps) if ps else "{}"
         prob = posterior.parent_set_probs[ps]
-        print(f"  {i+1}. {ps_str}: {prob:.3f}")
+        is_correct = set(ps) == {'B', 'C', 'E'}
+        mark = "✓" if is_correct else " "
+        print(f"  {mark} {i+1}. {ps_str}: {prob:.3f}")
     
     # 4. Direct probability queries
-    empty_prob = get_parent_set_probability(posterior, frozenset())
-    both_prob = get_parent_set_probability(posterior, frozenset(['X', 'Z']))
+    true_parents_prob = get_parent_set_probability(posterior, frozenset(['B', 'C', 'E']))
+    partial_prob = get_parent_set_probability(posterior, frozenset(['B', 'C']))
     print(f"\n🔍 get_parent_set_probability():")
-    print(f"  P(parents = {{}}) = {empty_prob:.3f}")
-    print(f"  P(parents = {{X,Z}}) = {both_prob:.3f}")
+    print(f"  P(parents = {{B,C,E}}) = {true_parents_prob:.3f} (TRUE)")
+    print(f"  P(parents = {{B,C}}) = {partial_prob:.3f} (PARTIAL)")
     
     print(f"\n✅ All ParentSetPosterior features demonstrated!")
     assert posterior is not None
-    assert posterior.target_variable == "Y"
+    assert posterior.target_variable == "D"
     assert len(posterior.parent_set_probs) > 0
     assert isinstance(posterior.uncertainty, float)
 
 
 def test_enhanced_training_workflow():
-    """Test the enhanced training workflow with posterior analysis."""
-    print(f"\n🎯 ENHANCED TRAINING WITH POSTERIOR ANALYSIS")
-    print("=" * 60)
+    """Test the enhanced training workflow with posterior analysis on 5-node SCM."""
+    print(f"\n🎯 ENHANCED TRAINING WITH POSTERIOR ANALYSIS (5-NODE SCM)")
+    print("=" * 70)
     
     # Create SCM and expected results
     config = create_simple_config()
-    scm = create_simple_test_scm(noise_scale=1.0, target="Y")
+    scm = create_five_node_test_scm(noise_scale=1.0, target="D")
     from causal_bayes_opt.data_structures.scm import get_variables
     variables = sorted(get_variables(scm))
     
-    print(f"Testing SCM: X → Y ← Z")
-    print(f"Expected parents for Y: {{X, Z}}")
+    print(f"Testing 5-node SCM: A → B → D ← E, A → C → D")
+    print(f"Variables: {variables}")
     
     # Test cases with ground truth
     test_cases = [
-        ('X', frozenset()),              # Root variable
-        ('Z', frozenset()),              # Root variable  
-        ('Y', frozenset(['X', 'Z']))     # Target with parents
+        ('A', frozenset()),                      # Root variable
+        ('E', frozenset()),                      # Root variable  
+        ('B', frozenset(['A'])),                 # B has parent A
+        ('C', frozenset(['A'])),                 # C has parent A
+        ('D', frozenset(['B', 'C', 'E']))        # D has three parents
     ]
     
     net = create_parent_set_model(
@@ -168,10 +215,10 @@ def test_enhanced_training_workflow():
     )
     
     for target_var, expected_parents in test_cases:
-        print(f"\n" + "="*40)
+        print(f"\n" + "="*50)
         print(f"🎯 TARGET: {target_var}")
         print(f"Expected: {set(expected_parents) if expected_parents else '{}'}")
-        print("="*40)
+        print("="*50)
         
         # Generate data and initialize
         samples = sample_from_linear_scm(scm, n_samples=config['batch_size'], seed=42)
@@ -188,19 +235,20 @@ def test_enhanced_training_workflow():
         print(f"  Uncertainty: {initial_summary['uncertainty_bits']:.2f} bits")
         
         # Quick training
-        print(f"\n🏃 TRAINING (5 steps):")
+        print(f"\n🏃 TRAINING (10 steps):")  # More steps for complex SCM
         optimizer = create_improved_optimizer(config)
         opt_state = optimizer.init(params)
         train_step_fn = create_train_step(net, optimizer)
         
-        for step in range(5):
+        for step in range(10):
             step_samples = sample_from_linear_scm(scm, n_samples=config['batch_size'], seed=42+step)
             step_batch = create_training_batch(scm, step_samples, target_var)
             
             params, opt_state, loss = train_step_fn(
                 params, opt_state, step_batch['x'], variables, target_var, expected_parents
             )
-            print(f"  Step {step}: loss = {loss:.4f}")
+            if step % 2 == 0:  # Print every other step
+                print(f"  Step {step}: loss = {loss:.4f}")
         
         # Final prediction with analysis
         print(f"\n🎯 FINAL PREDICTION:")
@@ -231,7 +279,7 @@ def test_enhanced_training_workflow():
             print(f"  Comparison skipped: {e}")
         
         # Show marginal probabilities for complex cases
-        if target_var == 'Y':
+        if target_var in ['B', 'C', 'D']:
             marginals = get_marginal_parent_probabilities(final_posterior, variables)
             print(f"\n📈 MARGINAL PARENT PROBABILITIES:")
             for var, prob in marginals.items():
@@ -242,46 +290,68 @@ def test_enhanced_training_workflow():
     print(f"\n✅ Enhanced training workflow completed!")
 
 
-def test_ground_truth_comparison():
-    """Test comparing predictions against ground truth."""
-    print(f"\n🎯 GROUND TRUTH COMPARISON")
-    print("=" * 40)
+def test_complex_parent_sets():
+    """Test handling of complex parent sets in 5-node SCM."""
+    print(f"\n🎯 COMPLEX PARENT SET ANALYSIS (5-NODE SCM)")
+    print("=" * 60)
     
-    # Create a ground truth posterior manually
-    true_parent_sets = [
-        frozenset(),              # Empty set - low probability
-        frozenset(['X']),         # Single parent - medium
-        frozenset(['Z']),         # Single parent - medium  
-        frozenset(['X', 'Z'])     # Correct answer - high probability
+    # Create a ground truth posterior for D with multiple plausible parent sets
+    parent_sets = [
+        frozenset(['B', 'C', 'E']),     # Correct answer - high probability
+        frozenset(['B', 'C']),          # Missing E - medium probability
+        frozenset(['B', 'E']),          # Missing C - medium probability  
+        frozenset(['C', 'E']),          # Missing B - medium probability
+        frozenset(['A', 'B', 'C', 'E']), # Including indirect parent - low
+        frozenset(['B', 'C', 'D']),     # Including self - very low
+        frozenset(['A', 'C']),          # Only indirect paths - low
+        frozenset(),                    # Empty set - very low
     ]
     
-    # Ground truth: Y should have parents {X, Z} with high confidence
-    true_probs = jnp.array([0.05, 0.15, 0.15, 0.65])  # Correct answer gets 65%
+    # Create probabilities that reflect realistic uncertainty
+    probs = jnp.array([0.40, 0.15, 0.15, 0.15, 0.05, 0.02, 0.05, 0.03])
     
     ground_truth = create_parent_set_posterior(
-        target_variable="Y",
-        parent_sets=true_parent_sets,
-        probabilities=true_probs,
-        metadata={'source': 'ground_truth', 'scm': 'X→Y←Z'}
+        target_variable="D",
+        parent_sets=parent_sets,
+        probabilities=probs,
+        metadata={'source': 'ground_truth', 'scm': '5-node complex'}
     )
     
-    print(f"📋 GROUND TRUTH POSTERIOR:")
+    print(f"📋 GROUND TRUTH POSTERIOR FOR D:")
     gt_summary = summarize_posterior(ground_truth)
     print(f"  Most likely: {gt_summary['most_likely_parents']}")
     print(f"  Confidence: {gt_summary['most_likely_probability']:.3f}")
     print(f"  Uncertainty: {gt_summary['uncertainty_bits']:.2f} bits")
+    print(f"  Concentration: {gt_summary['concentration']:.3f}")
     
-    # Generate a prediction from our model
+    # Show top 5 parent sets
+    print(f"\n🏆 TOP 5 PARENT SETS:")
+    top_5 = get_most_likely_parents(ground_truth, k=5)
+    for i, ps in enumerate(top_5):
+        ps_str = set(ps) if ps else "{}"
+        prob = ground_truth.parent_set_probs[ps]
+        print(f"  {i+1}. {ps_str}: {prob:.3f}")
+    
+    # Analyze marginal probabilities
+    variables = ['A', 'B', 'C', 'D', 'E']
+    marginals = get_marginal_parent_probabilities(ground_truth, variables)
+    print(f"\n📈 MARGINAL PARENT PROBABILITIES:")
+    true_parents = {'B', 'C', 'E'}
+    for var, prob in sorted(marginals.items(), key=lambda x: x[1], reverse=True):
+        is_true = var in true_parents
+        status = "✅" if is_true else "❌"
+        print(f"  {status} P({var} is parent) = {prob:.3f}")
+    
+    # Generate a prediction from our model and compare
     config = create_simple_config()
-    scm = create_simple_test_scm(noise_scale=1.0, target="Y")
-    variables = sorted(scm['variables'])
+    scm = create_five_node_test_scm(noise_scale=1.0, target="D")
     
     net = create_parent_set_model(max_parent_size=config['max_parent_size'])
     samples = sample_from_linear_scm(scm, n_samples=config['batch_size'], seed=42)
-    batch = create_training_batch(scm, samples, "Y")
-    params = net.init(random.PRNGKey(42), batch['x'], variables, "Y", True)
+    batch = create_training_batch(scm, samples, "D")
+    params = net.init(random.PRNGKey(42), batch['x'], variables, "D", True)
     
-    predicted = predict_parent_posterior(net, params, batch['x'], variables, "Y")
+    predicted = predict_parent_posterior(net, params, batch['x'], variables, "D")
     
     print(f"\n🔮 MODEL PREDICTION:")
     pred_summary = summarize_posterior(predicted)
@@ -310,15 +380,16 @@ def test_ground_truth_comparison():
     except Exception as e:
         print(f"  Comparison failed: {e}")
     
-    print(f"\n✅ Ground truth comparison completed!")
+    print(f"\n✅ Complex parent set analysis completed!")
 
 
 def main():
-    """Run all enhanced tests with ParentSetPosterior API."""
-    print("🚀 PARENT SET PREDICTION TESTS")
-    print("=" * 60)
+    """Run all enhanced tests with ParentSetPosterior API on 5-node SCM."""
+    print("🚀 PARENT SET PREDICTION TESTS - 5-NODE SCM")
+    print("=" * 70)
     print("Clean ParentSetPosterior API with rich analysis capabilities")
-    print("=" * 60)
+    print("Testing on a more complex 5-node causal structure")
+    print("=" * 70)
     
     try:
         # Test 1: ParentSetPosterior API features
@@ -327,32 +398,9 @@ def main():
         # Test 2: Enhanced training workflow  
         test_enhanced_training_workflow()
         
-        # Test 3: Ground truth comparison
-        test_ground_truth_comparison()
+        # Test 3: Complex parent set analysis
+        test_complex_parent_sets()
         
-        print(f"\n" + "="*60)
-        print(f"🎉 ALL TESTS PASSED! 🎉")
-        print(f"\nKey Achievements:")
-        print(f"✅ ParentSetPosterior API works seamlessly")
-        print(f"✅ Clean, single API design")
-        print(f"✅ Rich analysis capabilities (summaries, marginals, comparisons)")
-        print(f"✅ Enhanced training workflow with uncertainty tracking")
-        print(f"✅ Ground truth comparison and validation metrics")
-        
-        print(f"\n📚 Clean API Usage:")
-        print(f"  posterior = predict_parent_posterior(net, params, data, vars, 'Y')")
-        print(f"  summary = summarize_posterior(posterior)")
-        print(f"  marginals = get_marginal_parent_probabilities(posterior, vars)")
-        print(f"  most_likely = get_most_likely_parents(posterior, k=3)")
-        print(f"  comparison = compare_posteriors(pred, truth)")
-        
-        print(f"\n🔮 Next Steps:")
-        print(f"  • Use ParentSetPosterior in Phase 3 (Acquisition Model)")
-        print(f"  • Leverage uncertainty for exploration strategies")  
-        print(f"  • Build evaluation framework using comparison utilities")
-        print(f"  • Integrate with GRPO for causal intervention selection")
-        
-        print(f"\n✨ ParentSetPosterior is production-ready! ✨")
         
     except Exception as e:
         print(f"\n❌ TEST FAILED: {e}")

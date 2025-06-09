@@ -1,10 +1,19 @@
-# AVICI Data Format Bridge API Reference
+# AVICI Integration API Reference
 
-The AVICI Data Format Bridge is a modular system for converting functional SCM Sample objects to AVICI's expected input format with target conditioning support. The system consists of three main modules:
+The AVICI Integration module provides a comprehensive system for causal structure learning with target-aware parent set prediction. Instead of directly adapting AVICI, we've developed a custom parent set prediction model that leverages AVICI's data format while providing a cleaner interface for Bayesian optimization.
 
-1. **Core Conversion Functions** - Main user-facing conversion functionality
-2. **Validation Functions** - Data validation and verification utilities
-3. **Analysis and Debugging Utilities** - Analysis tools and debugging support
+The system consists of two main components:
+
+1. **Core Data Bridge** (`core/`) - Data format conversion and validation
+   - Conversion functions for Sample → AVICI tensor format
+   - Comprehensive validation utilities
+   - Analysis and debugging tools
+
+2. **Parent Set Prediction** (`parent_set/`) - Custom parent set learning model
+   - ParentSetPosterior data structure for rich posterior representation
+   - Encoding and enumeration of parent sets
+   - Inference utilities for prediction and training
+   - Custom neural network model for parent set prediction
 
 ---
 
@@ -341,4 +350,220 @@ debug_info = debug_sample_conversion(samples[0], 0, data, variable_order, 'Y')
 print(f"Intervention targets match: {debug_info['consistency_checks']['intervention_targets_match']}")
 print(f"Target variable match: {debug_info['consistency_checks']['target_variable_match']}")
 print(f"Expected interventions: {debug_info['consistency_checks']['expected_interventions']}")
+```
+
+---
+
+## Parent Set Prediction Module
+
+### Overview
+This module provides a custom parent set prediction model that outputs structured posterior distributions over possible parent sets for a target variable. It includes the ParentSetPosterior data structure, inference utilities, and comprehensive analysis functions.
+
+### Core Types
+
+#### ParentSetPosterior
+```python
+@dataclass(frozen=True)
+class ParentSetPosterior:
+    """Immutable representation of a posterior distribution over parent sets."""
+    target_variable: str
+    parent_set_probs: pyr.PMap[FrozenSet[str], float]
+    uncertainty: float  # Entropy in nats
+    top_k_sets: List[Tuple[FrozenSet[str], float]]
+    metadata: pyr.PMap[str, Any] = pyr.m()
+```
+
+The core output format for parent set predictions, providing:
+- Probability distribution over parent sets
+- Uncertainty quantification
+- Easy access to most likely parent sets
+- Rich metadata for analysis
+
+### Parent Set Posterior Functions
+
+#### create_parent_set_posterior(target_variable, parent_sets, probabilities, metadata=None)
+Factory function for creating a validated ParentSetPosterior from model outputs.
+
+**Parameters:**
+- target_variable: str - Name of the target variable
+- parent_sets: List[FrozenSet[str]] - List of parent sets from model
+- probabilities: jnp.ndarray - Corresponding probabilities (should sum to ~1.0)
+- metadata: Optional[Dict[str, Any]] - Optional metadata
+
+**Returns:**
+ParentSetPosterior - Validated posterior object
+
+**Example:**
+```python
+parent_sets = [frozenset(), frozenset(['X']), frozenset(['X', 'Z'])]
+probs = jnp.array([0.1, 0.3, 0.6])
+posterior = create_parent_set_posterior('Y', parent_sets, probs)
+```
+
+#### get_most_likely_parents(posterior, k=1)
+Get the k most likely parent sets from the posterior.
+
+**Parameters:**
+- posterior: ParentSetPosterior - The posterior distribution
+- k: int - Number of top parent sets to return
+
+**Returns:**
+List[FrozenSet[str]] - Most likely parent sets ordered by probability
+
+**Example:**
+```python
+top_3 = get_most_likely_parents(posterior, k=3)
+print(f"Most likely: {top_3[0]}")  # frozenset(['X', 'Z'])
+```
+
+#### get_marginal_parent_probabilities(posterior, all_variables)
+Compute marginal probabilities that each variable is a parent.
+
+**Parameters:**
+- posterior: ParentSetPosterior - The posterior distribution
+- all_variables: List[str] - List of all possible parent variables
+
+**Returns:**
+Dict[str, float] - Marginal parent probabilities for each variable
+
+**Example:**
+```python
+marginals = get_marginal_parent_probabilities(posterior, ['X', 'Y', 'Z'])
+print(f"P(X is parent) = {marginals['X']:.3f}")  # 0.900
+```
+
+#### summarize_posterior(posterior)
+Create a comprehensive human-readable summary of the posterior.
+
+**Parameters:**
+- posterior: ParentSetPosterior - The posterior to summarize
+
+**Returns:**
+Dict[str, Any] - Dictionary with summary information including:
+- target_variable: The target variable name
+- n_parent_sets: Number of parent sets in posterior
+- uncertainty_nats/bits: Entropy-based uncertainty
+- concentration: How concentrated the posterior is
+- most_likely_parents: Most probable parent set
+- effective_n_parent_sets: Effective number of parent sets
+
+**Example:**
+```python
+summary = summarize_posterior(posterior)
+print(f"Target: {summary['target_variable']}")
+print(f"Most likely parents: {summary['most_likely_parents']}")
+print(f"Uncertainty (bits): {summary['uncertainty_bits']:.2f}")
+```
+
+#### compare_posteriors(posterior1, posterior2)
+Compare two posteriors over the same target variable.
+
+**Parameters:**
+- posterior1: ParentSetPosterior - First posterior
+- posterior2: ParentSetPosterior - Second posterior
+
+**Returns:**
+Dict[str, float] - Comparison metrics including:
+- kl_divergence_1_to_2: KL(P1 || P2)
+- symmetric_kl_divergence: (KL(P1||P2) + KL(P2||P1)) / 2
+- total_variation_distance: TV distance between distributions
+- overlap: Sum of minimum probabilities
+
+**Example:**
+```python
+metrics = compare_posteriors(predicted_posterior, true_posterior)
+print(f"KL divergence: {metrics['symmetric_kl_divergence']:.3f}")
+print(f"TV distance: {metrics['total_variation_distance']:.3f}")
+```
+
+### Inference Functions
+
+#### predict_parent_posterior(net, params, x, variable_order, target_variable, metadata=None)
+Main function for getting parent set predictions from the model.
+
+**Parameters:**
+- net: Transformed Haiku model
+- params: Model parameters
+- x: jnp.ndarray - Input data [N, d, 3]
+- variable_order: List[str] - Variable names in order
+- target_variable: str - Target variable name
+- metadata: Optional[Dict[str, Any]] - Additional metadata
+
+**Returns:**
+ParentSetPosterior - Structured posterior with analysis utilities
+
+**Example:**
+```python
+# Get prediction with rich posterior structure
+posterior = predict_parent_posterior(net, params, data, vars, 'Y')
+
+# Access results multiple ways
+most_likely = posterior.top_k_sets[0][0]  # Most likely parent set
+prob = get_parent_set_probability(posterior, frozenset(['X']))  # P(parents={X})
+marginals = get_marginal_parent_probabilities(posterior, vars)
+summary = summarize_posterior(posterior)
+```
+
+#### compute_loss(net, params, x, variable_order, target_variable, true_parent_set, is_training=True)
+Compute training loss with improved handling of missing parent sets.
+
+**Features:**
+- Standard cross-entropy when true parent set is in predictions
+- Margin loss with closest match when true set is missing
+- Encourages inclusion of correct parent sets in top-k
+
+**Parameters:**
+- net: Haiku model
+- params: Model parameters
+- x: Input data
+- variable_order: Variable names
+- target_variable: Target variable
+- true_parent_set: FrozenSet[str] - Ground truth parents
+- is_training: bool - Training mode flag
+
+**Returns:**
+float - Loss value
+
+### Key Features
+
+#### Rich Posterior Representation
+The ParentSetPosterior provides:
+- Complete probability distribution
+- Entropy-based uncertainty quantification
+- Easy access to top-k parent sets
+- Marginal parent probabilities
+- Comparison utilities
+
+#### Flexible Analysis
+Multiple ways to analyze predictions:
+```python
+# Direct access
+most_likely = posterior.top_k_sets[0]
+
+# Marginal probabilities
+marginals = get_marginal_parent_probabilities(posterior, variables)
+
+# Uncertainty metrics
+entropy = posterior.uncertainty
+concentration = compute_posterior_concentration(posterior)
+
+# Filtering
+filtered = filter_parent_sets_by_probability(posterior, min_prob=0.05)
+```
+
+#### Integration with Acquisition
+The posterior format is designed for downstream decision-making:
+```python
+# Use in acquisition state
+state = create_acquisition_state(
+    samples=buffer.get_samples(),
+    parent_posterior=posterior,
+    target_variable='Y',
+    variable_order=vars
+)
+
+# Uncertainty-guided exploration
+if posterior.uncertainty > threshold:
+    # High uncertainty - explore more
+    intervention = select_exploratory_intervention(posterior)
 ```

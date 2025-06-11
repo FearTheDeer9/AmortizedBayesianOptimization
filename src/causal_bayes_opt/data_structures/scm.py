@@ -58,6 +58,10 @@ def get_mechanisms(scm: pyr.PMap) -> Dict[str, Callable]:
     """Get the mechanisms dictionary of the SCM."""
     return scm['mechanisms']
 
+def get_target(scm: pyr.PMap) -> Optional[str]:
+    """Get the target variable of the SCM."""
+    return scm.get('target')
+
 
 def get_parents(scm: pyr.PMap, variable: str) -> FrozenSet[str]:
     """

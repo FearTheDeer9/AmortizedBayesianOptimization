@@ -25,7 +25,7 @@ from causal_bayes_opt.acquisition.rewards import (
     compute_verifiable_reward,
     create_default_reward_config,
 )
-from causal_bayes_opt.acquisition.state import (
+from causal_bayes_opt.acquisition import (
     create_acquisition_state,
     update_state_with_intervention,
 )

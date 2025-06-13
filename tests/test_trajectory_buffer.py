@@ -27,7 +27,7 @@ from causal_bayes_opt.acquisition.trajectory import (
     migrate_experience_to_trajectory_buffer,
 )
 
-from causal_bayes_opt.acquisition.state import (
+from causal_bayes_opt.acquisition import (
     AcquisitionState,
     create_acquisition_state,
 )

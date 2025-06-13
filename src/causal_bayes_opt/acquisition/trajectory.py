@@ -535,7 +535,7 @@ def migrate_experience_to_trajectory_buffer(
         # Create minimal mock states for testing
         # In real usage, these would come from actual training
         try:
-            from .state import create_acquisition_state
+            from .services import create_acquisition_state
             
             # Mock SCM for state creation
             mock_scm = pyr.pmap({

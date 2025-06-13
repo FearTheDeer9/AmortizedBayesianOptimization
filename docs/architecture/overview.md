@@ -89,8 +89,20 @@ Two complementary buffer implementations:
 4. Acquisition model selects intervention based on state and objectives
 5. SCM environment executes intervention and returns outcome
 6. Experience buffer is updated with new intervention-outcome pair
-7. Trajectory buffer stores RL training data if in training mode
-8. Return to step 2 and repeat
+7. Model parameters updated via self-supervised learning (progressive learning mode)
+8. Trajectory buffer stores RL training data if in training mode
+9. Return to step 2 and repeat
+
+## Progressive Learning Extension
+
+The system now supports **self-supervised progressive learning** where the ParentSetPredictionModel
+updates its parameters online using data likelihood as the training signal, without requiring
+supervision or ground truth labels. This enables:
+
+- Online adaptation to new causal structures
+- Performance validation across difficulty levels
+- Complete end-to-end learning without external supervision
+- Demonstration of genuine causal discovery capabilities
 
 ## Key Architectural Decisions
 

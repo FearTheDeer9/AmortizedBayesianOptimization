@@ -27,7 +27,7 @@ from causal_bayes_opt.acquisition.policy import (
     validate_policy_output,
 )
 
-from causal_bayes_opt.acquisition.state import (
+from causal_bayes_opt.acquisition import (
     AcquisitionState,
     create_acquisition_state,
 )

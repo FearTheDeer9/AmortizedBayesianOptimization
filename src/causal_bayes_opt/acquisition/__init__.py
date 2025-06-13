@@ -7,11 +7,30 @@ for intelligent intervention selection based on structural uncertainty and optim
 
 from .state import (
     AcquisitionState,
+)
+
+from .services import (
     create_acquisition_state,
     update_state_with_intervention,
+    create_acquisition_state_from_samples,
+    validate_state_inputs,
+    compute_state_delta,
+)
+
+from .utilities import (
     get_state_uncertainty_bits,
     get_state_optimization_progress,
     get_state_marginal_probabilities,
+    get_state_exploration_coverage,
+    get_state_best_value,
+    get_state_target_variable,
+    get_state_step,
+    get_state_buffer_size,
+    get_most_likely_parents,
+    is_state_highly_uncertain,
+    has_state_improved,
+    compute_information_gain,
+    get_state_summary_compact,
 )
 
 from .trajectory import (
@@ -67,13 +86,28 @@ from .exploration import (
 __all__ = [
     # Core state representation
     'AcquisitionState',
+    
+    # State creation and updating services
     'create_acquisition_state', 
     'update_state_with_intervention',
+    'create_acquisition_state_from_samples',
+    'validate_state_inputs',
+    'compute_state_delta',
     
-    # State utilities
+    # State utilities (pure functions)
     'get_state_uncertainty_bits',
     'get_state_optimization_progress',
     'get_state_marginal_probabilities',
+    'get_state_exploration_coverage',
+    'get_state_best_value',
+    'get_state_target_variable',
+    'get_state_step',
+    'get_state_buffer_size',
+    'get_most_likely_parents',
+    'is_state_highly_uncertain',
+    'has_state_improved',
+    'compute_information_gain',
+    'get_state_summary_compact',
     
     # Trajectory storage for RL training
     'TrajectoryStep',

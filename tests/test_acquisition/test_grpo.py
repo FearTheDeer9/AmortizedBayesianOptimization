@@ -17,7 +17,7 @@ from src.causal_bayes_opt.acquisition.grpo import (
     _compute_grpo_loss,
     _compute_policy_entropy,
 )
-from src.causal_bayes_opt.acquisition.state import AcquisitionState
+from src.causal_bayes_opt.acquisition import AcquisitionState
 from src.causal_bayes_opt.data_structures.buffer import ExperienceBuffer
 
 

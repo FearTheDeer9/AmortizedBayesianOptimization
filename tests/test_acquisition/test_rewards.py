@@ -24,7 +24,7 @@ from causal_bayes_opt.acquisition.rewards import (
 )
 
 # Import supporting infrastructure
-from causal_bayes_opt.acquisition.state import AcquisitionState
+from causal_bayes_opt.acquisition import AcquisitionState
 from causal_bayes_opt.data_structures.sample import create_sample
 from causal_bayes_opt.data_structures.buffer import ExperienceBuffer
 from causal_bayes_opt.avici_integration.parent_set.posterior import create_parent_set_posterior

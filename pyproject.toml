@@ -10,12 +10,11 @@ authors = [
     {name = "Your Name", email = "your.email@example.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -32,6 +31,15 @@ dependencies = [
     "psutil (>=7.0.0,<8.0.0)",
     "pydantic (>=2.11.5,<3.0.0)",
     "tqdm (>=4.67.1,<5.0.0)",
+    "matplotlib (>=3.10.3,<4.0.0)",
+    "gpy (>=1.13.2,<2.0.0)",
+    "emukit (>=0.4.11,<0.5.0)",
+    "networkx (>=3.5,<4.0)",
+    "statsmodels (>=0.14.4,<0.15.0)",
+    "pgmpy (>=0.1.26,<0.2.0)",
+    "scikit-learn (>=1.0.0,<2.0.0)",
+    "scipy (>=1.9.0,<2.0.0)",
+    "wandb (>=0.20.1,<0.21.0)",
 ]
 
 [project.optional-dependencies]

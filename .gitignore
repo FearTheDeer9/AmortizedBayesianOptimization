@@ -52,7 +52,6 @@ CLAUDE.md
 
 # PARENT_SCALE integration
 causal_bayes_opt_old/
-external/parent_scale
 data/generated_demonstrations/
 *.pkl
 *.npz

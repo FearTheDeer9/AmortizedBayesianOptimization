@@ -2,7 +2,11 @@
 
 ## Overview
 
-This document describes the data bridge implementation that enables seamless integration between our ACBO system and PARENT_SCALE's validated neural doubly robust method. The bridge maintains data integrity while providing clean conversion between different data formats.
+This document describes the **technical implementation** of the data bridge that enables seamless integration between our ACBO system and PARENT_SCALE's validated neural doubly robust method. The bridge maintains data integrity while providing clean conversion between different data formats.
+
+**Status**: ✅ **COMPLETE INTEGRATION** - Full PARENT_SCALE algorithm now produces identical results to the original implementation after resolving critical parameter space bounds issue.
+
+**Document Scope**: This document focuses on **technical data bridge implementation and scaling validation**. For the integration journey and achievement story, see `parent_scale_integration_complete.md`. For practical usage and expert demonstration collection, see `docs/training/expert_demonstration_collection_implementation.md`.
 
 ## Integration Architecture
 
@@ -249,9 +253,54 @@ print(f"Try with {req['total_samples']} samples and {req['bootstrap_samples']} b
 3. **Active learning**: Optimal intervention selection for data collection
 4. **Transfer learning**: Cross-domain expert demonstration transfer
 
+## Critical Integration Fix ✅
+
+### Parameter Space Bounds Issue (RESOLVED)
+
+**Problem**: The integrated PARENT_SCALE algorithm was producing different intervention values than the original implementation, despite identical input data and GP models.
+
+**Root Cause**: `set_interventional_range_data()` was being called with **standardized data** instead of **original data**, causing different parameter space bounds:
+- Original bounds: `[-0.280370, 0.315843]`
+- Integrated bounds (before fix): `[-1.822384, 2.185748]`
+
+**Solution Applied** (`parent_scale_bridge.py:1928-1941`):
+```python
+# Save original data before standardization for intervention ranges
+D_O_original = deepcopy(D_O)
+
+# Apply standardization exactly like original algorithm
+if hasattr(parent_scale, 'scale_data') and parent_scale.scale_data:
+    D_O, D_I = graph.standardize_all_data(D_O, D_I)
+
+# Set data and exploration set
+parent_scale.set_values(D_O, D_I, exploration_set)
+
+# CRITICAL FIX: Set intervention ranges using original data after set_values()
+graph.set_interventional_range_data(D_O_original)
+```
+
+**Verification**: 
+- ✅ Parameter bounds now identical: `[-0.280370, 0.315843]`
+- ✅ All integration tests passing (5/5)
+- ✅ Intervention selection produces identical results
+
+**Test File**: `test_intervention_fix.py` - Validates the fix works correctly
+
+### Integration Validation
+
+```bash
+# Verify complete integration works
+poetry run python -m pytest tests/integration/test_integration_validation.py -v
+
+# Verify parameter bounds fix specifically  
+poetry run python test_intervention_fix.py
+```
+
 ## References
 
 - **Validation summary**: `scaling_solution_summary.md`  
 - **Implementation**: `src/causal_bayes_opt/integration/parent_scale_bridge.py`
+- **Integration fix**: Lines 1928-1941 in `parent_scale_bridge.py`
 - **Test validation**: `test_20_node_final.py`
+- **Fix validation**: `test_intervention_fix.py`
 - **Expert collection**: `src/causal_bayes_opt/training/expert_demonstration_collection.py`

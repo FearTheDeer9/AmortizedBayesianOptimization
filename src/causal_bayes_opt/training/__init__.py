@@ -15,6 +15,7 @@ scaling formulas for reliable parent discovery.
 
 from .expert_demonstration_collection import (
     ExpertDemonstration,
+    ExpertTrajectoryDemonstration,
     DemonstrationBatch,
     ExpertDemonstrationCollector,
     collect_expert_demonstrations_main
@@ -22,6 +23,7 @@ from .expert_demonstration_collection import (
 
 __all__ = [
     "ExpertDemonstration",
+    "ExpertTrajectoryDemonstration",
     "DemonstrationBatch", 
     "ExpertDemonstrationCollector",
     "collect_expert_demonstrations_main"

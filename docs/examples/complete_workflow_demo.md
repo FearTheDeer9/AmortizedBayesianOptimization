@@ -15,6 +15,8 @@ The complete workflow demo (`examples/complete_workflow_demo.py`) provides end-t
 6. **Environment Simulation**: Applying interventions and observing outcomes
 7. **State Management**: Tracking optimization progress and uncertainty
 8. **Reward Computation**: Multi-component verifiable rewards
+9. **BIC Scoring**: Robust model selection preventing likelihood overfitting
+10. **Intervention Strategy Validation**: Demonstrating importance of exploration diversity
 
 ### Design Principles
 - **Pure Functional Programming**: No side effects in core logic
@@ -175,6 +177,39 @@ ls -la src/causal_bayes_opt/
 - Gradually increase complexity
 - Use profiling tools for performance analysis
 - Monitor memory usage for scaling behavior
+
+## Recent Enhancements
+
+Recent improvements to the demo framework:
+
+### Modular Architecture ✅
+The demo has been refactored into modular components:
+- `demo_scms.py`: SCM creation functions
+- `demo_learning.py`: Core learning algorithms with BIC scoring
+- `demo_evaluation.py`: Comprehensive evaluation utilities
+- `complete_workflow_demo.py`: Main demo with all features integrated
+
+### BIC Scoring Integration ✅
+- **Fixed likelihood overfitting bug**: Prevents spurious learning from uninformative data
+- **Configurable scoring methods**: BIC (default) and likelihood (for research)
+- **Robust model selection**: Proper complexity penalties for parent set prediction
+
+### Intervention Strategy Research ✅
+- **Random vs Fixed comparison**: Comprehensive analysis of intervention strategies
+- **F1 score evaluation**: Detailed precision/recall metrics for structure learning
+- **Convergence speed analysis**: Time-to-threshold measurements
+- **Statistical validation**: Multiple trials with significance testing
+
+### Verification Infrastructure ✅
+- **Quick verification**: `verify_intervention_strategies.py` (~2-3 minutes)
+- **Comprehensive validation**: `run_comprehensive_validation.py` (~10-15 minutes)
+- **Educational demos**: `bic_fix_demo.py` with step-by-step explanations
+
+### Clean Examples Directory ✅
+- **Streamlined structure**: 8 focused files (down from 11)
+- **Single demo entry point**: `complete_workflow_demo.py` with all capabilities
+- **No redundancy**: Each script has a clear, unique purpose
+- **Archived history**: Removed files preserved in `debug_archive/` for reference
 
 ## Future Enhancements
 

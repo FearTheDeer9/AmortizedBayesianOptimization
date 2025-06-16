@@ -111,3 +111,4 @@ supervision or ground truth labels. This enables:
 - **Selective immutability**: Immutable for SCMs/configs, mutable for buffers
 - **Target-aware inference**: Conditions all models on optimization target
 - **Verifiable rewards**: Eliminates need for human feedback in training
+- **BIC scoring**: Information criteria prevent likelihood overfitting in structure learning

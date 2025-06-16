@@ -2,6 +2,18 @@
 
 The AVICI Integration module provides a comprehensive system for causal structure learning with target-aware parent set prediction. Instead of directly adapting AVICI, we've developed a custom parent set prediction model that leverages AVICI's data format while providing a cleaner interface for Bayesian optimization.
 
+## Recent Improvements ✅
+
+### BIC Scoring Integration
+- **Fixed likelihood overfitting**: Prevented spurious structure learning from uninformative data
+- **Configurable scoring**: Support for both BIC (default) and likelihood scoring methods
+- **Robust model selection**: Proper complexity penalties in `compute_likelihood_per_parent_set_jax`
+
+### Enhanced Validation Infrastructure
+- **Comprehensive testing**: Multiple verification scripts with statistical validation
+- **Educational demos**: Step-by-step explanations of overfitting prevention
+- **Research validation**: Intervention strategy comparison with F1 metrics
+
 The system consists of two main components:
 
 1. **Core Data Bridge** (`core/`) - Data format conversion and validation
@@ -13,7 +25,7 @@ The system consists of two main components:
    - ParentSetPosterior data structure for rich posterior representation
    - Encoding and enumeration of parent sets
    - Inference utilities for prediction and training
-   - Custom neural network model for parent set prediction
+   - Custom neural network model with BIC scoring for robustness
 
 ---
 

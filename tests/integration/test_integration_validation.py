@@ -17,7 +17,7 @@ sys.path.insert(0, 'src')
 sys.path.insert(0, 'external/parent_scale')
 sys.path.insert(0, 'external')
 
-import numpy as np
+import numpy as onp
 from typing import List
 import warnings
 warnings.filterwarnings('ignore')
@@ -48,9 +48,7 @@ def test_data_bridge_functionality():
     print("1. Testing Data Bridge Functionality")
     print("=" * 50)
     
-    if not INTEGRATION_AVAILABLE:
-        print("❌ Integration components not available")
-        return False
+    assert INTEGRATION_AVAILABLE, "Integration components not available"
     
     # Create test SCM (simple chain: X -> Y -> Z)
     variables = frozenset(['X', 'Y', 'Z'])
@@ -91,17 +89,11 @@ def test_data_bridge_functionality():
             tolerance=1e-6
         )
         
-        if is_valid:
-            print("✓ Data conversion validation passed")
-        else:
-            print("❌ Data conversion validation failed")
-            return False
-        
-        return True
+        assert is_valid, "Data conversion validation failed"
+        print("✓ Data conversion validation passed")
         
     except Exception as e:
-        print(f"❌ Bridge test failed: {e}")
-        return False
+        assert False, f"Bridge test failed: {e}"
 
 
 def test_data_scaling_requirements():
@@ -129,19 +121,11 @@ def test_data_scaling_requirements():
     expected_samples = 500
     expected_bootstraps = 15
     
-    if abs(req_20['total_samples'] - expected_samples) <= 50:  # Allow some variance
-        print(f"✓ 20-node sample requirement ({req_20['total_samples']}) matches validation")
-    else:
-        print(f"❌ 20-node sample mismatch: {req_20['total_samples']} vs {expected_samples}")
-        return False
+    assert abs(req_20['total_samples'] - expected_samples) <= 50, f"20-node sample mismatch: {req_20['total_samples']} vs {expected_samples}"
+    print(f"✓ 20-node sample requirement ({req_20['total_samples']}) matches validation")
     
-    if abs(req_20['bootstrap_samples'] - expected_bootstraps) <= 2:
-        print(f"✓ 20-node bootstrap requirement ({req_20['bootstrap_samples']}) matches validation")
-    else:
-        print(f"❌ 20-node bootstrap mismatch: {req_20['bootstrap_samples']} vs {expected_bootstraps}")
-        return False
-    
-    return True
+    assert abs(req_20['bootstrap_samples'] - expected_bootstraps) <= 2, f"20-node bootstrap mismatch: {req_20['bootstrap_samples']} vs {expected_bootstraps}"
+    print(f"✓ 20-node bootstrap requirement ({req_20['bootstrap_samples']}) matches validation")
 
 
 def test_parent_discovery_integration():
@@ -149,9 +133,7 @@ def test_parent_discovery_integration():
     print("\n3. Testing Parent Discovery Integration")
     print("=" * 50)
     
-    if not INTEGRATION_AVAILABLE:
-        print("❌ Integration components not available")
-        return False
+    assert INTEGRATION_AVAILABLE, "Integration components not available"
     
     # Create test SCM with known structure
     variables = frozenset(['A', 'B', 'C'])
@@ -180,7 +162,7 @@ def test_parent_discovery_integration():
     int_samples = []
     for var in ['A', 'B']:  # Intervene on non-target variables
         for _ in range(data_req['interventional_samples'] // 2):
-            intervention_val = np.random.normal(0, 1)
+            intervention_val = onp.random.normal(0, 1)
             intervention = create_perfect_intervention(
                 targets=frozenset([var]),
                 values={var: intervention_val}
@@ -222,16 +204,11 @@ def test_parent_discovery_integration():
         print(f"  Accuracy: {accuracy:.3f}")
         
         # For this simple test, we expect reasonable performance
-        if accuracy >= 0.5:  # Allow for some variance in small graphs
-            print("✓ Parent discovery shows reasonable accuracy")
-            return True
-        else:
-            print(f"❌ Parent discovery accuracy {accuracy:.3f} below threshold")
-            return False
+        assert accuracy >= 0.5, f"Parent discovery accuracy {accuracy:.3f} below threshold"
+        print("✓ Parent discovery shows reasonable accuracy")
             
     except Exception as e:
-        print(f"❌ Parent discovery failed: {e}")
-        return False
+        assert False, f"Parent discovery failed: {e}"
 
 
 def test_expert_demonstration_collection():
@@ -239,9 +216,7 @@ def test_expert_demonstration_collection():
     print("\n4. Testing Expert Demonstration Collection")
     print("=" * 50)
     
-    if not INTEGRATION_AVAILABLE:
-        print("❌ Integration components not available")
-        return False
+    assert INTEGRATION_AVAILABLE, "Integration components not available"
     
     try:
         collector = ExpertDemonstrationCollector()
@@ -267,21 +242,122 @@ def test_expert_demonstration_collection():
             min_accuracy=0.3  # Lower threshold for small test graphs
         )
         
-        if demonstration is not None:
-            print("✓ Successfully collected demonstration")
-            print(f"  Graph type: {demonstration.graph_type}")
-            print(f"  Nodes: {demonstration.n_nodes}")
-            print(f"  Accuracy: {demonstration.accuracy:.3f}")
-            print(f"  Confidence: {demonstration.confidence:.3f}")
-            print(f"  Samples used: {demonstration.total_samples_used}")
-            return True
-        else:
-            print("❌ Failed to collect demonstration")
-            return False
+        assert demonstration is not None, "Failed to collect demonstration"
+        print("✓ Successfully collected demonstration")
+        print(f"  Graph type: {demonstration.graph_type}")
+        print(f"  Nodes: {demonstration.n_nodes}")
+        print(f"  Accuracy: {demonstration.accuracy:.3f}")
+        print(f"  Confidence: {demonstration.confidence:.3f}")
+        print(f"  Samples used: {demonstration.total_samples_used}")
             
     except Exception as e:
-        print(f"❌ Expert demonstration collection failed: {e}")
-        return False
+        assert False, f"Expert demonstration collection failed: {e}"
+
+
+def test_full_parent_scale_algorithm():
+    """Test complete PARENT_SCALE CBO algorithm integration."""
+    print("\n5. Testing Full PARENT_SCALE Algorithm")
+    print("=" * 50)
+    
+    assert INTEGRATION_AVAILABLE, "Integration components not available"
+    
+    try:
+        from causal_bayes_opt.integration.parent_scale_bridge import run_full_parent_scale_algorithm
+        from causal_bayes_opt.training.expert_demonstration_collection import ExpertDemonstrationCollector
+        
+        collector = ExpertDemonstrationCollector()
+        print("✓ Created expert demonstration collector")
+        
+        # Create test SCM for CBO
+        variables = frozenset(['X', 'Y', 'Z'])
+        edges = frozenset([('X', 'Z'), ('Y', 'Z')])  # X -> Z <- Y
+        mechanisms = {
+            'X': create_root_mechanism(mean=0.0, noise_scale=0.2),
+            'Y': create_root_mechanism(mean=0.0, noise_scale=0.2),
+            'Z': create_linear_mechanism(['X', 'Y'], {'X': 1.0, 'Y': -1.5}, intercept=0.0, noise_scale=0.1)
+        }
+        
+        scm = create_scm(variables, edges, mechanisms, target='Z')
+        
+        print("✓ Created test SCM: X -> Z <- Y")
+        print("  Optimization target: Z (minimization)")
+        
+        # Generate initial samples for algorithm
+        n_nodes = len(variables)
+        data_req = calculate_data_requirements(n_nodes, target_accuracy=0.8)
+        
+        obs_samples = sample_from_linear_scm(scm, n_samples=data_req['observational_samples'])
+        
+        # Add some initial interventional data
+        int_samples = []
+        for var in ['X', 'Y']:
+            for _ in range(5):  # Small number for test
+                int_val = onp.random.normal(0, 1)
+                intervention = create_perfect_intervention(
+                    targets=frozenset([var]),
+                    values={var: int_val}
+                )
+                int_samples.extend(sample_with_intervention(scm, intervention, n_samples=1))
+        
+        all_samples = obs_samples + int_samples
+        
+        print(f"✓ Generated {len(all_samples)} samples for CBO algorithm")
+        
+        # Run full PARENT_SCALE algorithm (short test version)
+        print("  Running PARENT_SCALE CBO algorithm...")
+        
+        trajectory = run_full_parent_scale_algorithm(
+            scm=scm,
+            samples=all_samples,
+            target_variable='Z',
+            T=2,  # Even shorter test run
+            nonlinear=False,  # Use linear model to reduce complexity
+            causal_prior=False,  # Disable causal prior to simplify
+            individual=False,
+            use_doubly_robust=False,  # Disable doubly robust to simplify
+            n_observational=50,  # Reduce data size
+            n_interventional=3   # Increase interventional samples
+        )
+        
+        assert trajectory.get('status') != 'failed', f"Algorithm failed: {trajectory.get('error')}"
+        
+        print("✓ PARENT_SCALE CBO algorithm completed")
+        print(f"  Iterations: {trajectory['iterations']}")
+        print(f"  Total interventions: {trajectory['total_interventions']}")
+        print(f"  Final optimum: {trajectory['final_optimum']:.4f}")
+        print(f"  Convergence rate: {trajectory['convergence_rate']:.3f}")
+        print(f"  Exploration efficiency: {trajectory['exploration_efficiency']:.3f}")
+        
+        # Validate trajectory content
+        required_keys = [
+            'algorithm', 'target_variable', 'iterations', 'intervention_sequence',
+            'intervention_values', 'target_outcomes', 'global_optimum_trajectory',
+            'final_optimum', 'convergence_rate', 'exploration_efficiency'
+        ]
+        
+        missing_keys = [key for key in required_keys if key not in trajectory]
+        assert not missing_keys, f"Missing trajectory keys: {missing_keys}"
+        
+        # Test trajectory demonstration collection
+        print("  Testing complete trajectory demonstration collection...")
+        
+        trajectory_demo = collector.collect_full_trajectory_demonstration(
+            scm=scm,
+            graph_type="collider",
+            T=3,  # Short test
+            min_optimum_improvement=0.01  # Lenient for test
+        )
+        
+        assert trajectory_demo is not None, "Failed to collect trajectory demonstration"
+        
+        print("✓ Complete trajectory demonstration collected")
+        print(f"  Algorithm time: {trajectory_demo.algorithm_time:.2f}s")
+        print(f"  Final optimum: {trajectory_demo.final_optimum:.4f}")
+        print(f"  Total improvement: {trajectory_demo.total_improvement:.4f}")
+        print(f"  Expert trajectory length: {len(trajectory_demo.expert_trajectory['intervention_sequence'])}")
+        
+    except Exception as e:
+        assert False, f"Full algorithm test failed: {e}"
 
 
 def run_integration_validation():
@@ -295,7 +371,8 @@ def run_integration_validation():
         test_data_bridge_functionality,
         test_data_scaling_requirements,
         test_parent_discovery_integration,
-        test_expert_demonstration_collection
+        test_expert_demonstration_collection,
+        test_full_parent_scale_algorithm
     ]
     
     results = []
@@ -319,7 +396,8 @@ def run_integration_validation():
         "Data Bridge Functionality",
         "Data Scaling Requirements", 
         "Parent Discovery Integration",
-        "Expert Demonstration Collection"
+        "Expert Demonstration Collection",
+        "Full PARENT_SCALE Algorithm"
     ]
     
     for i, (name, result) in enumerate(zip(test_names, results)):
@@ -331,8 +409,8 @@ def run_integration_validation():
     print("-" * 60)
     if overall_success:
         print("🎉 INTEGRATION VALIDATION SUCCESSFUL!")
-        print("   Neural doubly robust integration is ready for production use")
-        print("   Data bridge, scaling, and expert collection all validated")
+        print("   Complete PARENT_SCALE CBO integration is ready for production use")
+        print("   Data bridge, scaling, and full algorithm trajectory collection all validated")
     else:
         print("❌ INTEGRATION VALIDATION FAILED")
         print(f"   {sum(results)}/{len(results)} tests passed")
@@ -341,8 +419,9 @@ def run_integration_validation():
     print(f"\n📊 Final Status:")
     print(f"   ✅ 20-node scaling validated (test_20_node_final.py)")
     print(f"   ✅ Data bridge implemented and tested")
-    print(f"   ✅ Expert demonstration collection ready")
-    print(f"   ✅ PARENT_SCALE integration complete")
+    print(f"   ✅ Neural doubly robust parent discovery ready")
+    print(f"   ✅ Complete PARENT_SCALE CBO algorithm integrated")
+    print(f"   ✅ Expert trajectory collection system operational")
     
     return overall_success
 
@@ -352,9 +431,10 @@ if __name__ == "__main__":
     
     if success:
         print(f"\n🚀 READY FOR DEPLOYMENT:")
+        print("   - Complete PARENT_SCALE CBO algorithm integrated and validated")
         print("   - Neural doubly robust method validated for 20+ nodes")
         print("   - Data scaling requirements established (O(d^2.5) samples)")
-        print("   - PARENT_SCALE integration bridge functional")
-        print("   - Expert demonstration collection system operational")
+        print("   - Full algorithm trajectory collection for expert demonstrations")
+        print("   - PARENT_SCALE integration bridge functional for both approaches")
         
     exit(0 if success else 1)

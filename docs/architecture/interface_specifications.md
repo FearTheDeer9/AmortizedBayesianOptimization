@@ -422,6 +422,92 @@ def create_grpo_batch_from_samples(
     """Create GRPO training batch from pre-collected samples."""
 ```
 
+## PARENT_SCALE Integration Interface
+
+### Critical Data Standardization Considerations
+
+**IMPORTANT**: When integrating with PARENT_SCALE, intervention ranges must be computed from **original data** before standardization.
+
+```python
+# CORRECT: Save original data before standardization
+D_O_original = deepcopy(D_O)
+
+# Apply standardization for GP training
+if parent_scale.scale_data:
+    D_O, D_I = graph.standardize_all_data(D_O, D_I)
+
+# Set data (this calls set_interventional_range_data with standardized data)
+parent_scale.set_values(D_O, D_I, exploration_set)
+
+# CRITICAL: Override with original data for intervention ranges
+graph.set_interventional_range_data(D_O_original)
+```
+
+**Why This Matters**:
+- Parameter space bounds must match original algorithm
+- Different bounds = different optimization domains = different results
+- This fix ensures identical behavior between implementations
+
+**Validation**:
+```python
+# Both implementations should have identical bounds
+orig_space = parent_scale_orig.graph.get_parameter_space(exploration_set)
+integ_space = parent_scale_integ.graph.get_parameter_space(exploration_set)
+
+# Should be True
+bounds_match = (orig_space.parameters[0].min == integ_space.parameters[0].min and 
+                orig_space.parameters[0].max == integ_space.parameters[0].max)
+```
+
+## PARENT_SCALE Integration Interface
+
+### Expert Demonstration Collection API
+
+```python
+def run_full_parent_scale_algorithm(
+    scm: pyr.PMap,
+    n_observational: int,
+    n_interventional: int,
+    n_trials: int,
+    target_variable: str,
+    nonlinear: bool = False
+) -> ParentScaleTrajectory:
+    """Run complete PARENT_SCALE algorithm for expert demonstration collection."""
+
+@dataclass
+class ParentScaleTrajectory:
+    """Complete expert demonstration trajectory from PARENT_SCALE run."""
+    # For surrogate model training (behavioral cloning)
+    observational_data: jnp.ndarray
+    intervention_history: List[pyr.PMap]
+    posterior_evolution: List[ParentSetPosterior]
+    
+    # For acquisition model training (imitation learning + GRPO)
+    states: List[AcquisitionState]
+    actions: List[pyr.PMap]  # Intervention objects
+    rewards: jnp.ndarray
+    next_states: List[AcquisitionState]
+    
+    # Metadata
+    scm: pyr.PMap
+    target_variable: str
+    final_performance: float
+    runtime_seconds: float
+```
+
+### Validated Scaling Configuration
+
+```python
+def get_expert_demo_config(n_nodes: int) -> dict:
+    """Get validated scaling parameters for expert demonstration collection."""
+    return {
+        'n_observational': int(0.85 * 1.2 * (n_nodes ** 2.5)),
+        'n_interventional': int(0.15 * 1.2 * (n_nodes ** 2.5)), 
+        'n_trials': max(10, n_nodes),
+        'bootstrap_samples': max(5, min(20, int(0.75 * n_nodes)))
+    }
+```
+
 ## Type Aliases and Constants
 
 ```python
@@ -429,6 +515,10 @@ def create_grpo_batch_from_samples(
 SCM = pyr.PMap[str, Any]
 Sample = pyr.PMap[str, Any] 
 Intervention = pyr.PMap[str, Any]
+
+# Expert demonstration types
+ParentScaleTrajectory = NamedTuple  # Defined above
+ExpertDemonstration = ParentScaleTrajectory
 
 # Convenience aliases
 VariableName = str

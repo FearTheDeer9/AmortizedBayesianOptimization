@@ -24,16 +24,17 @@ def encode_parent_set(parent_set_indicators: jnp.ndarray,
     # Check if this is an empty parent set
     is_empty = parent_set_size == 0
     
-    if is_empty:
-        # FIXED: Use normalized mean - gives empty sets a fair chance
-        # This removes the bias of always getting dot product = 0
-        empty_embedding = jnp.mean(variable_embeddings, axis=0)
-        return empty_embedding
-    else:
-        # Non-empty sets: use weighted mean as before
-        weighted_embeddings = variable_embeddings * parent_set_indicators[..., None]
-        parent_set_embedding = jnp.sum(weighted_embeddings, axis=-2)
-        return parent_set_embedding / parent_set_size
+    # JAX-compatible conditional logic using jnp.where
+    # Empty sets: use normalized mean - gives empty sets a fair chance
+    empty_embedding = jnp.mean(variable_embeddings, axis=0)
+    
+    # Non-empty sets: use weighted mean as before
+    weighted_embeddings = variable_embeddings * parent_set_indicators[..., None]
+    parent_set_embedding = jnp.sum(weighted_embeddings, axis=-2)
+    non_empty_embedding = parent_set_embedding / jnp.maximum(parent_set_size, 1.0)  # Avoid div by zero
+    
+    # Return appropriate embedding based on emptiness
+    return jnp.where(is_empty, empty_embedding, non_empty_embedding)
 
 
 def create_parent_set_indicators(parent_set: frozenset, 

@@ -422,6 +422,57 @@ def create_grpo_batch_from_samples(
     """Create GRPO training batch from pre-collected samples."""
 ```
 
+### training.surrogate_training ✅
+```python
+@dataclass(frozen=True)
+class TrainingBatchJAX:
+    """JAX-compatible training batch with separated data and metadata."""
+    
+    # JAX arrays (can be JIT compiled)
+    observational_data: jnp.ndarray      # [batch_size, N, d, 3]
+    expert_probs: jnp.ndarray           # [batch_size, k] probability distributions
+    expert_accuracies: jnp.ndarray      # [batch_size] expert accuracy values
+    
+    # Static metadata (passed via static_argnums)
+    parent_sets: List[List[FrozenSet[str]]]  # [batch_size][k] parent sets for each example
+    variable_orders: List[List[str]]         # [batch_size] variable orders
+    target_variables: List[str]             # [batch_size] target variables
+
+def create_jax_surrogate_train_step(
+    model: Any,
+    optimizer: optax.GradientTransformation,
+    loss_fn: Callable,
+    config: SurrogateTrainingConfig
+) -> Callable:
+    """Create JAX-compiled training step with 250-3,386x speedup."""
+
+def create_adaptive_train_step(
+    model: Any,
+    optimizer: optax.GradientTransformation,
+    loss_fn: Callable,
+    config: SurrogateTrainingConfig,
+    use_jax_compilation: bool = True
+) -> Callable:
+    """Create training step that automatically uses JAX compilation when possible."""
+
+def convert_to_jax_batch(training_batch: TrainingBatch) -> TrainingBatchJAX:
+    """Convert standard training batch to JAX-compatible format."""
+
+def kl_divergence_loss_jax(
+    predicted_logits: jnp.ndarray,
+    expert_probs: jnp.ndarray,
+    parent_sets: List[FrozenSet[str]]
+) -> float:
+    """JAX-compiled KL divergence loss for parent set prediction."""
+
+def uncertainty_weighted_loss_jax(
+    predicted_logits: jnp.ndarray,
+    expert_probs: jnp.ndarray,
+    parent_sets: List[FrozenSet[str]]
+) -> float:
+    """JAX-compiled uncertainty-weighted loss emphasizing confident expert predictions."""
+```
+
 ## PARENT_SCALE Integration Interface
 
 ### Critical Data Standardization Considerations

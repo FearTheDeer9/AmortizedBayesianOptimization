@@ -155,3 +155,43 @@ if _EXPERT_COLLECTION_AVAILABLE:
         "ExpertDemonstrationCollector", 
         "collect_expert_demonstrations_main"
     ])
+
+# Master training orchestrator and curriculum learning
+try:
+    from .master_trainer import (
+        TrainingState,
+        MasterTrainingResults,
+        MasterTrainer,
+        create_master_trainer,
+        run_complete_acbo_training
+    )
+    from .curriculum import (
+        DifficultyLevel,
+        CurriculumStage,
+        CurriculumConfig,
+        CurriculumManager,
+        create_default_curriculum_config,
+        create_curriculum_manager,
+        generate_curriculum_scms
+    )
+    __all__.extend([
+        # Master trainer
+        "TrainingState",
+        "MasterTrainingResults", 
+        "MasterTrainer",
+        "create_master_trainer",
+        "run_complete_acbo_training",
+        # Curriculum learning
+        "DifficultyLevel",
+        "CurriculumStage",
+        "CurriculumConfig", 
+        "CurriculumManager",
+        "create_default_curriculum_config",
+        "create_curriculum_manager",
+        "generate_curriculum_scms"
+    ])
+    _MASTER_TRAINER_AVAILABLE = True
+except ImportError as e:
+    _MASTER_TRAINER_AVAILABLE = False
+    import logging
+    logging.getLogger(__name__).warning(f"Master trainer not available: {e}")

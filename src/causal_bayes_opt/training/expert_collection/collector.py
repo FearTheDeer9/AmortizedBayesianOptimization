@@ -9,6 +9,8 @@ algorithm runs with proper validation and quality control.
 import time
 import json
 import pickle
+import logging
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional, FrozenSet
 from pathlib import Path
 
@@ -26,6 +28,8 @@ from causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
 
 from .data_structures import ExpertDemonstration, ExpertTrajectoryDemonstration, DemonstrationBatch
 from .scm_generation import generate_scm_problems
+
+logger = logging.getLogger(__name__)
 
 
 class ExpertDemonstrationCollector:
@@ -389,6 +393,130 @@ class ExpertDemonstrationCollector:
         print(f"   Node sizes covered: {batch.node_sizes_covered}")
         print(f"   Total time: {collection_time:.1f}s")
         print(f"   Success rate: {len(demonstrations)}/{total_attempts} ({100*len(demonstrations)/total_attempts:.1f}%)")
+        
+        # Update collector statistics
+        self.demonstrations_collected += len(demonstrations)
+        self.total_time_spent += collection_time
+        
+        return batch
+    
+    def collect_demonstration_batch_parallel(
+        self,
+        n_demonstrations: int = 50,
+        node_sizes: List[int] = [3, 5, 8, 10, 15, 20],
+        graph_types: List[str] = ["chain", "star", "fork", "collider"],
+        min_accuracy: float = 0.7,
+        max_failures: int = 20,
+        n_workers: int = 4
+    ) -> DemonstrationBatch:
+        """
+        Collect a batch of expert demonstrations using parallel processing.
+        
+        Args:
+            n_demonstrations: Target number of successful demonstrations
+            node_sizes: Graph sizes to sample from
+            graph_types: Graph structures to sample from
+            min_accuracy: Minimum accuracy for valid demonstrations
+            max_failures: Maximum failures before giving up
+            n_workers: Number of parallel workers
+            
+        Returns:
+            DemonstrationBatch with collected demonstrations
+        """
+        print(f"Collecting batch of {n_demonstrations} expert demonstrations (parallel)")
+        print(f"Node sizes: {node_sizes}")
+        print(f"Graph types: {graph_types}")
+        print(f"Min accuracy: {min_accuracy}")
+        print(f"Workers: {n_workers}")
+        print()
+        
+        demonstrations = []
+        failures = 0
+        total_attempts = 0
+        
+        # Generate extra problems to handle failures
+        problems = generate_scm_problems(
+            n_problems=n_demonstrations * 3,
+            node_sizes=node_sizes,
+            graph_types=graph_types
+        )
+        
+        start_time = time.time()
+        
+        # Helper function for parallel execution
+        def collect_single_demonstration(scm_and_type):
+            scm, graph_type = scm_and_type
+            # Create a new collector instance for each worker (to avoid shared state)
+            worker_collector = ExpertDemonstrationCollector(output_dir=str(self.output_dir))
+            return worker_collector.collect_demonstration(scm, graph_type, min_accuracy)
+        
+        # Process in batches to control memory usage
+        batch_size = min(n_workers * 2, len(problems))
+        
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            problem_batches = [problems[i:i+batch_size] for i in range(0, len(problems), batch_size)]
+            
+            for batch_idx, problem_batch in enumerate(problem_batches):
+                if len(demonstrations) >= n_demonstrations or failures >= max_failures:
+                    break
+                
+                print(f"Processing batch {batch_idx + 1}/{len(problem_batches)} ({len(problem_batch)} problems)")
+                
+                # Submit batch of jobs
+                future_to_problem = {
+                    executor.submit(collect_single_demonstration, problem): problem
+                    for problem in problem_batch[:n_demonstrations - len(demonstrations)]
+                }
+                
+                # Collect results as they complete
+                for future in as_completed(future_to_problem):
+                    if len(demonstrations) >= n_demonstrations or failures >= max_failures:
+                        break
+                    
+                    total_attempts += 1
+                    problem = future_to_problem[future]
+                    
+                    try:
+                        demonstration = future.result()
+                        if demonstration is not None:
+                            demonstrations.append(demonstration)
+                            logger.info(f"Success! Collected {len(demonstrations)}/{n_demonstrations}")
+                        else:
+                            failures += 1
+                            logger.warning(f"Failed demonstration (failures: {failures}/{max_failures})")
+                    except Exception as e:
+                        failures += 1
+                        logger.error(f"Exception in demonstration collection: {e}")
+                
+                print(f"Batch {batch_idx + 1} complete: {len(demonstrations)} successes, {failures} failures")
+        
+        collection_time = time.time() - start_time
+        
+        # Create batch
+        batch = DemonstrationBatch(
+            demonstrations=demonstrations,
+            batch_id=f"batch_parallel_{int(time.time())}",
+            collection_config={
+                'n_demonstrations': n_demonstrations,
+                'node_sizes': node_sizes,
+                'graph_types': graph_types,
+                'min_accuracy': min_accuracy,
+                'collection_time': collection_time,
+                'total_attempts': total_attempts,
+                'failures': failures,
+                'n_workers': n_workers,
+                'parallel': True
+            }
+        )
+        
+        print(f"📊 Parallel Batch Collection Summary:")
+        print(f"   Successful demonstrations: {batch.total_demonstrations}")
+        print(f"   Average accuracy: {batch.avg_accuracy:.3f}")
+        print(f"   Graph types covered: {batch.graph_types_covered}")
+        print(f"   Node sizes covered: {batch.node_sizes_covered}")
+        print(f"   Total time: {collection_time:.1f}s")
+        print(f"   Success rate: {len(demonstrations)}/{total_attempts} ({100*len(demonstrations)/total_attempts:.1f}%)")
+        print(f"   Speedup factor: ~{n_workers:.1f}x")
         
         # Update collector statistics
         self.demonstrations_collected += len(demonstrations)

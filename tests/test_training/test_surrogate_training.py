@@ -941,7 +941,7 @@ class TestJAXOptimization:
         # Simple computation for timing comparison
         predicted_logits = jnp.array([1.0, 2.0, 0.5])
         expert_probs = jnp.array([0.1, 0.8, 0.1])
-        parent_sets = [frozenset(), frozenset(['X']), frozenset(['Y'])]
+        parent_sets = (frozenset(), frozenset(['X']), frozenset(['Y']))
         
         # Time regular function
         start = time.time()
@@ -949,10 +949,8 @@ class TestJAXOptimization:
             kl_divergence_loss_jax(predicted_logits, expert_probs, parent_sets)
         regular_time = time.time() - start
         
-        # Time JIT-compiled function
-        @jax.jit
-        def compiled_kl_loss(logits, probs, ps):
-            return kl_divergence_loss_jax(logits, probs, ps)
+        # Time JIT-compiled function with static parent sets
+        compiled_kl_loss = jax.jit(kl_divergence_loss_jax, static_argnums=(2,))
         
         # Warmup compilation
         compiled_kl_loss(predicted_logits, expert_probs, parent_sets)

@@ -26,6 +26,25 @@ import pyrsistent as pyr
 from ..data_structures.buffer import ExperienceBuffer, BufferStatistics
 from ..avici_integration.parent_set import ParentSetPosterior
 
+# Optional imports for mechanism-aware features (graceful degradation)
+try:
+    # PRIMARY: Use JAX unified model (Architecture Enhancement Pivot - Part C)
+    from ..avici_integration.parent_set.unified.jax_model import JAXUnifiedParentSetModel
+    from ..avici_integration.parent_set.unified.config import TargetAwareConfig
+    MECHANISM_AWARE_AVAILABLE = True
+    JAX_UNIFIED_AVAILABLE = True
+except ImportError:
+    try:
+        # FALLBACK: Use deprecated mechanism_aware (for backward compatibility)
+        from ..avici_integration.parent_set.mechanism_aware import MechanismPrediction
+        MECHANISM_AWARE_AVAILABLE = True
+        JAX_UNIFIED_AVAILABLE = False
+    except ImportError:
+        # FALLBACK: No mechanism awareness available
+        MechanismPrediction = Any  # Fallback type
+        MECHANISM_AWARE_AVAILABLE = False
+        JAX_UNIFIED_AVAILABLE = False
+
 # Type aliases
 Sample = pyr.PMap  # From data_structures framework
 
@@ -51,10 +70,15 @@ class AcquisitionState:
         step: Current step number in the acquisition process
         metadata: Additional context information
         
+        # Mechanism-aware enhancement (Architecture Enhancement Pivot - Part C)
+        mechanism_predictions: Optional mechanism predictions for enhanced decision making
+        mechanism_uncertainties: Optional uncertainty estimates for mechanism predictions
+        
         # Derived properties (computed at creation for efficiency)
         uncertainty_bits: Posterior uncertainty in bits (derived)
         buffer_statistics: Comprehensive buffer statistics (derived)
         marginal_parent_probs: Marginal parent probabilities for all variables (derived)
+        mechanism_confidence: Confidence scores for mechanism predictions (derived)
     """
     # Core components from Phases 1 & 2
     posterior: ParentSetPosterior
@@ -66,10 +90,15 @@ class AcquisitionState:
     step: int
     metadata: pyr.PMap[str, Any] = pyr.m()
     
+    # Mechanism-aware enhancement (Part C: Integration)
+    mechanism_predictions: Optional[List[Any]] = None  # List[MechanismPrediction] when available
+    mechanism_uncertainties: Optional[Dict[str, float]] = None
+    
     # Derived properties (computed once for efficiency)
     uncertainty_bits: float = field(init=False)
     buffer_statistics: BufferStatistics = field(init=False)
     marginal_parent_probs: Dict[str, float] = field(init=False)
+    mechanism_confidence: Dict[str, float] = field(init=False)
     
     def __post_init__(self):
         """Compute derived properties for efficient access during training."""
@@ -91,6 +120,10 @@ class AcquisitionState:
                 marginal_probs = {}
             object.__setattr__(self, 'marginal_parent_probs', marginal_probs)
             
+            # Compute mechanism confidence scores (mechanism-aware enhancement)
+            mechanism_confidence = self._compute_mechanism_confidence()
+            object.__setattr__(self, 'mechanism_confidence', mechanism_confidence)
+            
             # Validate state consistency
             self._validate_state_consistency()
             
@@ -104,6 +137,91 @@ class AcquisitionState:
         except Exception as e:
             logger.error(f"Error creating AcquisitionState: {e}")
             raise ValueError(f"Failed to create AcquisitionState: {e}")
+    
+    def _compute_mechanism_confidence(self) -> Dict[str, float]:
+        """
+        Compute confidence scores for mechanism predictions.
+        
+        Enhanced for JAX unified model outputs (Architecture Enhancement Pivot - Part C):
+        - Handles both JAX unified model outputs and legacy format
+        - Uses tensor operations for confidence extraction
+        - Graceful degradation for different model types
+        
+        Returns:
+            Dictionary mapping variable names to confidence scores [0, 1]
+        """
+        if not MECHANISM_AWARE_AVAILABLE or self.mechanism_predictions is None:
+            return {}
+        
+        confidence_scores = {}
+        try:
+            # Handle JAX unified model outputs (Architecture Enhancement Pivot - Part C)
+            if JAX_UNIFIED_AVAILABLE and isinstance(self.mechanism_predictions, dict):
+                # JAX unified model returns mechanism predictions as structured dict
+                if 'mechanism_predictions' in self.mechanism_predictions:
+                    mech_preds = self.mechanism_predictions['mechanism_predictions']
+                    
+                    # Extract confidence from JAX model outputs
+                    if hasattr(mech_preds, 'confidence') and hasattr(mech_preds, 'variables'):
+                        variables = mech_preds.variables
+                        confidences = mech_preds.confidence
+                        
+                        # Vectorized extraction without Python loops
+                        # Create mask for non-target variables
+                        is_not_target = [var != self.current_target for var in variables]
+                        
+                        # Extract all confidences at once
+                        for i, (var, not_target) in enumerate(zip(variables, is_not_target)):
+                            if not_target and i < len(confidences):
+                                confidence_scores[var] = float(confidences[i])
+                
+                # Extract mechanism type confidences if available
+                if 'mechanism_type_probs' in self.mechanism_predictions:
+                    type_probs = self.mechanism_predictions['mechanism_type_probs']
+                    variables = self.mechanism_predictions.get('variable_order', [])
+                    
+                    # Vectorized confidence extraction
+                    if variables and type_probs.shape[0] > 0:
+                        # Get max probabilities for all variables at once
+                        max_probs = jnp.max(type_probs, axis=1)  # [n_vars]
+                        
+                        # Update confidence scores
+                        for i, var in enumerate(variables):
+                            if var != self.current_target and i < len(max_probs):
+                                confidence_scores[var] = max(
+                                    confidence_scores.get(var, 0.0),
+                                    float(max_probs[i])
+                                )
+            
+            # Handle legacy mechanism prediction format (backward compatibility)
+            elif isinstance(self.mechanism_predictions, list):
+                # Note: This path maintains Python loops for backward compatibility
+                # since legacy format isn't tensor-based
+                for pred in self.mechanism_predictions:
+                    if hasattr(pred, 'parent_set') and hasattr(pred, 'confidence'):
+                        # Use all variables in parent set as keys
+                        for var in pred.parent_set:
+                            if var != self.current_target:  # Exclude target variable
+                                confidence_scores[var] = max(
+                                    confidence_scores.get(var, 0.0),
+                                    pred.confidence
+                                )
+            
+            # Add uncertainty-based confidence if available
+            if self.mechanism_uncertainties:
+                for var, uncertainty in self.mechanism_uncertainties.items():
+                    if var != self.current_target:
+                        # Convert uncertainty to confidence (high uncertainty = low confidence)
+                        uncertainty_confidence = max(0.0, 1.0 - uncertainty)
+                        confidence_scores[var] = max(
+                            confidence_scores.get(var, 0.0),
+                            uncertainty_confidence
+                        )
+                        
+        except Exception as e:
+            logger.warning(f"Error computing mechanism confidence: {e}")
+            
+        return confidence_scores
     
     def _validate_state_consistency(self) -> None:
         """Validate internal consistency of the acquisition state."""
@@ -248,6 +366,121 @@ class AcquisitionState:
             'unexplored_variables': float(unexplored_variables)
         }
     
+    def get_mechanism_insights(self) -> Dict[str, Any]:
+        """
+        Get insights from mechanism predictions for intervention selection.
+        
+        Enhanced for JAX unified model outputs (Architecture Enhancement Pivot - Part C):
+        - Handles both JAX unified model and legacy format
+        - Extracts mechanism type and parameter information
+        - Uses tensor operations for efficient processing
+        
+        Returns:
+            Dictionary with mechanism-based insights for decision making
+        """
+        if not MECHANISM_AWARE_AVAILABLE or self.mechanism_predictions is None:
+            return {
+                'mechanism_aware': False,
+                'high_impact_variables': [],
+                'uncertain_mechanisms': [],
+                'predicted_effects': {},
+                'mechanism_types': {}
+            }
+        
+        high_impact_variables = []
+        uncertain_mechanisms = []
+        predicted_effects = {}
+        mechanism_types = {}
+        
+        try:
+            # Handle JAX unified model outputs (Architecture Enhancement Pivot - Part C)
+            if JAX_UNIFIED_AVAILABLE and isinstance(self.mechanism_predictions, dict):
+                # Extract mechanism parameters if available
+                if 'mechanism_parameters' in self.mechanism_predictions:
+                    mech_params = self.mechanism_predictions['mechanism_parameters']
+                    variables = self.mechanism_predictions.get('variable_order', [])
+                    
+                    # Extract all coefficients and types in batches
+                    for i, var in enumerate(variables):
+                        if var != self.current_target and i < len(mech_params):
+                            # Extract coefficient magnitude if available
+                            if hasattr(mech_params[i], 'coefficients'):
+                                coeffs = mech_params[i].coefficients
+                                # Use JAX tensor operations
+                                max_coeff = float(jnp.max(jnp.abs(coeffs))) if len(coeffs) > 0 else 0.0
+                                
+                                if max_coeff > 0.5:  # High impact threshold
+                                    high_impact_variables.append(var)
+                                    predicted_effects[var] = max_coeff
+                            
+                            # Extract mechanism type if available
+                            if hasattr(mech_params[i], 'mechanism_type'):
+                                mechanism_types[var] = mech_params[i].mechanism_type
+                
+                # Extract mechanism type probabilities
+                if 'mechanism_type_probs' in self.mechanism_predictions:
+                    type_probs = self.mechanism_predictions['mechanism_type_probs']
+                    variables = self.mechanism_predictions.get('variable_order', [])
+                    type_names = self.mechanism_predictions.get('mechanism_types', ['linear', 'polynomial', 'gaussian', 'neural'])
+                    
+                    if variables and type_probs.shape[0] > 0:
+                        # Vectorized operations: get argmax and max for all variables
+                        most_likely_types = jnp.argmax(type_probs, axis=1)  # [n_vars]
+                        max_type_probs = jnp.max(type_probs, axis=1)  # [n_vars]
+                        
+                        # Process results for non-target variables
+                        for i, var in enumerate(variables):
+                            if var != self.current_target and i < len(most_likely_types):
+                                # Get most likely mechanism type
+                                type_idx = int(most_likely_types[i])
+                                if type_idx < len(type_names):
+                                    mechanism_types[var] = type_names[type_idx]
+                                
+                                # Check for uncertain mechanisms (low confidence but likely parent)
+                                max_type_prob = float(max_type_probs[i])
+                                if (max_type_prob < 0.5 and 
+                                    var in self.marginal_parent_probs and 
+                                    self.marginal_parent_probs[var] > 0.3):
+                                    uncertain_mechanisms.append(var)
+            
+            # Handle legacy mechanism prediction format (backward compatibility)
+            elif isinstance(self.mechanism_predictions, list):
+                for pred in self.mechanism_predictions:
+                    if hasattr(pred, 'parent_set') and hasattr(pred, 'confidence'):
+                        # High impact: high confidence and large effect magnitude
+                        if pred.confidence > 0.7:
+                            if hasattr(pred, 'parameters'):
+                                params = pred.parameters
+                                if 'coefficients' in params:
+                                    for var, coeff in params['coefficients'].items():
+                                        if abs(coeff) > 0.5:  # Threshold for "high impact"
+                                            high_impact_variables.append(var)
+                                            predicted_effects[var] = float(coeff)
+                        
+                        # Uncertain mechanisms: low confidence but in likely parent sets
+                        if pred.confidence < 0.5:
+                            for var in pred.parent_set:
+                                if var in self.marginal_parent_probs:
+                                    if self.marginal_parent_probs[var] > 0.3:  # Likely parent but uncertain mechanism
+                                        uncertain_mechanisms.append(var)
+                        
+                        # Extract mechanism type if available
+                        if hasattr(pred, 'mechanism_type'):
+                            for var in pred.parent_set:
+                                mechanism_types[var] = pred.mechanism_type
+                                    
+        except Exception as e:
+            logger.warning(f"Error computing mechanism insights: {e}")
+        
+        return {
+            'mechanism_aware': True,
+            'high_impact_variables': list(set(high_impact_variables)),
+            'uncertain_mechanisms': list(set(uncertain_mechanisms)),
+            'predicted_effects': predicted_effects,
+            'mechanism_types': mechanism_types,
+            'mechanism_confidence_avg': sum(self.mechanism_confidence.values()) / max(len(self.mechanism_confidence), 1)
+        }
+    
     def summary(self) -> Dict[str, Any]:
         """
         Create human-readable summary of the acquisition state.
@@ -257,6 +490,7 @@ class AcquisitionState:
         """
         optimization_progress = self.get_optimization_progress()
         exploration_coverage = self.get_exploration_coverage()
+        mechanism_insights = self.get_mechanism_insights()
         
         return {
             # Core state information
@@ -286,9 +520,19 @@ class AcquisitionState:
                 reverse=True
             )[:5]),
             
+            # Mechanism confidence (top 5)
+            'top_mechanism_confidence': dict(sorted(
+                self.mechanism_confidence.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:5]) if self.mechanism_confidence else {},
+            
             # Progress metrics
             'optimization_progress': optimization_progress,
             'exploration_coverage': exploration_coverage,
+            
+            # Mechanism-aware insights (Architecture Enhancement Pivot - Part C)
+            'mechanism_insights': mechanism_insights,
             
             # Metadata
             'metadata': dict(self.metadata)

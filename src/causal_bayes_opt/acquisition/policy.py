@@ -26,6 +26,27 @@ import pyrsistent as pyr
 
 # Local imports
 from .state import AcquisitionState
+from .jax_utils import (
+    create_target_mask_jax,
+    create_mechanism_features_vectorized,
+    apply_target_mask_jit,
+    prepare_samples_for_history_jax
+)
+# JAX-native vectorized components
+from .vectorized_attention import (
+    VectorizedAcquisitionPolicyNetwork,
+    create_vectorized_acquisition_policy
+)
+from .state_tensor_converter import (
+    convert_acquisition_state_to_tensors,
+    apply_target_mask_to_logits,
+    TensorizedAcquisitionState
+)
+from .state_enhanced import (
+    EnhancedAcquisitionState,
+    create_enhanced_acquisition_state,
+    upgrade_acquisition_state_to_enhanced
+)
 from ..interventions.registry import apply_intervention
 from ..data_structures.sample import get_values, get_intervention_targets
 
@@ -326,60 +347,15 @@ class AcquisitionPolicyNetwork(hk.Module):
             # Handle empty buffer case - return zeros with fixed shape
             return jnp.zeros((MAX_HISTORY_SIZE, max(1, n_vars), 3))
         
-        n_actual_samples = len(all_samples)
-        
-        # Take most recent samples if we have too many, pad if too few
-        if n_actual_samples > MAX_HISTORY_SIZE:
-            # Take the most recent MAX_HISTORY_SIZE samples
-            samples_to_use = all_samples[-MAX_HISTORY_SIZE:]
-            n_used_samples = MAX_HISTORY_SIZE
-        else:
-            # Use all samples and pad the rest
-            samples_to_use = all_samples
-            n_used_samples = n_actual_samples
-        
-        # Initialize arrays with fixed size
-        values_array = jnp.zeros((MAX_HISTORY_SIZE, n_vars))
-        intervention_array = jnp.zeros((MAX_HISTORY_SIZE, n_vars))
-        target_array = jnp.zeros((MAX_HISTORY_SIZE, n_vars))
-        
-        # Fill arrays for actual samples
-        for sample_idx, sample in enumerate(samples_to_use):
-            sample_values = get_values(sample)
-            
-            # Fill variable values
-            for var_idx, var_name in enumerate(variable_order):
-                if var_name in sample_values:
-                    values_array = values_array.at[sample_idx, var_idx].set(
-                        float(sample_values[var_name])
-                    )
-                
-                # Mark target variable
-                if var_name == state.current_target:
-                    target_array = target_array.at[sample_idx, var_idx].set(1.0)
-            
-            # Fill intervention indicators
-            intervention_targets = get_intervention_targets(sample)
-            for var_idx, var_name in enumerate(variable_order):
-                if var_name in intervention_targets:
-                    intervention_array = intervention_array.at[sample_idx, var_idx].set(1.0)
-        
-        # Standardize values (zero mean, unit variance per variable)
-        # Only use the actual samples for computing statistics
-        if n_used_samples > 1:
-            actual_values = values_array[:n_used_samples, :]
-            values_std = jnp.std(actual_values, axis=0, keepdims=True) + 1e-8
-            values_mean = jnp.mean(actual_values, axis=0, keepdims=True)
-        else:
-            # Single sample case - just use unit scaling
-            values_std = jnp.ones((1, n_vars))
-            values_mean = jnp.zeros((1, n_vars))
-        
-        # Apply standardization to the full array (padded entries will remain 0)
-        values_standardized = (values_array - values_mean) / values_std
-        
-        # Stack into final format: [MAX_HISTORY_SIZE, n_vars, 3]
-        history = jnp.stack([values_standardized, intervention_array, target_array], axis=2)
+        # Use JAX-compatible preparation function
+        # Note: This function is called outside the JAX-compiled region,
+        # so it can still use Python loops for data preparation
+        history = prepare_samples_for_history_jax(
+            all_samples,
+            variable_order,
+            state.current_target,
+            MAX_HISTORY_SIZE
+        )
         
         return history
 
@@ -388,10 +364,12 @@ class AcquisitionPolicyNetwork(hk.Module):
                                 state_emb: jnp.ndarray,  # [n_vars, hidden_dim]
                                 state: AcquisitionState) -> jnp.ndarray:
         """
-        Select which variable to intervene on using uncertainty information.
+        Select which variable to intervene on using uncertainty and mechanism information.
         
-        Leverages rich uncertainty information from ParentSetPosterior rather than
-        simple thresholding approaches used in pure structure learning.
+        Enhanced for mechanism-aware intervention selection (Architecture Enhancement Pivot - Part C):
+        - Leverages uncertainty information from ParentSetPosterior
+        - Uses mechanism confidence and predicted effects
+        - Prioritizes high-impact variables with uncertain mechanisms
         """
         n_vars = state_emb.shape[0]
         
@@ -408,16 +386,58 @@ class AcquisitionPolicyNetwork(hk.Module):
         # Compute uncertainty features (high uncertainty = prob near 0.5)
         uncertainty_features = 1.0 - 2.0 * jnp.abs(marginal_probs - 0.5)  # [n_vars]
         
+        # Get mechanism confidence features (Architecture Enhancement Pivot - Part C)
+        mechanism_confidence_features = []
+        mechanism_insights = state.get_mechanism_insights()
+        
+        for var_name in variable_order:
+            confidence = state.mechanism_confidence.get(var_name, 0.0)
+            mechanism_confidence_features.append(confidence)
+        
+        mechanism_confidence_features = jnp.array(mechanism_confidence_features)  # [n_vars]
+        
+        # Get predicted effect magnitude features
+        predicted_effects = []
+        for var_name in variable_order:
+            effect = mechanism_insights['predicted_effects'].get(var_name, 0.0)
+            predicted_effects.append(abs(effect))  # Use magnitude for prioritization
+        
+        predicted_effects = jnp.array(predicted_effects)  # [n_vars]
+        
+        # High-impact variable indicators
+        high_impact_indicators = []
+        for var_name in variable_order:
+            is_high_impact = 1.0 if var_name in mechanism_insights['high_impact_variables'] else 0.0
+            high_impact_indicators.append(is_high_impact)
+        
+        high_impact_indicators = jnp.array(high_impact_indicators)  # [n_vars]
+        
+        # Get mechanism type features (Architecture Enhancement Pivot - Part C)
+        mechanism_type_features = []
+        mechanism_types = mechanism_insights.get('mechanism_types', {})
+        
+        for var_name in variable_order:
+            mech_type = mechanism_types.get(var_name, 'unknown')
+            # One-hot encoding for mechanism types (linear=1, polynomial=2, gaussian=3, neural=4, unknown=0)
+            type_encoding = {
+                'linear': 1.0, 'polynomial': 2.0, 'gaussian': 3.0, 'neural': 4.0
+            }.get(mech_type, 0.0)
+            mechanism_type_features.append(type_encoding)
+        
+        mechanism_type_features = jnp.array(mechanism_type_features)  # [n_vars]
+        
         # Add global context features
         uncertainty_bits = jnp.full((n_vars,), state.uncertainty_bits)
         best_value_feat = jnp.full((n_vars,), state.best_value)
         step_feat = jnp.full((n_vars,), float(state.step))
         
-        # Combine all features: [n_vars, hidden_dim + 4]
+        # Combine all features: [n_vars, hidden_dim + 9] (enhanced with mechanism type features)
         context_features = jnp.stack([
             marginal_probs, uncertainty_features, uncertainty_bits, 
-            best_value_feat, step_feat
-        ], axis=1)  # [n_vars, 5]
+            best_value_feat, step_feat,
+            mechanism_confidence_features, predicted_effects, high_impact_indicators,
+            mechanism_type_features  # New: mechanism type encoding
+        ], axis=1)  # [n_vars, 9]
         
         combined_features = jnp.concatenate([state_emb, context_features], axis=1)
         
@@ -433,13 +453,9 @@ class AcquisitionPolicyNetwork(hk.Module):
         # Output logits
         variable_logits = hk.Linear(1, w_init=self.w_init)(x).squeeze(-1)  # [n_vars]
         
-        # Mask out target variable (can't intervene on target)
-        target_mask = jnp.array([
-            1.0 if var != state.current_target else -jnp.inf
-            for var in variable_order
-        ])
-        
-        variable_logits = variable_logits + target_mask
+        # Mask out target variable (can't intervene on target) - JAX-compatible
+        target_mask = create_target_mask_jax(variable_order, state.current_target)
+        variable_logits = apply_target_mask_jit(variable_logits, target_mask)
         
         return variable_logits
 
@@ -448,12 +464,16 @@ class AcquisitionPolicyNetwork(hk.Module):
                              state_emb: jnp.ndarray,  # [n_vars, hidden_dim]
                              state: AcquisitionState) -> jnp.ndarray:
         """
-        Select intervention values using optimization context.
+        Select intervention values using optimization context and mechanism predictions.
         
-        Returns parameters for normal distribution over intervention values,
-        incorporating current best value and optimization progress.
+        Enhanced for mechanism-aware value selection (Architecture Enhancement Pivot - Part C):
+        - Uses predicted effect magnitudes to scale intervention values
+        - Incorporates mechanism confidence for uncertainty-based exploration
+        - Returns parameters for normal distribution over intervention values
         """
         n_vars = state_emb.shape[0]
+        variable_order = sorted(state.buffer.get_variable_coverage())
+        mechanism_insights = state.get_mechanism_insights()
         
         # Add optimization context features
         best_value_feature = jnp.full((n_vars, 1), state.best_value)
@@ -467,9 +487,16 @@ class AcquisitionPolicyNetwork(hk.Module):
             opt_progress['stagnation_steps']
         ]))
         
-        # Combine features: [n_vars, hidden_dim + 5]
+        # Get mechanism-based features for value scaling (JAX-compatible)
+        mechanism_features = create_mechanism_features_vectorized(
+            variable_order,
+            mechanism_insights,
+            state.mechanism_confidence
+        )  # [n_vars, 3]
+        
+        # Combine features: [n_vars, hidden_dim + 8] (enhanced with mechanism type scaling)
         augmented_features = jnp.concatenate([
-            state_emb, best_value_feature, progress_features
+            state_emb, best_value_feature, progress_features, mechanism_features
         ], axis=1)
         
         # MLP for value parameters
@@ -524,7 +551,8 @@ class AcquisitionPolicyNetwork(hk.Module):
 # Factory functions
 def create_acquisition_policy(
     config: PolicyConfig,
-    example_state: AcquisitionState
+    example_state: AcquisitionState,
+    use_vectorized: bool = True
 ) -> hk.Transformed:
     """
     Create and initialize acquisition policy network.
@@ -532,25 +560,53 @@ def create_acquisition_policy(
     Args:
         config: Policy configuration
         example_state: Example state for initialization
+        use_vectorized: Whether to use JAX-native vectorized implementation
         
     Returns:
         Transformed Haiku model ready for training
     """
-    def policy_fn(state: AcquisitionState, is_training: bool = True):
-        policy = AcquisitionPolicyNetwork(
-            hidden_dim=config.hidden_dim,
-            num_layers=config.num_layers,
-            num_heads=config.num_heads,
-            dropout=config.dropout
-        )
-        return policy(state, is_training)
+    if use_vectorized:
+        # Use JAX-native vectorized implementation
+        example_tensor_data = convert_acquisition_state_to_tensors(example_state)
+        return create_vectorized_acquisition_policy(config, example_tensor_data)
+    else:
+        # Use legacy implementation (with for loops)
+        def policy_fn(state: AcquisitionState, is_training: bool = True):
+            policy = AcquisitionPolicyNetwork(
+                hidden_dim=config.hidden_dim,
+                num_layers=config.num_layers,
+                num_heads=config.num_heads,
+                dropout=config.dropout
+            )
+            return policy(state, is_training)
+        
+        return hk.transform(policy_fn)
+
+
+def create_jax_native_policy(
+    config: PolicyConfig,
+    example_state: AcquisitionState
+) -> hk.Transformed:
+    """
+    Create JAX-native vectorized policy network.
     
-    return hk.transform(policy_fn)
+    This function specifically creates the high-performance vectorized version
+    that eliminates all Python loops and is fully JAX-compilable.
+    
+    Args:
+        config: Policy configuration  
+        example_state: Example state for tensor format determination
+        
+    Returns:
+        JAX-compiled Haiku model
+    """
+    example_tensor_data = convert_acquisition_state_to_tensors(example_state)
+    return create_vectorized_acquisition_policy(config, example_tensor_data)
 
 
 def sample_intervention_from_policy(
     policy_output: Dict[str, jnp.ndarray],
-    state: AcquisitionState,
+    state,  # AcquisitionState or tensor data
     key: jax.Array,
     config: PolicyConfig
 ) -> pyr.PMap:
@@ -586,8 +642,16 @@ def sample_intervention_from_policy(
     std = jnp.exp(log_std) * config.value_selection_temp
     intervention_value = mean + std * jax.random.normal(val_key)
     
-    # Get variable names from state
-    variable_order = sorted(state.buffer.get_variable_coverage())
+    # Get variable names from state (handle both formats)
+    if hasattr(state, 'buffer'):
+        # Legacy AcquisitionState format
+        variable_order = sorted(state.buffer.get_variable_coverage())
+    elif isinstance(state, dict) and 'variable_order' in state:
+        # Tensor data format
+        variable_order = state['variable_order']
+    else:
+        raise ValueError("State must be AcquisitionState or tensor data dict")
+    
     selected_var = variable_order[selected_var_idx]
     
     # Create intervention specification using existing framework
@@ -655,6 +719,49 @@ def compute_action_log_probability(
     val_log_prob -= 0.5 * ((target_value - mean) / std) ** 2
     
     return var_log_prob + val_log_prob
+
+
+def run_vectorized_policy_inference(
+    policy_apply_fn,
+    params,
+    state: AcquisitionState,
+    key: jax.Array,
+    is_training: bool = False
+) -> Dict[str, jnp.ndarray]:
+    """
+    High-level function for running vectorized policy inference.
+    
+    This function handles the complete pipeline:
+    1. Convert AcquisitionState to tensor format
+    2. Run vectorized policy network
+    3. Apply target masking
+    4. Return results
+    
+    Args:
+        policy_apply_fn: Policy network apply function
+        params: Policy network parameters
+        state: AcquisitionState object
+        key: JAX random key
+        is_training: Training mode flag
+        
+    Returns:
+        Policy outputs with target masking applied
+    """
+    # Convert state to tensor format
+    tensor_data = convert_acquisition_state_to_tensors(state)
+    
+    # Run vectorized policy network
+    policy_output = policy_apply_fn(params, key, tensor_data, is_training)
+    
+    # Apply target masking to variable logits
+    if tensor_data['target_idx'] >= 0:
+        masked_logits = apply_target_mask_to_logits(
+            policy_output['variable_logits'], 
+            tensor_data['target_idx']
+        )
+        policy_output['variable_logits'] = masked_logits
+    
+    return policy_output
 
 
 def compute_policy_entropy(
@@ -826,4 +933,270 @@ def validate_policy_output(
         
     except Exception as e:
         logger.error(f"Error validating policy output: {e}")
+        return False
+
+
+# Enhanced Factory Functions with Tensor-Based State Management
+
+def create_enhanced_acquisition_policy(
+    config: PolicyConfig,
+    example_state: AcquisitionState,
+    use_tensor_ops: bool = True,
+    force_vectorized: bool = True
+) -> hk.Transformed:
+    """
+    Create enhanced acquisition policy with tensor-based state management.
+    
+    This factory function creates a policy network that can work with both
+    the original AcquisitionState and the new EnhancedAcquisitionState with
+    tensor operations for maximum performance.
+    
+    Args:
+        config: Policy configuration
+        example_state: Example state for initialization
+        use_tensor_ops: Whether to use tensor operations in state management
+        force_vectorized: Whether to force JAX-native vectorized policy network
+        
+    Returns:
+        Transformed Haiku model optimized for JAX compilation
+    """
+    if force_vectorized:
+        # Convert to enhanced state for tensor operations
+        if not isinstance(example_state, EnhancedAcquisitionState):
+            enhanced_state = upgrade_acquisition_state_to_enhanced(
+                example_state, use_tensor_ops=use_tensor_ops
+            )
+        else:
+            enhanced_state = example_state
+        
+        # Get tensor input format for vectorized policy
+        example_tensor_data = enhanced_state.get_tensor_input_for_policy()
+        return create_vectorized_acquisition_policy(config, example_tensor_data)
+    else:
+        # Use legacy implementation with optional tensor ops in state
+        def policy_fn(state, is_training: bool = True):
+            # Auto-upgrade state if needed
+            if not isinstance(state, EnhancedAcquisitionState):
+                state = upgrade_acquisition_state_to_enhanced(state, use_tensor_ops=use_tensor_ops)
+            
+            policy = AcquisitionPolicyNetwork(
+                hidden_dim=config.hidden_dim,
+                num_layers=config.num_layers,
+                num_heads=config.num_heads,
+                dropout=config.dropout
+            )
+            return policy(state, is_training)
+        
+        return hk.transform(policy_fn)
+
+
+def create_fully_jax_native_policy(
+    config: PolicyConfig,
+    example_state: AcquisitionState
+) -> hk.Transformed:
+    """
+    Create fully JAX-native policy with complete tensor-based architecture.
+    
+    This function creates the highest-performance version that:
+    1. Uses EnhancedAcquisitionState with tensor operations
+    2. Uses VectorizedAcquisitionPolicyNetwork with vmap operations
+    3. Eliminates all Python loops and dictionary operations
+    4. Enables full JAX compilation with maximum speedup
+    
+    Args:
+        config: Policy configuration
+        example_state: Example state for tensor format determination
+        
+    Returns:
+        Fully JAX-compiled policy network for maximum performance
+    """
+    # Ensure we have enhanced state with tensor operations
+    if not isinstance(example_state, EnhancedAcquisitionState):
+        enhanced_state = upgrade_acquisition_state_to_enhanced(
+            example_state, use_tensor_ops=True
+        )
+    else:
+        enhanced_state = example_state
+        enhanced_state.enable_tensor_operations(True)
+    
+    # Get tensor input format
+    example_tensor_data = enhanced_state.get_tensor_input_for_policy()
+    
+    # Use vectorized policy network
+    return create_vectorized_acquisition_policy(config, example_tensor_data)
+
+
+def run_enhanced_policy_inference(
+    policy_apply_fn,
+    params,
+    state: AcquisitionState,
+    key: jax.Array,
+    is_training: bool = False,
+    use_tensor_ops: bool = True
+) -> Dict[str, jnp.ndarray]:
+    """
+    Run policy inference with enhanced state management and tensor operations.
+    
+    This function provides the complete pipeline for high-performance inference:
+    1. Auto-upgrade state to EnhancedAcquisitionState if needed
+    2. Use tensor operations for all state computations
+    3. Run JAX-compiled policy network
+    4. Apply proper target masking
+    
+    Args:
+        policy_apply_fn: Policy network apply function
+        params: Policy network parameters
+        state: AcquisitionState (will be upgraded if needed)
+        key: JAX random key
+        is_training: Training mode flag
+        use_tensor_ops: Whether to use tensor operations
+        
+    Returns:
+        Policy outputs with enhanced tensor-based processing
+    """
+    # Auto-upgrade state if needed
+    if not isinstance(state, EnhancedAcquisitionState):
+        enhanced_state = upgrade_acquisition_state_to_enhanced(state, use_tensor_ops=use_tensor_ops)
+    else:
+        enhanced_state = state
+        if use_tensor_ops:
+            enhanced_state.enable_tensor_operations(True)
+    
+    # Get tensor input
+    tensor_data = enhanced_state.get_tensor_input_for_policy()
+    
+    # Run policy network
+    policy_output = policy_apply_fn(params, key, tensor_data, is_training)
+    
+    # Apply target masking
+    if tensor_data['target_idx'] >= 0:
+        masked_logits = apply_target_mask_to_logits(
+            policy_output['variable_logits'], 
+            tensor_data['target_idx']
+        )
+        policy_output['variable_logits'] = masked_logits
+    
+    return policy_output
+
+
+def sample_intervention_from_enhanced_policy(
+    policy_output: Dict[str, jnp.ndarray],
+    state: EnhancedAcquisitionState,
+    key: jax.Array,
+    config: PolicyConfig
+) -> pyr.PMap:
+    """
+    Sample intervention from enhanced policy using tensor operations.
+    
+    Args:
+        policy_output: Output from enhanced policy network
+        state: EnhancedAcquisitionState with tensor capabilities
+        key: JAX random key
+        config: Policy configuration
+        
+    Returns:
+        Intervention specification
+    """
+    # Use tensor data for variable ordering
+    tensor_data = state.get_tensor_input_for_policy()
+    
+    # Delegate to existing sampling function with tensor data
+    return sample_intervention_from_policy(policy_output, tensor_data, key, config)
+
+
+# Auto-Selection Factory Function
+
+def create_auto_acquisition_policy(
+    config: PolicyConfig,
+    example_state: AcquisitionState,
+    performance_mode: str = "balanced"
+) -> hk.Transformed:
+    """
+    Auto-select the best policy implementation based on performance requirements.
+    
+    This function automatically chooses between different implementations based
+    on the performance mode and automatically handles state upgrades.
+    
+    Args:
+        config: Policy configuration
+        example_state: Example state for initialization
+        performance_mode: Performance mode selection:
+            - "maximum": Fully JAX-native with tensor operations (highest performance)
+            - "balanced": Enhanced state with vectorized policy (good performance + compatibility)
+            - "compatible": Legacy implementation with enhanced state (maximum compatibility)
+            
+    Returns:
+        Optimally configured policy network
+    """
+    if performance_mode == "maximum":
+        logger.info("Creating maximum performance JAX-native policy")
+        return create_fully_jax_native_policy(config, example_state)
+    
+    elif performance_mode == "balanced":
+        logger.info("Creating balanced enhanced policy with tensor operations")
+        return create_enhanced_acquisition_policy(
+            config, example_state, use_tensor_ops=True, force_vectorized=True
+        )
+    
+    elif performance_mode == "compatible":
+        logger.info("Creating compatible enhanced policy with legacy fallback")
+        return create_enhanced_acquisition_policy(
+            config, example_state, use_tensor_ops=True, force_vectorized=False
+        )
+    
+    else:
+        raise ValueError(f"Unknown performance mode: {performance_mode}. "
+                        f"Choose from 'maximum', 'balanced', or 'compatible'")
+
+
+# Migration Utilities
+
+def validate_tensor_policy_compatibility(
+    policy_apply_fn,
+    params,
+    example_state: AcquisitionState,
+    key: jax.Array
+) -> bool:
+    """
+    Validate that a policy works correctly with tensor operations.
+    
+    Args:
+        policy_apply_fn: Policy apply function to test
+        params: Policy parameters
+        example_state: Example state for testing
+        key: JAX random key
+        
+    Returns:
+        True if policy works correctly with tensor operations
+    """
+    try:
+        # Test with enhanced state
+        enhanced_state = upgrade_acquisition_state_to_enhanced(example_state, use_tensor_ops=True)
+        
+        # Test tensor input creation
+        tensor_data = enhanced_state.get_tensor_input_for_policy()
+        
+        # Test policy inference
+        policy_output = policy_apply_fn(params, key, tensor_data, is_training=False)
+        
+        # Validate output format
+        required_keys = ['variable_logits', 'value_params', 'state_value']
+        if not all(key in policy_output for key in required_keys):
+            logger.error(f"Missing required keys in policy output: {required_keys}")
+            return False
+        
+        # Test intervention sampling
+        intervention = sample_intervention_from_enhanced_policy(
+            policy_output, enhanced_state, key, PolicyConfig()
+        )
+        
+        if not isinstance(intervention, pyr.PMap):
+            logger.error("Intervention sampling failed to return PMap")
+            return False
+        
+        logger.info("Tensor policy compatibility validation passed")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Tensor policy compatibility validation failed: {e}")
         return False

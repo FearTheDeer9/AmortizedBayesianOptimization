@@ -280,7 +280,7 @@ class TestConfigValidation:
             warmup_steps=150  # Invalid: > total_steps
         )
         
-        with pytest.raises(ValueError, match="Warmup steps must be less"):
+        with pytest.raises(ValueError, match="Warmup steps .* must be less than total steps"):
             validate_training_config(config)
     
     def test_validate_eval_frequency_error(self):
@@ -317,7 +317,7 @@ class TestConfigValidation:
             )
         )
         
-        with pytest.raises(ValueError, match="Final temperature must be less"):
+        with pytest.raises(ValueError, match="Final temperature .* must be less than initial temperature"):
             validate_training_config(config)
 
 

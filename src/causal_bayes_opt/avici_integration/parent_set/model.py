@@ -1,5 +1,16 @@
 """
 Core parent set prediction model architecture.
+
+⚠️  DEPRECATED: This model is deprecated in favor of the unified model.
+    Use src/causal_bayes_opt/avici_integration/parent_set/unified/model.py instead.
+    
+    The unified model provides:
+    - JAX-compatible tensor operations (no string operations)
+    - Mechanism-aware predictions (optional)
+    - Better target conditioning
+    - Maintained [N, d, 3] format compatibility
+    
+    This file will be removed in a future version.
 """
 
 import jax

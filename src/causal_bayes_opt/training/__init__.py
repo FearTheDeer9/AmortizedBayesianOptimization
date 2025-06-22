@@ -47,6 +47,18 @@ from .surrogate_training import (
     validate_surrogate_performance
 )
 
+# Decoupled surrogate training interface
+try:
+    from .surrogate_trainer import (
+        SurrogateTrainer,
+        SurrogateTrainingResults,
+        load_expert_demonstrations_from_path,
+        convert_demonstrations_to_training_batches
+    )
+    _SURROGATE_TRAINER_AVAILABLE = True
+except ImportError:
+    _SURROGATE_TRAINER_AVAILABLE = False
+
 # Acquisition training system
 try:
     from .acquisition_training import (
@@ -121,6 +133,15 @@ __all__.extend([
     "run_loss_function_experiment",
     "validate_surrogate_performance"
 ])
+
+# Add decoupled surrogate trainer if available
+if _SURROGATE_TRAINER_AVAILABLE:
+    __all__.extend([
+        "SurrogateTrainer",
+        "SurrogateTrainingResults",
+        "load_expert_demonstrations_from_path",
+        "convert_demonstrations_to_training_batches"
+    ])
 
 # Add acquisition training if available
 if _ACQUISITION_TRAINING_AVAILABLE:

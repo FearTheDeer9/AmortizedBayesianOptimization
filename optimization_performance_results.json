@@ -1,0 +1,89 @@
+{
+  "results": {
+    "linear_optimization": {
+      "problem_name": "linear_optimization",
+      "baseline_target_value": -1.0150538682937622,
+      "achieved_target_value": -0.18585335016250612,
+      "improvement_ratio": 1.275693104817317,
+      "interventions_used": 5,
+      "convergence_step": 5,
+      "final_intervention": {
+        "X1": 0.5
+      }
+    },
+    "multi_target": {
+      "problem_name": "multi_target",
+      "baseline_target_value": -0.39987310767173767,
+      "achieved_target_value": 7.157585573196411,
+      "improvement_ratio": 13.030101173910603,
+      "interventions_used": 19,
+      "convergence_step": 19,
+      "final_intervention": {
+        "X1": 1.5,
+        "X3": 1.5
+      }
+    },
+    "confounded_system": {
+      "problem_name": "confounded_system",
+      "baseline_target_value": -0.5474263429641724,
+      "achieved_target_value": -0.18585335016250612,
+      "improvement_ratio": 0.6953326784647427,
+      "interventions_used": 19,
+      "convergence_step": 19,
+      "final_intervention": {
+        "X2": 0.5
+      }
+    },
+    "large_system": {
+      "problem_name": "large_system",
+      "baseline_target_value": -3.3690123558044434,
+      "achieved_target_value": -0.3321106433868408,
+      "improvement_ratio": 6.3268785675366725,
+      "interventions_used": 5,
+      "convergence_step": 5,
+      "final_intervention": {
+        "X1": 0.5
+      }
+    },
+    "sparse_rewards": {
+      "problem_name": "sparse_rewards",
+      "baseline_target_value": -0.3654041886329651,
+      "achieved_target_value": 8.398325276374818,
+      "improvement_ratio": 20.866022535732817,
+      "interventions_used": 19,
+      "convergence_step": 19,
+      "final_intervention": {
+        "X2": 1.5,
+        "X1": 1.5
+      }
+    },
+    "noisy_system": {
+      "problem_name": "noisy_system",
+      "baseline_target_value": -0.1705857664346695,
+      "achieved_target_value": -0.18585335016250612,
+      "improvement_ratio": -0.027759243141521135,
+      "interventions_used": 5,
+      "convergence_step": 5,
+      "final_intervention": {
+        "X1": 0.5
+      }
+    }
+  },
+  "summary": {
+    "total_problems": 6,
+    "exceeding_parent_scale": 4,
+    "meeting_target": 4,
+    "average_improvement_ratio": 7.027711469553439,
+    "best_improvement_ratio": 20.866022535732817,
+    "worst_improvement_ratio": -0.027759243141521135,
+    "parent_scale_baselines": {
+      "linear_optimization": 0.65,
+      "multi_target": 0.58,
+      "confounded_system": 0.52,
+      "large_system": 0.48,
+      "sparse_rewards": 0.42,
+      "noisy_system": 0.55
+    },
+    "requirements_met": true
+  }
+}

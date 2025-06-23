@@ -1,0 +1,407 @@
+{
+  "results": {
+    "linear_chain": {
+      "problem_name": "linear_chain",
+      "n_variables": 5,
+      "true_edges": [
+        [
+          "X2",
+          "X3"
+        ],
+        [
+          "X4",
+          "X5"
+        ],
+        [
+          "X3",
+          "X4"
+        ],
+        [
+          "X1",
+          "X2"
+        ]
+      ],
+      "predicted_edges": [
+        [
+          "X2",
+          "X3"
+        ],
+        [
+          "X3",
+          "X4"
+        ],
+        [
+          "X1",
+          "X2"
+        ]
+      ],
+      "metrics": {
+        "true_positives": 3,
+        "false_positives": 0,
+        "true_negatives": 16,
+        "false_negatives": 1,
+        "precision": 1.0,
+        "recall": 0.75,
+        "f1_score": 0.8571428571428571,
+        "accuracy": 0.95
+      }
+    },
+    "fork": {
+      "problem_name": "fork",
+      "n_variables": 5,
+      "true_edges": [
+        [
+          "X1",
+          "X3"
+        ],
+        [
+          "X2",
+          "X4"
+        ],
+        [
+          "X3",
+          "X5"
+        ],
+        [
+          "X1",
+          "X2"
+        ]
+      ],
+      "predicted_edges": [
+        [
+          "X3",
+          "X5"
+        ],
+        [
+          "X1",
+          "X2"
+        ],
+        [
+          "X2",
+          "X4"
+        ],
+        [
+          "X1",
+          "X3"
+        ]
+      ],
+      "metrics": {
+        "true_positives": 4,
+        "false_positives": 0,
+        "true_negatives": 16,
+        "false_negatives": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1_score": 1.0,
+        "accuracy": 1.0
+      }
+    },
+    "collider": {
+      "problem_name": "collider",
+      "n_variables": 5,
+      "true_edges": [
+        [
+          "X3",
+          "X5"
+        ],
+        [
+          "X2",
+          "X3"
+        ],
+        [
+          "X3",
+          "X4"
+        ],
+        [
+          "X1",
+          "X3"
+        ]
+      ],
+      "predicted_edges": [
+        [
+          "X3",
+          "X4"
+        ]
+      ],
+      "metrics": {
+        "true_positives": 1,
+        "false_positives": 0,
+        "true_negatives": 16,
+        "false_negatives": 3,
+        "precision": 1.0,
+        "recall": 0.25,
+        "f1_score": 0.4,
+        "accuracy": 0.85
+      }
+    },
+    "dense": {
+      "problem_name": "dense",
+      "n_variables": 5,
+      "true_edges": [
+        [
+          "X3",
+          "X5"
+        ],
+        [
+          "X1",
+          "X3"
+        ],
+        [
+          "X1",
+          "X4"
+        ],
+        [
+          "X2",
+          "X5"
+        ],
+        [
+          "X3",
+          "X4"
+        ],
+        [
+          "X2",
+          "X4"
+        ],
+        [
+          "X1",
+          "X2"
+        ]
+      ],
+      "predicted_edges": [
+        [
+          "X1",
+          "X4"
+        ],
+        [
+          "X2",
+          "X4"
+        ],
+        [
+          "X1",
+          "X2"
+        ],
+        [
+          "X3",
+          "X5"
+        ],
+        [
+          "X1",
+          "X3"
+        ],
+        [
+          "X3",
+          "X4"
+        ]
+      ],
+      "metrics": {
+        "true_positives": 6,
+        "false_positives": 0,
+        "true_negatives": 13,
+        "false_negatives": 1,
+        "precision": 1.0,
+        "recall": 0.8571428571428571,
+        "f1_score": 0.923076923076923,
+        "accuracy": 0.95
+      }
+    },
+    "large_linear": {
+      "problem_name": "large_linear",
+      "n_variables": 10,
+      "true_edges": [
+        [
+          "X8",
+          "X9"
+        ],
+        [
+          "X6",
+          "X7"
+        ],
+        [
+          "X2",
+          "X3"
+        ],
+        [
+          "X7",
+          "X8"
+        ],
+        [
+          "X1",
+          "X2"
+        ],
+        [
+          "X9",
+          "X10"
+        ],
+        [
+          "X4",
+          "X5"
+        ],
+        [
+          "X5",
+          "X6"
+        ],
+        [
+          "X3",
+          "X4"
+        ]
+      ],
+      "predicted_edges": [
+        [
+          "X8",
+          "X9"
+        ],
+        [
+          "X6",
+          "X7"
+        ],
+        [
+          "X2",
+          "X3"
+        ],
+        [
+          "X7",
+          "X8"
+        ],
+        [
+          "X1",
+          "X2"
+        ],
+        [
+          "X9",
+          "X10"
+        ],
+        [
+          "X4",
+          "X5"
+        ],
+        [
+          "X5",
+          "X6"
+        ]
+      ],
+      "metrics": {
+        "true_positives": 8,
+        "false_positives": 0,
+        "true_negatives": 81,
+        "false_negatives": 1,
+        "precision": 1.0,
+        "recall": 0.8888888888888888,
+        "f1_score": 0.9411764705882353,
+        "accuracy": 0.9888888888888889
+      }
+    },
+    "complex": {
+      "problem_name": "complex",
+      "n_variables": 8,
+      "true_edges": [
+        [
+          "X5",
+          "X7"
+        ],
+        [
+          "X6",
+          "X7"
+        ],
+        [
+          "X4",
+          "X6"
+        ],
+        [
+          "X7",
+          "X8"
+        ],
+        [
+          "X2",
+          "X4"
+        ],
+        [
+          "X1",
+          "X2"
+        ],
+        [
+          "X4",
+          "X5"
+        ],
+        [
+          "X1",
+          "X3"
+        ],
+        [
+          "X3",
+          "X4"
+        ]
+      ],
+      "predicted_edges": [
+        [
+          "X5",
+          "X7"
+        ],
+        [
+          "X4",
+          "X3"
+        ],
+        [
+          "X6",
+          "X7"
+        ],
+        [
+          "X4",
+          "X6"
+        ],
+        [
+          "X2",
+          "X8"
+        ],
+        [
+          "X1",
+          "X2"
+        ],
+        [
+          "X4",
+          "X5"
+        ],
+        [
+          "X8",
+          "X3"
+        ],
+        [
+          "X1",
+          "X3"
+        ],
+        [
+          "X8",
+          "X6"
+        ],
+        [
+          "X2",
+          "X4"
+        ],
+        [
+          "X1",
+          "X7"
+        ]
+      ],
+      "metrics": {
+        "true_positives": 7,
+        "false_positives": 5,
+        "true_negatives": 42,
+        "false_negatives": 2,
+        "precision": 0.5833333333333334,
+        "recall": 0.7777777777777778,
+        "f1_score": 0.6666666666666666,
+        "accuracy": 0.875
+      }
+    }
+  },
+  "summary": {
+    "total_problems": 6,
+    "meeting_target": 3,
+    "target_f1_score": 0.9,
+    "average_f1_score": 0.7980104862457803,
+    "average_precision": 0.9305555555555555,
+    "average_recall": 0.753968253968254,
+    "best_f1_score": 1.0,
+    "worst_f1_score": 0.4,
+    "requirements_met": false
+  }
+}

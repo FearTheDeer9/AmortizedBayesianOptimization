@@ -46,6 +46,12 @@ from ..acquisition.rewards import (
     compute_verifiable_reward,
     create_default_reward_config
 )
+from ..acquisition.reward_rubric import (
+    CausalRewardRubric,
+    create_training_rubric,
+    create_deployment_rubric,
+    create_ablation_rubric,
+)
 from ..acquisition.state import AcquisitionState
 from ..acquisition.services import create_acquisition_state
 
@@ -108,7 +114,11 @@ class BehavioralCloningConfig:
 
 @dataclass(frozen=True)
 class AcquisitionTrainingConfig:
-    """Complete configuration for acquisition model training pipeline."""
+    """Complete configuration for acquisition model training pipeline.
+    
+    Enhanced to support both legacy reward system and new rubric-based system
+    inspired by the verifiers repository patterns.
+    """
     
     # Phase configurations
     bc_config: BehavioralCloningConfig = field(default_factory=BehavioralCloningConfig)
@@ -117,13 +127,22 @@ class AcquisitionTrainingConfig:
     # Policy network configuration
     policy_config: PolicyConfig = field(default_factory=PolicyConfig)
     
-    # Verifiable reward configuration
+    # Reward system configuration (new rubric-based system)
+    use_hybrid_rewards: bool = True
+    reward_rubric: Optional[CausalRewardRubric] = None
+    
+    # Legacy reward configuration (backward compatibility)
     reward_weights: Dict[str, float] = field(default_factory=lambda: {
         'optimization': 1.0,
         'structure': 0.5,
         'parent': 0.3,
         'exploration': 0.1
     })
+    
+    # Training performance enhancements (inspired by verifiers)
+    enable_async_training: bool = True
+    diversity_monitoring: bool = True
+    diversity_threshold: float = 0.3
     
     # Data requirements
     expert_trajectory_count: int = 500
@@ -133,6 +152,162 @@ class AcquisitionTrainingConfig:
     save_checkpoints: bool = True
     checkpoint_frequency: int = 1000
     logging_frequency: int = 100
+    
+    def get_reward_rubric(self) -> CausalRewardRubric:
+        """Get reward rubric, creating default if not specified."""
+        if self.reward_rubric is not None:
+            return self.reward_rubric
+        elif self.use_hybrid_rewards:
+            # Create training rubric with mechanism-aware features
+            return create_training_rubric()
+        else:
+            # Fallback to legacy-compatible rubric
+            return create_ablation_rubric(
+                use_supervised=False,
+                use_observable=True
+            )
+    
+    def is_legacy_mode(self) -> bool:
+        """Check if running in legacy reward mode."""
+        return not self.use_hybrid_rewards and self.reward_rubric is None
+
+
+def create_training_config(
+    bc_epochs: int = 50,
+    grpo_epochs: int = 100,
+    improvement_weight: float = 2.0,
+    mechanism_impact_weight: float = 1.5,
+    exploration_weight: float = 0.5,
+    enable_async: bool = True,
+    **kwargs
+) -> AcquisitionTrainingConfig:
+    """Create training configuration with both supervised and observable signals.
+    
+    This configuration uses ground truth during training for better guidance
+    while also incorporating observable signals for robustness.
+    
+    Args:
+        bc_epochs: Number of behavioral cloning epochs
+        grpo_epochs: Number of GRPO fine-tuning epochs
+        improvement_weight: Weight for target improvement reward
+        mechanism_impact_weight: Weight for mechanism impact reward
+        exploration_weight: Weight for exploration diversity
+        enable_async: Enable async training features
+        **kwargs: Additional configuration overrides
+        
+    Returns:
+        Training configuration with hybrid rewards enabled
+    """
+    bc_config = BehavioralCloningConfig(epochs=bc_epochs)
+    grpo_config = AcquisitionGRPOConfig(max_episodes=grpo_epochs)
+    
+    # Create rubric with custom weights
+    rubric = create_training_rubric(
+        improvement_weight=improvement_weight,
+        mechanism_impact_weight=mechanism_impact_weight,
+        exploration_weight=exploration_weight,
+    )
+    
+    return AcquisitionTrainingConfig(
+        bc_config=bc_config,
+        grpo_config=grpo_config,
+        use_hybrid_rewards=True,
+        reward_rubric=rubric,
+        enable_async_training=enable_async,
+        diversity_monitoring=True,
+        **kwargs
+    )
+
+
+def create_deployment_config(
+    bc_epochs: int = 30,
+    grpo_epochs: int = 50,
+    improvement_weight: float = 3.0,
+    exploration_weight: float = 1.0,
+    confidence_weight: float = 1.5,
+    **kwargs
+) -> AcquisitionTrainingConfig:
+    """Create deployment configuration using only observable signals.
+    
+    This configuration does not require ground truth and is suitable
+    for real-world deployment where the true causal structure is unknown.
+    
+    Args:
+        bc_epochs: Number of behavioral cloning epochs
+        grpo_epochs: Number of GRPO fine-tuning epochs
+        improvement_weight: Weight for target improvement reward
+        exploration_weight: Weight for exploration diversity
+        confidence_weight: Weight for posterior confidence
+        **kwargs: Additional configuration overrides
+        
+    Returns:
+        Deployment configuration with observable-only rewards
+    """
+    bc_config = BehavioralCloningConfig(epochs=bc_epochs)
+    grpo_config = AcquisitionGRPOConfig(max_episodes=grpo_epochs)
+    
+    # Create deployment rubric (no ground truth needed)
+    rubric = create_deployment_rubric(
+        improvement_weight=improvement_weight,
+        exploration_weight=exploration_weight,
+        confidence_weight=confidence_weight,
+    )
+    
+    return AcquisitionTrainingConfig(
+        bc_config=bc_config,
+        grpo_config=grpo_config,
+        use_hybrid_rewards=True,
+        reward_rubric=rubric,
+        enable_async_training=True,
+        diversity_monitoring=True,
+        **kwargs
+    )
+
+
+def create_ablation_config(
+    use_supervised: bool = True,
+    use_observable: bool = True,
+    bc_epochs: int = 40,
+    grpo_epochs: int = 80,
+    diversity_threshold: float = 0.3,
+    **kwargs
+) -> AcquisitionTrainingConfig:
+    """Create configuration for ablation studies.
+    
+    This allows testing different combinations of reward signals
+    to understand their individual contributions.
+    
+    Args:
+        use_supervised: Include supervised reward components
+        use_observable: Include observable reward components
+        bc_epochs: Number of behavioral cloning epochs
+        grpo_epochs: Number of GRPO fine-tuning epochs
+        diversity_threshold: Minimum reward variance threshold
+        **kwargs: Additional configuration overrides
+        
+    Returns:
+        Ablation configuration for scientific comparison
+    """
+    bc_config = BehavioralCloningConfig(epochs=bc_epochs)
+    grpo_config = AcquisitionGRPOConfig(max_episodes=grpo_epochs)
+    
+    # Create ablation rubric
+    rubric = create_ablation_rubric(
+        use_supervised=use_supervised,
+        use_observable=use_observable,
+        diversity_threshold=diversity_threshold,
+    )
+    
+    return AcquisitionTrainingConfig(
+        bc_config=bc_config,
+        grpo_config=grpo_config,
+        use_hybrid_rewards=True,
+        reward_rubric=rubric,
+        enable_async_training=True,
+        diversity_monitoring=True,
+        diversity_threshold=diversity_threshold,
+        **kwargs
+    )
 
 
 @dataclass(frozen=True)

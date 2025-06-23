@@ -1,0 +1,27 @@
+{
+  "Environment check": {
+    "success": true,
+    "duration": 0.3105602264404297,
+    "error": null
+  },
+  "Import validation": {
+    "success": true,
+    "duration": 2.503636360168457,
+    "error": null
+  },
+  "PARENT_SCALE integration": {
+    "success": true,
+    "duration": 9.5367431640625e-07,
+    "error": null
+  },
+  "Expert collection": {
+    "success": true,
+    "duration": 7.3247199058532715,
+    "error": null
+  },
+  "Data processing": {
+    "success": true,
+    "duration": 0.00011181831359863281,
+    "error": null
+  }
+}

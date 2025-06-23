@@ -17,6 +17,14 @@ from .sampling import (
     compare_intervention_effects,
 )
 
+from .intervention_env import (
+    InterventionEnvironment,
+    EnvironmentConfig,
+    EnvironmentInfo,
+    create_intervention_environment,
+    create_batch_environments,
+)
+
 __all__ = [
     # Core intervention sampling
     'sample_with_intervention',
@@ -34,4 +42,11 @@ __all__ = [
     # Convenience functions
     'sample_do_intervention',
     'compare_intervention_effects',
+    
+    # Intervention environments (inspired by verifiers repository)
+    'InterventionEnvironment',
+    'EnvironmentConfig',
+    'EnvironmentInfo',
+    'create_intervention_environment',
+    'create_batch_environments',
 ]

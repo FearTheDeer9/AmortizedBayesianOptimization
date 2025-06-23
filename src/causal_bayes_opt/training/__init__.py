@@ -167,6 +167,42 @@ if _ACQUISITION_TRAINING_AVAILABLE:
         "get_recommended_config_for_problem_size"
     ])
 
+# Async training infrastructure (Phase 2.2)
+try:
+    from .async_training import (
+        AsyncTrainingConfig,
+        TrainingBatch as AsyncTrainingBatch,
+        TrainingProgress,
+        AsyncTrainingManager,
+        create_async_training_manager,
+        estimate_batch_memory_usage,
+        optimize_batch_size_for_memory
+    )
+    from .diversity_monitor import (
+        DiversityMetrics,
+        DiversityAlert,
+        DiversityMonitor,
+        create_diversity_monitor
+    )
+    __all__.extend([
+        # Async training
+        "AsyncTrainingConfig",
+        "AsyncTrainingBatch",
+        "TrainingProgress",
+        "AsyncTrainingManager",
+        "create_async_training_manager",
+        "estimate_batch_memory_usage",
+        "optimize_batch_size_for_memory",
+        # Diversity monitoring
+        "DiversityMetrics",
+        "DiversityAlert",
+        "DiversityMonitor",
+        "create_diversity_monitor"
+    ])
+    _ASYNC_TRAINING_AVAILABLE = True
+except ImportError:
+    _ASYNC_TRAINING_AVAILABLE = False
+
 # Add expert collection if available
 if _EXPERT_COLLECTION_AVAILABLE:
     __all__.extend([
@@ -176,6 +212,142 @@ if _EXPERT_COLLECTION_AVAILABLE:
         "ExpertDemonstrationCollector", 
         "collect_expert_demonstrations_main"
     ])
+
+# GRPO Core Algorithm (Phase 2.2)
+try:
+    from .grpo_core import (
+        GRPOConfig,
+        GRPOTrajectory,
+        GRPOUpdateResult,
+        compute_gae_advantages,
+        compute_simple_advantages,
+        normalize_advantages,
+        compute_policy_loss,
+        compute_value_loss,
+        compute_value_loss_jit,
+        compute_value_loss_clipped_jit,
+        compute_entropy_loss,
+        create_grpo_update_fn,
+        create_trajectory_from_experiences,
+        validate_grpo_config,
+        create_default_grpo_config,
+        create_high_performance_grpo_config,
+        create_exploration_grpo_config,
+    )
+    __all__.extend([
+        # GRPO Core Algorithm
+        "GRPOConfig",
+        "GRPOTrajectory", 
+        "GRPOUpdateResult",
+        "compute_gae_advantages",
+        "compute_simple_advantages",
+        "normalize_advantages",
+        "compute_policy_loss",
+        "compute_value_loss",
+        "compute_value_loss_jit",
+        "compute_value_loss_clipped_jit",
+        "compute_entropy_loss",
+        "create_grpo_update_fn",
+        "create_trajectory_from_experiences",
+        "validate_grpo_config",
+        "create_default_grpo_config",
+        "create_high_performance_grpo_config",
+        "create_exploration_grpo_config",
+    ])
+    _GRPO_CORE_AVAILABLE = True
+except ImportError:
+    _GRPO_CORE_AVAILABLE = False
+
+# Experience Management System (Phase 2.2)
+try:
+    from .experience_management import (
+        ExperienceConfig,
+        Experience,
+        ExperienceBatch,
+        ExperienceManager,
+        SumTree,
+        create_experience_manager,
+        create_high_capacity_experience_manager,
+        create_memory_efficient_experience_manager,
+    )
+    __all__.extend([
+        # Experience Management
+        "ExperienceConfig",
+        "Experience",
+        "ExperienceBatch",
+        "ExperienceManager",
+        "SumTree",
+        "create_experience_manager",
+        "create_high_capacity_experience_manager",
+        "create_memory_efficient_experience_manager",
+    ])
+    _EXPERIENCE_MANAGEMENT_AVAILABLE = True
+except ImportError:
+    _EXPERIENCE_MANAGEMENT_AVAILABLE = False
+
+# GRPO Configuration System (Phase 2.2)
+try:
+    from .grpo_config import (
+        TrainingMode,
+        OptimizationLevel,
+        PolicyNetworkConfig,
+        ValueNetworkConfig,
+        CurriculumConfig,
+        AdaptiveConfig,
+        CheckpointingConfig,
+        LoggingConfig,
+        ComprehensiveGRPOConfig,
+        validate_comprehensive_grpo_config,
+        create_standard_grpo_config,
+        create_research_grpo_config,
+        create_production_grpo_config,
+        create_debug_grpo_config,
+        get_recommended_config_for_problem_size,
+    )
+    __all__.extend([
+        # GRPO Configuration System
+        "TrainingMode",
+        "OptimizationLevel",
+        "PolicyNetworkConfig",
+        "ValueNetworkConfig",
+        "CurriculumConfig",
+        "AdaptiveConfig",
+        "CheckpointingConfig",
+        "LoggingConfig",
+        "ComprehensiveGRPOConfig",
+        "validate_comprehensive_grpo_config",
+        "create_standard_grpo_config",
+        "create_research_grpo_config",
+        "create_production_grpo_config",
+        "create_debug_grpo_config",
+        "get_recommended_config_for_problem_size",
+    ])
+    _GRPO_CONFIG_AVAILABLE = True
+except ImportError:
+    _GRPO_CONFIG_AVAILABLE = False
+
+# GRPO Training Manager (Phase 2.2)
+try:
+    from .grpo_training_manager import (
+        TrainingStep,
+        TrainingSession,
+        GRPOTrainingManager,
+        create_grpo_training_manager,
+        create_debug_training_manager,
+        create_production_training_manager,
+    )
+    __all__.extend([
+        # GRPO Training Manager
+        "TrainingStep",
+        "TrainingSession",
+        "GRPOTrainingManager",
+        "create_grpo_training_manager",
+        "create_debug_training_manager",
+        "create_production_training_manager",
+    ])
+    _GRPO_TRAINING_MANAGER_AVAILABLE = True
+except ImportError:
+    _GRPO_TRAINING_MANAGER_AVAILABLE = False
 
 # Master training orchestrator and curriculum learning
 try:

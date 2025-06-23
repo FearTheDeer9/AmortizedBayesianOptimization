@@ -96,6 +96,15 @@ from .exploration import (
     balance_exploration_exploitation,
 )
 
+from .reward_rubric import (
+    RewardComponent,
+    CausalRewardRubric,
+    RewardResult,
+    create_training_rubric,
+    create_deployment_rubric,
+    create_ablation_rubric,
+)
+
 __all__ = [
     # Core state representation
     'AcquisitionState',
@@ -178,4 +187,12 @@ __all__ = [
     'compute_exploration_value',
     'select_exploration_intervention',
     'balance_exploration_exploitation',
+    
+    # Reward rubric system (modular reward composition)
+    'RewardComponent',
+    'CausalRewardRubric',
+    'RewardResult',
+    'create_training_rubric',
+    'create_deployment_rubric',
+    'create_ablation_rubric',
 ]

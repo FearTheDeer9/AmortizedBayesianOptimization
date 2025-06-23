@@ -29,6 +29,27 @@ from causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
 from .data_structures import ExpertDemonstration, ExpertTrajectoryDemonstration, DemonstrationBatch
 from .scm_generation import generate_scm_problems
 
+
+def _collect_single_demonstration_worker(args):
+    """
+    Worker function for parallel demonstration collection.
+    
+    This function is defined at module level to avoid pickle issues 
+    when using multiprocessing.
+    
+    Args:
+        args: Tuple of (scm, graph_type, min_accuracy, output_dir)
+        
+    Returns:
+        ExpertDemonstration or None if collection failed
+    """
+    scm, graph_type, min_accuracy, output_dir = args
+    
+    # Create a new collector instance for each worker (to avoid shared state)
+    from causal_bayes_opt.training.expert_collection.collector import ExpertDemonstrationCollector
+    worker_collector = ExpertDemonstrationCollector(output_dir=str(output_dir))
+    return worker_collector.collect_demonstration(scm, graph_type, min_accuracy)
+
 logger = logging.getLogger(__name__)
 
 
@@ -443,13 +464,6 @@ class ExpertDemonstrationCollector:
         
         start_time = time.time()
         
-        # Helper function for parallel execution
-        def collect_single_demonstration(scm_and_type):
-            scm, graph_type = scm_and_type
-            # Create a new collector instance for each worker (to avoid shared state)
-            worker_collector = ExpertDemonstrationCollector(output_dir=str(self.output_dir))
-            return worker_collector.collect_demonstration(scm, graph_type, min_accuracy)
-        
         # Process in batches to control memory usage
         batch_size = min(n_workers * 2, len(problems))
         
@@ -462,10 +476,16 @@ class ExpertDemonstrationCollector:
                 
                 print(f"Processing batch {batch_idx + 1}/{len(problem_batches)} ({len(problem_batch)} problems)")
                 
+                # Prepare arguments for worker function
+                worker_args = [
+                    (scm, graph_type, min_accuracy, self.output_dir)
+                    for scm, graph_type in problem_batch[:n_demonstrations - len(demonstrations)]
+                ]
+                
                 # Submit batch of jobs
                 future_to_problem = {
-                    executor.submit(collect_single_demonstration, problem): problem
-                    for problem in problem_batch[:n_demonstrations - len(demonstrations)]
+                    executor.submit(_collect_single_demonstration_worker, args): args[:2]  # Just scm, graph_type for tracking
+                    for args in worker_args
                 }
                 
                 # Collect results as they complete

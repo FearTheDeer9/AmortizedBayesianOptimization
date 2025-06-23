@@ -20,7 +20,9 @@ try:
     from .parent_scale.data_conversion import (
         scm_to_graph_structure,
         samples_to_parent_scale_data,
-        parent_scale_results_to_posterior
+        parent_scale_results_to_posterior,
+        create_parent_scale_bridge,
+        calculate_data_requirements
     )
     DATA_CONVERSION_AVAILABLE = True
 except ImportError:
@@ -50,7 +52,9 @@ if DATA_CONVERSION_AVAILABLE:
     __all__.extend([
         'scm_to_graph_structure',
         'samples_to_parent_scale_data',
-        'parent_scale_results_to_posterior'
+        'parent_scale_results_to_posterior',
+        'create_parent_scale_bridge',
+        'calculate_data_requirements'
     ])
 
 # Alias for backward compatibility

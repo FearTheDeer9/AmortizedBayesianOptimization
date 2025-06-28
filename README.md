@@ -53,13 +53,13 @@ causal_bayes_opt/
 
 ```bash
 # Clone and install dependencies
-pip install -r requirements.txt
+poetry install
 ```
 
 ### Run Training Example
 
 ```bash
-python tests/examples/example_parent_set_training.py
+poetry run python tests/examples/example_parent_set_training.py
 ```
 
 Expected output:
@@ -71,7 +71,7 @@ Training completed. Final loss: 1.1384, Best loss: 1.0986
 ### Run Validation
 
 ```bash
-python tests/validation/validate_parent_set_model.py
+poetry run python tests/validation/validate_parent_set_model.py
 ```
 
 ## 🔬 Key Features
@@ -117,10 +117,10 @@ Current validation results on 3-variable SCM (X → Y ← Z):
 ### Running Tests
 ```bash
 # Run all validation
-python tests/validation/validate_parent_set_model.py
+poetry run python tests/validation/validate_parent_set_model.py
 
 # Run training example
-python tests/examples/example_parent_set_training.py
+poetry run python tests/examples/example_parent_set_training.py
 ```
 
 ### Architecture Decisions

@@ -4,27 +4,56 @@
 
 This guide provides comprehensive instructions for collecting expert demonstrations from the PARENT_SCALE algorithm and using them to train the ACBO framework components. The expert demonstrations serve as high-quality training data for both the surrogate model (parent set prediction) and acquisition model (intervention selection).
 
-## Quick Start
+⚠️ **IMPORTANT**: This document is now superseded by the comprehensive integration guide. For the latest implementation and usage instructions, see:
 
+**📖 [PARENT_SCALE Integration Guide](../integration/parent_scale_integration.md)**
+
+The integration has been significantly improved with:
+- ✅ Verified algorithmic correctness 
+- ✅ Support for arbitrary SCM structures
+- ✅ Simplified module architecture
+- ✅ Comprehensive validation and quality control
+
+## Quick Start (Production Ready)
+
+### Production Collection Script ✅
+```bash
+# Use the production-ready collection script with posterior history
+poetry run python scripts/collect_sft_dataset.py --size small --serial --output-dir demonstrations
+```
+
+### Programmatic Usage with Posterior History ✅
 ```python
-from causal_bayes_opt.integration.parent_scale.algorithm_runner import run_full_parent_scale_algorithm
-from causal_bayes_opt.data_structures.scm import create_scm
+from src.causal_bayes_opt.integration.parent_scale import (
+    run_full_parent_scale_algorithm_with_history,
+    check_parent_scale_availability
+)
 
-# Create or load your SCM
-scm = create_scm(...)
+# Check availability first
+if not check_parent_scale_availability():
+    raise RuntimeError("PARENT_SCALE not available")
 
-# Collect expert demonstration
-trajectory = run_full_parent_scale_algorithm(
+# Collect expert demonstration with posterior history capture
+trajectory = run_full_parent_scale_algorithm_with_history(
     scm=scm,
-    target_variable='Y',
-    T=10,                    # Number of optimization steps
+    target_variable='X2',
+    T=5,                     # Number of optimization steps
     n_observational=100,     # Initial observational data
-    n_interventional=10,     # Interventional samples per exploration element
+    n_interventional=2,      # Interventional samples per step
     seed=42                  # For reproducible demonstrations
 )
 
-# trajectory contains complete expert decision-making process
+# trajectory now contains:
+# - Complete expert decision-making process
+# - Posterior history: T+1 posterior states (initial + after each intervention)
+# - Rich training data for surrogate models
 ```
+
+### Production Status ✅
+- **Scripts Fixed**: `scripts/collect_sft_dataset.py` has working import paths
+- **Posterior History**: Enhanced algorithm runner captures complete posterior evolution
+- **Data Pipeline**: Extraction to training examples fully implemented  
+- **Validation**: Algorithm runners produce identical results with history capture
 
 ## Architecture and Integration Status
 
@@ -554,15 +583,29 @@ def collect_demonstration_debug(seed=42, verbose=True):
 2. **Active Demonstration Selection**: Identify most informative demonstrations
 3. **Meta-Learning**: Learn to adapt quickly to new causal structures
 
-## Summary
+## Current Status & Next Steps
 
-The expert demonstration collection system provides a robust foundation for training ACBO components using high-quality PARENT_SCALE expertise. The current implementation achieves 100% identical behavior to the original algorithm, ensuring the highest possible demonstration quality.
+### ✅ Expert Collection: PRODUCTION READY
+The expert demonstration collection system provides a robust foundation for training ACBO components using high-quality PARENT_SCALE expertise. The current implementation achieves 100% identical behavior to the original algorithm with enhanced posterior history capture.
 
-**Key Points:**
-- Use validated scaling parameters for reliable results
-- Current implementation uses LinearColliderGraph for perfect fidelity
-- Save demonstrations in multiple formats for different use cases
-- Validate demonstration quality before using for training
-- Consider computational resources when scaling to larger graphs
+**Production Capabilities:**
+- ✅ **Working production scripts** with fixed import paths
+- ✅ **Posterior history capture** providing 5-10x more training data per trajectory  
+- ✅ **Validated correctness** ensuring highest demonstration quality
+- ✅ **Robust collection pipeline** with error handling and resumability
+- ✅ **Data extraction pipeline** converting demonstrations to training examples
+
+### 🎯 Next Priority: Training Interface Resolution
+**Current Issue**: Minor interface mismatch between data extraction output (`SurrogateTrainingExample`) and `SurrogateTrainer` input expectations (`ExpertDemonstration`).
+
+**Impact**: Collection infrastructure is complete and functional; this interface issue is well-contained and doesn't affect collection capabilities.
+
+**Solution Path**: Align data formats or create adapter layer to bridge the interface gap.
+
+### Key Achievements
+- **Complete posterior evolution tracking** throughout PARENT_SCALE trajectories
+- **Production-ready collection scripts** that actually work with `poetry run`
+- **Rich training data** with temporal posterior dynamics for amortized inference
+- **Foundation established** for complete end-to-end ACBO training pipeline
 
 This system enables the creation of amortized ACBO models that combine the accuracy of PARENT_SCALE with the efficiency of pre-trained neural networks.

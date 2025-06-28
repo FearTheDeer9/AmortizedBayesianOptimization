@@ -33,9 +33,8 @@ sys.path.insert(0, os.path.join(parent_dir, 'causal_bayes_opt_old'))
 
 # Original PARENT_SCALE imports (may not be available)
 try:
-    from algorithms.PARENT_SCALE_algorithm import PARENT_SCALE as PARENT_SCALE_ORIGINAL
-    from graphs.linear_collider_graph import LinearColliderGraph
-    from graphs.data_setup import setup_observational_interventional
+    from external.parent_scale.algorithms.PARENT_SCALE_algorithm import PARENT_SCALE as PARENT_SCALE_ORIGINAL
+    from src.causal_bayes_opt.integration.parent_scale.helpers import setup_observational_interventional_original as setup_observational_interventional
     ORIGINAL_AVAILABLE = True
 except ImportError:
     print("⚠️  Original PARENT_SCALE implementation not found (causal_bayes_opt_old/ directory)")
@@ -44,7 +43,7 @@ except ImportError:
     ORIGINAL_AVAILABLE = False
 
 # Integrated PARENT_SCALE imports
-from causal_bayes_opt.integration.parent_scale_bridge import (
+from causal_bayes_opt.integration.parent_scale import (
     run_full_parent_scale_algorithm
 )
 from causal_bayes_opt.data_structures.scm import create_scm
@@ -86,16 +85,31 @@ def run_original_algorithm(T=3, seed=42):
     # Setup with fixed configuration for reproducibility
     np.random.seed(seed)
     
-    graph = LinearColliderGraph(noiseless=False)
-    D_O, D_I, exploration_set = setup_observational_interventional(
-        graph_type="Toy",
-        n_obs=100,
-        n_int=10,
-        noiseless=True,  # Use noiseless=True for deterministic comparison
-        seed=seed,
-        graph=graph,
-        use_iscm=False
-    )
+    # Use ACBO's SCM creation to match LinearColliderGraph
+    from causal_bayes_opt.integration.parent_scale import scm_to_graph_structure
+    scm = create_matching_scm()
+    graph = scm_to_graph_structure(scm)
+    
+    try:
+        D_O, D_I, exploration_set = setup_observational_interventional(
+            graph_type="Toy",
+            n_obs=100,
+            n_int=10,
+            noiseless=True,  # Use noiseless=True for deterministic comparison
+            seed=seed,
+            graph=graph,
+            use_iscm=False
+        )
+    except (ImportError, NameError) as e:
+        print(f"⚠️ Original data setup not available: {e}")
+        print("   Using ACBO's data generation instead...")
+        from causal_bayes_opt.integration.parent_scale.data_processing import generate_parent_scale_data_with_scm
+        D_O, D_I, exploration_set = generate_parent_scale_data_with_scm(
+            scm=scm,
+            n_observational=100,
+            n_interventional=10,
+            seed=seed
+        )
     
     print(f"  ✓ Generated data: {len(D_O['X'])} obs, {sum(len(D_I[key]['X']) for key in D_I)} int")
     print(f"  ✓ Exploration set: {exploration_set}")

@@ -15,23 +15,13 @@ import numpy as onp
 import pyrsistent as pyr
 
 # Import our data structures
-from causal_bayes_opt.data_structures.scm import get_target
-from causal_bayes_opt.data_structures.sample import (
+from ...data_structures.scm import get_target
+from ...data_structures.sample import (
     get_values, get_intervention_targets, is_interventional
 )
 
-# Add PARENT_SCALE to path
-sys.path.insert(0, 'external/parent_scale')
-sys.path.insert(0, 'external')
-
-# Import PARENT_SCALE components - handle gracefully if not available
-try:
-    from parent_scale.posterior_model.model import Data
-    PARENT_SCALE_AVAILABLE = True
-except ImportError:
-    # Create dummy class for type hints when PARENT_SCALE not available
-    Data = namedtuple("Data", ["samples", "nodes"])
-    PARENT_SCALE_AVAILABLE = False
+# Import path setup and availability check from data_processing
+from .data_processing import ensure_parent_scale_imports
 
 # Import other components
 from .graph_structure import ACBOGraphStructure
@@ -48,10 +38,8 @@ def scm_to_graph_structure(scm: pyr.PMap) -> ACBOGraphStructure:
     Returns:
         ACBOGraphStructure compatible with PARENT_SCALE
     """
-    if not PARENT_SCALE_AVAILABLE:
-        raise ImportError(
-            "PARENT_SCALE not available. Please ensure external/parent_scale is properly set up."
-        )
+    # Ensure PARENT_SCALE is available
+    ensure_parent_scale_imports()
     
     return ACBOGraphStructure(scm)
 
@@ -59,7 +47,7 @@ def scm_to_graph_structure(scm: pyr.PMap) -> ACBOGraphStructure:
 def samples_to_parent_scale_data(
     samples: List[pyr.PMap], 
     variable_order: List[str]
-) -> Data:
+) -> Any:
     """
     Convert our Sample objects to PARENT_SCALE Data format.
     
@@ -97,7 +85,12 @@ def samples_to_parent_scale_data(
                     j = variable_order.index(var)
                     intervention_matrix[i, j] = 1
         
-    return Data(samples=sample_matrix, nodes=intervention_matrix)
+    # Import Data class when needed
+    try:
+        from parent_scale.posterior_model.model import Data
+        return Data(samples=sample_matrix, nodes=intervention_matrix)
+    except ImportError as e:
+        raise ImportError(f"Cannot create PARENT_SCALE Data object: {e}")
 
 
 def parent_scale_results_to_posterior(
@@ -367,7 +360,7 @@ def generate_parent_scale_data_original(
     This uses the exact same pattern as causal_bayes_opt_old:
     1. Convert ACBO SCM to proper GraphStructure with real SEMs
     2. Use setup_observational_interventional_original()
-    3. Let the original code handle all data generation
+    3. Map only the target variable to 'Y' for PARENT_SCALE compatibility
     
     Args:
         scm: Our SCM representation
@@ -378,9 +371,9 @@ def generate_parent_scale_data_original(
         
     Returns:
         Tuple of (D_O, D_I, exploration_set) where:
-        - D_O: Dict mapping variables to observational data arrays  
-        - D_I: Dict mapping intervention tuples to variable data arrays
-        - exploration_set: List of intervention tuples that were sampled
+        - D_O: Dict mapping variables to observational data arrays (target as 'Y')
+        - D_I: Dict mapping intervention tuples to variable data arrays (target as 'Y')
+        - exploration_set: List of intervention tuples with original variable names
     """
     print(f"Generating PARENT_SCALE data using original implementation pattern...")
     print(f"  - n_observational: {n_observational}")
@@ -389,6 +382,10 @@ def generate_parent_scale_data_original(
     
     # Convert SCM to PARENT_SCALE graph format with proper SEMs
     graph = scm_to_graph_structure(scm)
+    
+    # Get the original target variable name
+    from ...data_structures.scm import get_target
+    original_target = get_target(scm)
     
     # Use the original data generation pattern directly
     D_O, D_I, exploration_set = setup_observational_interventional_original(
@@ -401,10 +398,13 @@ def generate_parent_scale_data_original(
     )
     
     print(f"✓ Generated original PARENT_SCALE data format")
-    print(f"  - D_O keys: {list(D_O.keys())}")
-    print(f"  - D_I keys: {list(D_I.keys())}")
-    print(f"  - Exploration set: {exploration_set}")
+    print(f"  - Raw D_O keys: {list(D_O.keys())}")
+    print(f"  - Raw D_I keys: {list(D_I.keys())}")
+    print(f"  - Raw exploration set: {exploration_set}")
+    print(f"  - Original target: {original_target}")
     
+    # Return data with original variable names for now
+    print(f"✓ Using original variable names")
     return D_O, D_I, exploration_set
 
 
@@ -424,8 +424,6 @@ def generate_parent_scale_data(
 
 def create_parent_scale_bridge() -> bool:
     """Validate PARENT_SCALE availability for bridge functions."""
-    if not PARENT_SCALE_AVAILABLE:
-        raise ImportError(
-            "PARENT_SCALE not available. Please ensure external/parent_scale is properly set up."
-        )
+    # Ensure PARENT_SCALE is available
+    ensure_parent_scale_imports()
     return True

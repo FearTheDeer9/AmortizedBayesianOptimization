@@ -23,11 +23,15 @@ bootstrap_samples = max(5, min(20, int(0.75 * n_nodes)))
 interventional_samples = int(0.15 * total_samples)
 ```
 
-**Integration Status**:
-- ✅ Data bridge: `ParentScaleBridge` converts between our format and PARENT_SCALE
-- ✅ Round-trip validation: Ensures data integrity through conversions
-- ✅ Production ready: Can handle 20+ node graphs reliably
-- ✅ **Expert demonstration API**: `run_full_parent_scale_algorithm()` available for trajectory collection
+**Integration Status** ✅ **COMPLETED & ENHANCED**:
+- ✅ **Algorithmic Correctness Verified**: Perfect parent discovery with adequate statistical power
+- ✅ **SCM Structure Independence**: Successfully decoupled from LinearColliderGraph hardcoding
+- ✅ **Simplified Architecture**: Refactored from 9 to 7 focused modules with clean API
+- ✅ **Statistical Validation**: n_interventional ≥ 20 ensures reliable results across graph types
+- ✅ **Production Ready**: Comprehensive quality control and performance scaling guidelines
+- ✅ **Expert Demonstration API**: `run_full_parent_scale_algorithm()` supports arbitrary SCM structures
+
+**📖 Complete Documentation**: See [PARENT_SCALE Integration Guide](../integration/parent_scale_integration.md)
 
 ## Production API for Expert Demonstration Collection ✅
 
@@ -74,6 +78,77 @@ def get_expert_demo_config(n_nodes: int) -> dict:
 - ✅ **5-10 nodes**: Fast collection (~30 seconds per trajectory)
 - ✅ **15-20 nodes**: Practical collection (~2-3 minutes per trajectory)
 - ✅ **20+ nodes**: Demonstrated feasibility with validated parameters
+
+---
+
+## Experimental Validation Gate (NEW - ACTIVE)
+
+**Added**: 2025-06-26  
+**Status**: VALIDATION IN PROGRESS  
+**Purpose**: Prove neural network approach on standard benchmarks before proceeding with full infrastructure
+
+### Critical Reality Check
+The Phase 4 plan assumes the neural network approach works, but Phase 2.2 revealed that **structure learning F1 scores were SIMULATED**, not from real trained models. Before investing in large-scale expert demonstration collection and production infrastructure, we must prove the core hypothesis.
+
+### Validation Experiments
+Before proceeding with full expert demonstration collection and infrastructure development:
+
+#### 1. Standard Benchmark Validation
+**Objective**: Prove NN approach works on well-known causal discovery benchmarks
+**Datasets**:
+- **Sachs Protein Network** (11 nodes, real biological data, well-studied baseline)
+- **DREAM Challenge Networks** (gene regulatory networks, multiple sizes)
+- **BnLearn Repository**: Asia (8 nodes), Alarm (37 nodes), Child (20 nodes)
+
+#### 2. Progressive Capability Demonstration  
+**Experimental Sequence**:
+1. **Baseline**: Untrained models using current `complete_workflow_demo.py` approach
+2. **Active Learning**: Self-supervised training using data likelihood (current method)
+3. **Expert Demonstrations**: Small-scale collection using existing PARENT_SCALE API
+4. **Trained Models**: Compare trained surrogate, trained policy, and joint training
+
+#### 3. Scaling Analysis
+**Graph Size Progression**:
+- Small: 8-15 nodes (proof of concept)
+- Medium: 20-50 nodes (practical application)
+- Large: 50+ nodes (scalability demonstration)
+
+### Success Criteria for Proceeding
+**Go/No-Go Decision Metrics**:
+- ✅ **Structure Discovery**: F1 > 0.7 on Sachs dataset with real trained models
+- ✅ **Sample Efficiency**: 2x+ improvement vs random baseline
+- ✅ **Scalability**: Successful performance on 50+ node graphs
+- ✅ **Training Benefit**: Clear improvement from trained vs untrained models
+- ✅ **Transfer Learning**: Generalization across different graph types
+
+### Validation Infrastructure Status
+**INFRASTRUCTURE COMPLETED** ✅ (2025-06-27)
+
+**Available Infrastructure**:
+- ✅ **Fair Experiment Runner**: `src/causal_bayes_opt/experiments/runner.py` (fixed SCM generation bug)
+- ✅ **Comprehensive Analysis**: `src/causal_bayes_opt/analysis/trajectory_metrics.py` (pure utility functions)
+- ✅ **Professional Visualization**: `src/causal_bayes_opt/visualization/plots.py` (convergence tracking)
+- ✅ **Simple Storage**: `src/causal_bayes_opt/storage/results.py` (timestamped JSON)
+- ✅ **Complete Documentation**: `docs/experiments/infrastructure_guide.md`
+
+**Critical Enhancement**: Fixed the SCM generation bug where different methods used different SCMs, making comparison invalid.
+
+### Timeline & Decision Point
+**Accelerated Validation Timeline** (Infrastructure Ready):
+- Week 1: ✅ **COMPLETED** - Infrastructure development, fair comparison fixes
+- Week 2: Model training validation using new infrastructure  
+- Week 3: Analysis, scaling tests, go/no-go decision
+
+### Contingency Planning
+**If Validation Fails**:
+- Focus on smaller graphs where method works
+- Hybrid approach (NNs + traditional methods)
+- Pivot to different architecture or training approach
+
+**If Validation Succeeds**:
+- Proceed with full Phase 4 implementation
+- Large-scale expert demonstration collection
+- Production infrastructure development
 
 ---
 

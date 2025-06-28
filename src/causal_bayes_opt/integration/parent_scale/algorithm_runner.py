@@ -14,15 +14,13 @@ import time
 import pyrsistent as pyr
 
 # Import our data structures
-from causal_bayes_opt.data_structures.scm import get_target
+from ...data_structures.scm import get_target
 
 # Import refactored modules
-from .data_generation import (
-    check_parent_scale_availability,
-    generate_parent_scale_data,
+from .data_processing import (
+    generate_parent_scale_data_with_scm,
     validate_data_completeness,
-    get_data_summary,
-    create_graph_instance
+    get_data_summary
 )
 from .trajectory_extraction import (
     validate_algorithm_results,
@@ -36,31 +34,18 @@ from .validation import (
     validate_algorithm_configuration
 )
 
-# Import PARENT_SCALE components - handle gracefully if not available
-# Use the availability check from data_generation module
-from .data_generation import check_parent_scale_availability
+# Import path setup utilities
+from .data_processing import setup_parent_scale_path, ensure_parent_scale_imports
 
-if check_parent_scale_availability():
-    try:
-        from algorithms.PARENT_SCALE_algorithm import PARENT_SCALE
-        from parent_scale.posterior_model.model import DoublyRobustModel
-    except ImportError:
-        # Create dummy classes when specific components not available
-        class PARENT_SCALE:
-            pass
-        class DoublyRobustModel:
-            pass
-else:
-    # Create dummy classes when PARENT_SCALE not available
-    class PARENT_SCALE:
-        pass
-    class DoublyRobustModel:
-        pass
+# Ensure path is set up for all PARENT_SCALE imports
+setup_parent_scale_path()
 
 # Import legacy data conversion functions
-from .data_conversion import (
+from .data_processing import (
     scm_to_graph_structure, 
-    samples_to_parent_scale_data, 
+    samples_to_parent_scale_data
+)
+from .data_conversion import (
     parent_scale_results_to_posterior
 )
 
@@ -89,10 +74,8 @@ def run_parent_discovery(
     Returns:
         Parent discovery results in our format
     """
-    if not check_parent_scale_availability():
-        raise ImportError(
-            "PARENT_SCALE components not available. Please ensure external/parent_scale is properly set up."
-        )
+    # Ensure PARENT_SCALE is available
+    ensure_parent_scale_imports()
     
     # Convert SCM to PARENT_SCALE format
     graph = scm_to_graph_structure(scm)
@@ -161,11 +144,8 @@ def run_full_parent_scale_algorithm(
     Returns:
         Complete expert trajectory with intervention decisions and reasoning
     """
-    # Check availability
-    if not check_parent_scale_availability():
-        raise ImportError(
-            "Full PARENT_SCALE algorithm not available. Please ensure external/parent_scale is properly set up."
-        )
+    # Ensure PARENT_SCALE is available
+    ensure_parent_scale_imports()
     
     print(f"Running PARENT_SCALE algorithm with EXACT original process...")
     
@@ -192,14 +172,15 @@ def run_full_parent_scale_algorithm(
         return create_failed_trajectory(error_msg, target_variable, T, n_observational, algorithm_config)
     
     try:
-        # Generate data using exact original process
-        D_O, D_I, exploration_set = generate_parent_scale_data(
+        # Generate data using SCM converted to PARENT_SCALE format
+        D_O, D_I, exploration_set = generate_parent_scale_data_with_scm(
+            scm=scm,
             n_observational=n_observational,
             n_interventional=n_interventional,
             seed=seed
         )
         
-        # Validate data completeness
+        # Validate data completeness using the actual target variable name
         validate_data_completeness(D_O, D_I, exploration_set, target_variable)
         
         # Log data summary
@@ -209,10 +190,16 @@ def run_full_parent_scale_algorithm(
         print(f"  - {data_summary['intervention_groups']} intervention groups")
         print(f"  - Exploration set: {data_summary['exploration_set']}")
         
-        # Create graph instance for algorithm
-        graph = create_graph_instance()
+        # Create graph instance that matches the SCM structure and data
+        from .data_processing import scm_to_graph_structure
+        graph = scm_to_graph_structure(scm)
         
-        # Initialize PARENT_SCALE algorithm
+        # Import and initialize PARENT_SCALE algorithm
+        try:
+            from parent_scale.algorithms.PARENT_SCALE_algorithm import PARENT_SCALE
+        except ImportError as e:
+            raise ImportError(f"PARENT_SCALE algorithm class not available: {e}")
+        
         parent_scale = PARENT_SCALE(
             graph=graph,
             nonlinear=nonlinear,
@@ -337,10 +324,19 @@ def run_batch_expert_demonstrations(
         
         print(f"\n--- Collecting trajectory {i+1}/{n_trajectories} (seed={seed}, T={iterations}) ---")
         
+        # Create default chain SCM (equivalent to LinearColliderGraph)
+        from ...experiments.test_scms import create_chain_test_scm
+        default_scm = create_chain_test_scm(
+            chain_length=3,
+            coefficient=1.0,
+            noise_scale=0.2,
+            target='X2'  # Last node in chain (Y equivalent)
+        )
+        
         # Collect demonstration
         trajectory = run_full_parent_scale_algorithm(
-            scm=None,  # Use default LinearColliderGraph
-            target_variable='Y',
+            scm=default_scm,
+            target_variable='X2',  # Use the chain target
             T=iterations,
             seed=seed,
             **algorithm_kwargs

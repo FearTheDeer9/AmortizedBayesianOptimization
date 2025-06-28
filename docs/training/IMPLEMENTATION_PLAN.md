@@ -466,7 +466,86 @@ class HybridRewardConfig:
 
 ---
 
-## Phase 3: Production & Optimization (Week 3)
+## Phase 2.5: Experimental Validation (NEW - ACTIVE)
+
+**Added**: 2025-06-26  
+**Status**: IN PROGRESS  
+**Purpose**: Validate core hypothesis before continuing infrastructure development
+
+### Critical Discovery from Phase 2.2
+- **Structure learning F1 scores were SIMULATED**, not from real trained models
+- Need to prove neural network approach works on real benchmarks before investing more in infrastructure
+- Current approach: Run experiments on standard datasets to validate core hypothesis
+
+### 2.5.1 Standard Benchmark Integration
+**Status**: COMPLETED ✅  
+**Files**:
+- `src/causal_bayes_opt/experiments/benchmark_graphs.py` ✅ (NetworkX integration)
+- `src/causal_bayes_opt/experiments/benchmark_datasets.py` ✅ (standard dataset loaders)  
+- `src/causal_bayes_opt/experiments/runner.py` ✅ (NEW - experiment orchestration with fair comparison)
+- `src/causal_bayes_opt/analysis/trajectory_metrics.py` ✅ (NEW - pure utility functions for metrics)
+- `src/causal_bayes_opt/visualization/plots.py` ✅ (NEW - professional plotting functions)
+- `src/causal_bayes_opt/storage/results.py` ✅ (NEW - simple JSON-based result storage)
+
+**Tasks**:
+- [x] Integrate NetworkX for Erdos-Renyi and scale-free graph generation ✅
+- [x] Load standard causal discovery datasets (Sachs, DREAM, BnLearn repositories) ✅  
+- [x] Create adapters to convert external formats to SCM representation ✅
+- [x] Implement experiment orchestration framework ✅
+- [x] **NEW**: Fix SCM generation bug for fair method comparison ✅
+- [x] **NEW**: Add comprehensive trajectory analysis utilities ✅
+- [x] **NEW**: Create professional visualization system ✅
+
+**Standard Datasets Selected**:
+- **Sachs Protein Network** (11 nodes, real biological data, well-studied)
+- **DREAM Challenge Networks** (gene regulatory networks, multiple sizes)
+- **BnLearn Repository**: Asia (8 nodes), Alarm (37 nodes), Child (20 nodes)
+
+**Critical Infrastructure Enhancement**:
+- **Fixed SCM generation bug**: Previous infrastructure created different SCMs for each method, making comparison invalid
+- **Fair comparison guarantee**: Now uses same SCM for both static and learning surrogates
+- **Comprehensive documentation**: See `docs/experiments/infrastructure_guide.md` for complete usage guide
+
+### 2.5.2 Progressive Experimental Design
+**Status**: ENABLED WITH INFRASTRUCTURE ✅  
+**Experiment Progression**:
+1. **Baseline**: Static surrogate models (current approach) ✅
+2. **Learning Methods**: Self-supervised learning surrogate ✅
+3. **Fair Comparison**: Same SCM used for both methods (CRITICAL FIX) ✅
+4. **Analysis**: Convergence speed tracking via true parent likelihood ✅
+
+**Infrastructure Ready**:
+- **Experiment orchestration**: `src/causal_bayes_opt/experiments/runner.py` ✅
+- **Trajectory analysis**: `src/causal_bayes_opt/analysis/trajectory_metrics.py` ✅
+- **Professional visualization**: `src/causal_bayes_opt/visualization/plots.py` ✅
+- **Simple result storage**: `src/causal_bayes_opt/storage/results.py` ✅
+
+**Key Metrics to Track**:
+- Structure recovery F1 score vs graph size
+- Target optimization improvement vs computational cost
+- Sample efficiency (samples to convergence) vs baselines
+- Transfer learning capability across graph types
+
+### 2.5.3 Validation Success Criteria
+**Go/No-Go Decision Criteria**:
+- ✅ Structure recovery F1 > 0.7 on Sachs dataset
+- ✅ 2x+ sample efficiency vs random baseline
+- ✅ Successful scaling to 50+ node graphs
+- ✅ Clear improvement from training (vs untrained models)
+
+**Timeline**: 3 weeks to make go/no-go decision on continuing infrastructure development
+
+### 2.5.4 Deferred Tasks (Post-Validation)
+**Paused until validation complete**:
+- Phase 3: Production & Optimization (GPU training, distributed systems)
+- Phase 4: Advanced Features (transfer learning, optimization)
+- Large-scale expert demonstration collection
+
+**Rationale**: Focus resources on proving core hypothesis before building production infrastructure
+
+---
+
+## Phase 3: Production & Optimization (Week 3) - PAUSED PENDING VALIDATION
 
 ### 3.1 Master Training Orchestrator  
 **Status**: TODO  

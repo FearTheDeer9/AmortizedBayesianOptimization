@@ -17,6 +17,12 @@ Usage:
     python scripts/collect_sft_dataset.py --resume checkpoints/collection_state.pkl
 """
 
+import sys
+import os
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.extend(['external', 'external/parent_scale'])
+
 import argparse
 import logging
 import json
@@ -28,9 +34,9 @@ from dataclasses import dataclass, field
 import numpy as onp
 
 # Import existing infrastructure
-from causal_bayes_opt.training.expert_collection.collector import ExpertDemonstrationCollector
-from causal_bayes_opt.training.expert_collection.data_structures import DemonstrationBatch
-from causal_bayes_opt.training.curriculum import (
+from src.causal_bayes_opt.training.expert_collection.collector import ExpertDemonstrationCollector
+from src.causal_bayes_opt.training.expert_collection.data_structures import DemonstrationBatch
+from src.causal_bayes_opt.training.curriculum import (
     DifficultyLevel, CurriculumManager, create_curriculum_manager
 )
 
@@ -120,7 +126,14 @@ class SFTDatasetCollector:
         
         # Initialize curriculum manager if using difficulty progression
         if "all" not in config.difficulty_levels:
-            self.curriculum_manager = create_curriculum_manager()
+            from src.causal_bayes_opt.training.config import TrainingConfig
+            # Create a minimal training config for curriculum manager
+            training_config = TrainingConfig(
+                total_steps=1000,
+                warmup_steps=50,
+                log_frequency=10
+            )
+            self.curriculum_manager = create_curriculum_manager(training_config)
         else:
             self.curriculum_manager = None
             

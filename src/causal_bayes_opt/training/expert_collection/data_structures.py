@@ -42,6 +42,60 @@ class ExpertDemonstration:
     # Metadata
     collection_timestamp: float = field(default_factory=time.time)
     validation_passed: bool = True
+    
+    def __getstate__(self) -> Dict[str, Any]:
+        """Custom serialization to handle SCM with mechanism functions."""
+        from ...data_structures.scm import serialize_scm_for_storage
+        
+        # Serialize the SCM separately to handle mechanism functions
+        state = self.__dict__.copy()
+        
+        try:
+            # Replace SCM with serializable version
+            state['scm_serialized'] = serialize_scm_for_storage(self.scm)
+            del state['scm']  # Remove original SCM with functions
+        except Exception as e:
+            # Fallback: try to serialize just the structure without mechanisms
+            from ...data_structures.scm import get_variables, get_edges, get_target
+            state['scm_fallback'] = {
+                'variables': list(get_variables(self.scm)),
+                'edges': list(get_edges(self.scm)),
+                'target': get_target(self.scm),
+                'metadata': dict(self.scm.get('metadata', {})),
+                'serialization_error': str(e)
+            }
+            del state['scm']
+        
+        return state
+    
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        """Custom deserialization to reconstruct SCM with mechanism functions."""
+        from ...data_structures.scm import deserialize_scm_from_storage, create_scm
+        
+        # Restore SCM from serialized data
+        if 'scm_serialized' in state:
+            try:
+                scm = deserialize_scm_from_storage(state['scm_serialized'])
+                del state['scm_serialized']
+            except Exception as e:
+                raise RuntimeError(f"Failed to deserialize SCM: {e}")
+        elif 'scm_fallback' in state:
+            # Fallback reconstruction (without mechanisms)
+            fallback_data = state['scm_fallback']
+            scm = create_scm(
+                variables=frozenset(fallback_data['variables']),
+                edges=frozenset((p, c) for p, c in fallback_data['edges']),
+                mechanisms={},  # Empty mechanisms
+                target=fallback_data.get('target'),
+                metadata=fallback_data.get('metadata', {})
+            )
+            del state['scm_fallback']
+        else:
+            raise RuntimeError("No SCM data found in serialized state")
+        
+        # Restore all attributes
+        self.__dict__.update(state)
+        self.scm = scm
 
 
 @dataclass

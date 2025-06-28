@@ -13,8 +13,9 @@ import jax
 import jax.random as random
 import pyrsistent as pyr
 
-from causal_bayes_opt.data_structures.scm import create_scm
+from causal_bayes_opt.data_structures.scm import create_scm_with_descriptors
 from causal_bayes_opt.mechanisms.linear import create_linear_mechanism, create_root_mechanism
+from causal_bayes_opt.mechanisms.descriptors import RootMechanismDescriptor, LinearMechanismDescriptor
 
 
 def generate_scm_problems(
@@ -76,8 +77,8 @@ def generate_scm(n_nodes: int, graph_type: str, key: jax.Array) -> pyr.PMap:
         # Random sparse graph
         edges = generate_random_edges(variables, key)
     
-    # Generate linear mechanisms
-    mechanisms = {}
+    # Generate linear mechanisms with descriptors for serialization
+    mechanism_descriptors = {}
     key, *subkeys = random.split(key, len(variables) + 1)
     
     for i, var in enumerate(variables):
@@ -87,7 +88,10 @@ def generate_scm(n_nodes: int, graph_type: str, key: jax.Array) -> pyr.PMap:
         if not parents:
             # Root variable
             mean_val = random.normal(subkeys[i]) * 0.5
-            mechanisms[var] = create_root_mechanism(mean=float(mean_val), noise_scale=0.1)
+            mechanism_descriptors[var] = RootMechanismDescriptor(
+                mean=float(mean_val), 
+                noise_scale=0.1
+            )
         else:
             # Variable with parents
             coefficients = {}
@@ -96,17 +100,17 @@ def generate_scm(n_nodes: int, graph_type: str, key: jax.Array) -> pyr.PMap:
                 coefficients[parent] = float(coeff)
             
             intercept = random.normal(subkeys[i]) * 0.2
-            mechanisms[var] = create_linear_mechanism(
+            mechanism_descriptors[var] = LinearMechanismDescriptor(
                 parents=parents,
                 coefficients=coefficients,
                 intercept=float(intercept),
                 noise_scale=0.1
             )
     
-    return create_scm(
+    return create_scm_with_descriptors(
         variables=frozenset(variables),
         edges=edges,
-        mechanisms=mechanisms,
+        mechanism_descriptors=mechanism_descriptors,
         target=target
     )
 

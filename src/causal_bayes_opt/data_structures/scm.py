@@ -259,3 +259,146 @@ def validate_edge_consistency(scm: pyr.PMap) -> bool:
         if get_parents(scm, var) and var not in mechanisms:
             return False
     return True
+
+
+def serialize_scm_for_storage(scm: pyr.PMap) -> Dict[str, Any]:
+    """
+    Serialize an SCM for storage by converting mechanism functions to descriptors.
+    
+    This enables pickle-safe serialization by storing the "quote" of each mechanism
+    (its configuration) rather than the actual function closures.
+    
+    Args:
+        scm: The structural causal model to serialize
+        
+    Returns:
+        Dictionary containing serializable SCM data
+    """
+    from ..mechanisms.descriptors import descriptors_to_dict
+    
+    # Get mechanism descriptors for all variables
+    mechanism_descriptors = {}
+    mechanisms = get_mechanisms(scm)
+    
+    for var, mechanism_func in mechanisms.items():
+        parents = list(get_parents(scm, var))
+        
+        # Try to recreate mechanism with descriptor
+        try:
+            if parents:
+                # For variables with parents, assume linear mechanism
+                # Note: This is a limitation - we need the original parameters
+                # In practice, mechanisms should be created with _return_descriptor=True
+                from ..mechanisms.linear import create_linear_mechanism
+                
+                # This is a fallback - in real usage, descriptors should be stored when creating SCMs
+                raise ValueError(f"Cannot serialize mechanism for variable '{var}' without descriptor. "
+                                f"Use create_linear_mechanism(..., _return_descriptor=True) when creating SCMs for storage.")
+            else:
+                # Root variable - try to recreate as root mechanism
+                from ..mechanisms.linear import create_root_mechanism
+                
+                raise ValueError(f"Cannot serialize root mechanism for variable '{var}' without descriptor. "
+                                f"Use create_root_mechanism(..., _return_descriptor=True) when creating SCMs for storage.")
+                                
+        except Exception as e:
+            # Check if SCM already has descriptors stored
+            if hasattr(scm, 'mechanism_descriptors') and var in scm.mechanism_descriptors:
+                mechanism_descriptors[var] = scm.mechanism_descriptors[var]
+            else:
+                raise ValueError(f"Cannot serialize mechanism for variable '{var}': {e}")
+    
+    # Create serializable SCM dictionary
+    serialized_scm = {
+        'variables': list(get_variables(scm)),
+        'edges': list(get_edges(scm)),
+        'mechanism_descriptors': descriptors_to_dict(mechanism_descriptors),
+        'target': get_target(scm),
+        'metadata': dict(scm.get('metadata', {}))
+    }
+    
+    return serialized_scm
+
+
+def deserialize_scm_from_storage(serialized_scm: Dict[str, Any]) -> pyr.PMap:
+    """
+    Deserialize an SCM from storage by recreating mechanism functions from descriptors.
+    
+    Args:
+        serialized_scm: Dictionary containing serialized SCM data
+        
+    Returns:
+        Reconstructed SCM with working mechanism functions
+    """
+    from ..mechanisms.descriptors import descriptors_from_dict, descriptor_to_mechanism
+    
+    # Reconstruct basic SCM structure
+    variables = frozenset(serialized_scm['variables'])
+    edges = frozenset((parent, child) for parent, child in serialized_scm['edges'])
+    target = serialized_scm.get('target')
+    metadata = serialized_scm.get('metadata', {})
+    
+    # Recreate mechanism functions from descriptors
+    mechanism_descriptors = descriptors_from_dict(serialized_scm['mechanism_descriptors'])
+    mechanisms = {}
+    
+    for var, descriptor in mechanism_descriptors.items():
+        mechanisms[var] = descriptor_to_mechanism(descriptor)
+    
+    # Create new SCM with reconstructed mechanisms
+    scm = create_scm(
+        variables=variables,
+        edges=edges,
+        mechanisms=mechanisms,
+        target=target,
+        metadata=metadata
+    )
+    
+    # Store descriptors for future serialization
+    scm = scm.set('mechanism_descriptors', mechanism_descriptors)
+    
+    return scm
+
+
+def create_scm_with_descriptors(
+    variables: FrozenSet[str],
+    edges: FrozenSet[Tuple[str, str]], 
+    mechanism_descriptors: Dict[str, Any],
+    target: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> pyr.PMap:
+    """
+    Create an SCM with mechanism descriptors for serialization support.
+    
+    This is the preferred way to create SCMs that will be saved/loaded.
+    
+    Args:
+        variables: Frozen set of variable names
+        edges: Frozen set of (parent, child) pairs
+        mechanism_descriptors: Dictionary mapping variables to mechanism descriptors
+        target: Optional target variable
+        metadata: Optional additional metadata
+        
+    Returns:
+        SCM with both mechanism functions and descriptors for serialization
+    """
+    from ..mechanisms.descriptors import descriptor_to_mechanism
+    
+    # Create mechanism functions from descriptors
+    mechanisms = {}
+    for var, descriptor in mechanism_descriptors.items():
+        mechanisms[var] = descriptor_to_mechanism(descriptor)
+    
+    # Create SCM
+    scm = create_scm(
+        variables=variables,
+        edges=edges,
+        mechanisms=mechanisms,
+        target=target,
+        metadata=metadata
+    )
+    
+    # Store descriptors for serialization
+    scm = scm.set('mechanism_descriptors', mechanism_descriptors)
+    
+    return scm

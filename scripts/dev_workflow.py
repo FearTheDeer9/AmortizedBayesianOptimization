@@ -308,12 +308,20 @@ class DevWorkflow:
     def _test_parent_scale_integration(self) -> bool:
         """Test PARENT_SCALE integration."""
         try:
-            # Quick integration test
-            from causal_bayes_opt.integration.parent_scale_bridge import check_parent_scale_availability
+            # Quick integration test using refactored integration
+            from causal_bayes_opt.integration.parent_scale import check_parent_scale_availability
             
             # Run basic integration test
-            success = check_parent_scale_availability()
-            return success
+            available = check_parent_scale_availability()
+            if available:
+                # Test basic functionality
+                from causal_bayes_opt.integration.parent_scale import run_full_parent_scale_algorithm
+                # Just test import, don't run expensive algorithm
+                logger.info("PARENT_SCALE integration components available")
+                return True
+            else:
+                logger.warning("PARENT_SCALE not available but integration imports work")
+                return False
             
         except Exception as e:
             logger.error(f"PARENT_SCALE integration test failed: {e}")

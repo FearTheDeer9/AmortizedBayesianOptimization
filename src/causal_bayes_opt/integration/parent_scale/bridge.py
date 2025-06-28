@@ -18,7 +18,14 @@ from .data_conversion import (
     parent_scale_results_to_posterior, samples_to_parent_scale_dict_format,
     create_exploration_set, generate_parent_scale_data_original
 )
-from .algorithm_runner import run_parent_discovery, run_full_parent_scale_algorithm, PARENT_SCALE, PARENT_SCALE_AVAILABLE
+try:
+    from .algorithm_runner import run_parent_discovery, run_full_parent_scale_algorithm
+except ImportError:
+    # Create dummy functions when algorithm_runner not available
+    def run_parent_discovery(*args, **kwargs):
+        raise ImportError("PARENT_SCALE algorithm not available")
+    def run_full_parent_scale_algorithm(*args, **kwargs):
+        raise ImportError("PARENT_SCALE algorithm not available")
 from .graph_structure import ACBOGraphStructure
 
 
@@ -45,8 +52,7 @@ __all__ = [
     'ACBOGraphStructure',
     
     # PARENT_SCALE algorithm class
-    'PARENT_SCALE',
-    'PARENT_SCALE_AVAILABLE'
+    'PARENT_SCALE'
 ]
 
 

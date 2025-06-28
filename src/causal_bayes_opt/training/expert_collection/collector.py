@@ -20,10 +20,12 @@ import pyrsistent as pyr
 from causal_bayes_opt.data_structures.scm import get_variables, get_target
 from causal_bayes_opt.environments.sampling import sample_with_intervention
 from causal_bayes_opt.interventions.handlers import create_perfect_intervention
-from causal_bayes_opt.integration.parent_scale_bridge import (
-    create_parent_scale_bridge, calculate_data_requirements, run_parent_discovery, 
-    run_full_parent_scale_algorithm
+from causal_bayes_opt.integration.parent_scale import (
+    run_full_parent_scale_algorithm,
+    run_full_parent_scale_algorithm_with_history
 )
+from causal_bayes_opt.integration.parent_scale.data_processing import ensure_parent_scale_imports
+from causal_bayes_opt.integration.parent_scale.data_processing import calculate_data_requirements
 from causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
 
 from .data_structures import ExpertDemonstration, ExpertTrajectoryDemonstration, DemonstrationBatch
@@ -62,7 +64,8 @@ class ExpertDemonstrationCollector:
     """
     
     def __init__(self, output_dir: str = "demonstrations"):
-        create_parent_scale_bridge()  # Validate availability
+        # Ensure PARENT_SCALE is available
+        ensure_parent_scale_imports()
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         
@@ -122,16 +125,57 @@ class ExpertDemonstrationCollector:
         
         print(f"  Generated {len(all_samples)} samples ({len(obs_samples)} obs + {len(int_samples)} int)")
         
-        # Run PARENT_SCALE neural doubly robust
+        # Run PARENT_SCALE with history tracking for training data
         start_time = time.time()
         
         try:
-            results = run_parent_discovery(
+            from ...integration.parent_scale.algorithm_runner_with_history import run_full_parent_scale_algorithm_with_history
+            trajectory = run_full_parent_scale_algorithm_with_history(
                 scm=scm,
                 samples=all_samples,
                 target_variable=target_variable,
-                num_bootstraps=data_req['bootstrap_samples']
+                T=5,  # Short trajectory for efficiency
+                nonlinear=True,
+                causal_prior=True,
+                individual=False,
+                use_doubly_robust=True,
+                n_observational=data_req['observational_samples'],
+                n_interventional=2
             )
+            
+            # Extract results from trajectory for compatibility
+            if trajectory.get('status') == 'failed':
+                print(f"  ❌ Algorithm failed: {trajectory.get('error')}")
+                return None
+            
+            # Extract discovered parents from final posterior
+            posterior_history = trajectory.get('posterior_history', [])
+            if not posterior_history:
+                print(f"  ❌ No posterior history captured")
+                return None
+            
+            final_posterior = posterior_history[-1]['posterior']
+            
+            # Get most likely parent set
+            if final_posterior:
+                most_likely_parents_key = max(final_posterior.keys(), key=lambda x: final_posterior[x])
+                confidence = final_posterior[most_likely_parents_key]
+                if isinstance(most_likely_parents_key, tuple):
+                    most_likely_parents = frozenset(most_likely_parents_key)
+                else:
+                    most_likely_parents = frozenset()
+            else:
+                most_likely_parents = frozenset()
+                confidence = 0.0
+            
+            # Create results dict for compatibility
+            results = {
+                'most_likely_parents': most_likely_parents,
+                'confidence': confidence,
+                'posterior_distribution': final_posterior,
+                'trajectory': trajectory,
+                'posterior_history': posterior_history
+            }
             
             inference_time = time.time() - start_time
             
@@ -155,7 +199,6 @@ class ExpertDemonstrationCollector:
             if results['confidence'] < 0.1:
                 print(f"  ❌ Confidence {results['confidence']:.3f} too low")
                 return None
-            
             # Create demonstration
             demonstration = ExpertDemonstration(
                 scm=scm,
@@ -240,7 +283,7 @@ class ExpertDemonstrationCollector:
         start_time = time.time()
         
         try:
-            trajectory = run_full_parent_scale_algorithm(
+            trajectory = run_full_parent_scale_algorithm_with_history(
                 scm=scm,
                 samples=all_samples,
                 target_variable=target_variable,

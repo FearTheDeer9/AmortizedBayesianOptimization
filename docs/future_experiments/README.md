@@ -11,10 +11,11 @@ The experiments are organized by research domain and implementation complexity:
 ### 📋 **Index of Experiment Categories**
 
 1. **[Acquisition Training Alternatives](acquisition_training_alternatives.md)** - Alternative loss functions, architectures, and training methodologies
-2. **[Advanced GRPO Variants](advanced_grpo_variants.md)** - Enhanced GRPO techniques from recent research
-3. **[Reward Function Research](reward_function_research.md)** - Alternative reward designs and multi-objective approaches
-4. **[Scaling and Performance](scaling_and_performance.md)** - Large graph studies and computational optimizations
-5. **[Integration Studies](integration_studies.md)** - Comparative analysis and real-world evaluation
+2. **[Data Format Abstraction Layer](data_format_abstraction_layer.md)** - Format abstraction for alternative model architectures (GNNs, MoE, etc.)
+3. **[Advanced GRPO Variants](advanced_grpo_variants.md)** - Enhanced GRPO techniques from recent research
+4. **[Reward Function Research](reward_function_research.md)** - Alternative reward designs and multi-objective approaches
+5. **[Scaling and Performance](scaling_and_performance.md)** - Large graph studies and computational optimizations
+6. **[Integration Studies](integration_studies.md)** - Comparative analysis and real-world evaluation
 
 ## When to Run These Experiments
 

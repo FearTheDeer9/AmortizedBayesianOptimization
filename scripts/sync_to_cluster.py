@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 class ClusterSync:
     """Handles synchronization with Imperial's GPU cluster."""
     
-    def __init__(self, username: str, cluster_host: str = "gpucluster2.doc.ic.ac.uk"):
+    def __init__(self, username: str, cluster_host: str = "login.hpc.ic.ac.uk"):
         self.username = username
         self.cluster_host = cluster_host
         self.local_project_root = Path(__file__).parent.parent

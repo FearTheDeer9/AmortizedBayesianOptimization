@@ -214,7 +214,8 @@ def create_linear_mechanism(
     parents: List[str],
     coefficients: Dict[str, float],
     intercept: float = DEFAULT_INTERCEPT,
-    noise_scale: float = DEFAULT_NOISE_SCALE
+    noise_scale: float = DEFAULT_NOISE_SCALE,
+    _return_descriptor: bool = False
 ) -> MechanismFunction:
     """
     Create a linear mechanism function for a variable.
@@ -227,9 +228,11 @@ def create_linear_mechanism(
         coefficients: Mapping from parent variable names to their coefficients
         intercept: Constant term in the linear equation
         noise_scale: Standard deviation of Gaussian noise (>= 0)
+        _return_descriptor: If True, return (function, descriptor) tuple for serialization
         
     Returns:
-        A mechanism function that takes (parent_values, noise_key) and returns a scalar
+        A mechanism function that takes (parent_values, noise_key) and returns a scalar.
+        If _return_descriptor=True, returns (function, descriptor) tuple.
         
     Raises:
         ValueError: If inputs are inconsistent or invalid
@@ -255,16 +258,39 @@ def create_linear_mechanism(
     # Handle root variables (no parents)
     if not parents:
         logger.debug(f"Creating root mechanism with mean={intercept}, noise_scale={noise_scale}")
-        return _create_root_mechanism_impl(intercept, noise_scale)
+        mechanism = _create_root_mechanism_impl(intercept, noise_scale)
+        
+        if _return_descriptor:
+            from .descriptors import RootMechanismDescriptor
+            descriptor = RootMechanismDescriptor(
+                mean=intercept,
+                noise_scale=noise_scale
+            )
+            return mechanism, descriptor
+        
+        return mechanism
     
     # Create linear mechanism
     logger.debug(f"Creating linear mechanism with {len(parents)} parents, intercept={intercept}")
-    return _create_linear_mechanism_impl(coefficients, intercept, noise_scale)
+    mechanism = _create_linear_mechanism_impl(coefficients, intercept, noise_scale)
+    
+    if _return_descriptor:
+        from .descriptors import LinearMechanismDescriptor
+        descriptor = LinearMechanismDescriptor(
+            parents=parents,
+            coefficients=coefficients,
+            intercept=intercept,
+            noise_scale=noise_scale
+        )
+        return mechanism, descriptor
+    
+    return mechanism
 
 
 def create_root_mechanism(
     mean: float = 0.0,
-    noise_scale: float = DEFAULT_NOISE_SCALE
+    noise_scale: float = DEFAULT_NOISE_SCALE,
+    _return_descriptor: bool = False
 ) -> MechanismFunction:
     """
     Create a mechanism for root variables (variables with no parents).
@@ -272,9 +298,11 @@ def create_root_mechanism(
     Args:
         mean: Mean value for the root variable
         noise_scale: Standard deviation of Gaussian noise
+        _return_descriptor: If True, return (function, descriptor) tuple for serialization
         
     Returns:
-        A mechanism function for a root variable
+        A mechanism function for a root variable.
+        If _return_descriptor=True, returns (function, descriptor) tuple.
         
     Raises:
         ValueError: If parameters are invalid
@@ -289,7 +317,17 @@ def create_root_mechanism(
     if not isinstance(mean, (int, float)) or not jnp.isfinite(mean):
         raise ValueError(f"Mean must be a finite number, got: {mean}")
     
-    return _create_root_mechanism_impl(mean, noise_scale)
+    mechanism = _create_root_mechanism_impl(mean, noise_scale)
+    
+    if _return_descriptor:
+        from .descriptors import RootMechanismDescriptor
+        descriptor = RootMechanismDescriptor(
+            mean=mean,
+            noise_scale=noise_scale
+        )
+        return mechanism, descriptor
+    
+    return mechanism
 
 
 def sample_from_linear_scm(

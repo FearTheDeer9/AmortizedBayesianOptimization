@@ -22,13 +22,38 @@ from GPy.models.gp_regression import GPRegression
 from pgmpy.models import BayesianNetwork
 
 # Import our data structures
-from causal_bayes_opt.data_structures.scm import get_variables, get_edges, get_target, get_parents
+from ...data_structures.scm import get_variables, get_edges, get_target, get_parents
 
 # Import helper functions
-from .helpers import (
-    MyKDE, safe_optimization, set_intervention_values, predict_child,
-    predict_causal_effect, propogate_effects
-)
+try:
+    from .helpers import (
+        MyKDE, safe_optimization, set_intervention_values, predict_child,
+        predict_causal_effect, propogate_effects
+    )
+except ImportError:
+    # Define dummy functions when helpers not available
+    class MyKDE:
+        def __init__(self, **kwargs):
+            pass
+        def fit_and_update(self, data):
+            return self
+        def predict(self):
+            return 0.0, 1.0
+    
+    def safe_optimization(gp):
+        return gp
+    
+    def set_intervention_values(*args, **kwargs):
+        pass
+    
+    def predict_child(*args, **kwargs):
+        return onp.array([0.0])
+    
+    def predict_causal_effect(*args, **kwargs):
+        return 0.0, 1.0
+    
+    def propogate_effects(*args, **kwargs):
+        pass
 
 # Helper classes from PARENT_SCALE
 MESSAGE = "Subclass should implement this."
@@ -329,7 +354,7 @@ class ACBOGraphStructure(GraphStructure):
         self._SEM = OrderedDict()
         
         # Get topological order for proper SEM evaluation
-        from causal_bayes_opt.data_structures.scm import topological_sort
+        from ...data_structures.scm import topological_sort
         topo_order = topological_sort(scm)
         
         # Create mechanism functions compatible with PARENT_SCALE

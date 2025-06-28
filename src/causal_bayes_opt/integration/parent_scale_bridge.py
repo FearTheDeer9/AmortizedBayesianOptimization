@@ -28,11 +28,15 @@ try:
 except ImportError:
     DATA_CONVERSION_AVAILABLE = False
 
-# Import availability check
-from .parent_scale.data_generation import check_parent_scale_availability
+# Import availability check  
+from .parent_scale.data_processing import ensure_parent_scale_imports
 
-# Set availability flag
-PARENT_SCALE_AVAILABLE = check_parent_scale_availability()
+# Check availability
+try:
+    ensure_parent_scale_imports()
+    PARENT_SCALE_AVAILABLE = True
+except ImportError:
+    PARENT_SCALE_AVAILABLE = False
 
 # Re-export main functions for backward compatibility
 __all__ = [
@@ -43,7 +47,6 @@ __all__ = [
     'convert_trajectory_to_acbo_format',
     
     # Availability check
-    'check_parent_scale_availability',
     'PARENT_SCALE_AVAILABLE'
 ]
 

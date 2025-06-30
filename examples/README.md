@@ -1,6 +1,51 @@
-# ACBO Examples
+# Examples Directory
 
-This directory contains example scripts demonstrating the usage of the Amortized Causal Bayesian Optimization (ACBO) framework.
+This directory contains example scripts demonstrating the usage of the Amortized Causal Bayesian Optimization (ACBO) framework, organized by complexity and use case.
+
+## Directory Structure
+
+### 📁 **Core Examples** (Root Level)
+- `complete_workflow_demo.py` - **Main comprehensive ACBO demonstration**
+- `parent_scale_demo.py` - PARENT_SCALE integration showcase
+- `jax_native_demo.py` - JAX-native architecture performance demo
+- `verify_intervention_strategies.py` - Quick intervention strategy validation
+
+### 📁 **research/** - Research & Validation
+- `run_comprehensive_validation.py` - Publication-quality statistical validation
+- `bic_fix_demo.py` - Educational BIC scoring demonstration
+
+### 📁 **advanced/** - Advanced Features
+- `complete_acquisition_training_demo.py` - Complete GRPO training pipeline
+- `hybrid_rewards_demo.py` - Mechanism-aware reward system
+- `mechanism_aware_integration_demo.py` - End-to-end mechanism integration
+
+### 📁 **development/** - Development Tools
+- `migration_example.py` - Legacy to JAX-native migration guide
+- `mechanism_aware_demo.py` - Mechanism-aware architecture demo
+- `performance_comparison.py` - JAX-native vs legacy benchmarking
+- `demo_hydra_wandb_integration.py` - Hydra/WandB integration examples
+- `hydra_wandb_demo.py` - Minimal integration demo
+
+### 📁 **experiments/** - Experiment Infrastructure
+- `basic_usage.py` - New experiment infrastructure demo
+- `quick_start.py` - Quick start guide for experiments
+
+## Quick Start
+
+**Main ACBO demonstration:**
+```bash
+poetry run python examples/complete_workflow_demo.py
+```
+
+**PARENT_SCALE integration:**
+```bash
+poetry run python examples/parent_scale_demo.py
+```
+
+**JAX-native performance showcase:**
+```bash
+poetry run python examples/jax_native_demo.py
+```
 
 ## Available Examples
 

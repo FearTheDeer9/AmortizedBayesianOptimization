@@ -149,7 +149,28 @@ setup_python_environment() {
     log_success "Python environment ready: $(python --version)"
 }
 
-# Install dependencies
+# Install Poetry
+install_poetry() {
+    log_info "Installing Poetry..."
+    
+    # Check if Poetry is already installed
+    if command -v poetry &> /dev/null; then
+        log_info "Poetry already installed: $(poetry --version)"
+        return 0
+    fi
+    
+    # Install Poetry
+    log_info "Installing Poetry via pip..."
+    pip install poetry
+    
+    # Configure Poetry
+    poetry config virtualenvs.create false  # Use our existing venv
+    poetry config virtualenvs.in-project false
+    
+    log_success "Poetry installed successfully"
+}
+
+# Install dependencies using Poetry
 install_dependencies() {
     log_info "Installing dependencies..."
     
@@ -159,46 +180,58 @@ install_dependencies() {
         exit 1
     fi
     
-    # Install JAX with GPU support
-    log_info "Installing JAX with GPU support..."
-    pip install --upgrade "jax[cuda${CUDA_VERSION//./_}]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-    
-    # Install core ML dependencies
-    log_info "Installing core ML dependencies..."
-    pip install \
-        numpy \
-        scipy \
-        matplotlib \
-        seaborn \
-        scikit-learn \
-        h5py \
-        tqdm \
-        wandb \
-        tensorboard
-    
-    # Install optimization and neural network libraries
-    log_info "Installing optimization libraries..."
-    pip install \
-        optax \
-        dm-haiku \
-        chex \
-        jaxlib
-    
-    # Install additional scientific computing
-    log_info "Installing scientific computing libraries..."
-    pip install \
-        pandas \
-        networkx \
-        pyrsistent \
-        hypothesis
-    
-    # Install project in development mode if pyproject.toml exists
+    # Check if we have pyproject.toml (Poetry project)
     if [ -f "${PROJECT_DIR}/pyproject.toml" ]; then
-        log_info "Installing project in development mode..."
+        log_info "Found pyproject.toml - using Poetry for dependency management"
+        
+        # Install Poetry first
+        install_poetry
+        
+        # Install project dependencies with Poetry
         cd "${PROJECT_DIR}"
-        pip install -e .
+        log_info "Installing project dependencies with Poetry..."
+        poetry install
+        
+        # Install JAX with GPU support (may need manual install for specific CUDA version)
+        log_info "Installing JAX with GPU support..."
+        poetry run pip install --upgrade "jax[cuda${CUDA_VERSION//./_}]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+        
     else
-        log_warning "pyproject.toml not found, skipping project installation"
+        log_warning "No pyproject.toml found - falling back to pip installation"
+        
+        # Fallback to manual pip installation
+        # Install JAX with GPU support
+        log_info "Installing JAX with GPU support..."
+        pip install --upgrade "jax[cuda${CUDA_VERSION//./_}]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+        
+        # Install core ML dependencies
+        log_info "Installing core ML dependencies..."
+        pip install \
+            numpy \
+            scipy \
+            matplotlib \
+            seaborn \
+            scikit-learn \
+            h5py \
+            tqdm \
+            wandb \
+            tensorboard
+        
+        # Install optimization and neural network libraries
+        log_info "Installing optimization libraries..."
+        pip install \
+            optax \
+            dm-haiku \
+            chex \
+            jaxlib
+        
+        # Install additional scientific computing
+        log_info "Installing scientific computing libraries..."
+        pip install \
+            pandas \
+            networkx \
+            pyrsistent \
+            hypothesis
     fi
     
     log_success "Dependencies installed successfully"
@@ -267,7 +300,17 @@ export PYTHONPATH="\${PROJECT_DIR}/src:\${PYTHONPATH}"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.8
 
-echo "🚀 ACBO environment activated!"
+# Check if Poetry is available and project uses it
+if [ -f "\${PROJECT_DIR}/pyproject.toml" ] && command -v poetry &> /dev/null; then
+    export USE_POETRY=true
+    echo "🚀 ACBO environment activated with Poetry!"
+    echo "Use: poetry run python scripts/collect_sft_dataset.py"
+else
+    export USE_POETRY=false
+    echo "🚀 ACBO environment activated!"
+    echo "Use: python scripts/collect_sft_dataset.py"
+fi
+
 echo "Project directory: \${PROJECT_DIR}"
 echo "Python: \$(python --version)"
 echo "JAX devices: \$(python -c 'import jax; print(jax.devices())')"

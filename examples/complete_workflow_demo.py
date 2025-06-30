@@ -25,7 +25,7 @@ try:
     from .demo_learning import (
         DemoConfig, _get_true_parents_for_scm, create_learnable_surrogate_model,
         create_acquisition_state_from_buffer, create_random_intervention_policy,
-        create_fixed_intervention_policy
+        create_fixed_intervention_policy, create_oracle_intervention_policy
     )
     from .demo_evaluation import (
         analyze_convergence, compute_data_likelihood_from_posterior,
@@ -38,7 +38,7 @@ except ImportError:
     from demo_learning import (
         DemoConfig, _get_true_parents_for_scm, create_learnable_surrogate_model,
         create_acquisition_state_from_buffer, create_random_intervention_policy,
-        create_fixed_intervention_policy
+        create_fixed_intervention_policy, create_oracle_intervention_policy
     )
     from demo_evaluation import (
         analyze_convergence, compute_data_likelihood_from_posterior,
@@ -263,6 +263,214 @@ def run_progressive_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfig) ->
         'final_uncertainty': final_state.uncertainty_bits,
         'final_marginal_probs': final_state.marginal_parent_probs,
         'converged_to_truth': analyze_convergence(marginal_prob_progress, true_parents)
+    }
+
+
+def run_progressive_learning_demo_with_oracle_interventions(scm: pyr.PMap, config: DemoConfig) -> Dict[str, Any]:
+    """
+    Run progressive learning demo with oracle intervention policy.
+    
+    This version uses the same neural network surrogate learning as the regular demo,
+    but replaces random intervention selection with oracle intervention policy that
+    has perfect knowledge of the true causal structure.
+    
+    Args:
+        scm: The structural causal model (used for oracle knowledge)
+        config: Configuration for the demo
+        
+    Returns:
+        Dictionary with learning results and convergence metrics
+    """
+    print(f"🧠 Progressive Learning Demo (Oracle Interventions)")
+    print("=" * 60)
+    
+    # Setup (identical to regular demo)
+    key = random.PRNGKey(config.random_seed)
+    variables = sorted(get_variables(scm))
+    target = get_target(scm)
+    
+    # Create learnable surrogate model (same as regular demo)
+    key, surrogate_key = random.split(key)
+    surrogate_fn, _net, params, opt_state, update_fn = create_learnable_surrogate_model(
+        variables, surrogate_key, config.learning_rate, config.scoring_method
+    )
+    
+    # Create ORACLE intervention policy (this is the key difference)
+    intervention_fn = create_oracle_intervention_policy(
+        variables, target, scm, config.intervention_value_range
+    )
+    
+    # Generate initial data (identical to regular demo)
+    key, data_key = random.split(key)
+    initial_samples, buffer = generate_initial_data(scm, config, data_key)
+    
+    # Track learning progress (identical to regular demo)
+    learning_history = []
+    target_progress = []
+    uncertainty_progress = []
+    marginal_prob_progress = []
+    data_likelihood_progress = []
+    
+    # Initial progress tracking (identical to regular demo)
+    if initial_samples:
+        initial_values = [get_values(s)[target] for s in initial_samples]
+        best_so_far = max(initial_values)
+    else:
+        best_so_far = float('-inf')  # No initial data
+    target_progress.append(best_so_far)
+    
+    # Get initial posterior and metrics (identical to regular demo)
+    if initial_samples:
+        current_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, 0, params)
+        uncertainty_progress.append(current_state.uncertainty_bits)
+        marginal_prob_progress.append(dict(current_state.marginal_parent_probs))
+        
+        # Initial data likelihood
+        initial_likelihood = compute_data_likelihood_from_posterior(current_state.posterior, initial_samples, target)
+        data_likelihood_progress.append(initial_likelihood)
+    else:
+        # No initial data - start with high uncertainty
+        uncertainty_progress.append(float('inf'))
+        marginal_prob_progress.append({v: 0.0 for v in variables if v != target})
+        data_likelihood_progress.append(0.0)
+    
+    # Run intervention and learning loop (same logic, different intervention selection)
+    keys = random.split(key, config.n_intervention_steps)
+    current_params = params
+    current_opt_state = opt_state
+    
+    for step in range(config.n_intervention_steps):
+        step_key = keys[step]
+        
+        # ORACLE intervention selection (this is the key difference from regular demo)
+        intervention = intervention_fn(key=step_key)
+        
+        # Sample outcome from SCM with intervention (identical to regular demo)
+        from causal_bayes_opt.environments.sampling import sample_with_intervention
+        outcome_samples = sample_with_intervention(scm, intervention, n_samples=1, seed=int(step_key[0]))
+        
+        if outcome_samples:
+            outcome = outcome_samples[0]
+            buffer.add_intervention(intervention, outcome)
+            
+            # Track target value progress (identical to regular demo)
+            outcome_value = get_values(outcome)[target]
+            best_so_far = max(best_so_far, outcome_value)
+            target_progress.append(best_so_far)
+            
+            # Update surrogate model with data likelihood (identical to regular demo)
+            all_samples = buffer.get_all_samples()
+            if len(all_samples) >= 2:  # Need some data for learning
+                # Get posterior before update
+                current_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, step, current_params)
+                
+                # Update model parameters
+                current_params, current_opt_state, (loss, param_norm, grad_norm, update_norm) = update_fn(
+                    current_params, current_opt_state, current_state.posterior, [outcome], variables, target
+                )
+                
+                # Get posterior after update
+                updated_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, step, current_params)
+                
+                # Track metrics
+                uncertainty_progress.append(updated_state.uncertainty_bits)
+                marginal_prob_progress.append(dict(updated_state.marginal_parent_probs))
+                
+                # Data likelihood
+                likelihood = compute_data_likelihood_from_posterior(updated_state.posterior, all_samples, target)
+                data_likelihood_progress.append(likelihood)
+            else:
+                # Not enough data for meaningful learning yet
+                loss = 0.0
+                param_norm = 0.0
+                grad_norm = 0.0
+                update_norm = 0.0
+                uncertainty_progress.append(float('inf'))
+                marginal_prob_progress.append({v: 0.0 for v in variables if v != target})
+                data_likelihood_progress.append(0.0)
+        else:
+            # Failed to sample - record defaults
+            outcome_value = 0.0
+            target_progress.append(best_so_far)
+            loss = 0.0
+            param_norm = 0.0
+            grad_norm = 0.0
+            update_norm = 0.0
+            uncertainty_progress.append(float('inf'))
+            marginal_prob_progress.append({v: 0.0 for v in variables if v != target})
+            data_likelihood_progress.append(0.0)
+        
+        # Record learning step (identical to regular demo)
+        all_samples = buffer.get_all_samples()
+        if len(all_samples) >= 5:
+            learning_history.append({
+                'step': step + 1,
+                'intervention': intervention,
+                'outcome_value': outcome_value,
+                'loss': loss,
+                'param_norm': param_norm,
+                'grad_norm': grad_norm,
+                'update_norm': update_norm,
+                'uncertainty': uncertainty_progress[-1],
+                'marginals': marginal_prob_progress[-1],
+                'data_likelihood': data_likelihood_progress[-1]
+            })
+        else:
+            # Minimal logging for early steps
+            learning_history.append({
+                'step': step + 1,
+                'intervention': intervention,
+                'outcome_value': outcome_value,
+                'loss': loss,
+                'param_norm': param_norm,
+                'grad_norm': grad_norm,
+                'update_norm': update_norm,
+                'uncertainty': float('inf'),
+                'marginals': {v: 0.0 for v in variables if v != target},
+                'data_likelihood': 0.0
+            })
+    
+    # Final analysis (identical to regular demo)
+    final_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, config.n_intervention_steps, current_params)
+    
+    # Count intervention types
+    intervention_counts = {}
+    for step_info in learning_history:
+        intervention = step_info['intervention']
+        if intervention and intervention.get('values'):
+            vars_intervened = list(intervention['values'].keys())
+            for var in vars_intervened:
+                intervention_counts[var] = intervention_counts.get(var, 0) + 1
+        else:
+            intervention_counts['observational'] = intervention_counts.get('observational', 0) + 1
+    
+    # Get true parents based on SCM structure
+    true_parents = _get_true_parents_for_scm(scm, target)
+    
+    return {
+        'target_variable': target,
+        'true_parents': true_parents,
+        'config': config,
+        'initial_best': target_progress[0],
+        'final_best': target_progress[-1],
+        'improvement': target_progress[-1] - target_progress[0],
+        'total_samples': buffer.size(),
+        'intervention_counts': intervention_counts,
+        
+        # Learning progress metrics
+        'learning_history': learning_history,
+        'target_progress': target_progress,
+        'uncertainty_progress': uncertainty_progress,
+        'marginal_prob_progress': marginal_prob_progress,
+        'data_likelihood_progress': data_likelihood_progress,
+        
+        # Final state
+        'final_uncertainty': final_state.uncertainty_bits,
+        'final_marginal_probs': final_state.marginal_parent_probs,
+        'converged_to_truth': analyze_convergence(marginal_prob_progress, true_parents),
+        
+        # Mark as oracle method
+        'method': 'oracle_learning_surrogate'
     }
 
 

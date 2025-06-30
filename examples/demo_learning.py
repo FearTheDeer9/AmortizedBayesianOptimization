@@ -340,3 +340,82 @@ def create_fixed_intervention_policy(variables: List[str], target_variable: str,
         )
     
     return select_fixed_intervention
+
+
+def create_oracle_intervention_policy(variables: List[str], target_variable: str, 
+                                     scm: pyr.PMap, intervention_value_range: Tuple[float, float] = (-2.0, 2.0),
+                                     intervention_strength: float = 2.0) -> Callable[..., pyr.PMap]:
+    """Create oracle intervention policy that uses true causal structure knowledge.
+    
+    This policy has perfect knowledge of the true causal structure and prefers
+    intervening on true parents of the target variable, providing an upper bound
+    for intervention selection performance.
+    
+    Args:
+        variables: List of all variables in the SCM
+        target_variable: The target variable (excluded from interventions)
+        scm: The true structural causal model
+        intervention_value_range: Range for intervention values
+        intervention_strength: Strength of interventions (default value)
+        
+    Returns:
+        Intervention policy function that uses oracle knowledge for selection
+    """
+    # Get true parents of target variable
+    true_parents = set(get_parents(scm, target_variable))
+    candidate_vars = [v for v in variables if v != target_variable]
+    parent_candidates = [v for v in candidate_vars if v in true_parents]
+    
+    min_val, max_val = intervention_value_range
+    
+    def select_oracle_intervention(_state: object = None, key: Optional[jax.Array] = None) -> pyr.PMap:
+        """Select intervention using oracle knowledge of true causal structure."""
+        
+        # Use provided key or generate new one
+        if key is None:
+            key = random.PRNGKey(42)  # Default key
+        
+        # Prefer intervening on true parents of the target
+        if parent_candidates:
+            # Select from true parents with 80% probability
+            var_key, val_key, choice_key = random.split(key, 3)
+            use_parent = random.uniform(choice_key) < 0.8
+            
+            if use_parent:
+                # Select from true parents
+                var_idx = random.randint(var_key, (), 0, len(parent_candidates))
+                chosen_var = parent_candidates[var_idx]
+                
+                # Use stronger intervention values for true parents
+                intervention_value = float(random.uniform(val_key, (), 
+                                                        minval=min_val, maxval=max_val))
+                # Add some bias toward the default strength
+                if random.uniform(val_key) < 0.3:
+                    intervention_value = intervention_strength if random.uniform(val_key) < 0.5 else -intervention_strength
+            else:
+                # Occasionally explore non-parents (20% of time)
+                non_parent_candidates = [v for v in candidate_vars if v not in true_parents]
+                if non_parent_candidates:
+                    var_idx = random.randint(var_key, (), 0, len(non_parent_candidates))
+                    chosen_var = non_parent_candidates[var_idx]
+                else:
+                    # Fallback to any candidate
+                    var_idx = random.randint(var_key, (), 0, len(candidate_vars))
+                    chosen_var = candidate_vars[var_idx]
+                
+                # Use smaller intervention values for non-parents
+                intervention_value = float(random.uniform(val_key, (), 
+                                                        minval=min_val * 0.5, maxval=max_val * 0.5))
+        else:
+            # No true parents available, fall back to random selection
+            var_key, val_key = random.split(key)
+            var_idx = random.randint(var_key, (), 0, len(candidate_vars))
+            chosen_var = candidate_vars[var_idx]
+            intervention_value = float(random.uniform(val_key, (), minval=min_val, maxval=max_val))
+        
+        return create_perfect_intervention(
+            targets=frozenset([chosen_var]),
+            values={chosen_var: intervention_value}
+        )
+    
+    return select_oracle_intervention

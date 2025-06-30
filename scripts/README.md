@@ -1,16 +1,53 @@
-# ACBO Scripts Directory
+# Scripts Directory
 
-This directory contains production-ready scripts for collecting SFT datasets and deploying training on Imperial's GPU cluster.
+This directory contains production and development scripts organized by functionality.
 
-## Overview
+## Directory Structure
 
-The scripts support the complete workflow from expert demonstration collection to GPU cluster training:
+### 📁 **core/** - Production-Ready Scripts
+- `erdos_renyi_scaling_experiment.py` - Main scaling experiment with Hydra/WandB
+- `acbo_wandb_experiment.py` - **ACBO method comparison (frozen vs learning surrogates)**
+- `collect_sft_dataset.py` - SFT dataset collection with checkpointing
+- `prepare_sft_data.py` - SFT data format conversion
+- `split_dataset.py` - Intelligent dataset splitting
+- `validate_dataset.py` - Dataset quality validation
 
-1. **Data Collection**: Collect expert demonstrations from PARENT_SCALE
-2. **Data Processing**: Convert to SFT training format  
-3. **Dataset Splitting**: Create train/val/test splits
-4. **Cluster Deployment**: Deploy and manage training on GPU cluster
-5. **Local Development**: Test and validate locally
+### 📁 **deployment/** - Cluster & Infrastructure
+- `deploy_to_cluster.py` - Complete cluster deployment orchestration
+- `sync_to_cluster.py` - Efficient project synchronization
+- `validate_cluster_integration.py` - Cluster validation
+
+### 📁 **benchmarks/** - Performance Analysis
+- `performance_targets_validation.py` - Phase 2.2 requirements validation
+- `training_speed_benchmarks.py` - Training speed analysis
+- `sample_efficiency_benchmarks.py` - Sample efficiency validation
+- `optimization_performance_benchmarks.py` - Target optimization benchmarks
+- `structure_learning_benchmarks.py` - ⚠️ SIMULATION-ONLY structure learning benchmarks
+
+### 📁 **development/** - Development Tools
+- `dev_workflow.py` - Local development workflow
+- `quick_validation.py` - Quick validation experiments
+- `analyze_test_coverage.py` - Test coverage analysis
+
+### 📁 **maintenance/** - Legacy & Cleanup
+- `cleanup_deprecated.py` - JAX migration cleanup utilities
+
+## Quick Start
+
+**For ACBO comparison (frozen vs learning surrogates):**
+```bash
+poetry run python scripts/core/acbo_wandb_experiment.py --config-path ../config --config-name acbo_comparison_config.yaml
+```
+
+**For scaling experiments:**
+```bash
+poetry run python scripts/core/erdos_renyi_scaling_experiment.py --config-path ../config --config-name config.yaml
+```
+
+**For development workflow:**
+```bash
+poetry run python scripts/development/dev_workflow.py --mode quick-test
+```
 
 ## Scripts
 

@@ -57,3 +57,9 @@ data/generated_demonstrations/
 *.npz
 project.yml
 .serena/
+wandb/
+outputs/
+.hypothesis/
+experiment_results/
+config/
+experiment_plots/

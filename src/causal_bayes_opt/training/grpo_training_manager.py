@@ -23,6 +23,12 @@ import time
 from pathlib import Path
 import pickle
 
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 import jax
 import jax.numpy as jnp
 import optax
@@ -143,6 +149,7 @@ class GRPOTrainingManager:
         # GRPO update function will be created when optimizers are available
         # For now, this is handled in the update_policy method
         self.grpo_update_fn = None
+        self.optimizer_state = None
         
         # Training state
         self.current_step = 0
@@ -231,7 +238,7 @@ class GRPOTrainingManager:
         return experiences
     
     def update_policy(self, batch: ExperienceBatch) -> GRPOUpdateResult:
-        """Update policy using GRPO algorithm.
+        """Update policy using GRPO algorithm with enhanced networks.
         
         Args:
             batch: Batch of experiences for training
@@ -239,24 +246,221 @@ class GRPOTrainingManager:
         Returns:
             GRPO update results
         """
-        # For now, return a mock update result
-        # In a full implementation, this would:
-        # 1. Create optimizers if not already created
-        # 2. Create the GRPO update function with proper network functions
-        # 3. Apply the update and return real results
+        # Initialize GRPO update function if not already created
+        if self.grpo_update_fn is None:
+            self._initialize_grpo_training()
         
-        # Mock update result for testing and integration
-        return GRPOUpdateResult(
-            policy_loss=0.1,
-            value_loss=0.05,
-            entropy_loss=0.02,
-            total_loss=0.17,
-            kl_divergence=0.01,
-            policy_gradient_norm=0.5,
-            value_gradient_norm=0.3,
-            clipped_fraction=0.1,
-            explained_variance=0.8
+        try:
+            # Extract batch data for GRPO training
+            states = []
+            actions = []
+            rewards = []
+            old_log_probs = []
+            
+            for exp in batch.experiences:
+                # Convert experience to enhanced state tensor
+                state_tensor = self._experience_to_state_tensor(exp)
+                states.append(state_tensor)
+                
+                # Extract action information
+                actions.append(exp.action)
+                
+                # Extract reward
+                rewards.append(float(exp.reward.total_reward))
+                
+                # Extract log probability
+                old_log_probs.append(exp.log_prob)
+            
+            # Stack into batch tensors
+            batch_states = jnp.stack(states)  # [batch_size, T, n_vars, channels]
+            batch_rewards = jnp.array(rewards)  # [batch_size]
+            batch_old_log_probs = jnp.array(old_log_probs)  # [batch_size]
+            
+            # Create GRPO batch
+            grpo_batch = {
+                'states': batch_states,
+                'actions': actions,  # Keep as list for now
+                'rewards': batch_rewards,
+                'old_log_probs': batch_old_log_probs
+            }
+            
+            # Apply GRPO update
+            new_params, new_opt_state, update_result = self.grpo_update_fn(
+                self.policy_network.params,
+                self.optimizer_state,
+                grpo_batch
+            )
+            
+            # Update network parameters
+            self.policy_network = self.policy_network.replace(params=new_params)
+            self.optimizer_state = new_opt_state
+            
+            return update_result
+            
+        except Exception as e:
+            logger.error(f"GRPO update failed: {e}")
+            # Re-raise the exception to expose training issues
+            raise RuntimeError(f"GRPO policy update failed: {e}") from e
+    
+    def _initialize_grpo_training(self) -> None:
+        """Initialize GRPO training components with enhanced networks."""
+        try:
+            # Import enhanced network factories
+            from ..acquisition.enhanced_policy_network import create_enhanced_policy_for_grpo
+            from ..avici_integration.enhanced_surrogate import create_enhanced_surrogate_for_grpo
+            
+            # Extract problem information from environment
+            if hasattr(self.environment, 'variables'):
+                variables = self.environment.variables
+                target_variable = self.environment.target_variable
+            else:
+                # Fallback: extract from environment info
+                env_info = self.environment.get_environment_info()
+                variables = env_info.variables
+                target_variable = env_info.target_variable
+            
+            # Create enhanced policy network
+            enhanced_policy_fn, policy_config = create_enhanced_policy_for_grpo(
+                variables=variables,
+                target_variable=target_variable,
+                architecture_level="full",
+                performance_mode="balanced"
+            )
+            
+            # Initialize policy network parameters
+            key = jax.random.PRNGKey(self.config.seed)
+            dummy_state = jnp.zeros((policy_config['max_history_size'], 
+                                   len(variables), 
+                                   policy_config['num_channels']))
+            
+            # Transform and initialize
+            self.enhanced_policy_fn = hk.transform(lambda x: enhanced_policy_fn(x, is_training=True))
+            policy_params = self.enhanced_policy_fn.init(key, dummy_state)
+            
+            # Create optimizer
+            import optax
+            optimizer = optax.adam(learning_rate=self.config.grpo_algorithm.learning_rate)
+            self.optimizer_state = optimizer.init(policy_params)
+            
+            # Update policy network with enhanced version
+            self.policy_network = self.policy_network.replace(params=policy_params)
+            
+            # Create GRPO update function
+            from .grpo_core import create_grpo_update_fn
+            self.grpo_update_fn = create_grpo_update_fn(
+                policy_fn=self.enhanced_policy_fn,
+                optimizer=optimizer,
+                config=self.config.grpo_algorithm
+            )
+            
+            logger.info("Enhanced GRPO training initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize enhanced GRPO training: {e}")
+            # Re-raise the exception to expose initialization issues
+            raise RuntimeError(f"GRPO training initialization failed: {e}") from e
+    
+    def _experience_to_state_tensor(self, experience: Experience) -> jnp.ndarray:
+        """Convert experience to enhanced state tensor format.
+        
+        Args:
+            experience: Experience object
+            
+        Returns:
+            State tensor [T, n_vars, channels] for enhanced policy network
+        """
+        try:
+            # Get enhanced state representation using the proper enriched history builder
+            from ..acquisition.enriched.state_enrichment import create_enriched_history_tensor
+            
+            # Extract state information
+            state = experience.state
+            
+            # Use the enriched history tensor creation with proper parameters
+            max_history = 20  # Match policy network expectations
+            include_temporal_features = True  # Enable temporal context
+            
+            # Create enriched history tensor using the proper function
+            state_tensor = create_enriched_history_tensor(
+                state=state,
+                max_history_size=max_history,
+                include_temporal_features=include_temporal_features
+            )
+            
+            return state_tensor
+            
+        except Exception as e:
+            logger.error(f"Failed to create enhanced state tensor: {e}")
+            # Re-raise the exception to expose state creation issues
+            raise RuntimeError(f"State tensor creation failed: {e}") from e
+    
+    def _get_policy_action(self, state: Any, key: jax.Array) -> Tuple[Any, float, float]:
+        """Get action from enhanced policy network.
+        
+        Args:
+            state: Current environment state
+            key: Random key for sampling
+            
+        Returns:
+            Tuple of (action, log_prob, value)
+        """
+        # Initialize GRPO training if not already done
+        if self.grpo_update_fn is None:
+            self._initialize_grpo_training()
+        
+        # Ensure policy function is initialized
+        if not hasattr(self, 'enhanced_policy_fn'):
+            raise ValueError("Enhanced policy network not initialized")
+        
+        # Create state tensor from current state
+        dummy_experience = type('Experience', (), {
+            'state': state,
+            'action': None,
+            'reward': None
+        })()
+        state_tensor = self._experience_to_state_tensor(dummy_experience)
+        
+        # Get policy outputs
+        policy_outputs = self.enhanced_policy_fn.apply(
+            self.policy_network.params, 
+            key, 
+            state_tensor
         )
+        
+        # Sample action from policy outputs
+        variable_logits = policy_outputs['variable_logits']
+        value_params = policy_outputs['value_params']
+        state_value = policy_outputs['state_value']
+        
+        # Sample which variable to intervene on
+        variable_probs = jax.nn.softmax(variable_logits)
+        variable_idx = jax.random.categorical(key, variable_logits)
+        
+        # Sample intervention value for selected variable
+        key, value_key = jax.random.split(key)
+        mean = value_params[variable_idx, 0]
+        log_std = value_params[variable_idx, 1]
+        std = jnp.exp(log_std)
+        intervention_value = jax.random.normal(value_key) * std + mean
+        
+        # Get variable name
+        if hasattr(self.environment, 'variables'):
+            variables = self.environment.variables
+            variable_name = variables[int(variable_idx)]
+        else:
+            variable_name = f'X{int(variable_idx)}'
+        
+        # Create action
+        action = pyr.pmap({
+            'values': {variable_name: float(intervention_value)}
+        })
+        
+        # Compute log probability
+        variable_log_prob = jnp.log(variable_probs[variable_idx] + 1e-8)
+        value_log_prob = -0.5 * ((intervention_value - mean) / (std + 1e-8)) ** 2 - 0.5 * jnp.log(2 * jnp.pi) - log_std
+        total_log_prob = variable_log_prob + value_log_prob
+        
+        return action, float(total_log_prob), float(state_value)
     
     def save_checkpoint(self, path: Optional[str] = None) -> str:
         """Save training checkpoint.
@@ -354,7 +558,7 @@ class GRPOTrainingManager:
             logger.info("TensorBoard logging enabled")
         
         if self.config.logging.enable_wandb:
-            logger.info("Weights & Biases logging enabled")
+            self._setup_wandb()
         
         # Initialize session metadata
         self.session_metadata = {
@@ -366,6 +570,40 @@ class GRPOTrainingManager:
         
         logger.info("Training setup completed")
     
+    def _setup_wandb(self) -> None:
+        """Initialize Weights & Biases logging with causal discovery specific configuration."""
+        if not WANDB_AVAILABLE:
+            logger.warning("wandb not available - install with: pip install wandb")
+            return
+        
+        # Prepare config for logging (convert to dict to avoid serialization issues)
+        wandb_config = {
+            "learning_rate": self.config.grpo_algorithm.learning_rate,
+            "batch_size": getattr(self.config.grpo_algorithm, 'batch_size', 64),
+            "training_mode": self.config.training_mode.value,
+            "optimization_level": self.config.optimization_level.value,
+            "environment_type": type(self.environment).__name__,
+            "reward_rubric_type": type(self.reward_rubric).__name__,
+        }
+        
+        # Add curriculum config if available
+        if hasattr(self.config, 'curriculum'):
+            wandb_config.update({
+                "curriculum_enabled": True,
+                "curriculum_stages": len(getattr(self.config.curriculum, 'stages', [])),
+            })
+        
+        # Initialize wandb run
+        wandb.init(
+            project=self.config.logging.project_name,
+            name=f"grpo_training_{int(time.time())}",
+            config=wandb_config,
+            tags=self.config.logging.tags + ["grpo", "causal_discovery"],
+            group="acbo_training"
+        )
+        
+        logger.info(f"WandB logging initialized for project: {self.config.logging.project_name}")
+
     def _execute_training_step(self) -> TrainingStep:
         """Execute a single training step."""
         step_start = time.time()
@@ -428,20 +666,22 @@ class GRPOTrainingManager:
         done = False
         
         while not done:
-            # Get action from policy (simplified for testing)
-            # In practice would use policy network: policy_input = get_policy_input_tensor_jax(state)
-            # For now, use simple mechanism features as input
-            policy_input = state.mechanism_features
-            action = pyr.pmap({'intervention_var': 'X', 'intervention_value': 1.0})
+            # Generate a new key for this step
+            key, action_key = jax.random.split(key)
+            
+            # Get action from enhanced policy network
+            try:
+                action, log_prob, value = self._get_policy_action(state, action_key)
+            except Exception as e:
+                logger.error(f"Policy action failed: {e}")
+                # Re-raise the exception to expose policy issues
+                raise RuntimeError(f"Policy action generation failed: {e}") from e
             
             # Execute action in environment
             next_state, env_info = self.environment.step(action)
             
             # Compute reward
             reward_result = self.reward_rubric.compute_reward(state, action, next_state)
-            
-            # Estimate value (simplified - in practice would use value network)
-            value = float(reward_result.total_reward * 0.9)  # Simple baseline
             
             # Create experience
             experience = Experience(
@@ -450,7 +690,7 @@ class GRPOTrainingManager:
                 next_state=next_state,
                 reward=reward_result,
                 done=env_info.episode_complete,
-                log_prob=-0.5,  # Simplified - would come from policy network
+                log_prob=log_prob,
                 value=value,
                 env_info=env_info,
                 timestamp=time.time()
@@ -465,7 +705,7 @@ class GRPOTrainingManager:
         return experiences
     
     def _log_training_progress(self, step_result: TrainingStep) -> None:
-        """Log training progress."""
+        """Log training progress to console and WandB."""
         logger.info(
             f"Step {step_result.step_number}: "
             f"Episode {step_result.episode_number}, "
@@ -473,16 +713,43 @@ class GRPOTrainingManager:
             f"Time: {step_result.training_time:.3f}s"
         )
         
+        # Prepare metrics for logging
+        metrics = {
+            "step": step_result.step_number,
+            "episode": step_result.episode_number,
+            "experiences_collected": step_result.experiences_collected,
+            "training_time": step_result.training_time,
+            "memory_usage_mb": step_result.memory_usage_mb,
+        }
+        
         if step_result.grpo_update_result:
+            grpo_result = step_result.grpo_update_result
             logger.info(
                 f"GRPO Update - "
-                f"Policy Loss: {float(step_result.grpo_update_result.policy_loss):.4f}, "
-                f"Value Loss: {float(step_result.grpo_update_result.value_loss):.4f}, "
-                f"Entropy: {float(step_result.grpo_update_result.entropy_loss):.4f}"
+                f"Policy Loss: {float(grpo_result.policy_loss):.4f}, "
+                f"Value Loss: {float(grpo_result.value_loss):.4f}, "
+                f"Entropy: {float(grpo_result.entropy_loss):.4f}"
             )
+            
+            # Add GRPO metrics
+            metrics.update({
+                "grpo/policy_loss": float(grpo_result.policy_loss),
+                "grpo/value_loss": float(grpo_result.value_loss),
+                "grpo/entropy_loss": float(grpo_result.entropy_loss),
+            })
         
         if step_result.diversity_metrics:
             logger.info(f"Diversity: {step_result.diversity_metrics}")
+            # Add diversity metrics with prefix
+            for key, value in step_result.diversity_metrics.items():
+                metrics[f"diversity/{key}"] = value
+        
+        # Log to WandB if enabled
+        if self.config.logging.enable_wandb and WANDB_AVAILABLE:
+            try:
+                wandb.log(metrics, step=step_result.step_number)
+            except Exception as e:
+                logger.warning(f"Failed to log to WandB: {e}")
     
     def _evaluate_and_checkpoint(self) -> None:
         """Evaluate current performance and save checkpoint if needed."""

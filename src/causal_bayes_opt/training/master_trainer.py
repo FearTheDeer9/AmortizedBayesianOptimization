@@ -29,7 +29,7 @@ import pyrsistent as pyr
 
 from .config import TrainingConfig, create_default_training_config
 from .curriculum import create_curriculum_manager
-from ..acquisition.verifiable_rewards import (
+from ..acquisition.rewards import (
     validate_reward_consistency,
     create_adaptive_reward_config
 )

@@ -14,6 +14,8 @@ results/
 .mypy_cache/
 .ruff_cache/
 .cache/
+.claude/
+checkpoints/
 
 # Added by Claude Task Master
 # Logs
@@ -61,5 +63,4 @@ wandb/
 outputs/
 .hypothesis/
 experiment_results/
-config/
 experiment_plots/

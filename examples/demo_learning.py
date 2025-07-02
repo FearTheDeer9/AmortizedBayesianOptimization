@@ -44,6 +44,72 @@ def _get_true_parents_for_scm(scm: pyr.PMap, target: str) -> List[str]:
     return sorted(list(true_parents_set))
 
 
+def _extract_target_coefficients_from_scm(scm: pyr.PMap, target_variable: str) -> Dict[str, float]:
+    """
+    Extract actual coefficients for target variable from SCM mechanism descriptors.
+    
+    This function deterministically extracts the true coefficients used in the SCM
+    construction, enabling the oracle to use perfect knowledge of the structure.
+    
+    Args:
+        scm: The structural causal model containing mechanism descriptors
+        target_variable: Name of the target variable
+        
+    Returns:
+        Dictionary mapping parent variable names to their coefficients
+        
+    Raises:
+        ValueError: If coefficients cannot be extracted from the SCM
+    """
+    from causal_bayes_opt.data_structures.scm import get_parents
+    
+    # Get true parents of target variable
+    parents = get_parents(scm, target_variable)
+    
+    # Try mechanism descriptors first (preferred method)
+    if 'mechanism_descriptors' in scm and target_variable in scm['mechanism_descriptors']:
+        descriptor = scm['mechanism_descriptors'][target_variable]
+        if hasattr(descriptor, 'coefficients'):
+            return dict(descriptor.coefficients)
+    
+    # Fallback: examine coefficients from SCM metadata
+    # Erdos-Renyi SCMs store coefficients in metadata during creation
+    if 'metadata' in scm:
+        metadata = scm['metadata']
+        
+        # Check if coefficients are stored directly in metadata
+        if 'coefficients' in metadata:
+            coefficients = {}
+            for parent in parents:
+                edge_key = (parent, target_variable)
+                if edge_key in metadata['coefficients']:
+                    coefficients[parent] = metadata['coefficients'][edge_key]
+            
+            if coefficients:
+                return coefficients
+    
+    # Additional fallback: try to extract from mechanisms directly
+    # This is a last resort and involves examining the mechanism function
+    mechanisms = scm.get('mechanisms', {})
+    if target_variable in mechanisms:
+        mechanism = mechanisms[target_variable]
+        
+        # For mechanisms created with _return_descriptor=True,
+        # the descriptor might be stored alongside the function
+        if hasattr(mechanism, '_descriptor'):
+            descriptor = mechanism._descriptor
+            if hasattr(descriptor, 'coefficients'):
+                return dict(descriptor.coefficients)
+    
+    # If all else fails, we cannot extract coefficients
+    raise ValueError(
+        f"Cannot extract coefficients for target variable '{target_variable}' from SCM. "
+        f"SCM may not have mechanism descriptors or coefficient metadata stored. "
+        f"Available SCM keys: {list(scm.keys())}, "
+        f"Metadata keys: {list(scm.get('metadata', {}).keys()) if 'metadata' in scm else 'no metadata'}"
+    )
+
+
 def compute_likelihood_per_parent_set_jax(parent_sets: List, new_samples: List, 
                                          target_variable: str, variable_order: List[str],
                                          scoring_method: str = "bic") -> jnp.ndarray:
@@ -345,11 +411,10 @@ def create_fixed_intervention_policy(variables: List[str], target_variable: str,
 def create_oracle_intervention_policy(variables: List[str], target_variable: str, 
                                      scm: pyr.PMap, intervention_value_range: Tuple[float, float] = (-2.0, 2.0),
                                      intervention_strength: float = 2.0) -> Callable[..., pyr.PMap]:
-    """Create oracle intervention policy that uses true causal structure knowledge.
+    """Create oracle intervention policy that always chooses the absolute best intervention.
     
-    This policy has perfect knowledge of the true causal structure and prefers
-    intervening on true parents of the target variable, providing an upper bound
-    for intervention selection performance.
+    This policy has perfect knowledge of the true causal structure AND target optimization.
+    It deterministically selects the intervention that maximizes the target variable.
     
     Args:
         variables: List of all variables in the SCM
@@ -359,63 +424,73 @@ def create_oracle_intervention_policy(variables: List[str], target_variable: str
         intervention_strength: Strength of interventions (default value)
         
     Returns:
-        Intervention policy function that uses oracle knowledge for selection
+        Intervention policy function that uses oracle knowledge for optimal selection
     """
     # Get true parents of target variable
     true_parents = set(get_parents(scm, target_variable))
     candidate_vars = [v for v in variables if v != target_variable]
-    parent_candidates = [v for v in candidate_vars if v in true_parents]
+    
+    # Extract true coefficients from SCM deterministically
+    try:
+        target_coefficients = _extract_target_coefficients_from_scm(scm, target_variable)
+    except ValueError as e:
+        # Fallback: use positive coefficients if extraction fails
+        logger.warning(f"Failed to extract coefficients from SCM: {e}")
+        logger.warning("Using fallback positive coefficients for oracle policy")
+        target_coefficients = {parent: 1.0 for parent in true_parents}
     
     min_val, max_val = intervention_value_range
     
     def select_oracle_intervention(_state: object = None, key: Optional[jax.Array] = None) -> pyr.PMap:
-        """Select intervention using oracle knowledge of true causal structure."""
+        """Select the absolute best intervention using perfect oracle knowledge."""
         
-        # Use provided key or generate new one
-        if key is None:
-            key = random.PRNGKey(42)  # Default key
+        # Calculate expected improvement for each possible intervention
+        best_improvement = float('-inf')
+        best_var = None
+        best_value = None
         
-        # Prefer intervening on true parents of the target
-        if parent_candidates:
-            # Select from true parents with 80% probability
-            var_key, val_key, choice_key = random.split(key, 3)
-            use_parent = random.uniform(choice_key) < 0.8
-            
-            if use_parent:
-                # Select from true parents
-                var_idx = random.randint(var_key, (), 0, len(parent_candidates))
-                chosen_var = parent_candidates[var_idx]
+        # Only consider true parents (oracle knows they are the only ones that matter)
+        for var in candidate_vars:
+            if var in true_parents and var in target_coefficients:
+                coeff = target_coefficients[var]
                 
-                # Use stronger intervention values for true parents
-                intervention_value = float(random.uniform(val_key, (), 
-                                                        minval=min_val, maxval=max_val))
-                # Add some bias toward the default strength
-                if random.uniform(val_key) < 0.3:
-                    intervention_value = intervention_strength if random.uniform(val_key) < 0.5 else -intervention_strength
-            else:
-                # Occasionally explore non-parents (20% of time)
-                non_parent_candidates = [v for v in candidate_vars if v not in true_parents]
-                if non_parent_candidates:
-                    var_idx = random.randint(var_key, (), 0, len(non_parent_candidates))
-                    chosen_var = non_parent_candidates[var_idx]
+                # Choose intervention value that maximizes target
+                if coeff > 0:
+                    # Positive coefficient: use maximum positive value
+                    optimal_value = max_val
                 else:
-                    # Fallback to any candidate
-                    var_idx = random.randint(var_key, (), 0, len(candidate_vars))
-                    chosen_var = candidate_vars[var_idx]
+                    # Negative coefficient: use minimum (most negative) value  
+                    optimal_value = min_val
                 
-                # Use smaller intervention values for non-parents
-                intervention_value = float(random.uniform(val_key, (), 
-                                                        minval=min_val * 0.5, maxval=max_val * 0.5))
-        else:
-            # No true parents available, fall back to random selection
-            var_key, val_key = random.split(key)
-            var_idx = random.randint(var_key, (), 0, len(candidate_vars))
-            chosen_var = candidate_vars[var_idx]
-            intervention_value = float(random.uniform(val_key, (), minval=min_val, maxval=max_val))
+                # Calculate expected improvement: coefficient * intervention_value
+                expected_improvement = coeff * optimal_value
+                
+                if expected_improvement > best_improvement:
+                    best_improvement = expected_improvement
+                    best_var = var
+                    best_value = optimal_value
         
-        return create_perfect_intervention(
-            targets=frozenset([chosen_var]),
-            values={chosen_var: intervention_value}
+        # Fallback if no parents found or no coefficients known
+        if best_var is None:
+            # Choose the first parent variable with max positive intervention
+            if true_parents:
+                best_var = next(iter(true_parents))
+                best_value = max_val  # Assume positive coefficient
+            else:
+                # No parents, choose first candidate variable
+                best_var = candidate_vars[0] if candidate_vars else variables[0]
+                best_value = max_val
+        
+        # Create intervention
+        intervention = create_perfect_intervention(
+            targets=frozenset([best_var]),
+            values={best_var: best_value}
         )
+        
+        # Optional debug logging (can be enabled for debugging)
+        # print(f"ORACLE: Optimal intervention on {best_var} = {best_value:.2f} "
+        #       f"(coeff: {target_coefficients.get(best_var, 'unknown')}, improvement: {best_improvement:.3f})")
+        
+        return intervention
     
     return select_oracle_intervention

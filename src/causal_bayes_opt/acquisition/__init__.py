@@ -59,19 +59,9 @@ from .rewards import (
     analyze_reward_trends,
     validate_reward_config,
     create_default_reward_config,
-)
-
-from .verifiable_rewards import (
-    SimpleRewardComponents,
-    target_improvement_reward,
-    true_parent_intervention_reward,
-    exploration_diversity_reward,
-    compute_simple_verifiable_reward,
-    validate_reward_consistency,
-    create_reward_config,
     compute_adaptive_thresholds,
     create_adaptive_reward_config,
-    compute_verifiable_reward_simple,
+    validate_reward_consistency,
 )
 
 from .grpo import (
@@ -149,24 +139,15 @@ __all__ = [
     'analyze_policy_output',
     'validate_policy_output',
     
-    # Multi-component verifiable rewards (original system)
+    # Multi-component verifiable rewards
     'RewardComponents',
     'compute_verifiable_reward',
     'analyze_reward_trends',
     'validate_reward_config',
     'create_default_reward_config',
-    
-    # Simple ground-truth verifiable rewards (new binary system)
-    'SimpleRewardComponents',
-    'target_improvement_reward',
-    'true_parent_intervention_reward',
-    'exploration_diversity_reward',
-    'compute_simple_verifiable_reward',
-    'validate_reward_consistency',
-    'create_reward_config',
     'compute_adaptive_thresholds',
     'create_adaptive_reward_config',
-    'compute_verifiable_reward_simple',
+    'validate_reward_consistency',
     
     # GRPO algorithm for RL training (enhanced with open-r1 features)
     'GRPOConfig',

@@ -27,7 +27,7 @@ try:
     from causal_bayes_opt.integration.parent_scale_bridge import (
         create_parent_scale_bridge, calculate_data_requirements, validate_conversion, run_parent_discovery
     )
-    from causal_bayes_opt.training.expert_demonstration_collection import (
+    from causal_bayes_opt.training.expert_collection import (
         ExpertDemonstrationCollector
     )
     INTEGRATION_AVAILABLE = True
@@ -263,7 +263,7 @@ def test_full_parent_scale_algorithm():
     
     try:
         from causal_bayes_opt.integration.parent_scale_bridge import run_full_parent_scale_algorithm
-        from causal_bayes_opt.training.expert_demonstration_collection import ExpertDemonstrationCollector
+        from causal_bayes_opt.training.expert_collection import ExpertDemonstrationCollector
         
         collector = ExpertDemonstrationCollector()
         print("✓ Created expert demonstration collector")

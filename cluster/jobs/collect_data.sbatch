@@ -1,7 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=acbo_collect_data
 #SBATCH --partition=training          # Use training partition for taught students
-#SBATCH --qos=training               # Quality of service for training
 #SBATCH --gres=gpu:1                 # Request 1 GPU
 #SBATCH --cpus-per-task=8            # 8 CPU cores for parallel collection
 #SBATCH --mem=32G                    # 32GB RAM for data processing
@@ -24,6 +23,7 @@ DIFFICULTY_LEVELS=${DIFFICULTY_LEVELS:-"all"}  # difficulty_1 difficulty_2 ... o
 OUTPUT_DIR=${OUTPUT_DIR:-"/vol/bitbucket/$USER/causal_bayes_opt/data/raw"}
 WORKERS=${WORKERS:-8}
 BATCH_SIZE=${BATCH_SIZE:-100}
+CHECKPOINT_INTERVAL=${CHECKPOINT_INTERVAL:-500}  # Checkpoint every N demonstrations
 MIN_ACCURACY=${MIN_ACCURACY:-0.7}
 
 # Setup environment
@@ -44,15 +44,25 @@ echo "  Difficulty levels: $DIFFICULTY_LEVELS"
 echo "  Output directory: $OUTPUT_DIR"
 echo "  Processing: Serial mode (avoiding pickle issues)"
 echo "  Batch size: $BATCH_SIZE"
+echo "  Checkpoint interval: $CHECKPOINT_INTERVAL"
 echo "  Min accuracy: $MIN_ACCURACY"
 echo ""
 
-# Build command
-CMD="python scripts/collect_sft_dataset.py"
+# Determine if we should use Poetry
+if [ -f "${PROJECT_DIR}/pyproject.toml" ] && command -v poetry &> /dev/null; then
+    echo "Using Poetry for execution"
+    CMD="poetry run python scripts/collect_sft_dataset.py"
+else
+    echo "Using direct Python execution"
+    CMD="python scripts/collect_sft_dataset.py"
+fi
+
+# Build command arguments
 CMD="$CMD --size $DATASET_SIZE"
 CMD="$CMD --output-dir $OUTPUT_DIR"
 CMD="$CMD --serial"  # Use serial mode to avoid pickle issues
 CMD="$CMD --batch-size $BATCH_SIZE"
+CMD="$CMD --checkpoint-interval $CHECKPOINT_INTERVAL"
 CMD="$CMD --min-accuracy $MIN_ACCURACY"
 
 # Add difficulty levels if not "all"
@@ -81,7 +91,12 @@ if [ $COLLECTION_EXIT_CODE -eq 0 ]; then
     echo "Data collection completed successfully!"
     echo "Running validation..."
     
-    python scripts/validate_dataset.py "$OUTPUT_DIR" --detailed --export-report --visualizations
+    # Use Poetry for validation if available
+    if [ -f "${PROJECT_DIR}/pyproject.toml" ] && command -v poetry &> /dev/null; then
+        poetry run python scripts/validate_dataset.py "$OUTPUT_DIR" --detailed --export-report --visualizations
+    else
+        python scripts/validate_dataset.py "$OUTPUT_DIR" --detailed --export-report --visualizations
+    fi
     VALIDATION_EXIT_CODE=$?
     
     if [ $VALIDATION_EXIT_CODE -eq 0 ]; then

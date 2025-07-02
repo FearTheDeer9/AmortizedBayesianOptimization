@@ -102,6 +102,42 @@ def compute_f1_score_from_marginals(
     return f1_score
 
 
+def compute_shd_from_marginals(
+    marginal_probs: Dict[str, float],
+    true_parents: Union[List[str], FrozenSet[str]],
+    threshold: float = 0.5
+) -> int:
+    """
+    Compute Structural Hamming Distance (SHD) from marginal probabilities.
+    
+    SHD counts the number of edge differences between predicted and true graphs.
+    For parent set prediction, this is the number of misclassified parent relationships.
+    
+    Args:
+        marginal_probs: Dictionary mapping variables to P(is_parent | data)
+        true_parents: Set of variables that are true parents
+        threshold: Threshold for considering a variable as predicted parent
+        
+    Returns:
+        Structural Hamming Distance (number of misclassified edges)
+    """
+    if not marginal_probs:
+        return len(true_parents) if true_parents else 0
+        
+    true_parents_set = set(true_parents) if isinstance(true_parents, list) else set(true_parents)
+    
+    # Predict parents based on threshold
+    predicted_parents = {var for var, prob in marginal_probs.items() if prob > threshold}
+    
+    # Count misclassifications
+    false_positives = len(predicted_parents - true_parents_set)  # Predicted but not true
+    false_negatives = len(true_parents_set - predicted_parents)  # True but not predicted
+    
+    # SHD is total number of edge errors
+    shd = false_positives + false_negatives
+    return shd
+
+
 def extract_state_metrics(
     state: AcquisitionState, 
     true_parents: List[str],
@@ -127,6 +163,7 @@ def extract_state_metrics(
         'buffer_size': state.buffer_statistics.total_samples,
         'true_parent_likelihood': compute_true_parent_likelihood(marginal_probs, true_parents),
         'f1_score': compute_f1_score_from_marginals(marginal_probs, true_parents, f1_threshold),
+        'shd': compute_shd_from_marginals(marginal_probs, true_parents, f1_threshold),
         'marginal_probs': marginal_probs
     }
 
@@ -154,6 +191,7 @@ def compute_trajectory_metrics(
             'steps': [],
             'true_parent_likelihood': [],
             'f1_scores': [],
+            'shd_values': [],
             'target_values': [],
             'uncertainty_bits': [],
             'intervention_counts': [],
@@ -170,6 +208,7 @@ def compute_trajectory_metrics(
     # Extract time series
     true_parent_likelihoods = [m['true_parent_likelihood'] for m in state_metrics]
     f1_scores = [m['f1_score'] for m in state_metrics]
+    shd_values = [m['shd'] for m in state_metrics]
     target_values = [m['best_value'] for m in state_metrics]
     uncertainty_values = [m['uncertainty_bits'] for m in state_metrics]
     
@@ -185,6 +224,7 @@ def compute_trajectory_metrics(
         'steps': steps,
         'true_parent_likelihood': true_parent_likelihoods,
         'f1_scores': f1_scores,
+        'shd_values': shd_values,
         'target_values': target_values,
         'uncertainty_bits': uncertainty_values,
         'intervention_counts': intervention_counts,
@@ -278,12 +318,14 @@ def extract_learning_curves(
         # Initialize aggregated arrays
         all_likelihoods = []
         all_f1_scores = []
+        all_shd_values = []
         all_target_values = []
         
         for result in results_list:
             # Pad sequences to max_length
             likelihood = result.get('true_parent_likelihood', [])
             f1_scores = result.get('f1_scores', [])
+            shd_values = result.get('shd_values', [])
             target_values = result.get('target_values', [])
             
             # Extend with last value if shorter (forward fill)
@@ -291,17 +333,21 @@ def extract_learning_curves(
                 likelihood = likelihood + [likelihood[-1]] * (max_length - len(likelihood))
             if len(f1_scores) < max_length and len(f1_scores) > 0:
                 f1_scores = f1_scores + [f1_scores[-1]] * (max_length - len(f1_scores))
+            if len(shd_values) < max_length and len(shd_values) > 0:
+                shd_values = shd_values + [shd_values[-1]] * (max_length - len(shd_values))
             if len(target_values) < max_length and len(target_values) > 0:
                 target_values = target_values + [target_values[-1]] * (max_length - len(target_values))
             
             all_likelihoods.append(likelihood[:max_length])
             all_f1_scores.append(f1_scores[:max_length])
+            all_shd_values.append(shd_values[:max_length])
             all_target_values.append(target_values[:max_length])
         
         # Compute statistics across runs
         if all_likelihoods:
             likelihood_array = onp.array(all_likelihoods)
             f1_array = onp.array(all_f1_scores) if all_f1_scores else likelihood_array * 0
+            shd_array = onp.array(all_shd_values) if all_shd_values else likelihood_array * 0
             target_array = onp.array(all_target_values) if all_target_values else likelihood_array * 0
             
             learning_curves[method_name] = {
@@ -310,6 +356,8 @@ def extract_learning_curves(
                 'likelihood_std': onp.std(likelihood_array, axis=0).tolist(),
                 'f1_mean': onp.mean(f1_array, axis=0).tolist(),
                 'f1_std': onp.std(f1_array, axis=0).tolist(),
+                'shd_mean': onp.mean(shd_array, axis=0).tolist(),
+                'shd_std': onp.std(shd_array, axis=0).tolist(),
                 'target_mean': onp.mean(target_array, axis=0).tolist(),
                 'target_std': onp.std(target_array, axis=0).tolist(),
                 'n_runs': len(all_likelihoods)
@@ -705,22 +753,27 @@ def extract_metrics_from_experiment_result(
             # Compute derived metrics from marginals
             true_parent_likelihoods = []
             f1_scores = []
+            shd_values = []
             
             for marginals in marginals_list:
                 if isinstance(marginals, dict) and marginals:
                     likelihood = compute_true_parent_likelihood(marginals, true_parents)
                     f1_score = compute_f1_score_from_marginals(marginals, true_parents, f1_threshold)
+                    shd = compute_shd_from_marginals(marginals, true_parents, f1_threshold)
                     true_parent_likelihoods.append(likelihood)
                     f1_scores.append(f1_score)
+                    shd_values.append(shd)
                 else:
                     # Handle empty/invalid marginals
                     true_parent_likelihoods.append(0.0)
                     f1_scores.append(0.0)
+                    shd_values.append(len(true_parents))  # Worst case SHD
             
             return {
                 'steps': steps,
                 'true_parent_likelihood': true_parent_likelihoods,
                 'f1_scores': f1_scores,
+                'shd_values': shd_values,
                 'target_values': target_values,
                 'uncertainty_bits': uncertainty_values,
                 'intervention_counts': steps  # Use step number as proxy
@@ -735,18 +788,22 @@ def extract_metrics_from_experiment_result(
             # Compute derived metrics
             true_parent_likelihoods = []
             f1_scores = []
+            shd_values = []
             
             for marginals in marginal_progress:
                 if isinstance(marginals, dict):
                     likelihood = compute_true_parent_likelihood(marginals, true_parents)
                     f1_score = compute_f1_score_from_marginals(marginals, true_parents, f1_threshold)
+                    shd = compute_shd_from_marginals(marginals, true_parents, f1_threshold)
                     true_parent_likelihoods.append(likelihood)
                     f1_scores.append(f1_score)
+                    shd_values.append(shd)
             
             return {
                 'steps': list(range(len(target_progress))),
                 'true_parent_likelihood': true_parent_likelihoods,
                 'f1_scores': f1_scores,
+                'shd_values': shd_values,
                 'target_values': target_progress,
                 'uncertainty_bits': uncertainty_progress,
                 'intervention_counts': list(range(len(target_progress)))  # Simplified
@@ -757,6 +814,7 @@ def extract_metrics_from_experiment_result(
         'steps': [0],
         'true_parent_likelihood': [0.0],
         'f1_scores': [0.0],
+        'shd_values': [len(true_parents)],  # Worst case SHD
         'target_values': [experiment_result.get('target_improvement', 0.0)],
         'uncertainty_bits': [0.0],
         'intervention_counts': [0]

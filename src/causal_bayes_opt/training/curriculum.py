@@ -220,10 +220,61 @@ class CurriculumManager:
         Returns:
             Adaptive reward configuration
         """
-        from ..acquisition.verifiable_rewards import create_adaptive_reward_config
+        from ..acquisition.rewards import create_adaptive_reward_config
         
         scm_config = self.get_scm_config_for_difficulty(difficulty_level)
         return create_adaptive_reward_config(scm_config, difficulty_level)
+    
+    def create_scm_for_difficulty(self, difficulty_level: str) -> pyr.PMap:
+        """
+        Create SCM for given difficulty level.
+        
+        Args:
+            difficulty_level: Difficulty level as string (e.g., "difficulty_1")
+            
+        Returns:
+            SCM as pyrsistent map
+        """
+        # Parse difficulty level from string
+        if difficulty_level.startswith("difficulty_"):
+            level_num = int(difficulty_level.split("_")[1])
+        else:
+            level_num = int(difficulty_level)
+        
+        # Get SCM configuration
+        scm_config = self.get_scm_config_for_difficulty(level_num)
+        
+        # Convert config to actual SCM
+        from ..data_structures.scm import create_scm
+        
+        return create_scm(
+            variables=scm_config['variables'],
+            edges=scm_config['edges'],
+            mechanisms=scm_config['mechanisms'],
+            target=scm_config['target']
+        )
+    
+    def get_next_difficulty(self, current_difficulty: str) -> Optional[str]:
+        """
+        Get next difficulty level in curriculum.
+        
+        Args:
+            current_difficulty: Current difficulty level string
+            
+        Returns:
+            Next difficulty level string or None if at end
+        """
+        if current_difficulty.startswith("difficulty_"):
+            level_num = int(current_difficulty.split("_")[1])
+        else:
+            level_num = int(current_difficulty)
+        
+        next_level = level_num + 1
+        
+        # Check if next level exists in curriculum
+        if next_level <= len(self.config.stages):
+            return f"difficulty_{next_level}"
+        return None
     
     def _sample_from_range(
         self, 

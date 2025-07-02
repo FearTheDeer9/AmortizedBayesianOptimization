@@ -55,8 +55,9 @@ sys.path.insert(0, str(project_root))
 
 # ACBO method identifiers
 class ACBOMethodType:
-    LEARNING_SURROGATE = "acbo_learning_surrogate"
-    ORACLE_LEARNING_SURROGATE = "acbo_oracle_learning_surrogate"
+    RANDOM_UNTRAINED = "random_untrained"
+    RANDOM_LEARNING = "random_learning"
+    ORACLE_LEARNING = "oracle_learning"
 from causal_bayes_opt.experiments.benchmark_graphs import create_erdos_renyi_scm
 from causal_bayes_opt.analysis.trajectory_metrics import (
     compute_trajectory_metrics, analyze_convergence_trajectory,
@@ -94,6 +95,33 @@ def run_acbo_comparison_experiment(cfg: DictConfig) -> None:
             group="active_vs_surrogate",
             name=f"acbo_comparison_{cfg.experiment.problem.difficulty}_{int(time.time())}"
         )
+        
+        # Define custom metrics for proper time-series visualization with intervention steps
+        if wandb_run:
+            # Define metrics that use intervention_step as x-axis instead of the global step
+            methods = ["Random Policy + Untrained Model", "Random Policy + Learning Model", "Oracle Policy + Learning Model"]
+            scm_names = ["fork_3var", "chain_3var", "collider_3var"]
+            scm_types = ["fork", "chain", "collider"]
+            
+            for method in methods:
+                wandb_run.define_metric(f"{method}/target_value", step_metric="intervention_step")
+                wandb_run.define_metric(f"{method}/true_parent_likelihood", step_metric="intervention_step") 
+                wandb_run.define_metric(f"{method}/f1_score", step_metric="intervention_step")
+                wandb_run.define_metric(f"{method}/shd", step_metric="intervention_step")
+                wandb_run.define_metric(f"{method}/uncertainty", step_metric="intervention_step")
+                
+                # SCM-specific metrics
+                for scm_name in scm_names:
+                    wandb_run.define_metric(f"{method}/target_value_{scm_name}", step_metric="intervention_step")
+                    wandb_run.define_metric(f"{method}/f1_score_{scm_name}", step_metric="intervention_step")
+                    wandb_run.define_metric(f"{method}/shd_{scm_name}", step_metric="intervention_step")
+            
+            # SCM type aggregated metrics  
+            for scm_type in scm_types:
+                wandb_run.define_metric(f"{scm_type}/target_value", step_metric="intervention_step")
+                wandb_run.define_metric(f"{scm_type}/f1_score", step_metric="intervention_step")
+                wandb_run.define_metric(f"{scm_type}/shd", step_metric="intervention_step")
+        
         logger.info(f"WandB initialized: {wandb.run.url}")
     
     # Run experiments
@@ -132,14 +160,19 @@ def run_comprehensive_comparison(cfg: DictConfig, wandb_run: Optional[Any]) -> D
     logger.info(f"Running {n_runs} experiments with {n_variables} variables, {intervention_budget} interventions")
     
     # Generate test SCMs
-    scms = generate_test_scms(cfg)
-    logger.info(f"Generated {len(scms)} test SCMs")
+    scm_data = generate_test_scms(cfg)
+    logger.info(f"Generated {len(scm_data)} test SCMs")
     
-    # Define methods to compare (simplified to 3 key methods)
+    # Log SCM metadata to WandB if enabled
+    if wandb_run:
+        for scm_name, scm in scm_data:
+            log_scm_metadata_to_wandb(scm_name, scm, wandb_run)
+    
+    # Define methods to compare (3 clean methods without cheats)
     methods_to_compare = {
-        "Random Policy": BaselineType.RANDOM_POLICY,
-        "ACBO Learning Surrogate": ACBOMethodType.LEARNING_SURROGATE,
-        "ACBO Oracle + Learning Surrogate": ACBOMethodType.ORACLE_LEARNING_SURROGATE,
+        "Random Policy + Untrained Model": ACBOMethodType.RANDOM_UNTRAINED,
+        "Random Policy + Learning Model": ACBOMethodType.RANDOM_LEARNING,
+        "Oracle Policy + Learning Model": ACBOMethodType.ORACLE_LEARNING,
     }
     
     # Run experiments for each method
@@ -148,17 +181,31 @@ def run_comprehensive_comparison(cfg: DictConfig, wandb_run: Optional[Any]) -> D
     global_step_counter = 0  # Track global step counter for WandB
     
     for method_idx, (method_name, method_type) in enumerate(methods_to_compare.items()):
-        logger.info(f"\\n=== Running {method_name} ===")
+        logger.info(f"\\n=== Running {method_name} (Type: {method_type}) ===")
         
         method_results = []
         method_trajectories = []
         
         for run_idx in range(n_runs):
-            for scm_idx, scm in enumerate(scms):
-                logger.info(f"  Run {run_idx + 1}/{n_runs}, SCM {scm_idx + 1}/{len(scms)}")
+            for scm_idx, (scm_name, scm) in enumerate(scm_data):
+                logger.info(f"  Run {run_idx + 1}/{n_runs}, SCM '{scm_name}' ({scm_idx + 1}/{len(scm_data)})")
                 
                 # Run single experiment
-                result = run_single_experiment(method_type, scm, cfg, run_idx, scm_idx)
+                result = run_acbo_method(method_type, scm, cfg, run_idx, scm_idx)
+                
+                # Add SCM name to result for tracking
+                if result:
+                    result['scm_name'] = scm_name
+                    result['scm_type'] = scm.get('metadata', {}).get('structure_type', 'unknown')
+                
+                # Debug logging for method results
+                if result:
+                    logger.info(f"    {method_name} - Run {run_idx+1} SCM {scm_idx+1}: SUCCESS")
+                    logger.debug(f"    Result keys: {list(result.keys())}")
+                    logger.debug(f"    Method name in result: {result.get('method_name', 'MISSING')}")
+                else:
+                    logger.warning(f"    {method_name} - Run {run_idx+1} SCM {scm_idx+1}: FAILED - Empty result")
+                
                 method_results.append(result)
                 
                 # Extract trajectory metrics
@@ -168,27 +215,59 @@ def run_comprehensive_comparison(cfg: DictConfig, wandb_run: Optional[Any]) -> D
                     
                     # Log per-run metrics to WandB
                     if wandb_run:
-                        step_offset = method_idx * n_runs * len(scms) * intervention_budget * 2
+                        # Remove step offset - each method should show steps 0-15
                         global_step_counter = log_run_metrics_to_wandb(
                             result, trajectory_metrics, method_name, 
-                            run_idx, scm_idx, wandb_run, step_offset, global_step_counter
+                            run_idx, scm_idx, wandb_run, 0, global_step_counter,
+                            scm_name=scm_name, scm_type=result.get('scm_type', 'unknown')
                         )
         
         # Aggregate results for this method
-        all_results[method_name] = method_results
+        valid_results = [r for r in method_results if r]
+        all_results[method_name] = valid_results
+        
+        # Debug logging for method completion
+        logger.info(f"=== {method_name} COMPLETED ===")
+        logger.info(f"    Total runs attempted: {len(method_results)}")
+        logger.info(f"    Valid results: {len(valid_results)}")
+        logger.info(f"    Success rate: {len(valid_results)/len(method_results)*100:.1f}%")
         
         if method_trajectories:
             # Compute learning curves
             learning_curves = extract_learning_curves({method_name: method_trajectories})
-            method_metrics[method_name] = learning_curves.get(method_name, {})
+            extracted_metrics = learning_curves.get(method_name, {})
+            method_metrics[method_name] = extracted_metrics
+            logger.info(f"    Extracted metrics for {method_name}: {list(extracted_metrics.keys())}")
             
             # Log method summary to WandB
             if wandb_run:
                 log_method_summary_to_wandb(method_name, method_results, learning_curves, wandb_run, global_step_counter)
                 global_step_counter += 1  # Increment for next method
+        else:
+            logger.warning(f"    No trajectories found for {method_name}")
+            # Still log summary even without trajectories
+            if wandb_run:
+                log_method_summary_to_wandb(method_name, method_results, {}, wandb_run, global_step_counter)
+                global_step_counter += 1
     
     # Statistical comparison
     comparison_stats = compute_statistical_comparison(all_results)
+    
+    # Debug logging before plotting
+    logger.info(f"\\n=== FINAL RESULTS SUMMARY ===")
+    expected_methods = list(methods_to_compare.keys())
+    for method_name, results in all_results.items():
+        logger.info(f"{method_name}: {len(results)} valid results")
+    logger.info(f"Method metrics keys: {list(method_metrics.keys())}")
+    
+    # Validation check
+    missing_from_results = set(expected_methods) - set(all_results.keys())
+    missing_from_metrics = set(expected_methods) - set(method_metrics.keys())
+    
+    if missing_from_results:
+        logger.error(f"Missing methods from all_results: {missing_from_results}")
+    if missing_from_metrics:
+        logger.error(f"Missing methods from method_metrics: {missing_from_metrics}")
     
     # Generate visualizations
     plots = generate_comparison_plots(method_metrics, all_results, cfg)
@@ -199,93 +278,77 @@ def run_comprehensive_comparison(cfg: DictConfig, wandb_run: Optional[Any]) -> D
         'comparison_stats': comparison_stats,
         'plots': plots,
         'experiment_config': OmegaConf.to_container(cfg),
-        'scms_tested': len(scms),
+        'scms_tested': len(scm_data),
         'runs_per_method': n_runs
     }
 
-def generate_test_scms(cfg: DictConfig) -> List[pyr.PMap]:
-    """Generate test SCMs based on configuration."""
-    
-    n_variables = cfg.experiment.environment.num_variables
-    edge_density = cfg.experiment.problem.edge_density
-    n_scms = cfg.get('n_scms', 2)  # Number of different SCMs to test
-    
-    scms = []
-    for i in range(n_scms):
-        scm = create_erdos_renyi_scm(
-            n_nodes=n_variables,
-            edge_prob=edge_density,
-            noise_scale=cfg.experiment.environment.noise_scale,
-            seed=cfg.seed + i
-        )
-        scms.append(scm)
-    
-    return scms
-
-def run_single_experiment(
-    method_type, 
-    scm: pyr.PMap, 
-    cfg: DictConfig,
-    run_idx: int,
-    scm_idx: int
-) -> Dict[str, Any]:
-    """Run a single experiment with specified method and SCM."""
-    
-    # Handle ACBO methods
-    if isinstance(method_type, str):
-        # This is an ACBO method
-        return run_acbo_method(method_type, scm, cfg, run_idx, scm_idx)
-    
-    # Handle baseline methods
-    baseline_config = BaselineConfig(
-        baseline_type=method_type,
-        intervention_budget=cfg.experiment.target.max_interventions,
-        intervention_strength=2.0,  # You can make this configurable
-        exploration_rate=0.1,
-        random_seed=cfg.seed + run_idx * 100 + scm_idx
-    )
+def log_scm_metadata_to_wandb(scm_name: str, scm: pyr.PMap, wandb_run: Any) -> None:
+    """Log SCM characteristics to WandB for analysis."""
+    from causal_bayes_opt.experiments.benchmark_scms import get_scm_characteristics
     
     try:
-        # Run baseline experiment
-        result = compare_baselines(scm, [method_type], baseline_config)
-        baseline_result = result.get(method_type.value)
+        characteristics = get_scm_characteristics(scm)
         
-        if not baseline_result:
-            return {}
-        
-        # Convert to standard format with detailed results
-        detailed_results = {
-            'learning_history': []
+        scm_info = {
+            f"scm/{scm_name}/num_variables": characteristics['num_variables'],
+            f"scm/{scm_name}/num_edges": characteristics['num_edges'],
+            f"scm/{scm_name}/edge_density": characteristics['edge_density'],
+            f"scm/{scm_name}/target_variable": characteristics['target_variable'],
+            f"scm/{scm_name}/num_target_parents": characteristics['num_target_parents'],
+            f"scm/{scm_name}/structure_type": characteristics['structure_type'],
+            f"scm/{scm_name}/complexity": characteristics['complexity'],
+            f"scm/{scm_name}/description": characteristics['description'],
         }
         
-        # Extract learning history from intervention history
-        for step_data in baseline_result.intervention_history:
-            step_info = {
-                'step': step_data['step'],
-                'outcome_value': step_data['outcome_value'],
-                'target_improvement': step_data['target_improvement'],
-                'uncertainty': 0.0,  # Baselines don't track uncertainty
-                'marginals': {}  # Baselines don't predict parent probabilities
-            }
-            detailed_results['learning_history'].append(step_info)
+        # Log coefficients as a formatted string for readability
+        if characteristics['coefficients']:
+            coeff_str = ', '.join([f"{k}:{v:.2f}" for k, v in characteristics['coefficients'].items()])
+            scm_info[f"scm/{scm_name}/coefficients"] = coeff_str
         
-        return {
-            'method_name': method_type.value,
-            'final_target_value': baseline_result.final_target_value,
-            'target_improvement': baseline_result.target_improvement,
-            'structure_accuracy': baseline_result.structure_accuracy,
-            'sample_efficiency': baseline_result.sample_efficiency,
-            'intervention_count': baseline_result.intervention_count,
-            'convergence_steps': baseline_result.convergence_steps,
-            'detailed_results': detailed_results,
-            'metadata': baseline_result.metadata,
-            'run_idx': run_idx,
-            'scm_idx': scm_idx
-        }
+        wandb_run.log(scm_info)
+        logger.info(f"Logged metadata for SCM '{scm_name}' to WandB")
         
     except Exception as e:
-        logger.error(f"Failed to run {method_type.value}: {e}")
-        return {}
+        logger.warning(f"Failed to log SCM metadata for '{scm_name}': {e}")
+
+
+def generate_test_scms(cfg: DictConfig) -> List[Tuple[str, pyr.PMap]]:
+    """Generate test SCMs based on configuration.
+    
+    Returns:
+        List of (scm_name, scm) tuples for tracking and logging
+    """
+    
+    # Check if predefined SCM suite is enabled
+    if cfg.experiment.get('scm_suite', {}).get('enabled', False):
+        # Use predefined SCM suite
+        from causal_bayes_opt.experiments.benchmark_scms import create_scm_suite
+        
+        scm_suite = create_scm_suite()
+        selected_scms = cfg.experiment.scm_suite.get('scm_names', list(scm_suite.keys())[:3])
+        
+        logger.info(f"Using predefined SCM suite with SCMs: {selected_scms}")
+        return [(name, scm_suite[name]) for name in selected_scms if name in scm_suite]
+    
+    else:
+        # Use random generation (current behavior)
+        n_variables = cfg.experiment.environment.num_variables
+        edge_density = cfg.experiment.problem.edge_density
+        n_scms = cfg.get('n_scms', 2)  # Number of different SCMs to test
+        
+        scms = []
+        for i in range(n_scms):
+            scm = create_erdos_renyi_scm(
+                n_nodes=n_variables,
+                edge_prob=edge_density,
+                noise_scale=cfg.experiment.environment.noise_scale,
+                seed=cfg.seed + i
+            )
+            scm_name = f"erdos_renyi_{i}"
+            scms.append((scm_name, scm))
+        
+        logger.info(f"Using random SCM generation with {n_scms} SCMs")
+        return scms
 
 
 def run_acbo_method(
@@ -319,12 +382,16 @@ def run_acbo_method(
             random_seed=cfg.seed + run_idx * 100 + scm_idx
         )
         
-        if method_type == ACBOMethodType.LEARNING_SURROGATE:
-            # Run learning surrogate with random interventions
+        if method_type == ACBOMethodType.RANDOM_UNTRAINED:
+            # Run random interventions with untrained surrogate (no learning)
+            result = run_random_untrained_demo(scm, acbo_config)
+            
+        elif method_type == ACBOMethodType.RANDOM_LEARNING:
+            # Run random interventions with learning surrogate
             result = run_progressive_learning_demo_with_scm(scm, acbo_config)
             
-        elif method_type == ACBOMethodType.ORACLE_LEARNING_SURROGATE:
-            # Run learning surrogate with oracle interventions
+        elif method_type == ACBOMethodType.ORACLE_LEARNING:
+            # Run oracle interventions with learning surrogate
             result = run_progressive_learning_demo_with_oracle_interventions(scm, acbo_config)
             
         else:
@@ -332,10 +399,11 @@ def run_acbo_method(
             return {}
         
         if not result:
+            logger.error(f"ACBO method {method_type} returned empty result")
             return {}
         
         # Convert to standard format
-        return {
+        standardized_result = {
             'method_name': method_type,
             'final_target_value': result.get('final_best', 0.0),
             'target_improvement': result.get('improvement', 0.0),
@@ -356,6 +424,17 @@ def run_acbo_method(
             'scm_idx': scm_idx
         }
         
+        # Add final marginal probabilities for structure accuracy calculation
+        final_marginals = result.get('final_marginal_probs', {})
+        if final_marginals:
+            standardized_result['final_marginal_probs'] = final_marginals
+        else:
+            # Fallback: empty marginals if not available
+            logger.debug(f"No final_marginal_probs found for ACBO method {method_type}")
+            standardized_result['final_marginal_probs'] = {}
+        
+        return standardized_result
+        
     except Exception as e:
         logger.error(f"Failed to run ACBO method {method_type}: {e}")
         import traceback
@@ -363,127 +442,86 @@ def run_acbo_method(
         return {}
 
 
-def run_enhanced_acbo_experiment(scm: pyr.PMap, acbo_config) -> Dict[str, Any]:
-    """Run enhanced ACBO experiment with GRPO-trained policy."""
+def run_random_untrained_demo(scm: pyr.PMap, acbo_config) -> Dict[str, Any]:
+    """Run random interventions with untrained surrogate model (no learning)."""
     
     try:
-        # Extract problem information
+        from examples.demo_learning import DemoConfig, create_random_intervention_policy
+        from examples.complete_workflow_demo import generate_initial_data
         from causal_bayes_opt.data_structures.scm import get_variables, get_target
-        variables = list(get_variables(scm))
+        from causal_bayes_opt.environments.sampling import sample_with_intervention
+        
+        variables = sorted(get_variables(scm))
         target = get_target(scm)
         
-        logger.info(f"Running enhanced ACBO with {len(variables)} variables, target: {target}")
+        # Generate initial observational data
+        key = jax.random.PRNGKey(acbo_config.random_seed)
+        initial_samples, buffer = generate_initial_data(scm, acbo_config, key)
         
-        # For now, use a simplified enhanced approach that demonstrates the concept
-        # In a full implementation, this would use actual GRPO-trained enhanced policies
-        
-        # Create enhanced configuration
-        from causal_bayes_opt.acquisition.enhanced_policy_network import (
-            create_enhanced_policy_for_grpo, validate_enhanced_policy_integration
-        )
-        from causal_bayes_opt.avici_integration.enhanced_surrogate import (
-            create_enhanced_surrogate_for_grpo, validate_enhanced_surrogate_integration
+        # Create random intervention policy
+        intervention_fn = create_random_intervention_policy(
+            variables, target, acbo_config.intervention_value_range
         )
         
-        # Validate enhanced components
-        if not validate_enhanced_policy_integration():
-            logger.warning("Enhanced policy validation failed, using learning surrogate fallback")
-            from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
-            return run_progressive_learning_demo_with_scm(scm, acbo_config)
+        # Run interventions WITHOUT learning (untrained model)
+        learning_history = []
+        target_progress = []
         
-        if not validate_enhanced_surrogate_integration():
-            logger.warning("Enhanced surrogate validation failed, using learning surrogate fallback")
-            from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
-            return run_progressive_learning_demo_with_scm(scm, acbo_config)
+        # Handle initial target value
+        if initial_samples:
+            target_values = [sample.get(target, 0.0) for sample in initial_samples]
+            initial_target = max(target_values)  # Best from initial data
+        else:
+            initial_target = 0.0
         
-        # Create enhanced networks (for demonstration - not fully trained yet)
-        enhanced_policy_fn, policy_config = create_enhanced_policy_for_grpo(
-            variables=variables,
-            target_variable=target,
-            architecture_level="simplified",  # Use simplified for faster experimentation
-            performance_mode="fast"
-        )
+        best_value = initial_target
         
-        enhanced_surrogate_fn, surrogate_config = create_enhanced_surrogate_for_grpo(
-            variables=variables,
-            target_variable=target,
-            model_complexity="medium",
-            use_continuous=True,
-            performance_mode="fast"
-        )
-        
-        # For now, run a modified version of the learning demo with enhanced features
-        # This demonstrates the enhanced architecture working, even without full GRPO training
-        result = run_enhanced_learning_demo(scm, acbo_config, enhanced_policy_fn, enhanced_surrogate_fn)
-        
-        # Add enhanced metadata
-        result.update({
-            'method': 'enhanced_acbo',
-            'enhanced_features': {
-                'policy_architecture': policy_config.get('architecture_level', 'simplified'),
-                'surrogate_architecture': surrogate_config.get('model_complexity', 'medium'),
-                'use_continuous_surrogate': surrogate_config.get('use_continuous', True),
-                'enhanced_validation_passed': True
+        for step in range(acbo_config.n_intervention_steps):
+            # Generate random intervention
+            key, subkey = jax.random.split(key)
+            intervention = intervention_fn(key=subkey)
+            
+            # Apply intervention and get outcome
+            outcome_samples = sample_with_intervention(scm, intervention, n_samples=1, seed=int(subkey[0]))
+            outcome_sample = outcome_samples[0]  # Extract the single sample from the list
+            outcome_value = outcome_sample['values'].get(target, 0.0)
+            
+            # Track progress
+            if outcome_value > best_value:
+                best_value = outcome_value
+            
+            target_improvement = best_value - initial_target
+            
+            step_info = {
+                'step': step,
+                'intervention': intervention,
+                'outcome_value': outcome_value,
+                'target_improvement': target_improvement,
+                'uncertainty': 0.0,  # No learning = no uncertainty tracking
+                'marginals': {}  # No learning = no structure learning
             }
-        })
+            
+            learning_history.append(step_info)
+            target_progress.append(outcome_value)
         
-        return result
+        # Return result in standard format
+        return {
+            'method': 'random_untrained',
+            'learning_history': learning_history,
+            'target_progress': target_progress,
+            'final_best': best_value,
+            'improvement': best_value - initial_target,
+            'total_samples': acbo_config.n_observational_samples + acbo_config.n_intervention_steps,
+            'final_uncertainty': 0.0,
+            'converged_to_truth': False,
+            'final_marginal_probs': {}  # No structure learning
+        }
         
     except Exception as e:
-        logger.error(f"Enhanced ACBO experiment failed: {e}")
+        logger.error(f"Random untrained demo failed: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        
-        # Fallback to learning surrogate
-        logger.info("Falling back to learning surrogate")
-        from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
-        return run_progressive_learning_demo_with_scm(scm, acbo_config)
-
-
-def run_enhanced_learning_demo(scm: pyr.PMap, acbo_config, enhanced_policy_fn, enhanced_surrogate_fn) -> Dict[str, Any]:
-    """Run enhanced learning demo with enhanced architectures."""
-    
-    # For now, this is a simplified demonstration that shows enhanced architectures work
-    # In a full implementation, this would use trained enhanced policies
-    
-    try:
-        # Import the base learning demo
-        from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
-        
-        # Run the base demo (which works and is validated)
-        base_result = run_progressive_learning_demo_with_scm(scm, acbo_config)
-        
-        # Enhance the result with simulated improvements from enhanced architectures
-        # This simulates the expected benefits of enhanced architectures
-        enhanced_result = base_result.copy()
-        
-        # Simulate 15-25% improvement in key metrics (based on architectural benefits)
-        import random
-        improvement_factor = 1.15 + random.random() * 0.1  # 15-25% improvement
-        
-        if 'improvement' in enhanced_result:
-            enhanced_result['improvement'] = enhanced_result['improvement'] * improvement_factor
-        
-        if 'final_uncertainty' in enhanced_result:
-            enhanced_result['final_uncertainty'] = enhanced_result['final_uncertainty'] * 0.9  # 10% better uncertainty
-        
-        # Add enhanced-specific metrics
-        enhanced_result.update({
-            'enhanced_architecture_used': True,
-            'architecture_improvement_factor': improvement_factor,
-            'continuous_parent_sets_used': True,
-            'enriched_transformer_used': True,
-        })
-        
-        logger.info(f"Enhanced ACBO completed with {improvement_factor:.1%} improvement over baseline")
-        
-        return enhanced_result
-        
-    except Exception as e:
-        logger.error(f"Enhanced learning demo failed: {e}")
-        # Final fallback to basic demo
-        from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
-        return run_progressive_learning_demo_with_scm(scm, acbo_config)
+        return {}
 
 
 def compute_structure_accuracy_from_result(result: Dict[str, Any], scm: pyr.PMap) -> float:
@@ -497,7 +535,12 @@ def compute_structure_accuracy_from_result(result: Dict[str, Any], scm: pyr.PMap
         true_parents = set(get_parents(scm, target))
         final_marginals = result.get('final_marginal_probs', {})
         
+        # Debug logging to understand the issue
+        logger.debug(f"Structure accuracy - Target: {target}, True parents: {true_parents}")
+        logger.debug(f"Final marginals type: {type(final_marginals)}, content: {final_marginals}")
+        
         if not final_marginals:
+            logger.warning(f"No final_marginal_probs found in result. Available keys: {list(result.keys())}")
             return 0.0
         
         # Compute accuracy based on thresholded predictions
@@ -540,6 +583,7 @@ def extract_trajectory_from_result(result: Dict[str, Any], scm: pyr.PMap) -> Dic
                 'steps': [0],
                 'true_parent_likelihood': [0.0],
                 'f1_scores': [0.0],
+                'shd_values': [len(true_parents)],  # Worst case SHD
                 'target_values': [result.get('final_target_value', 0.0)],
                 'uncertainty_bits': [0.0],
                 'intervention_counts': [result.get('intervention_count', 0)]
@@ -553,6 +597,7 @@ def extract_trajectory_from_result(result: Dict[str, Any], scm: pyr.PMap) -> Dic
             'steps': steps,
             'true_parent_likelihood': [0.0] * len(steps),  # Baselines don't track this
             'f1_scores': [0.0] * len(steps),  # Baselines don't track this
+            'shd_values': [len(true_parents)] * len(steps),  # Worst case SHD for baselines
             'target_values': target_values,
             'uncertainty_bits': [0.0] * len(steps),
             'intervention_counts': steps  # Use step as proxy for intervention count
@@ -566,7 +611,9 @@ def log_run_metrics_to_wandb(
     scm_idx: int,
     wandb_run: Any,
     step_offset: int = 0,
-    global_step_counter: int = 0
+    global_step_counter: int = 0,
+    scm_name: str = "unknown",
+    scm_type: str = "unknown"
 ) -> int:
     """Log metrics from a single run to WandB.
     
@@ -581,20 +628,41 @@ def log_run_metrics_to_wandb(
     
     # Log trajectory data with custom x-axis
     for i, step in enumerate(steps):
+        # Base metrics
+        target_value = trajectory_metrics['target_values'][i] if i < len(trajectory_metrics['target_values']) else 0
+        f1_score = trajectory_metrics['f1_scores'][i] if i < len(trajectory_metrics['f1_scores']) else 0
+        shd_value = trajectory_metrics['shd_values'][i] if i < len(trajectory_metrics['shd_values']) else 0
+        true_parent_likelihood = trajectory_metrics['true_parent_likelihood'][i] if i < len(trajectory_metrics['true_parent_likelihood']) else 0
+        uncertainty = trajectory_metrics['uncertainty_bits'][i] if i < len(trajectory_metrics['uncertainty_bits']) else 0
+        
         metrics = {
-            f"{method_name}/target_value": trajectory_metrics['target_values'][i] if i < len(trajectory_metrics['target_values']) else 0,
-            f"{method_name}/true_parent_likelihood": trajectory_metrics['true_parent_likelihood'][i] if i < len(trajectory_metrics['true_parent_likelihood']) else 0,
-            f"{method_name}/f1_score": trajectory_metrics['f1_scores'][i] if i < len(trajectory_metrics['f1_scores']) else 0,
-            f"{method_name}/uncertainty": trajectory_metrics['uncertainty_bits'][i] if i < len(trajectory_metrics['uncertainty_bits']) else 0,
+            # General metrics (existing)
+            f"{method_name}/target_value": target_value,
+            f"{method_name}/true_parent_likelihood": true_parent_likelihood,
+            f"{method_name}/f1_score": f1_score,
+            f"{method_name}/shd": shd_value,
+            f"{method_name}/uncertainty": uncertainty,
+            
+            # SCM-specific metrics (NEW)
+            f"{method_name}/target_value_{scm_name}": target_value,
+            f"{method_name}/f1_score_{scm_name}": f1_score,
+            f"{method_name}/shd_{scm_name}": shd_value,
+            f"{scm_type}/target_value": target_value,
+            f"{scm_type}/f1_score": f1_score,
+            f"{scm_type}/shd": shd_value,
+            
+            # Context information
             "intervention_step": step,  # Custom x-axis for proper visualization
             "run_idx": run_idx,
             "scm_idx": scm_idx,
+            "scm_name": scm_name,
+            "scm_type": scm_type,
             "method": method_name
         }
         
-        # Use global step counter to ensure monotonic steps
-        wandb_run.log(metrics, step=global_step_counter)
-        global_step_counter += 1
+        # Log metrics with custom intervention_step field for proper time-series visualization
+        # WandB will use the intervention_step field for our custom metrics
+        wandb_run.log(metrics)
     
     # Log final summary metrics for this run
     summary_metrics = {
@@ -606,8 +674,8 @@ def log_run_metrics_to_wandb(
         "scm_idx": scm_idx
     }
     
-    wandb_run.log(summary_metrics, step=global_step_counter)
-    global_step_counter += 1
+    # Log summary metrics without step parameter to avoid conflicts with trajectory visualization
+    wandb_run.log(summary_metrics)
     
     return global_step_counter
 
@@ -701,14 +769,17 @@ def generate_comparison_plots(
     try:
         # Method comparison plot
         if method_metrics:
+            logger.info(f"Generating method comparison plot with methods: {list(method_metrics.keys())}")
             comparison_path = plots_dir / "method_comparison.png"
             plot_method_comparison(
                 method_metrics,
                 title="Active Learning vs Surrogate Methods Comparison",
                 save_path=str(comparison_path),
-                metrics=['likelihood', 'f1']
+                metrics=['shd', 'f1', 'target']
             )
             plot_paths['method_comparison'] = str(comparison_path)
+        else:
+            logger.warning("No method_metrics available for plotting")
         
         # Intervention efficiency plot
         efficiency_results = {}

@@ -1,10 +1,15 @@
 # SFT Dataset Collection & GPU Training Setup Plan
 
 **Created**: 2025-01-23  
-**Last Updated**: 2025-01-28  
+**Last Updated**: 2025-01-30  
 **Status**: Phase 1 COMPLETE - Collection infrastructure ready  
-**Next Priority**: Resolve training interface mismatch for complete pipeline  
+**Next Priority**: PAUSED pending validation results from IMPLEMENTATION_PLAN.md Phase 2.5  
 **Objective**: Set up production-ready scripts for collecting SFT datasets from PARENT_SCALE expert demonstrations and deploy training on Imperial's GPU cluster
+
+> **📋 CURRENT STATUS**: This plan is aligned with the experimental validation approach described in IMPLEMENTATION_PLAN.md Phase 2.5. 
+> - **Phase 1**: ✅ COMPLETED (robust data collection infrastructure)
+> - **Phase 2**: 📋 PLANNED (data preprocessing - awaiting validation results)
+> - **Phase 3**: 📋 PLANNED (GPU cluster integration - awaiting validation results)
 
 ## Overview
 
@@ -59,7 +64,7 @@ This document coordinates the implementation of SFT (Supervised Fine-Tuning) dat
 - [x] Intelligent batching for memory efficiency
 - [x] Comprehensive logging and monitoring
 
-### Phase 2: Data Preprocessing & Organization 
+### Phase 2: Data Preprocessing & Organization 📋 PLANNED
 **Target**: Convert raw demonstrations to training-ready format
 
 #### 2.1 Format Conversion
@@ -79,7 +84,7 @@ This document coordinates the implementation of SFT (Supervised Fine-Tuning) dat
 - [ ] Comprehensive metadata (SCM properties, collection params)
 - [ ] Data catalog for experiment tracking
 
-### Phase 3: GPU Cluster Integration
+### Phase 3: GPU Cluster Integration 📋 PLANNED
 **Target**: Enable seamless deployment on Imperial's HPC infrastructure
 
 #### 3.1 Cluster Scripts

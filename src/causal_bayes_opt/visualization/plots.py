@@ -216,7 +216,7 @@ def plot_method_comparison(
         results_by_method: Dict mapping method names to learning curves from extract_learning_curves
         title: Plot title
         save_path: Optional path to save the plot
-        metrics: List of metrics to plot ['likelihood', 'f1', 'target']
+        metrics: List of metrics to plot ['shd', 'f1', 'target']
         
     Returns:
         Matplotlib figure object
@@ -229,7 +229,7 @@ def plot_method_comparison(
         return fig
     
     if metrics is None:
-        metrics = ['likelihood', 'f1']
+        metrics = ['shd', 'f1', 'target']
     
     n_metrics = len(metrics)
     fig, axes = plt.subplots(n_metrics, 1, figsize=(12, 4 * n_metrics), sharex=True)
@@ -271,19 +271,18 @@ def plot_method_comparison(
                                color=color, alpha=0.2)
         
         # Customize subplot
-        if metric == 'likelihood':
-            ax.set_ylabel('P(True Parents | Data)')
-            ax.set_title('True Parent Likelihood Over Time')
-            ax.set_ylim(0, 1.05)
-            ax.axhline(y=0.9, color='gray', linestyle='--', alpha=0.5, label='90% Target')
+        if metric == 'shd':
+            ax.set_ylabel('Structural Hamming Distance')
+            ax.set_title('Structure Recovery - SHD (Lower is Better)')
+            ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5, label='Perfect Recovery')
         elif metric == 'f1':
             ax.set_ylabel('F1 Score')
-            ax.set_title('Structure Recovery F1 Score')
+            ax.set_title('Structure Recovery F1 Score (Higher is Better)')
             ax.set_ylim(0, 1.05)
-            ax.axhline(y=0.7, color='gray', linestyle='--', alpha=0.5, label='70% Target')
+            ax.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, label='Perfect Recovery')
         elif metric == 'target':
             ax.set_ylabel('Target Value')
-            ax.set_title('Target Variable Optimization')
+            ax.set_title('Target Variable Optimization (Higher is Better)')
         
         ax.legend()
         ax.grid(True, alpha=0.3)

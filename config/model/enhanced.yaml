@@ -1,0 +1,30 @@
+# @package _global_
+# Enhanced Model Architecture Configuration
+
+training:
+  architecture:
+    level: "full"
+    performance_mode: "balanced"
+    use_enhanced_networks: true
+    
+model:
+  architecture_level: "full"
+  performance_mode: "balanced"
+  
+  # Enhanced network settings
+  enhanced:
+    use_continuous_parent_set: true
+    use_enriched_attention: true
+    use_enhanced_policy: true
+    
+  # Network dimensions
+  dimensions:
+    hidden_dim: 256
+    n_layers: 4
+    attention_heads: 8
+    
+  # Optimization
+  optimization:
+    use_jax_compilation: true
+    enable_gradient_clipping: true
+    clip_value: 1.0

@@ -1,0 +1,239 @@
+# @package training
+# Enhanced GRPO training configuration for enhanced ACBO
+
+# Enhanced GRPO algorithm parameters
+algorithm:
+  learning_rate: 0.0003  # Slightly higher for enhanced architectures
+  batch_size: 32        # Smaller batches for enhanced models
+  entropy_coefficient: 0.015  # Higher exploration for complex models
+  value_loss_coefficient: 0.5
+  clip_ratio: 0.2
+  max_grad_norm: 1.0    # Higher for enhanced networks
+  
+  # Enhanced-specific parameters
+  use_enhanced_networks: true
+  enhanced_architecture_level: "full"  # "full", "simplified", "baseline"
+  enhanced_performance_mode: "balanced"  # "fast", "balanced", "quality"
+
+# Enhanced policy network configuration
+policy:
+  # Transformer architecture
+  num_layers: 4
+  num_heads: 8
+  hidden_dim: 128
+  key_size: 32
+  widening_factor: 4
+  dropout: 0.1
+  
+  # Enhanced features
+  use_enriched_history: true
+  max_history_size: 20
+  num_channels: 10
+  policy_intermediate_dim: 64
+
+# Enhanced surrogate model configuration
+surrogate:
+  # Model architecture
+  hidden_dim: 128
+  num_layers: 3
+  num_heads: 8
+  use_continuous: true
+  
+  # Continuous model parameters
+  temperature: 1.0
+  straight_through: true
+  dropout: 0.1
+  
+  # Model complexity
+  model_complexity: "full"  # "full", "medium", "simple"
+
+# Experience management for enhanced training
+experience:
+  buffer_size: 5000     # Smaller buffer for enhanced models
+  prioritized_replay: true  # Use prioritized replay for enhanced training
+  min_experiences_before_training: 50
+  
+  # Enhanced experience parameters
+  enhanced_state_representation: true
+  temporal_context_length: 20
+
+# Curriculum learning for enhanced ACBO
+curriculum:
+  enabled: true
+  num_stages: 4
+  progression_threshold: 0.85  # Higher threshold for enhanced models
+  
+  # Stage definitions
+  stages:
+    - name: "simple"
+      max_variables: 5
+      edge_density: 0.2
+      noise_scale: 0.1
+      target_f1: 0.8
+      
+    - name: "medium"
+      max_variables: 8
+      edge_density: 0.3
+      noise_scale: 0.15
+      target_f1: 0.7
+      
+    - name: "complex"
+      max_variables: 12
+      edge_density: 0.4
+      noise_scale: 0.2
+      target_f1: 0.65
+      
+    - name: "expert"
+      max_variables: 20
+      edge_density: 0.5
+      noise_scale: 0.25
+      target_f1: 0.6
+
+# Enhanced optimization settings
+optimization:
+  warmup_steps: 100     # More warmup for enhanced models
+  eval_frequency: 50    # More frequent evaluation
+  checkpoint_frequency: 200
+  
+  # Enhanced optimization features
+  use_lr_scheduling: true
+  lr_schedule_patience: 5
+  lr_schedule_factor: 0.8
+  
+  # Early stopping for enhanced training
+  early_stopping_patience: 10
+  early_stopping_min_delta: 0.001
+
+# Enhanced reward configuration
+rewards:
+  # Verifiable rewards for training
+  use_verifiable_rewards: true
+  target_improvement_weight: 2.0
+  true_parent_weight: 1.0
+  exploration_weight: 0.5
+  
+  # Enhanced reward features
+  use_hybrid_rewards: true
+  supervised_signals_weight: 0.6
+  observable_signals_weight: 0.4
+  
+  # Reward scaling
+  reward_scaling_method: "tanh"  # "tanh", "clip", "none"
+  reward_clip_value: 10.0
+
+# Enhanced diversity monitoring
+diversity:
+  enabled: true
+  action_entropy_threshold: 0.1
+  intervention_diversity_threshold: 0.3
+  mode_collapse_detection: true
+  
+  # Enhanced diversity features
+  temporal_diversity_window: 10
+  diversity_bonus_weight: 0.1
+
+# Enhanced logging and monitoring
+logging:
+  # Standard logging
+  log_frequency: 10
+  enable_tensorboard: true
+  enable_wandb: true
+  
+  # Enhanced logging features
+  log_enhanced_metrics: true
+  log_architecture_comparisons: true
+  log_attention_weights: false  # Expensive, only for debugging
+  
+  # WandB configuration for enhanced training
+  wandb:
+    project: "enhanced_acbo_training"
+    tags: ["enhanced", "grpo", "acbo", "causal_discovery"]
+    group: "enhanced_architectures"
+
+# Enhanced checkpointing
+checkpointing:
+  enable_checkpointing: true
+  checkpoint_frequency: 200
+  keep_best_n: 3
+  checkpoint_dir: "checkpoints/enhanced_grpo"
+  
+  # Enhanced checkpoint features
+  save_enhanced_state: true
+  save_attention_weights: false
+  compression_enabled: true
+
+# Enhanced evaluation metrics
+evaluation:
+  # Standard metrics
+  eval_frequency: 50
+  eval_episodes: 5
+  
+  # Enhanced evaluation metrics
+  structure_learning_metrics: true
+  intervention_efficiency_metrics: true
+  temporal_consistency_metrics: true
+  
+  # Baseline comparisons
+  compare_with_baselines: true
+  baseline_methods: ["static_surrogate", "learning_surrogate"]
+
+# Enhanced adaptive training features
+adaptive:
+  # Core adaptive features
+  enable_adaptive_lr: true
+  enable_adaptive_exploration: true
+  enable_adaptive_curriculum: true
+  
+  # Enhanced adaptive parameters
+  adaptation_frequency: 100
+  performance_window: 20
+  adaptation_sensitivity: 0.05
+  
+  # Architecture adaptation
+  enable_architecture_switching: false  # Experimental
+  architecture_switch_threshold: 0.1
+
+# Enhanced debugging and validation
+debugging:
+  validate_enhanced_integration: true
+  check_gradient_flow: true
+  monitor_memory_usage: true
+  
+  # Enhanced debugging features
+  save_intermediate_states: false  # Expensive
+  validate_attention_patterns: false  # For research
+  check_temporal_consistency: true
+
+# Performance optimization for enhanced training
+performance:
+  # JAX compilation
+  jit_policy_updates: true
+  jit_experience_collection: true
+  
+  # Memory optimization
+  gradient_checkpointing: false  # For very large models
+  mixed_precision: false         # For GPU training
+  
+  # Batch processing
+  micro_batch_size: 8           # For gradient accumulation
+  gradient_accumulation_steps: 4
+
+# Enhanced training modes
+training_modes:
+  # Available modes
+  default: "enhanced_full"
+  modes:
+    enhanced_full:
+      architecture_level: "full"
+      performance_mode: "quality"
+      use_all_enhancements: true
+      
+    enhanced_fast:
+      architecture_level: "simplified" 
+      performance_mode: "fast"
+      use_all_enhancements: false
+      
+    enhanced_baseline:
+      architecture_level: "baseline"
+      performance_mode: "balanced"
+      use_all_enhancements: false

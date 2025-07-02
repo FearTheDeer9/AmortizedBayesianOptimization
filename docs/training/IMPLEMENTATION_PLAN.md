@@ -2,7 +2,14 @@
 
 **Created**: 2025-01-20  
 **Status**: NEAR_COMPLETE  
-**Last Updated**: 2025-06-23
+**Last Updated**: 2025-01-30
+
+> **📋 IMPORTANT NOTE**: This document tracks the implementation progress of the ACBO training pipeline. 
+> - **Phases 1 & 2**: ✅ COMPLETED (including mechanism-aware architecture enhancement)
+> - **Phase 2.5**: 🚧 IN PROGRESS (Experimental validation on standard benchmarks)
+> - **Phases 3 & 4**: 📋 PAUSED pending validation results from Phase 2.5
+> 
+> The TODOs in Phases 3 & 4 represent planned future work that is intentionally on hold until we validate the core neural network approach on standard benchmarks. This is a strategic decision to ensure we build production infrastructure only after proving the fundamental hypothesis.
 
 ## Overview
 
@@ -545,7 +552,7 @@ class HybridRewardConfig:
 
 ---
 
-## Phase 3: Production & Optimization (Week 3) - PAUSED PENDING VALIDATION
+## Phase 3: Production & Optimization 📋 PAUSED PENDING VALIDATION
 
 ### 3.1 Master Training Orchestrator  
 **Status**: TODO  
@@ -616,7 +623,7 @@ class HybridRewardConfig:
 
 ---
 
-## Phase 4: Advanced Features (Week 4)
+## Phase 4: Advanced Features 📋 PAUSED PENDING VALIDATION
 
 ### 4.1 Transfer Learning Linear→Non-linear
 **Status**: TODO  

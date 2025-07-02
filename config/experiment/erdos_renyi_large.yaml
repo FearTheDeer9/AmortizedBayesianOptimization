@@ -1,0 +1,20 @@
+# @package _global_
+# Large-scale variant of the Erdos-Renyi experiment
+
+defaults:
+  - erdos_renyi_base
+
+# Override for larger graphs
+min_nodes: 10
+max_nodes: 50
+n_runs_per_config: 5
+n_intervention_steps: 30
+
+# WandB overrides
+wandb:
+  group: "erdos-renyi-large-scale"
+  tags: ["scaling", "erdos-renyi", "large-scale", "benchmark"]
+
+experiment:
+  name: "erdos_renyi_large_scale"
+  description: "Large-scale Erdos-Renyi scaling experiment"

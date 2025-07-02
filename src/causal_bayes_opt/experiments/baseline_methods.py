@@ -82,7 +82,7 @@ class RandomPolicyBaseline:
         self,
         available_variables: List[str],
         current_state: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    ) -> pyr.PMap:
         """
         Select a random intervention.
         
@@ -91,10 +91,10 @@ class RandomPolicyBaseline:
             current_state: Current state (ignored for random policy)
             
         Returns:
-            Intervention dictionary
+            Intervention PMap
         """
         if not available_variables:
-            return {}
+            return pyr.pmap({})
         
         self.key, subkey = random.split(self.key)
         
@@ -106,11 +106,12 @@ class RandomPolicyBaseline:
         _, value_key = random.split(subkey)
         intervention_value = random.normal(value_key) * self.config.intervention_strength
         
-        return {
-            'type': 'intervention',
-            'values': {selected_var: float(intervention_value)},
+        return pyr.pmap({
+            'type': 'perfect',
+            'targets': frozenset([selected_var]),
+            'values': pyr.pmap({selected_var: float(intervention_value)}),
             'selected_by': 'random_policy'
-        }
+        })
     
     def update(self, intervention: Dict[str, Any], outcome: pyr.PMap) -> None:
         """
@@ -149,7 +150,7 @@ class GreedyPolicyBaseline:
         self,
         available_variables: List[str],
         current_state: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    ) -> pyr.PMap:
         """
         Select intervention using greedy heuristics.
         
@@ -158,10 +159,10 @@ class GreedyPolicyBaseline:
             current_state: Current state including buffer and target info
             
         Returns:
-            Intervention dictionary
+            Intervention PMap
         """
         if not available_variables:
-            return {}
+            return pyr.pmap({})
         
         # Initialize scores if needed
         for var in available_variables:
@@ -188,11 +189,12 @@ class GreedyPolicyBaseline:
         
         self.step_count += 1
         
-        return {
-            'type': 'intervention',
-            'values': {selected_var: float(intervention_value)},
+        return pyr.pmap({
+            'type': 'perfect',
+            'targets': frozenset([selected_var]),
+            'values': pyr.pmap({selected_var: float(intervention_value)}),
             'selected_by': 'greedy_policy'
-        }
+        })
     
     def update(self, intervention: Dict[str, Any], outcome: pyr.PMap) -> None:
         """
@@ -246,7 +248,7 @@ class OraclePolicyBaseline:
         self,
         available_variables: List[str],
         current_state: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    ) -> pyr.PMap:
         """
         Select intervention using perfect knowledge.
         
@@ -255,10 +257,10 @@ class OraclePolicyBaseline:
             current_state: Current state (optional)
             
         Returns:
-            Intervention dictionary
+            Intervention PMap
         """
         if not available_variables:
-            return {}
+            return pyr.pmap({})
         
         # Prefer intervening on true parents of the target
         parent_candidates = [var for var in available_variables if var in self.true_parents]
@@ -277,11 +279,12 @@ class OraclePolicyBaseline:
             selected_var = rng.choice(available_variables)
             intervention_value = rng.normal(0, self.config.intervention_strength)
         
-        return {
-            'type': 'intervention',
-            'values': {selected_var: float(intervention_value)},
+        return pyr.pmap({
+            'type': 'perfect',
+            'targets': frozenset([selected_var]),
+            'values': pyr.pmap({selected_var: float(intervention_value)}),
             'selected_by': 'oracle_policy'
-        }
+        })
     
     def update(self, intervention: Dict[str, Any], outcome: pyr.PMap) -> None:
         """

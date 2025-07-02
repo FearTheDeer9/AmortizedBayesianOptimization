@@ -22,7 +22,7 @@ from .hybrid_rewards import (
     supervised_mechanism_discovery_reward,
     supervised_mechanism_impact_reward,
 )
-from .verifiable_rewards import (
+from .rewards import (
     exploration_diversity_reward,
     target_improvement_reward,
 )

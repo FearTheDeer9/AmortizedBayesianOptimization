@@ -157,22 +157,55 @@ def run_enhanced_acbo_training(cfg: DictConfig, wandb_run: Optional[Any]) -> Dic
         performance_mode=cfg.training.algorithm.get('enhanced_performance_mode', 'balanced')
     )
     
-    # Create training environment
-    environment = create_enhanced_training_environment(cfg, variables, target_variable)
-    
-    # Create reward rubric
+    # Create reward rubric first (needed for environment)
     reward_rubric = create_enhanced_reward_rubric(cfg, variables, target_variable)
+    
+    # Create training environment with reward rubric
+    environment = create_enhanced_training_environment(cfg, variables, target_variable, reward_rubric)
     
     # Create GRPO training configuration
     grpo_config = create_enhanced_grpo_config(cfg, policy_config, surrogate_config)
+    
+    # Create proper network wrappers with parameter initialization
+    import haiku as hk
+    
+    class EnhancedNetworkWrapper:
+        def __init__(self, network_fn, name="enhanced_network"):
+            self.network_fn = network_fn
+            self.name = name
+            self.params = None
+            self._transformed_fn = None
+            
+        def initialize_params(self, key, dummy_input):
+            """Initialize network parameters with a dummy input."""
+            if self._transformed_fn is None:
+                self._transformed_fn = hk.transform(lambda x: self.network_fn(x, is_training=True))
+            self.params = self._transformed_fn.init(key, dummy_input)
+            return self.params
+            
+        def apply(self, params, key, inputs):
+            """Apply the network with given parameters."""
+            if self._transformed_fn is None:
+                self._transformed_fn = hk.transform(lambda x: self.network_fn(x, is_training=True))
+            return self._transformed_fn.apply(params, key, inputs)
+            
+        def replace(self, params):
+            """Create new wrapper with updated parameters."""
+            new_wrapper = EnhancedNetworkWrapper(self.network_fn, self.name)
+            new_wrapper.params = params
+            new_wrapper._transformed_fn = self._transformed_fn
+            return new_wrapper
+    
+    policy_network_wrapper = EnhancedNetworkWrapper(enhanced_policy_fn, "enhanced_policy")
+    value_network_wrapper = EnhancedNetworkWrapper(enhanced_policy_fn, "enhanced_value")
     
     # Create and run training manager
     training_manager = create_grpo_training_manager(
         config=grpo_config,
         environment=environment,
         reward_rubric=reward_rubric,
-        policy_network=enhanced_policy_fn,
-        value_network=enhanced_policy_fn  # Use same network for value estimation
+        policy_network=policy_network_wrapper,
+        value_network=value_network_wrapper
     )
     
     # Run training
@@ -198,9 +231,13 @@ def run_enhanced_acbo_training(cfg: DictConfig, wandb_run: Optional[Any]) -> Dic
 def create_enhanced_training_environment(
     cfg: DictConfig, 
     variables: List[str], 
-    target_variable: str
-) -> InterventionEnvironment:
+    target_variable: str,
+    reward_rubric: Any  # Need reward rubric for real environment
+) -> Any:  # Return real InterventionEnvironment
     """Create enhanced training environment."""
+    
+    # Import real environment
+    from causal_bayes_opt.environments.intervention_env import create_intervention_environment
     
     # Create SCM for training
     scm = create_erdos_renyi_scm(
@@ -210,61 +247,85 @@ def create_enhanced_training_environment(
         seed=cfg.seed
     )
     
-    # Create intervention environment
-    # Note: This is a placeholder - in a full implementation would create proper environment
-    class MockInterventionEnvironment:
-        def __init__(self, scm, variables, target_variable):
-            self.scm = scm
+    # Create real intervention environment
+    max_interventions = max(10, cfg.training.get('max_training_steps', 1000) // 5)  # Ensure at least 10 interventions
+    real_environment = create_intervention_environment(
+        scm=scm,
+        rubric=reward_rubric,
+        difficulty=cfg.training.get('difficulty', 0.5),
+        max_interventions=max_interventions,
+        target_threshold=cfg.training.rewards.get('target_improvement_weight', 2.0),
+        noise_level=cfg.environment.get('noise_scale', 0.1),
+        enable_early_stopping=True,
+        intervention_budget=100.0
+    )
+    
+    # Create adapter to match expected interface
+    class EnvironmentAdapter:
+        def __init__(self, real_env):
+            self.real_env = real_env
             self.variables = variables
             self.target_variable = target_variable
+            self.current_state = None
             
         def reset(self, key):
-            # Return mock state
-            return type('State', (), {
-                'mechanism_features': jnp.ones(len(self.variables))
-            })()
+            """Reset environment and return state compatible with training manager."""
+            state = self.real_env.reset(key)
+            self.current_state = state  # Track the current state
+            return state
             
         def step(self, action):
-            # Return mock next state and info
-            next_state = type('State', (), {
-                'mechanism_features': jnp.ones(len(self.variables))
-            })()
-            env_info = type('EnvInfo', (), {
-                'episode_complete': True
-            })()
+            """Step environment with single argument (training manager expects this signature)."""
+            # Generate a key for the real environment step method
+            key = jax.random.PRNGKey(42)  # Simple key for compatibility
+            
+            # Call real environment step method with required arguments
+            next_state, reward_result, env_info = self.real_env.step(
+                state=self.current_state,  # Use tracked state
+                action=action,
+                key=key
+            )
+            
+            # Update tracked state
+            self.current_state = next_state
+            
+            # Return format expected by training manager (next_state, env_info)
             return next_state, env_info
+            
+        def get_environment_info(self):
+            """Provide environment information if needed."""
+            return {
+                'variables': self.variables,
+                'target_variable': self.target_variable,
+                'max_interventions': max_interventions
+            }
     
-    return MockInterventionEnvironment(scm, variables, target_variable)
+    # Wrap the real environment with adapter
+    environment = EnvironmentAdapter(real_environment)
+    
+    return environment
 
 
 def create_enhanced_reward_rubric(
     cfg: DictConfig,
     variables: List[str],
     target_variable: str
-) -> CausalRewardRubric:
+) -> Any:  # Return real CausalRewardRubric
     """Create enhanced reward rubric."""
     
-    # Create reward configuration
-    reward_config = {
-        'use_verifiable_rewards': cfg.training.rewards.get('use_verifiable_rewards', True),
-        'target_improvement_weight': cfg.training.rewards.get('target_improvement_weight', 2.0),
-        'true_parent_weight': cfg.training.rewards.get('true_parent_weight', 1.0),
-        'exploration_weight': cfg.training.rewards.get('exploration_weight', 0.5),
-    }
+    # Import real reward rubric
+    from causal_bayes_opt.acquisition.reward_rubric import create_training_rubric
     
-    # Note: This is a placeholder - in a full implementation would create proper reward rubric
-    class MockCausalRewardRubric:
-        def __init__(self, config):
-            self.config = config
-            
-        def compute_reward(self, state, action, next_state):
-            # Return mock reward
-            return type('RewardResult', (), {
-                'total_reward': 1.0,
-                'components': {'improvement': 0.5, 'exploration': 0.3, 'structure': 0.2}
-            })()
+    # Create real reward rubric for training
+    rubric = create_training_rubric(
+        improvement_weight=cfg.training.rewards.get('target_improvement_weight', 2.0),
+        mechanism_impact_weight=cfg.training.rewards.get('true_parent_weight', 1.5),
+        mechanism_discovery_weight=cfg.training.rewards.get('true_parent_weight', 1.0),
+        exploration_weight=cfg.training.rewards.get('exploration_weight', 0.5),
+        confidence_weight=0.8  # Default confidence weight
+    )
     
-    return MockCausalRewardRubric(reward_config)
+    return rubric
 
 
 def create_enhanced_grpo_config(

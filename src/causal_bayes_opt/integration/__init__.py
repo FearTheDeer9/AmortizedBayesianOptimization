@@ -1,42 +1,39 @@
 """
-PARENT_SCALE Integration Module
+Integration module for architectural compatibility and A/B testing.
 
-Provides pure functions for integrating ACBO with PARENT_SCALE neural doubly
-robust method. All functions follow functional programming principles.
+This module provides unified interfaces that can switch between different
+architectural implementations while maintaining backward compatibility.
 """
 
-from .parent_scale import (
-    run_full_parent_scale_algorithm,
-    run_parent_discovery,
-    run_batch_expert_demonstrations,
-    convert_trajectory_to_acbo_format,
-    ensure_parent_scale_imports
+from .unified_interfaces import (
+    UnifiedParentSetModel,
+    UnifiedAcquisitionPolicy,
+    create_unified_acbo_pipeline
 )
 
-# Try to import legacy functions if available
+# Import validation framework when available
 try:
-    from .parent_scale import (
-        scm_to_graph_structure,
-        samples_to_parent_scale_data,
-        parent_scale_results_to_posterior
+    from .validation_framework import (
+        ArchitectureValidator,
+        SideBySideValidator,
+        ValidationMetrics
     )
-    LEGACY_FUNCTIONS_AVAILABLE = True
+    _validation_available = True
 except ImportError:
-    LEGACY_FUNCTIONS_AVAILABLE = False
+    _validation_available = False
 
-__all__ = [
-    # Main algorithm functions
-    "run_full_parent_scale_algorithm",
-    "run_parent_discovery",
-    "run_batch_expert_demonstrations", 
-    "convert_trajectory_to_acbo_format",
-    "ensure_parent_scale_imports"
-]
-
-# Add legacy functions if available
-if LEGACY_FUNCTIONS_AVAILABLE:
-    __all__.extend([
-        "scm_to_graph_structure",
-        "samples_to_parent_scale_data", 
-        "parent_scale_results_to_posterior"
-    ])
+if _validation_available:
+    __all__ = [
+        "UnifiedParentSetModel",
+        "UnifiedAcquisitionPolicy", 
+        "create_unified_acbo_pipeline",
+        "ArchitectureValidator",
+        "SideBySideValidator",
+        "ValidationMetrics",
+    ]
+else:
+    __all__ = [
+        "UnifiedParentSetModel",
+        "UnifiedAcquisitionPolicy", 
+        "create_unified_acbo_pipeline",
+    ]

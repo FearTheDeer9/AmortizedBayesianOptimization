@@ -88,7 +88,7 @@ except ImportError:
 
 # Expert demonstration collection (optional import to avoid dependency issues)
 try:
-    from .expert_demonstration_collection import (
+    from .expert_collection import (
         ExpertDemonstration,
         ExpertTrajectoryDemonstration,
         DemonstrationBatch,

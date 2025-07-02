@@ -22,7 +22,7 @@ import statistics
 import jax.numpy as jnp
 import pyrsistent as pyr
 
-from .verifiable_rewards import SimpleRewardComponents
+from .rewards import RewardComponents
 from ..avici_integration.parent_set.mechanism_aware import MechanismPrediction
 from ..data_structures.sample import get_values, get_intervention_targets
 
@@ -773,8 +773,8 @@ def compare_reward_strategies(
 # Integration with Existing Reward System
 # ============================================================================
 
-def integrate_with_simple_rewards(
-    simple_reward_components: SimpleRewardComponents,
+def integrate_with_continuous_rewards(
+    continuous_reward_components: RewardComponents,
     hybrid_reward_components: HybridRewardComponents,
     integration_weight: float = 0.5
 ) -> float:

@@ -1,0 +1,19 @@
+{
+  "id": "policy-training-validation",
+  "started": "2025-07-02T15:10:00Z",
+  "lastUpdated": "2025-07-02T15:15:00Z",
+  "status": "active",
+  "phase": "context",
+  "progress": {
+    "discovery": { "answered": 5, "total": 5 },
+    "detail": { "answered": 0, "total": 0 }
+  },
+  "contextFiles": [
+    "src/causal_bayes_opt/acquisition/rewards.py",
+    "src/causal_bayes_opt/training/grpo_training_manager.py",
+    "src/causal_bayes_opt/training/reward_component_validation.py",
+    "scripts/validate_grpo_policy_training.py",
+    "src/causal_bayes_opt/mechanisms/"
+  ],
+  "relatedFeatures": ["continuous rewards", "GRPO validation", "policy training", "reward normalization"]
+}

@@ -1,0 +1,21 @@
+# Main configuration file
+# @package _global_
+
+defaults:
+  - training: grpo_base
+  - logging: wandb_enabled
+  - experiment: causal_discovery
+  - _self_
+
+# Global settings
+seed: 42
+max_steps: 1000
+project_name: "causal_bayes_opt"
+
+# Hydra settings
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra:job.num}

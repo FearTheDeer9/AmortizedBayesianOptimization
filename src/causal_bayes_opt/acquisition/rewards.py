@@ -196,11 +196,16 @@ def _compute_optimization_reward(
     target_variable: str
 ) -> float:
     """
-    Reward based on target variable improvement.
+    Continuous SCM-objective reward that doesn't rely on relative improvement.
     
-    This is a key component for optimization objectives that pure structure 
-    learning approaches don't include. It directly incentivizes finding
-    interventions that improve the target variable.
+    This reward measures how close the intervention gets us to the theoretical
+    optimum for the SCM, avoiding the problem where optimal interventions are
+    avoided once found (because relative improvement becomes zero).
+    
+    The reward uses either:
+    1. True SCM parameters (when available for validation/testing)
+    2. Predicted mechanism parameters from AcquisitionState
+    3. Fallback to improved relative reward (normalized by value range)
     
     Args:
         state_before: State before intervention
@@ -208,11 +213,7 @@ def _compute_optimization_reward(
         target_variable: Name of the target variable being optimized
         
     Returns:
-        Optimization reward in [-1, 1] range (bounded via tanh)
-        
-    Note:
-        Uses tanh normalization to ensure bounded rewards for stable training.
-        Positive rewards for improvements, negative for deteriorations.
+        Optimization reward in [0, 1] range (0 = worst possible, 1 = optimal)
     """
     try:
         # Get target value from outcome
@@ -228,25 +229,175 @@ def _compute_optimization_reward(
             logger.warning(f"Non-finite target value: {target_value}")
             return 0.0
         
-        # Compute improvement over current best
-        improvement = target_value - state_before.best_value
-        
-        # Apply tanh normalization for bounded rewards
-        # Scale factor can be adjusted based on typical improvement magnitudes
-        scale_factor = 1.0  # Can be made configurable
-        normalized_reward = float(jnp.tanh(improvement / scale_factor))
-        
-        logger.debug(
-            f"Optimization reward: target_value={target_value:.3f}, "
-            f"best_before={state_before.best_value:.3f}, "
-            f"improvement={improvement:.3f}, reward={normalized_reward:.3f}"
+        # Try SCM-objective reward first (using predicted mechanisms)
+        scm_reward = _compute_scm_objective_reward(
+            state_before, target_value, target_variable
         )
         
-        return normalized_reward
+        if scm_reward is not None:
+            logger.debug(
+                f"SCM-objective reward: target_value={target_value:.3f}, "
+                f"scm_reward={scm_reward:.3f}"
+            )
+            return scm_reward
+        
+        # Fallback to improved relative reward (better than original)
+        relative_reward = _compute_improved_relative_reward(
+            state_before, target_value, target_variable
+        )
+        
+        logger.debug(
+            f"Relative reward fallback: target_value={target_value:.3f}, "
+            f"relative_reward={relative_reward:.3f}"
+        )
+        
+        return relative_reward
         
     except Exception as e:
         logger.error(f"Error computing optimization reward: {e}")
         return 0.0
+
+
+def _compute_scm_objective_reward(
+    state_before: AcquisitionState,
+    target_value: float,
+    target_variable: str
+) -> Optional[float]:
+    """
+    Compute reward based on distance to theoretical SCM optimum.
+    
+    Uses mechanism predictions from AcquisitionState to estimate the
+    theoretical optimal value for the target variable, then rewards
+    based on how close we got to that optimum.
+    
+    Args:
+        state_before: State with mechanism predictions
+        target_value: Observed target value from intervention
+        target_variable: Name of target variable
+        
+    Returns:
+        Reward in [0, 1] range, or None if cannot compute
+    """
+    try:
+        # Check if we have mechanism predictions
+        if not hasattr(state_before, 'mechanism_predictions') or \
+           not state_before.mechanism_predictions:
+            return None
+        
+        # Get mechanism predictions for target variable
+        mechanism_preds = state_before.mechanism_predictions
+        if target_variable not in mechanism_preds:
+            return None
+        
+        target_mechanism = mechanism_preds[target_variable]
+        
+        # Extract predicted coefficients and intercept
+        if not hasattr(target_mechanism, 'coefficients') or \
+           not hasattr(target_mechanism, 'intercept'):
+            return None
+        
+        coefficients = target_mechanism.coefficients
+        intercept = float(target_mechanism.intercept)
+        
+        # Compute theoretical optimum with realistic intervention bounds
+        intervention_bounds = getattr(state_before, 'intervention_bounds', {})
+        default_bound = 3.0  # Reasonable default for normalized variables
+        
+        theoretical_optimum = intercept
+        worst_case_value = intercept
+        
+        for parent, coeff in coefficients.items():
+            lower_bound = intervention_bounds.get(parent, (-default_bound, default_bound))[0]
+            upper_bound = intervention_bounds.get(parent, (-default_bound, default_bound))[1]
+            
+            coeff_val = float(coeff)
+            if coeff_val > 0:
+                # Positive coefficient: optimal is upper bound, worst is lower
+                theoretical_optimum += coeff_val * upper_bound
+                worst_case_value += coeff_val * lower_bound
+            else:
+                # Negative coefficient: optimal is lower bound, worst is upper
+                theoretical_optimum += coeff_val * lower_bound
+                worst_case_value += coeff_val * upper_bound
+        
+        # Compute reward as fraction of distance to optimum
+        total_range = abs(theoretical_optimum - worst_case_value)
+        if total_range == 0:
+            return 1.0  # If no improvement possible, perfect score
+        
+        distance_from_worst = abs(target_value - worst_case_value)
+        reward = distance_from_worst / total_range
+        
+        # Ensure bounded in [0, 1]
+        return float(jnp.clip(reward, 0.0, 1.0))
+        
+    except Exception as e:
+        logger.debug(f"Could not compute SCM-objective reward: {e}")
+        return None
+
+
+def _compute_improved_relative_reward(
+    state_before: AcquisitionState,
+    target_value: float,
+    target_variable: str
+) -> float:
+    """
+    Improved relative reward that's less susceptible to the "optimal avoidance" problem.
+    
+    Instead of just comparing to the best value seen so far, this reward:
+    1. Normalizes by the observed value range to provide context
+    2. Uses a more gradual scaling function
+    3. Provides positive rewards for near-optimal values
+    
+    Args:
+        state_before: State before intervention
+        target_value: Observed target value
+        target_variable: Target variable name
+        
+    Returns:
+        Reward in [0, 1] range
+    """
+    try:
+        # Get current best and value range information
+        best_value = state_before.best_value
+        
+        # Estimate value range from experience buffer if available
+        if hasattr(state_before, 'buffer') and state_before.buffer:
+            # Extract target values from buffer to estimate range
+            buffer_values = []
+            for sample in state_before.buffer.samples[-20:]:  # Use recent samples
+                sample_values = get_values(sample)
+                if target_variable in sample_values:
+                    buffer_values.append(float(sample_values[target_variable]))
+            
+            if len(buffer_values) > 1:
+                value_range = max(buffer_values) - min(buffer_values)
+                range_center = (max(buffer_values) + min(buffer_values)) / 2
+            else:
+                value_range = 2.0  # Default range
+                range_center = best_value
+        else:
+            value_range = 2.0  # Default range
+            range_center = best_value
+        
+        # Avoid division by zero
+        if value_range == 0:
+            value_range = 1.0
+        
+        # Compute normalized position within range
+        # Higher values are better (assumes maximization)
+        normalized_position = (target_value - range_center) / value_range
+        
+        # Use sigmoid to convert to [0, 1] range with smooth scaling
+        # This gives positive rewards for values above center, even if not improving best
+        reward = float(1.0 / (1.0 + jnp.exp(-2.0 * normalized_position)))
+        
+        return reward
+        
+    except Exception as e:
+        logger.debug(f"Error in improved relative reward: {e}")
+        # Ultimate fallback: simple positive reward for any finite value
+        return 0.5
 
 
 def _compute_structure_discovery_reward(
@@ -569,3 +720,256 @@ def create_default_reward_config(
         raise ValueError("Invalid reward configuration")
     
     return config
+
+
+def compute_adaptive_thresholds(
+    scm: pyr.PMap,
+    difficulty_level: Optional[int] = None,
+    base_improvement_threshold: float = 0.1,
+    base_diversity_threshold: float = 0.1
+) -> Dict[str, float]:
+    """
+    Compute adaptive thresholds based on SCM characteristics.
+    
+    Adapted from the old binary reward system but updated for continuous rewards.
+    
+    Args:
+        scm: The SCM structure to analyze
+        difficulty_level: Optional curriculum difficulty level (1-5)
+        base_improvement_threshold: Base threshold for optimization (continuous)
+        base_diversity_threshold: Base threshold for exploration (continuous)
+        
+    Returns:
+        Dictionary with adaptive threshold values
+    """
+    try:
+        # Handle different SCM structures - be flexible about field names
+        variables = scm.get('variables', scm.get('nodes', set()))
+        edges = scm.get('edges', scm.get('edge_list', frozenset()))
+        
+        n_variables = len(variables) if variables else 3  # Default fallback
+        n_edges = len(edges) if edges else 0
+        
+        # Scale thresholds based on graph size
+        if n_variables <= 5:
+            size_factor = 1.0  # Small graphs - use base thresholds
+        elif n_variables <= 10:
+            size_factor = 0.7  # Medium graphs - easier thresholds
+        else:
+            size_factor = 0.5  # Large graphs - more relaxed thresholds
+        
+        # Adjust for graph density
+        expected_edges = max(1, n_variables - 1)  # Minimum for connected graph
+        density_factor = 1.0 if n_edges <= expected_edges else 0.8  # Dense graphs are harder
+        
+        # Adjust for curriculum difficulty
+        difficulty_factor = 1.0
+        if difficulty_level is not None:
+            difficulty_factor = max(0.5, 1.0 - (difficulty_level - 1) * 0.1)  # Easier thresholds for higher difficulty
+        
+        # Compute adaptive thresholds
+        improvement_threshold = base_improvement_threshold * size_factor * density_factor * difficulty_factor
+        diversity_threshold = base_diversity_threshold * size_factor * difficulty_factor
+        
+        return {
+            'improvement_threshold': float(improvement_threshold),
+            'diversity_threshold': float(diversity_threshold),
+            'size_factor': size_factor,
+            'density_factor': density_factor,
+            'difficulty_factor': difficulty_factor,
+            'n_variables': n_variables,
+            'n_edges': n_edges
+        }
+        
+    except Exception as e:
+        logger.warning(f"Error computing adaptive thresholds: {e}, using defaults")
+        return {
+            'improvement_threshold': base_improvement_threshold,
+            'diversity_threshold': base_diversity_threshold,
+            'size_factor': 1.0,
+            'density_factor': 1.0,
+            'difficulty_factor': 1.0,
+            'n_variables': 3,
+            'n_edges': 0
+        }
+
+
+def create_adaptive_reward_config(
+    scm: pyr.PMap,
+    difficulty_level: Optional[int] = None,
+    optimization_weight: float = 1.0,
+    structure_weight: float = 0.5,
+    parent_weight: float = 0.3,
+    exploration_weight: float = 0.1
+) -> pyr.PMap:
+    """
+    Create a reward configuration with adaptive thresholds based on SCM characteristics.
+    
+    Updated to work with our continuous reward system instead of the old binary system.
+    
+    Args:
+        scm: The SCM structure to analyze
+        difficulty_level: Optional curriculum difficulty level (1-5)
+        optimization_weight: Weight for target optimization reward
+        structure_weight: Weight for structure discovery reward
+        parent_weight: Weight for parent intervention reward
+        exploration_weight: Weight for exploration bonus
+        
+    Returns:
+        Validated reward configuration with adaptive thresholds
+        
+    Example:
+        >>> scm = create_scm(variables={'X', 'Y', 'Z'}, edges={('X', 'Y')})
+        >>> config = create_adaptive_reward_config(scm, difficulty_level=2)
+        >>> config['adaptive_thresholds']['improvement_threshold']  # Adapted threshold
+    """
+    # Compute adaptive thresholds
+    adaptive_thresholds = compute_adaptive_thresholds(scm, difficulty_level)
+    
+    # Create base configuration
+    config = create_default_reward_config(
+        optimization_weight=optimization_weight,
+        structure_weight=structure_weight,
+        parent_weight=parent_weight,
+        exploration_weight=exploration_weight
+    )
+    
+    # Add adaptive threshold metadata  
+    enhanced_config = config.set('adaptive_thresholds', adaptive_thresholds)
+    enhanced_config = enhanced_config.set('scm_characteristics', pyr.m(**{
+        'n_variables': adaptive_thresholds['n_variables'],
+        'n_edges': adaptive_thresholds['n_edges'], 
+        'difficulty_level': difficulty_level
+    }))
+    
+    return enhanced_config
+
+
+def validate_reward_consistency(
+    reward_history: List[RewardComponents],
+    window_size: int = 50
+) -> Dict[str, Any]:
+    """
+    Validate reward consistency and detect potential gaming patterns.
+    
+    Updated to work with continuous RewardComponents instead of binary SimpleRewardComponents.
+    
+    Args:
+        reward_history: Recent reward components from training
+        window_size: Number of recent rewards to analyze
+        
+    Returns:
+        Validation metrics and gaming detection results
+    """
+    if not reward_history:
+        return {'valid': True, 'warning': 'No reward history'}
+    
+    recent_rewards = reward_history[-window_size:]
+    
+    # Component statistics for continuous rewards
+    opt_rewards = [r.optimization_reward for r in recent_rewards]
+    struct_rewards = [r.structure_discovery_reward for r in recent_rewards]
+    parent_rewards = [r.parent_intervention_reward for r in recent_rewards]
+    explore_rewards = [r.exploration_bonus for r in recent_rewards]
+    total_rewards = [r.total_reward for r in recent_rewards]
+    
+    # Check for gaming patterns (adapted for continuous rewards)
+    gaming_issues = []
+    
+    # 1. Check if optimization reward is consistently very low (no optimization progress)
+    opt_mean = float(jnp.mean(jnp.array(opt_rewards)))
+    if opt_mean < 0.1:
+        gaming_issues.append(f"Very low optimization reward mean: {opt_mean:.3f}")
+    
+    # 2. Check if parent intervention rate is suspiciously high (gaming structure guidance)
+    parent_mean = float(jnp.mean(jnp.array(parent_rewards)))
+    if parent_mean > 0.9:
+        gaming_issues.append(f"Suspiciously high parent intervention mean: {parent_mean:.3f}")
+    
+    # 3. Check if exploration is consistently very low (mode collapse)
+    explore_mean = float(jnp.mean(jnp.array(explore_rewards)))
+    if explore_mean < 0.01:
+        gaming_issues.append(f"Very low exploration reward mean: {explore_mean:.3f}")
+    
+    # 4. Check reward variance (too little variance suggests gaming)
+    total_variance = float(jnp.var(jnp.array(total_rewards)))
+    if total_variance < 0.001:
+        gaming_issues.append(f"Very low total reward variance: {total_variance:.6f}")
+    
+    # 5. Check for NaN or infinite values
+    all_rewards = opt_rewards + struct_rewards + parent_rewards + explore_rewards + total_rewards
+    if not all(jnp.isfinite(r) for r in all_rewards):
+        gaming_issues.append("Found non-finite reward values")
+    
+    return {
+        'valid': len(gaming_issues) == 0,
+        'gaming_issues': gaming_issues,
+        'component_means': {
+            'optimization_reward': opt_mean,
+            'structure_discovery_reward': float(jnp.mean(jnp.array(struct_rewards))),
+            'parent_intervention_reward': parent_mean,
+            'exploration_bonus': explore_mean
+        },
+        'statistics': {
+            'mean_total_reward': float(jnp.mean(jnp.array(total_rewards))),
+            'total_reward_variance': total_variance,
+            'optimization_variance': float(jnp.var(jnp.array(opt_rewards))),
+            'structure_variance': float(jnp.var(jnp.array(struct_rewards))),
+            'n_samples': len(recent_rewards)
+        }
+    }
+
+
+# Legacy compatibility functions for reward_rubric.py
+def target_improvement_reward(
+    outcome_value: float,
+    current_best: float,
+    improvement_threshold: float = 0.1
+) -> float:
+    """
+    Legacy wrapper for binary target improvement reward.
+    
+    This provides compatibility for the reward_rubric system while using
+    our continuous reward approach under the hood.
+    
+    Args:
+        outcome_value: Target variable value from intervention outcome
+        current_best: Current best target value achieved
+        improvement_threshold: Minimum improvement required for reward
+        
+    Returns:
+        1.0 if improvement > threshold, 0.0 otherwise
+    """
+    if not jnp.isfinite(outcome_value) or not jnp.isfinite(current_best):
+        return 0.0
+    
+    improvement = outcome_value - current_best
+    return 1.0 if improvement > improvement_threshold else 0.0
+
+
+def exploration_diversity_reward(
+    intervention_targets: set,
+    previous_interventions: list,
+    diversity_threshold: int = 3
+) -> float:
+    """
+    Legacy wrapper for binary exploration diversity reward.
+    
+    This provides compatibility for the reward_rubric system.
+    
+    Args:
+        intervention_targets: Variables intervened upon in current step
+        previous_interventions: List of intervention target sets from previous steps
+        diversity_threshold: Maximum frequency before reward becomes 0
+        
+    Returns:
+        1.0 if intervention frequency < threshold, 0.0 otherwise
+    """
+    if not intervention_targets:
+        return 0.0
+    
+    # Count frequency of these exact intervention targets
+    frequency = sum(1 for prev_targets in previous_interventions 
+                   if len(intervention_targets & prev_targets) > 0)
+    
+    return 1.0 if frequency < diversity_threshold else 0.0

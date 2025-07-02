@@ -34,7 +34,7 @@ def inspect_dataset(dataset_dir: str):
         print(f"  Rate: {results.get('demonstrations_per_second', 0):.2f} demos/sec")
     
     # Check batch files
-    batch_dir = dataset_path / "batches"
+    batch_dir = dataset_path / "raw_demonstrations"
     if batch_dir.exists():
         batch_files = list(batch_dir.glob("batch_*.pkl"))
         print(f"\n📦 Found {len(batch_files)} batch files")

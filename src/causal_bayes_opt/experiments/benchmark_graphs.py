@@ -240,7 +240,7 @@ def create_erdos_renyi_scm(
         target=target_variable
     )
     
-    # Add metadata
+    # Add metadata including coefficients for oracle access
     metadata = {
         'graph_type': 'erdos_renyi',
         'n_nodes': n_nodes,
@@ -248,7 +248,8 @@ def create_erdos_renyi_scm(
         'actual_edges': len(edges),
         'seed': seed,
         'coeff_range': coeff_range,
-        'noise_scale': noise_scale
+        'noise_scale': noise_scale,
+        'coefficients': coefficients  # Store coefficients for oracle access
     }
     
     scm = scm.set('metadata', pyr.pmap(scm['metadata'].update(metadata)))

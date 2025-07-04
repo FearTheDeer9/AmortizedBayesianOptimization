@@ -32,11 +32,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 import numpy as onp
+import jax.random as random
 
 # Import existing infrastructure
-from src.causal_bayes_opt.training.expert_collection.collector import ExpertDemonstrationCollector
-from src.causal_bayes_opt.training.expert_collection.data_structures import DemonstrationBatch
-from src.causal_bayes_opt.training.curriculum import (
+from causal_bayes_opt.training.expert_collection.collector import ExpertDemonstrationCollector
+from causal_bayes_opt.training.expert_collection.data_structures import DemonstrationBatch
+from causal_bayes_opt.training.curriculum import (
     DifficultyLevel, CurriculumManager, create_curriculum_manager
 )
 
@@ -73,6 +74,10 @@ class SFTCollectionConfig:
     # Resource management
     memory_limit_gb: float = 16.0
     max_batch_size: int = 1000
+    
+    # SCM generation parameters
+    seed: Optional[int] = None  # Random seed for SCM generation
+    trajectory_length: int = 5  # Number of CBO iterations (T parameter)
     
     def __post_init__(self):
         """Set target demonstrations based on size."""
@@ -119,14 +124,16 @@ class SFTDatasetCollector:
         self.output_dir = Path(config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize expert collector
+        # Initialize expert collector with seed and trajectory length
         self.expert_collector = ExpertDemonstrationCollector(
-            output_dir=str(self.output_dir / "raw_demonstrations")
+            output_dir=str(self.output_dir / "raw_demonstrations"),
+            seed=config.seed,
+            trajectory_length=config.trajectory_length
         )
         
         # Initialize curriculum manager if using difficulty progression
         if "all" not in config.difficulty_levels:
-            from src.causal_bayes_opt.training.config import TrainingConfig
+            from causal_bayes_opt.training.config import TrainingConfig
             # Create a minimal training config for curriculum manager
             training_config = TrainingConfig(
                 total_steps=1000,
@@ -322,7 +329,9 @@ class SFTDatasetCollector:
                 "size": self.config.size,
                 "target_demonstrations": self.config.target_demonstrations,
                 "difficulty_levels": self.config.difficulty_levels,
-                "min_accuracy": self.config.min_accuracy
+                "min_accuracy": self.config.min_accuracy,
+                "seed": self.config.seed,
+                "trajectory_length": self.config.trajectory_length
             },
             "collection_results": {
                 "total_demonstrations": state.demonstrations_collected,
@@ -355,7 +364,9 @@ def create_collection_config(args: argparse.Namespace) -> SFTCollectionConfig:
         parallel=not args.serial,
         output_dir=args.output_dir,
         checkpoint_interval=args.checkpoint_interval,
-        memory_limit_gb=args.memory_limit
+        memory_limit_gb=args.memory_limit,
+        seed=args.seed,
+        trajectory_length=args.trajectory_length
     )
 
 
@@ -407,6 +418,12 @@ Examples:
     # Resource management  
     parser.add_argument("--memory-limit", type=float, default=16.0,
                        help="Memory limit in GB")
+    
+    # SCM generation parameters
+    parser.add_argument("--seed", type=int, default=None,
+                       help="Random seed for SCM generation (default: uses fixed seed)")
+    parser.add_argument("--trajectory-length", type=int, default=5,
+                       help="Number of CBO iterations (T parameter, default: 5)")
     
     args = parser.parse_args()
     

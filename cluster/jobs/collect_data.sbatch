@@ -1,7 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=acbo_collect_data
-#SBATCH --partition=training          # Use training partition for taught students
-#SBATCH --gres=gpu:1                 # Request 1 GPU
 #SBATCH --cpus-per-task=8            # 8 CPU cores for parallel collection
 #SBATCH --mem=32G                    # 32GB RAM for data processing
 #SBATCH --time=24:00:00              # 24 hour time limit
@@ -13,7 +11,7 @@ echo "=================================================="
 echo "ACBO Data Collection Job"
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURMD_NODENAME"
-echo "GPU: $CUDA_VISIBLE_DEVICES"
+echo "CPUs: $SLURM_CPUS_PER_TASK"
 echo "Start time: $(date)"
 echo "=================================================="
 
@@ -25,6 +23,8 @@ WORKERS=${WORKERS:-8}
 BATCH_SIZE=${BATCH_SIZE:-100}
 CHECKPOINT_INTERVAL=${CHECKPOINT_INTERVAL:-500}  # Checkpoint every N demonstrations
 MIN_ACCURACY=${MIN_ACCURACY:-0.7}
+SEED=${SEED:-$SLURM_JOB_ID}  # Use job ID as seed if not provided
+TRAJECTORY_LENGTH=${TRAJECTORY_LENGTH:-5}  # Default to 5 CBO iterations
 
 # Setup environment
 PROJECT_DIR="/vol/bitbucket/$USER/causal_bayes_opt"
@@ -46,15 +46,17 @@ echo "  Processing: Serial mode (avoiding pickle issues)"
 echo "  Batch size: $BATCH_SIZE"
 echo "  Checkpoint interval: $CHECKPOINT_INTERVAL"
 echo "  Min accuracy: $MIN_ACCURACY"
+echo "  Seed: $SEED"
+echo "  Trajectory length: $TRAJECTORY_LENGTH"
 echo ""
 
 # Determine if we should use Poetry
 if [ -f "${PROJECT_DIR}/pyproject.toml" ] && command -v poetry &> /dev/null; then
     echo "Using Poetry for execution"
-    CMD="poetry run python scripts/collect_sft_dataset.py"
+    CMD="poetry run python scripts/core/collect_sft_dataset.py"
 else
     echo "Using direct Python execution"
-    CMD="python scripts/collect_sft_dataset.py"
+    CMD="python scripts/core/collect_sft_dataset.py"
 fi
 
 # Build command arguments
@@ -64,6 +66,8 @@ CMD="$CMD --serial"  # Use serial mode to avoid pickle issues
 CMD="$CMD --batch-size $BATCH_SIZE"
 CMD="$CMD --checkpoint-interval $CHECKPOINT_INTERVAL"
 CMD="$CMD --min-accuracy $MIN_ACCURACY"
+CMD="$CMD --seed $SEED"
+CMD="$CMD --trajectory-length $TRAJECTORY_LENGTH"
 
 # Add difficulty levels if not "all"
 if [ "$DIFFICULTY_LEVELS" != "all" ]; then
@@ -93,9 +97,9 @@ if [ $COLLECTION_EXIT_CODE -eq 0 ]; then
     
     # Use Poetry for validation if available
     if [ -f "${PROJECT_DIR}/pyproject.toml" ] && command -v poetry &> /dev/null; then
-        poetry run python scripts/validate_dataset.py "$OUTPUT_DIR" --detailed --export-report --visualizations
+        poetry run python scripts/core/validate_dataset.py "$OUTPUT_DIR" --detailed --export-report --visualizations
     else
-        python scripts/validate_dataset.py "$OUTPUT_DIR" --detailed --export-report --visualizations
+        python scripts/core/validate_dataset.py "$OUTPUT_DIR" --detailed --export-report --visualizations
     fi
     VALIDATION_EXIT_CODE=$?
     
@@ -116,12 +120,11 @@ echo "End time: $(date)"
 echo "Duration: $SECONDS seconds"
 echo "Exit code: $COLLECTION_EXIT_CODE"
 
-# Check GPU utilization
-if command -v nvidia-smi &> /dev/null; then
-    echo ""
-    echo "Final GPU status:"
-    nvidia-smi
-fi
+# Check system resources
+echo ""
+echo "Final system status:"
+echo "Memory usage: $(free -h | head -2)"
+echo "CPU load: $(uptime)"
 
 # Clean up temporary files if collection was successful
 if [ $COLLECTION_EXIT_CODE -eq 0 ]; then

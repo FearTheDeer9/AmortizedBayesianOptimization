@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional, FrozenSet
 from pathlib import Path
 
 import numpy as onp
+import jax.random as random
 import pyrsistent as pyr
 
 from causal_bayes_opt.data_structures.scm import get_variables, get_target
@@ -63,11 +64,15 @@ class ExpertDemonstrationCollector:
     proper data scaling, creating high-quality training data for ACBO.
     """
     
-    def __init__(self, output_dir: str = "demonstrations"):
+    def __init__(self, output_dir: str = "demonstrations", seed: Optional[int] = None, trajectory_length: int = 5):
         # Ensure PARENT_SCALE is available
         ensure_parent_scale_imports()
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
+        
+        # SCM generation parameters
+        self.seed = seed
+        self.trajectory_length = trajectory_length
         
         # Collection statistics
         self.demonstrations_collected = 0
@@ -134,7 +139,7 @@ class ExpertDemonstrationCollector:
                 scm=scm,
                 samples=all_samples,
                 target_variable=target_variable,
-                T=5,  # Short trajectory for efficiency
+                T=self.trajectory_length,  # Configurable trajectory length
                 nonlinear=True,
                 causal_prior=True,
                 individual=False,
@@ -401,11 +406,17 @@ class ExpertDemonstrationCollector:
         failures = 0
         total_attempts = 0
         
-        # Generate problems
+        # Generate problems with seed if provided
+        if self.seed is not None:
+            key = random.PRNGKey(self.seed)
+        else:
+            key = None
+        
         problems = generate_scm_problems(
             n_problems=n_demonstrations * 3,  # Generate extra to handle failures
             node_sizes=node_sizes,
-            graph_types=graph_types
+            graph_types=graph_types,
+            key=key
         )
         
         start_time = time.time()
@@ -498,11 +509,17 @@ class ExpertDemonstrationCollector:
         failures = 0
         total_attempts = 0
         
-        # Generate extra problems to handle failures
+        # Generate extra problems to handle failures with seed if provided
+        if self.seed is not None:
+            key = random.PRNGKey(self.seed)
+        else:
+            key = None
+            
         problems = generate_scm_problems(
             n_problems=n_demonstrations * 3,
             node_sizes=node_sizes,
-            graph_types=graph_types
+            graph_types=graph_types,
+            key=key
         )
         
         start_time = time.time()

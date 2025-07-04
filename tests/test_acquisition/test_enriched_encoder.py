@@ -50,7 +50,7 @@ class TestContextEnrichmentBuilder:
         builder = ContextEnrichmentBuilder(max_history_size=100)
         
         # Action
-        enriched_history = builder.build_enriched_history(state)
+        enriched_history, _ = builder.build_enriched_history(state)
         
         # Assertions
         assert enriched_history.shape == (100, 5, ENRICHED_CHANNEL_COUNT)
@@ -62,7 +62,7 @@ class TestContextEnrichmentBuilder:
         state = create_mock_acquisition_state(n_vars=3, buffer_size=10)
         builder = ContextEnrichmentBuilder(max_history_size=50)
         
-        enriched_history = builder.build_enriched_history(state)
+        enriched_history, _ = builder.build_enriched_history(state)
         
         # Channel 0: standardized values - should have reasonable range
         values_channel = enriched_history[:, :, 0]
@@ -91,7 +91,7 @@ class TestContextEnrichmentBuilder:
         state = create_mock_acquisition_state(n_vars=n_vars, buffer_size=buffer_size)
         builder = ContextEnrichmentBuilder(max_history_size=max_history_size)
         
-        enriched_history = builder.build_enriched_history(state)
+        enriched_history, _ = builder.build_enriched_history(state)
         
         # Properties that should always hold
         assert enriched_history.shape == (max_history_size, n_vars, 10)
@@ -106,7 +106,7 @@ class TestContextEnrichmentBuilder:
         state = create_mock_acquisition_state(n_vars=3, buffer_size=0)
         builder = ContextEnrichmentBuilder(max_history_size=50)
         
-        enriched_history = builder.build_enriched_history(state)
+        enriched_history, _ = builder.build_enriched_history(state)
         
         # Should return zeros with correct shape
         assert enriched_history.shape == (50, 3, 10)
@@ -117,7 +117,7 @@ class TestContextEnrichmentBuilder:
         state = create_mock_acquisition_state(n_vars=3, buffer_size=20)
         builder = ContextEnrichmentBuilder(max_history_size=50)
         
-        enriched_history = builder.build_enriched_history(state)
+        enriched_history, _ = builder.build_enriched_history(state)
         
         # Most recent samples should be at the end (higher indices)
         # This tests that temporal structure is maintained
@@ -374,7 +374,7 @@ class TestTemporalIntegration:
         state = state.set('marginal_parent_probs', pyr.pmap(evolving_probs))
         
         builder = ContextEnrichmentBuilder(max_history_size=50)
-        enriched_history = builder.build_enriched_history(state)
+        enriched_history, _ = builder.build_enriched_history(state)
         
         # Check that uncertainty information is captured
         uncertainty_channel = enriched_history[:, :, 3]  # Marginal probabilities
@@ -394,7 +394,7 @@ class TestTemporalIntegration:
         state = state.set('mechanism_confidence', pyr.pmap(confidence_map))
         
         builder = ContextEnrichmentBuilder(max_history_size=50)
-        enriched_history = builder.build_enriched_history(state)
+        enriched_history, _ = builder.build_enriched_history(state)
         
         # Check mechanism confidence channel
         confidence_channel = enriched_history[:, :, 5]
@@ -490,7 +490,7 @@ class TestBackwardCompatibility:
         
         # Should work with existing AcquisitionState without modification
         builder = ContextEnrichmentBuilder(max_history_size=50)
-        enriched_history = builder.build_enriched_history(state)
+        enriched_history, _ = builder.build_enriched_history(state)
         
         assert enriched_history.shape == (50, 5, 10)
         assert jnp.all(jnp.isfinite(enriched_history))

@@ -16,8 +16,8 @@ set -e  # Exit on any error
 PROJECT_NAME="acbo_training"
 PYTHON_VERSION="3.10"
 CUDA_VERSION="11.8"
-PROJECT_DIR="/vol/bitbucket/${USER}/causal_bayes_opt"
-VENV_DIR="/vol/bitbucket/${USER}/envs/${PROJECT_NAME}"
+PROJECT_DIR="/vol/bitbucket/hl1824/causal_bayes_opt"
+VENV_DIR="/vol/bitbucket/hl1824/envs/${PROJECT_NAME}"
 
 # Colors for output
 RED='\033[0;31m'

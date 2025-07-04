@@ -45,7 +45,8 @@ class EnrichedHistoryBuilder:
     def __init__(self, 
                  standardize_values: bool = True,
                  include_temporal_features: bool = True,
-                 max_history_size: Optional[int] = None):
+                 max_history_size: Optional[int] = None,
+                 support_variable_scms: bool = True):
         """
         Initialize enriched history builder.
         
@@ -53,21 +54,25 @@ class EnrichedHistoryBuilder:
             standardize_values: Whether to standardize variable values
             include_temporal_features: Whether to include temporal context
             max_history_size: Maximum history size (uses class default if None)
+            support_variable_scms: Whether to support variable-count SCMs (3-8 variables)
         """
         self.standardize_values = standardize_values
         self.include_temporal_features = include_temporal_features
         self.max_history_size = max_history_size or self.MAX_HISTORY_SIZE
         self.num_channels = len(self.CHANNEL_DEFINITIONS)
+        self.support_variable_scms = support_variable_scms
     
-    def build_enriched_history(self, state) -> jnp.ndarray:
+    def build_enriched_history(self, state) -> Tuple[jnp.ndarray, Optional[jnp.ndarray]]:
         """
-        Convert AcquisitionState to enriched transformer input.
+        Convert AcquisitionState to enriched transformer input with optional variable masking.
         
         Args:
             state: AcquisitionState with buffer and context information
             
         Returns:
-            Enriched history [MAX_HISTORY_SIZE, n_vars, num_channels]
+            Tuple of (enriched_history, variable_mask) where:
+            - enriched_history: [MAX_HISTORY_SIZE, n_vars, num_channels]
+            - variable_mask: [n_vars] or None (1.0 for valid variables, 0.0 for padding)
         """
         # Get all samples from buffer
         all_samples = state.buffer.get_all_samples()
@@ -78,7 +83,9 @@ class EnrichedHistoryBuilder:
         
         if not all_samples or n_vars == 0:
             # Handle empty buffer case
-            return jnp.zeros((self.max_history_size, max(1, n_vars), self.num_channels))
+            empty_history = jnp.zeros((self.max_history_size, max(1, n_vars), self.num_channels))
+            empty_mask = jnp.ones(max(1, n_vars)) if self.support_variable_scms else None
+            return empty_history, empty_mask
         
         # Build core intervention history (channels 0-2)
         core_history = self._build_core_history(
@@ -100,7 +107,14 @@ class EnrichedHistoryBuilder:
             padding = jnp.zeros(padding_shape)
             enriched_history = jnp.concatenate([core_history, padding], axis=2)
         
-        return enriched_history
+        # Create variable mask for variable-agnostic processing
+        variable_mask = None
+        if self.support_variable_scms:
+            # All variables are valid (no padding in this implementation)
+            # Future enhancement: could support padding to max variable count
+            variable_mask = jnp.ones(n_vars)
+        
+        return enriched_history, variable_mask
     
     def _build_core_history(self, 
                           all_samples: List[Any], 
@@ -398,9 +412,10 @@ class EnrichedHistoryBuilder:
 
 def create_enriched_history_jax(state, 
                                max_history_size: int = 100,
-                               include_temporal_features: bool = True) -> jnp.ndarray:
+                               include_temporal_features: bool = True,
+                               support_variable_scms: bool = True) -> Tuple[jnp.ndarray, Optional[jnp.ndarray]]:
     """
-    JAX-compatible function for creating enriched history.
+    JAX-compatible function for creating enriched history with variable masking.
     
     This function is designed to be used within JAX transformations
     and avoids Python loops and dynamic operations.
@@ -409,38 +424,47 @@ def create_enriched_history_jax(state,
         state: AcquisitionState (processed outside JAX)
         max_history_size: Maximum history size
         include_temporal_features: Whether to include temporal context
+        support_variable_scms: Whether to support variable-count SCMs
         
     Returns:
-        Enriched history tensor [max_history_size, n_vars, num_channels]
+        Tuple of (enriched_history, variable_mask) where:
+        - enriched_history: [max_history_size, n_vars, num_channels]
+        - variable_mask: [n_vars] or None
     """
     builder = EnrichedHistoryBuilder(
         max_history_size=max_history_size,
-        include_temporal_features=include_temporal_features
+        include_temporal_features=include_temporal_features,
+        support_variable_scms=support_variable_scms
     )
     return builder.build_enriched_history(state)
 
 
 def create_enriched_history_tensor(state, 
                                   max_history_size: int = 100,
-                                  include_temporal_features: bool = True) -> jnp.ndarray:
+                                  include_temporal_features: bool = True,
+                                  support_variable_scms: bool = True) -> Tuple[jnp.ndarray, Optional[jnp.ndarray]]:
     """
-    Create enriched history tensor from AcquisitionState.
+    Create enriched history tensor from AcquisitionState with variable masking.
     
     This is the main entry point for converting AcquisitionState to enriched
-    transformer input format with temporal context evolution.
+    transformer input format with temporal context evolution and variable-agnostic support.
     
     Args:
         state: AcquisitionState with buffer and context information
         max_history_size: Maximum history size for transformer input
         include_temporal_features: Whether to include temporal context channels
+        support_variable_scms: Whether to support variable-count SCMs
         
     Returns:
-        Enriched history tensor [max_history_size, n_vars, num_channels]
+        Tuple of (enriched_history, variable_mask) where:
+        - enriched_history: [max_history_size, n_vars, num_channels]
+        - variable_mask: [n_vars] or None
     """
     return create_enriched_history_jax(
         state=state,
         max_history_size=max_history_size,
-        include_temporal_features=include_temporal_features
+        include_temporal_features=include_temporal_features,
+        support_variable_scms=support_variable_scms
     )
 
 
@@ -486,10 +510,11 @@ def validate_enriched_state_integration() -> bool:
         
         # Test enriched history creation
         mock_state = MockState()
-        enriched_tensor = create_enriched_history_tensor(
+        enriched_tensor, variable_mask = create_enriched_history_tensor(
             state=mock_state,
             max_history_size=20,
-            include_temporal_features=True
+            include_temporal_features=True,
+            support_variable_scms=True
         )
         
         # Validate tensor shape
@@ -502,6 +527,17 @@ def validate_enriched_state_integration() -> bool:
         if not jnp.all(jnp.isfinite(enriched_tensor)):
             logger.error("Enriched tensor contains NaN or infinite values")
             return False
+        
+        # Validate variable mask
+        if variable_mask is not None:
+            expected_mask_shape = (2,)  # [n_vars]
+            if variable_mask.shape != expected_mask_shape:
+                logger.error(f"Unexpected mask shape: {variable_mask.shape}, expected: {expected_mask_shape}")
+                return False
+            
+            if not jnp.all((variable_mask == 0.0) | (variable_mask == 1.0)):
+                logger.error("Variable mask should contain only 0.0 and 1.0 values")
+                return False
         
         logger.info("Enriched state integration validation passed")
         return True

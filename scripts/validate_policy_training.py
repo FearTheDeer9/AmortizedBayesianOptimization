@@ -130,7 +130,7 @@ def simulate_intervention_outcome(scm: pyr.PMap, intervention: pyr.PMap) -> pyr.
     outcome_values = {"Y": y_value}
     outcome_values.update(values)  # Include intervention values
     
-    return pyr.m(values=outcome_values)
+    return pyr.m({'values': outcome_values})
 
 
 def create_simple_policy_network(key: jax.random.PRNGKey) -> Tuple[Any, Any]:
@@ -228,11 +228,11 @@ def run_validation_episode(
         values_history.append(float(value_estimate))
         
         # Convert action to intervention
-        intervention = pyr.m(
-            type="perfect",
-            targets={"X", "Z"},
-            values={"X": float(action[0]), "Z": float(action[1])}
-        )
+        intervention = pyr.m({
+            'type': "perfect",
+            'targets': {"X", "Z"},
+            'values': {"X": float(action[0]), "Z": float(action[1])}
+        })
         
         # Simulate outcome
         outcome = simulate_intervention_outcome(scm, intervention)

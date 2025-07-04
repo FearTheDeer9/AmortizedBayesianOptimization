@@ -1,0 +1,31 @@
+# Model Comparison Configuration
+# @package _global_
+
+defaults:
+  - _self_
+
+# Evaluation configuration
+evaluation:
+  n_test_episodes: 30
+  episode_length: 15
+  test_scm_variants: 4
+  n_test_variables: 4
+
+# Logging configuration
+logging:
+  level: "INFO"
+  wandb:
+    enabled: false
+    project: "causal_bayes_opt_comparison"
+    entity: null
+    tags: ["model_comparison", "grpo_evaluation"]
+
+# Optional: specify specific model paths to compare
+# model_paths:
+#   - "checkpoints/grpo_training_1704067200"
+#   - "checkpoints/grpo_training_1704153600"
+
+# Hydra settings
+hydra:
+  run:
+    dir: outputs/model_comparison/${now:%Y-%m-%d}/${now:%H-%M-%S}

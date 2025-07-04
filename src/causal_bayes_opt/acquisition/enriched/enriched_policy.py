@@ -138,36 +138,20 @@ class EnrichedAttentionEncoder(hk.Module):
     
     def _add_positional_encoding(self, x: jnp.ndarray) -> jnp.ndarray:
         """
-        Add learnable positional encoding for temporal information.
+        Variable-agnostic: No positional encoding for variables.
+        
+        Variables should learn relationships through data patterns in alternating attention,
+        not through imposed positional structure. This enables variable-agnostic processing
+        for SCMs with 3-8+ variables.
         
         Args:
             x: Input [T, n_vars, hidden_dim]
             
         Returns:
-            Input with positional encoding [T, n_vars, hidden_dim]
+            Input without variable positional encoding [T, n_vars, hidden_dim]
         """
-        T, n_vars, hidden_dim = x.shape
-        
-        # Create learnable temporal embeddings
-        temporal_embeddings = hk.get_parameter(
-            "temporal_embeddings",
-            shape=[T, hidden_dim],
-            init=hk.initializers.TruncatedNormal(stddev=0.02)
-        )
-        
-        # Create learnable variable embeddings  
-        variable_embeddings = hk.get_parameter(
-            "variable_embeddings", 
-            shape=[n_vars, hidden_dim],
-            init=hk.initializers.TruncatedNormal(stddev=0.02)
-        )
-        
-        # Add both temporal and variable positional information
-        temporal_pos = temporal_embeddings[:, None, :]  # [T, 1, hidden_dim]
-        variable_pos = variable_embeddings[None, :, :]   # [1, n_vars, hidden_dim]
-        
-        x = x + temporal_pos + variable_pos
-        
+        # Keep only minimal temporal information if needed for recency
+        # But no variable positional embeddings - relationships learned through attention
         return x
     
     def _apply_transformer_layers(self, x: jnp.ndarray, dropout_rate: float) -> jnp.ndarray:

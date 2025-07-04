@@ -381,7 +381,7 @@ class GRPOTrainingManager:
             include_temporal_features = True  # Enable temporal context
             
             # Create enriched history tensor using the proper function
-            state_tensor = create_enriched_history_tensor(
+            state_tensor, _ = create_enriched_history_tensor(
                 state=state,
                 max_history_size=max_history,
                 include_temporal_features=include_temporal_features

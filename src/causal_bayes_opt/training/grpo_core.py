@@ -481,12 +481,41 @@ def create_grpo_update_fn(
                 value_grads, None
             )[0]
 
-        # Apply updates
+        # Apply updates with debugging
+        logger.debug("GRPO: Computing policy updates...")
         policy_updates, new_policy_opt_state = policy_optimizer.update(
             policy_grads, policy_opt_state, policy_params
         )
+        
+        # DEBUG: Check update magnitudes
+        policy_update_norm = optax.global_norm(policy_updates)
+        logger.debug(f"GRPO: Policy update norm: {float(policy_update_norm):.12f}")
+        
+        # DEBUG: Log sample updates
+        if isinstance(policy_updates, dict):
+            first_key = next(iter(policy_updates.keys()))
+            if hasattr(policy_updates[first_key], 'flatten'):
+                sample_update = float(policy_updates[first_key].flatten()[0])
+                logger.debug(f"GRPO: Sample policy update value: {sample_update:.12f}")
+        
+        logger.debug("GRPO: Applying policy updates...")
         new_policy_params = optax.apply_updates(policy_params, policy_updates)
+        
+        # DEBUG: Verify parameter change after apply_updates
+        if isinstance(policy_params, dict) and isinstance(new_policy_params, dict):
+            first_key = next(iter(policy_params.keys()))
+            if hasattr(policy_params[first_key], 'flatten') and hasattr(new_policy_params[first_key], 'flatten'):
+                old_param = float(policy_params[first_key].flatten()[0])
+                new_param = float(new_policy_params[first_key].flatten()[0])
+                actual_change = abs(new_param - old_param)
+                logger.debug(f"GRPO: Parameter change verification - old: {old_param:.12f}, new: {new_param:.12f}, change: {actual_change:.12f}")
+                
+                if actual_change < 1e-12:
+                    logger.warning("🚨 GRPO: optax.apply_updates did not change parameters!")
+                else:
+                    logger.info(f"✅ GRPO: Parameters successfully updated by {actual_change:.12f}")
 
+        logger.debug("GRPO: Computing value updates...")
         value_updates, new_value_opt_state = value_optimizer.update(
             value_grads, value_opt_state, value_params
         )

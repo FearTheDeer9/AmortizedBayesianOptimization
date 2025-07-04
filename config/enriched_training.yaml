@@ -1,0 +1,62 @@
+# Enriched GRPO Training Configuration
+# This configuration follows CLAUDE.md principles with clear, simple structure
+
+# Random seed for reproducibility
+seed: 42
+
+# Training configuration
+training:
+  n_episodes: 100
+  episode_length: 10
+  learning_rate: 0.001
+  gamma: 0.99
+  max_intervention_value: 2.0
+  
+  # Reward weighting
+  reward_weights:
+    optimization: 1.0
+    discovery: 1.0
+    efficiency: 0.5
+  
+  # Policy architecture
+  architecture:
+    hidden_dim: 128
+    num_layers: 4
+    num_heads: 8
+    key_size: 32
+    widening_factor: 4
+    dropout: 0.1
+    policy_intermediate_dim: null
+  
+  # State enrichment configuration
+  state_config:
+    max_history_size: 100
+    num_channels: 10
+    standardize_values: true
+    include_temporal_features: true
+
+# Experiment configuration
+experiment:
+  # SCM generation settings
+  scm_generation:
+    use_variable_factory: true
+    variable_range: [3, 6]  # Support 3-6 variable SCMs
+    structure_types: 
+      - "fork"
+      - "chain" 
+      - "collider"
+      - "mixed"
+    rotation_frequency: 5  # Change SCM every 5 episodes
+
+# Logging configuration
+logging:
+  checkpoint_dir: "checkpoints/enriched_grpo"
+  
+  # WandB integration
+  wandb:
+    enabled: false
+    project: "enriched-grpo-modular"
+    run_name: null  # Auto-generated if null
+    
+  # Console logging level
+  level: "INFO"

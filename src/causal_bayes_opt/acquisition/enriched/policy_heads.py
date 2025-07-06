@@ -36,7 +36,7 @@ class SimplifiedPolicyHeads(hk.Module):
         self.w_init = hk.initializers.VarianceScaling(2.0, "fan_in", "uniform")
     
     def __call__(self,
-                 variable_embeddings: jnp.ndarray,  # [n_vars, hidden_dim] from enriched transformer
+                 variable_embeddings: jnp.ndarray,  # [n_vars, hidden_dim] or [batch_size, n_vars, hidden_dim]
                  target_variable_idx: int,          # Target variable index for masking
                  is_training: bool = True           # Training mode flag
                  ) -> Dict[str, jnp.ndarray]:
@@ -44,17 +44,27 @@ class SimplifiedPolicyHeads(hk.Module):
         Compute policy outputs from enriched transformer embeddings.
         
         Args:
-            variable_embeddings: Embeddings from enriched transformer [n_vars, hidden_dim]
+            variable_embeddings: Embeddings from enriched transformer 
+                                Single: [n_vars, hidden_dim] or Batched: [batch_size, n_vars, hidden_dim]
             target_variable_idx: Index of target variable (for masking)
             is_training: Training mode flag
             
         Returns:
             Dictionary containing:
-            - 'variable_logits': [n_vars] - Which variable to intervene on
-            - 'value_params': [n_vars, 2] - (mean, log_std) for intervention values
-            - 'state_value': [] - State value estimate
+            - 'variable_logits': [n_vars] or [batch_size, n_vars] - Which variable to intervene on
+            - 'value_params': [n_vars, 2] or [batch_size, n_vars, 2] - (mean, log_std) for intervention values  
+            - 'state_value': [] or [batch_size] - State value estimate
         """
-        n_vars, hidden_dim = variable_embeddings.shape
+        # Handle both single and batched inputs
+        if len(variable_embeddings.shape) == 2:
+            # Single state: [n_vars, hidden_dim]
+            n_vars, hidden_dim = variable_embeddings.shape
+            is_batched = False
+        else:
+            # Batched state: [batch_size, n_vars, hidden_dim]
+            batch_size, n_vars, hidden_dim = variable_embeddings.shape
+            is_batched = True
+        
         dropout_rate = self.dropout if is_training else 0.0
         
         # Variable selection head
@@ -79,7 +89,7 @@ class SimplifiedPolicyHeads(hk.Module):
         }
     
     def _variable_selection_head(self,
-                               variable_embeddings: jnp.ndarray,  # [n_vars, hidden_dim]
+                               variable_embeddings: jnp.ndarray,  # [n_vars, hidden_dim] or [batch_size, n_vars, hidden_dim]
                                target_variable_idx: int,
                                dropout_rate: float) -> jnp.ndarray:
         """
@@ -91,9 +101,17 @@ class SimplifiedPolicyHeads(hk.Module):
             dropout_rate: Dropout rate
             
         Returns:
-            Variable selection logits [n_vars]
+            Variable selection logits [n_vars] or [batch_size, n_vars]
         """
-        n_vars = variable_embeddings.shape[0]
+        # Handle both single and batched inputs
+        if len(variable_embeddings.shape) == 2:
+            # Single state: [n_vars, hidden_dim]
+            n_vars = variable_embeddings.shape[0]
+            is_batched = False
+        else:
+            # Batched state: [batch_size, n_vars, hidden_dim]
+            batch_size, n_vars = variable_embeddings.shape[:2]
+            is_batched = True
         
         # Simple MLP for variable selection
         x = variable_embeddings
@@ -110,20 +128,28 @@ class SimplifiedPolicyHeads(hk.Module):
         x = jax.nn.relu(x)
         x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         
-        # Output layer
-        variable_logits = hk.Linear(1, w_init=self.w_init, name="var_select_output")(x).squeeze(-1)
+        # Output layer - use smaller initialization for better training dynamics
+        small_init = hk.initializers.VarianceScaling(0.01, "fan_in", "normal")  # Much smaller init
+        variable_logits = hk.Linear(1, w_init=small_init, name="var_select_output")(x).squeeze(-1)
         
         # Mask target variable (cannot intervene on target)
-        masked_logits = jnp.where(
-            jnp.arange(n_vars) == target_variable_idx,
-            -1e9,  # Large negative value for target variable
-            variable_logits
-        )
+        if is_batched:
+            # Batched case: mask across all batch items
+            mask = jnp.arange(n_vars) == target_variable_idx  # [n_vars]
+            mask = mask[None, :]  # [1, n_vars] - broadcast over batch dimension
+            masked_logits = jnp.where(mask, -1e9, variable_logits)
+        else:
+            # Single case: original logic
+            masked_logits = jnp.where(
+                jnp.arange(n_vars) == target_variable_idx,
+                -1e9,  # Large negative value for target variable
+                variable_logits
+            )
         
         return masked_logits
     
     def _value_selection_head(self,
-                            variable_embeddings: jnp.ndarray,  # [n_vars, hidden_dim]
+                            variable_embeddings: jnp.ndarray,  # [n_vars, hidden_dim] or [batch_size, n_vars, hidden_dim]
                             dropout_rate: float) -> jnp.ndarray:
         """
         Simple value selection head for intervention values.
@@ -133,7 +159,7 @@ class SimplifiedPolicyHeads(hk.Module):
             dropout_rate: Dropout rate
             
         Returns:
-            Value parameters [n_vars, 2] where [..., 0] = mean, [..., 1] = log_std
+            Value parameters [n_vars, 2] or [batch_size, n_vars, 2] where [..., 0] = mean, [..., 1] = log_std
         """
         # Simple MLP for value parameters
         x = variable_embeddings
@@ -149,14 +175,21 @@ class SimplifiedPolicyHeads(hk.Module):
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="val_select_norm2")(x)
         x = jax.nn.relu(x)
         
-        # Output layer for mean and log_std
-        value_params = hk.Linear(2, w_init=self.w_init, name="val_select_output")(x)
+        # Output layer for mean and log_std - use smaller initialization for better training dynamics
+        small_init = hk.initializers.VarianceScaling(0.01, "fan_in", "normal")  # Much smaller init
+        value_params = hk.Linear(2, w_init=small_init, name="val_select_output")(x)
         
         # Split into means and log_stds and apply constraints
-        means = value_params[:, 0]
-        log_stds = jnp.clip(value_params[:, 1], -2.0, 2.0)  # Reasonable variance range
-        
-        return jnp.stack([means, log_stds], axis=1)
+        if len(value_params.shape) == 2:
+            # Single state: [n_vars, 2]
+            means = value_params[:, 0]
+            log_stds = jnp.clip(value_params[:, 1], -2.0, 2.0)  # Reasonable variance range
+            return jnp.stack([means, log_stds], axis=1)
+        else:
+            # Batched state: [batch_size, n_vars, 2]
+            means = value_params[:, :, 0]
+            log_stds = jnp.clip(value_params[:, :, 1], -2.0, 2.0)  # Reasonable variance range
+            return jnp.stack([means, log_stds], axis=2)
     
     def _state_value_head(self,
                         variable_embeddings: jnp.ndarray,  # [n_vars, hidden_dim]
@@ -172,7 +205,14 @@ class SimplifiedPolicyHeads(hk.Module):
             State value estimate []
         """
         # Global pooling to get state-level representation
-        state_embedding = jnp.mean(variable_embeddings, axis=0)  # [hidden_dim]
+        # Handle both single and batched inputs properly
+        if len(variable_embeddings.shape) == 2:
+            # Single state: [n_vars, hidden_dim]
+            state_embedding = jnp.mean(variable_embeddings, axis=0)  # [hidden_dim]
+        else:
+            # Batched state: [batch_size, n_vars, hidden_dim] 
+            # Average over variable dimension (axis=1, not axis=0)
+            state_embedding = jnp.mean(variable_embeddings, axis=1)  # [batch_size, hidden_dim]
         
         # Simple MLP for state value
         x = state_embedding
@@ -187,8 +227,9 @@ class SimplifiedPolicyHeads(hk.Module):
         x = hk.Linear(self.intermediate_dim // 2, w_init=self.w_init, name="state_val_linear2")(x)
         x = jax.nn.relu(x)
         
-        # Output layer
-        state_value = hk.Linear(1, w_init=self.w_init, name="state_val_output")(x).squeeze(-1)
+        # Output layer - use smaller initialization for better training dynamics
+        small_init = hk.initializers.VarianceScaling(0.01, "fan_in", "normal")  # Much smaller init
+        state_value = hk.Linear(1, w_init=small_init, name="state_val_output")(x).squeeze(-1)
         
         return state_value
 
@@ -293,9 +334,17 @@ class PolicyOutputValidator:
         
         # Check variable_logits
         var_logits = outputs['variable_logits']
-        if var_logits.shape != (n_vars,):
-            logger.error(f"Invalid variable_logits shape: {var_logits.shape}, expected ({n_vars},)")
-            return False
+        # Handle both single and batched outputs
+        if len(var_logits.shape) == 1:
+            # Single state case: [n_vars]
+            if var_logits.shape != (n_vars,):
+                logger.error(f"Invalid variable_logits shape: {var_logits.shape}, expected ({n_vars},)")
+                return False
+        else:
+            # Batched case: [batch_size, n_vars]
+            if len(var_logits.shape) != 2 or var_logits.shape[1] != n_vars:
+                logger.error(f"Invalid variable_logits shape: {var_logits.shape}, expected (batch_size, {n_vars})")
+                return False
         
         if not jnp.all(jnp.isfinite(var_logits)):
             logger.error("Non-finite values in variable_logits")
@@ -303,28 +352,49 @@ class PolicyOutputValidator:
         
         # Check value_params
         val_params = outputs['value_params']
-        if val_params.shape != (n_vars, 2):
-            logger.error(f"Invalid value_params shape: {val_params.shape}, expected ({n_vars}, 2)")
-            return False
+        # Handle both single and batched outputs
+        if len(val_params.shape) == 2:
+            # Single state case: [n_vars, 2]
+            if val_params.shape != (n_vars, 2):
+                logger.error(f"Invalid value_params shape: {val_params.shape}, expected ({n_vars}, 2)")
+                return False
+        else:
+            # Batched case: [batch_size, n_vars, 2]
+            if len(val_params.shape) != 3 or val_params.shape[1] != n_vars or val_params.shape[2] != 2:
+                logger.error(f"Invalid value_params shape: {val_params.shape}, expected (batch_size, {n_vars}, 2)")
+                return False
         
         if not jnp.all(jnp.isfinite(val_params)):
             logger.error("Non-finite values in value_params")
             return False
         
         # Check log_std constraints
-        log_stds = val_params[:, 1]
+        if len(val_params.shape) == 2:
+            # Single state case: [n_vars, 2]
+            log_stds = val_params[:, 1]
+        else:
+            # Batched case: [batch_size, n_vars, 2]
+            log_stds = val_params[:, :, 1]
+        
         if jnp.any(log_stds < -3.0) or jnp.any(log_stds > 3.0):
             logger.warning("log_std values outside reasonable range [-3, 3]")
         
         # Check state_value
         state_val = outputs['state_value']
-        if not jnp.isscalar(state_val):
-            logger.error(f"state_value should be scalar, got shape: {state_val.shape}")
-            return False
-        
-        if not jnp.isfinite(state_val):
-            logger.error("Non-finite state_value")
-            return False
+        # Handle both single and batched state values
+        if jnp.isscalar(state_val):
+            # Single state case
+            if not jnp.isfinite(state_val):
+                logger.error("Non-finite state_value")
+                return False
+        else:
+            # Batched case: should be 1D array with one value per batch item
+            if len(state_val.shape) != 1:
+                logger.error(f"state_value should be scalar or 1D array, got shape: {state_val.shape}")
+                return False
+            if not jnp.all(jnp.isfinite(state_val)):
+                logger.error("Non-finite values in state_value")
+                return False
         
         return True
     

@@ -114,7 +114,7 @@ def create_jax_config(
     variable_names: List[str],
     target_variable: str,
     max_samples: int = 1000,
-    max_history: int = 100,
+    max_history: int = 50,  # Standardize to 50 to match enriched policy initialization
     mechanism_types: Optional[List[int]] = None,
     feature_dim: int = 3
 ) -> JAXConfig:

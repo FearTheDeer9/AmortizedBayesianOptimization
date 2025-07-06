@@ -460,9 +460,9 @@ def create_enriched_policy_factory(config: Dict[str, any]) -> callable:
         Returns:
             Policy outputs dictionary
         """
-        # Validate inputs
-        if not PolicyOutputValidator.validate_enriched_history(enriched_history):
-            raise ValueError("Invalid enriched_history input")
+        # Validate inputs (skip during JAX compilation)
+        # Note: validation is skipped during JAX compilation to avoid boolean conversion errors
+        # Input validation should be done before calling the compiled function
         
         # Create policy network
         policy = EnrichedAcquisitionPolicyNetwork(
@@ -477,10 +477,8 @@ def create_enriched_policy_factory(config: Dict[str, any]) -> callable:
         
         outputs = policy(enriched_history, target_variable_idx, is_training)
         
-        # Validate outputs
-        n_vars = enriched_history.shape[1]
-        if not PolicyOutputValidator.validate_policy_outputs(outputs, n_vars):
-            raise ValueError("Invalid policy outputs")
+        # Note: output validation is skipped during JAX compilation to avoid boolean conversion errors
+        # Output validation should be done outside the compiled function if needed
         
         return outputs
     

@@ -35,9 +35,10 @@ import optax
 import pyrsistent as pyr
 
 from .grpo_config import ComprehensiveGRPOConfig, TrainingMode, OptimizationLevel
-from .grpo_core import (
-    GRPOConfig, GRPOTrajectory, GRPOUpdateResult,
-    create_grpo_update_fn, validate_grpo_config
+# Use correct GRPO implementation (policy-only, no value functions)
+from ..acquisition.grpo import (
+    GRPOConfig, GRPOUpdate, create_grpo_trainer, collect_grpo_batch,
+    create_grpo_batch_from_samples
 )
 from .experience_management import (
     ExperienceManager, Experience, ExperienceBatch,
@@ -69,7 +70,7 @@ class TrainingStep:
     step_number: int
     episode_number: int
     experiences_collected: int
-    grpo_update_result: Optional[GRPOUpdateResult]
+    grpo_update_result: Optional[GRPOUpdate]
     diversity_metrics: Optional[Dict[str, float]]
     training_time: float
     memory_usage_mb: float
@@ -237,7 +238,7 @@ class GRPOTrainingManager:
         
         return experiences
     
-    def update_policy(self, batch: ExperienceBatch) -> GRPOUpdateResult:
+    def update_policy(self, batch: ExperienceBatch) -> GRPOUpdate:
         """Update policy using GRPO algorithm with enhanced networks.
         
         Args:
@@ -251,40 +252,24 @@ class GRPOTrainingManager:
             self._initialize_grpo_training()
         
         try:
-            # Extract batch data for GRPO training
-            states = []
-            actions = []
-            rewards = []
-            old_log_probs = []
-            
+            # Convert experiences to GRPO sample format
+            samples = []
             for exp in batch.experiences:
-                # Convert experience to enhanced state tensor
-                state_tensor = self._experience_to_state_tensor(exp)
-                states.append(state_tensor)
-                
-                # Extract action information
-                actions.append(exp.action)
-                
-                # Extract reward
-                rewards.append(float(exp.reward.total_reward))
-                
-                # Extract log probability
-                old_log_probs.append(exp.log_prob)
+                # Convert experience to GRPO sample tuple: (state, action, reward, old_log_prob)
+                samples.append((exp.state, exp.action, float(exp.reward.total_reward), exp.log_prob))
             
-            # Stack into batch tensors
-            batch_states = jnp.stack(states)  # [batch_size, T, n_vars, channels]
-            batch_rewards = jnp.array(rewards)  # [batch_size]
-            batch_old_log_probs = jnp.array(old_log_probs)  # [batch_size]
+            # Create GRPO config (convert from comprehensive config)
+            grpo_config = GRPOConfig(
+                group_size=min(len(samples), 64),  # Use available samples
+                learning_rate=self.config.grpo_algorithm.learning_rate,
+                clip_ratio=getattr(self.config.grpo_algorithm, 'clip_ratio', 0.2),
+                entropy_coeff=getattr(self.config.grpo_algorithm, 'entropy_coefficient', 0.01)
+            )
             
-            # Create GRPO batch
-            grpo_batch = {
-                'states': batch_states,
-                'actions': actions,  # Keep as list for now
-                'rewards': batch_rewards,
-                'old_log_probs': batch_old_log_probs
-            }
+            # Create GRPO batch from samples
+            grpo_batch = create_grpo_batch_from_samples(samples, grpo_config)
             
-            # Apply GRPO update
+            # Apply GRPO update (policy-only, no value network)
             new_params, new_opt_state, update_result = self.grpo_update_fn(
                 self.policy_network.params,
                 self.optimizer_state,
@@ -303,60 +288,30 @@ class GRPOTrainingManager:
             raise RuntimeError(f"GRPO policy update failed: {e}") from e
     
     def _initialize_grpo_training(self) -> None:
-        """Initialize GRPO training components with enhanced networks."""
+        """Initialize GRPO training components using correct policy-only implementation."""
         try:
-            # Import enhanced network factories
-            from ..acquisition.enhanced_policy_network import create_enhanced_policy_for_grpo
-            from ..avici_integration.enhanced_surrogate import create_enhanced_surrogate_for_grpo
-            
-            # Extract problem information from environment
-            if hasattr(self.environment, 'variables'):
-                variables = self.environment.variables
-                target_variable = self.environment.target_variable
-            else:
-                # Fallback: extract from environment info
-                env_info = self.environment.get_environment_info()
-                variables = env_info.variables
-                target_variable = env_info.target_variable
-            
-            # Create enhanced policy network
-            enhanced_policy_fn, policy_config = create_enhanced_policy_for_grpo(
-                variables=variables,
-                target_variable=target_variable,
-                architecture_level="full",
-                performance_mode="balanced"
+            # Create GRPO config from comprehensive config
+            grpo_config = GRPOConfig(
+                group_size=getattr(self.config.grpo_algorithm, 'batch_size', 64),
+                learning_rate=self.config.grpo_algorithm.learning_rate,
+                clip_ratio=getattr(self.config.grpo_algorithm, 'clip_ratio', 0.2),
+                entropy_coeff=getattr(self.config.grpo_algorithm, 'entropy_coefficient', 0.01),
+                max_grad_norm=getattr(self.config.grpo_algorithm, 'max_grad_norm', 1.0)
             )
             
-            # Initialize policy network parameters
-            key = jax.random.PRNGKey(self.config.seed)
-            dummy_state = jnp.zeros((policy_config['max_history_size'], 
-                                   len(variables), 
-                                   policy_config['num_channels']))
-            
-            # Transform and initialize
-            self.enhanced_policy_fn = hk.transform(lambda x: enhanced_policy_fn(x, is_training=True))
-            policy_params = self.enhanced_policy_fn.init(key, dummy_state)
-            
-            # Create optimizer
-            import optax
-            optimizer = optax.adam(learning_rate=self.config.grpo_algorithm.learning_rate)
-            self.optimizer_state = optimizer.init(policy_params)
-            
-            # Update policy network with enhanced version
-            self.policy_network = self.policy_network.replace(params=policy_params)
-            
-            # Create GRPO update function
-            from .grpo_core import create_grpo_update_fn
-            self.grpo_update_fn = create_grpo_update_fn(
-                policy_fn=self.enhanced_policy_fn,
-                optimizer=optimizer,
-                config=self.config.grpo_algorithm
+            # Create GRPO trainer (policy-only, no value network)
+            self.grpo_update_fn, optimizer_init = create_grpo_trainer(
+                policy_network=self.policy_network,
+                config=grpo_config
             )
             
-            logger.info("Enhanced GRPO training initialized successfully")
+            # Initialize optimizer state
+            self.optimizer_state = optimizer_init(self.policy_network.params)
+            
+            logger.info("Correct GRPO training (policy-only) initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize enhanced GRPO training: {e}")
+            logger.error(f"Failed to initialize GRPO training: {e}")
             # Re-raise the exception to expose initialization issues
             raise RuntimeError(f"GRPO training initialization failed: {e}") from e
     
@@ -547,8 +502,7 @@ class GRPOTrainingManager:
     
     def _setup_training(self) -> None:
         """Set up training infrastructure."""
-        # Validate configuration
-        validate_grpo_config(self.config.grpo_algorithm)
+        # Configuration will be validated when GRPO trainer is created
         
         # Initialize random state
         jax.random.PRNGKey(self.config.seed)
@@ -727,15 +681,17 @@ class GRPOTrainingManager:
             logger.info(
                 f"GRPO Update - "
                 f"Policy Loss: {float(grpo_result.policy_loss):.4f}, "
-                f"Value Loss: {float(grpo_result.value_loss):.4f}, "
-                f"Entropy: {float(grpo_result.entropy_loss):.4f}"
+                f"Entropy: {float(grpo_result.entropy_loss):.4f}, "
+                f"Group Baseline: {float(grpo_result.group_baseline):.4f}"
             )
             
-            # Add GRPO metrics
+            # Add GRPO metrics (correct GRPO structure)
             metrics.update({
                 "grpo/policy_loss": float(grpo_result.policy_loss),
-                "grpo/value_loss": float(grpo_result.value_loss),
                 "grpo/entropy_loss": float(grpo_result.entropy_loss),
+                "grpo/total_loss": float(grpo_result.total_loss),
+                "grpo/group_baseline": float(grpo_result.group_baseline),
+                "grpo/mean_reward": float(grpo_result.mean_reward),
             })
         
         if step_result.diversity_metrics:

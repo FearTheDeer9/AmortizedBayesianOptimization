@@ -1,24 +1,29 @@
-"""Core GRPO (Guided Reward Policy Optimization) algorithm implementation.
+"""⚠️  DEPRECATED: PPO-contaminated GRPO implementation.
 
-This module provides pure functional implementations of GRPO training algorithms
-following Rich Hickey's functional programming principles: pure functions,
-immutable data structures, and explicit over implicit design.
+This module contains an INCORRECT implementation that mixes PPO and GRPO concepts.
 
-Key features:
-- Pure JAX-compiled GRPO policy updates
-- Immutable parameter and state handling  
-- Advantage estimation and value function updates
-- Policy gradient computation with proper normalization
-- Integration with verifiable reward systems
+🚫 PROBLEMS WITH THIS IMPLEMENTATION:
+- Contains value functions (GRPO should be policy-only)
+- Uses GAE (Generalized Advantage Estimation) 
+- Has value loss computation
+- Implements PPO-style trajectories with returns/advantages
 
-All functions in this module are:
-1. Pure (no side effects)
-2. Single responsibility 
-3. JAX-compilable for performance
-4. Immutable data only
+✅ USE THE CORRECT IMPLEMENTATION INSTEAD:
+    from causal_bayes_opt.acquisition.grpo import (
+        GRPOConfig, GRPOUpdate, create_grpo_trainer
+    )
+
+The correct implementation in acquisition/grpo.py:
+- Policy-only updates (no value functions)
+- Uses group mean as baseline 
+- Follows DeepSeek GRPO paper correctly
+- Includes sample reuse and open-r1 enhancements
+
+⚠️  THIS FILE WILL BE REMOVED IN A FUTURE RELEASE
 """
 
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import Any, Callable, Tuple
 
@@ -27,6 +32,16 @@ import jax.numpy as jnp
 import optax
 
 logger = logging.getLogger(__name__)
+
+# Issue deprecation warning when module is imported
+warnings.warn(
+    "⚠️  DEPRECATED: Using PPO-contaminated GRPO implementation! "
+    "Use 'from causal_bayes_opt.acquisition.grpo import ...' instead. "
+    "This module mixes PPO concepts (value functions, GAE) with GRPO and "
+    "will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 @dataclass(frozen=True)

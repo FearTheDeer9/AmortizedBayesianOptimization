@@ -22,8 +22,14 @@ from ..data_structures.scm import get_variables, get_edges
 logger = logging.getLogger(__name__)
 
 
-# Import the existing TrainingExample from surrogate_training
-from .surrogate_training import TrainingExample as SurrogateTrainingExample
+# Define TrainingExample locally after surrogate_training removal
+@dataclass(frozen=True)
+class SurrogateTrainingExample:
+    """Training example for surrogate models."""
+    mechanism_features: jnp.ndarray
+    marginal_probs: jnp.ndarray  
+    target_graph: jnp.ndarray
+    confidence_score: float = 1.0
 from ..avici_integration.parent_set.posterior import ParentSetPosterior
 
 

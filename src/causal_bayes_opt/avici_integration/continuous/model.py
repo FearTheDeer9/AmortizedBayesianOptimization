@@ -145,7 +145,7 @@ class ContinuousParentSetPredictionModel(hk.Module):
                  data: jnp.ndarray,         # [N, d, 3] intervention data
                  target_variable: int,      # Target variable index
                  is_training: bool = True   # Training mode flag
-                 ) -> jnp.ndarray:          # [d] parent probabilities
+                 ) -> dict[str, jnp.ndarray]:  # Dictionary with embeddings and probabilities
         """
         Predict parent probabilities for target variable.
         
@@ -155,8 +155,11 @@ class ContinuousParentSetPredictionModel(hk.Module):
             is_training: Whether model is in training mode
             
         Returns:
-            Parent probabilities [d] where probabilities sum to 1.0
-            and target_variable has probability 0.0
+            Dictionary containing:
+            - 'node_embeddings': Node representations [d, hidden_dim]
+            - 'target_embedding': Target node representation [hidden_dim]
+            - 'attention_logits': Raw attention scores [d]
+            - 'parent_probabilities': Parent probabilities [d] (sum to 1.0, target has prob 0.0)
         """
         N, d, channels = data.shape
         # Note: Cannot use assert on traced values in JAX compilation context
@@ -199,7 +202,12 @@ class ContinuousParentSetPredictionModel(hk.Module):
         parent_probs = jax.nn.softmax(masked_logits)  # [d]
         # Note: target variable will automatically have ~0 probability due to -1e9 logit
         
-        return parent_probs
+        return {
+            'node_embeddings': node_embeddings,
+            'target_embedding': target_embedding,
+            'attention_logits': parent_logits,
+            'parent_probabilities': parent_probs
+        }
     
     def compute_uncertainty(self, parent_probs: jnp.ndarray) -> float:
         """

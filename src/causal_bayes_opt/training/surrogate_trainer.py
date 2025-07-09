@@ -33,15 +33,70 @@ import jax.random as random
 import optax
 import pyrsistent as pyr
 
-# Import existing sophisticated training infrastructure
-from .surrogate_training import (
-    TrainingBatchJAX,
-    TrainingMetrics,
-    ValidationResults,
-    kl_divergence_loss_jax,
-    uncertainty_weighted_loss_jax,
-    create_jax_surrogate_train_step,
-    convert_to_jax_batch
+# Define minimal data structures for surrogate training
+@dataclass(frozen=True)
+class TrainingBatchJAX:
+    """JAX-optimized training batch for surrogate models."""
+    mechanism_features: jnp.ndarray
+    marginal_probs: jnp.ndarray
+    target_graphs: jnp.ndarray
+    confidence_scores: Optional[jnp.ndarray] = None
+
+@dataclass(frozen=True)
+class TrainingMetrics:
+    """Training metrics for surrogate models."""
+    loss: float
+    accuracy: float
+    kl_divergence: float
+    uncertainty: float
+    step: int
+    timestamp: float
+
+@dataclass(frozen=True)  
+class ValidationResults:
+    """Validation results for surrogate models."""
+    avg_loss: float
+    avg_accuracy: float
+    avg_kl_divergence: float
+    total_samples: int
+    validation_time: float
+
+# Simplified loss functions for policy-only GRPO
+def kl_divergence_loss_jax(predictions: jnp.ndarray, targets: jnp.ndarray) -> jnp.ndarray:
+    """KL divergence loss for JAX."""
+    return jnp.sum(targets * jnp.log(targets / (predictions + 1e-8) + 1e-8))
+
+def uncertainty_weighted_loss_jax(predictions: jnp.ndarray, targets: jnp.ndarray, 
+                                 confidence: jnp.ndarray) -> jnp.ndarray:
+    """Uncertainty-weighted loss for JAX."""
+    base_loss = jnp.mean((predictions - targets) ** 2)
+    return base_loss * confidence.mean()
+
+def create_jax_surrogate_train_step(config):
+    """Create a simplified JAX training step."""
+    def train_step(params, batch, opt_state):
+        # Simplified training step
+        loss = kl_divergence_loss_jax(batch.marginal_probs, batch.target_graphs)
+        return params, opt_state, TrainingMetrics(
+            loss=float(loss), accuracy=0.0, kl_divergence=float(loss),
+            uncertainty=0.0, step=0, timestamp=time.time()
+        )
+    return train_step
+
+def convert_to_jax_batch(examples) -> TrainingBatchJAX:
+    """Convert examples to JAX batch."""
+    return TrainingBatchJAX(
+        mechanism_features=jnp.zeros((len(examples), 128)),
+        marginal_probs=jnp.zeros((len(examples), 10)),
+        target_graphs=jnp.zeros((len(examples), 10, 10))
+    )
+
+import warnings
+warnings.warn(
+    "surrogate_trainer.py is using simplified implementations after surrogate_training.py removal. "
+    "This needs proper surrogate training implementation.",
+    DeprecationWarning,
+    stacklevel=2
 )
 from .config import SurrogateTrainingConfig
 

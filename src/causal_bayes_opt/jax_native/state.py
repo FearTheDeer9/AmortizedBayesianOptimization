@@ -575,12 +575,14 @@ def create_tensor_backed_state_from_scm(
     uncertainty_bits: float = 1.0,
     max_samples: int = 1000,
     max_history: int = 50,  # Standardize to 50 to match enriched policy initialization
-    feature_dim: int = 3
+    feature_dim: int = 3,
+    use_bootstrap_surrogate: bool = True
 ) -> TensorBackedAcquisitionState:
     """
     Factory for creating TensorBackedAcquisitionState from SCM context.
     
     This replaces Mock object creation in enriched_trainer with proper tensor-backed states.
+    Now integrates with bootstrap surrogate features for meaningful variable differentiation.
     
     Args:
         scm: SCM defining variables and target
@@ -590,6 +592,7 @@ def create_tensor_backed_state_from_scm(
         max_samples: Maximum samples in buffer
         max_history: Maximum history length
         feature_dim: Dimension of mechanism features
+        use_bootstrap_surrogate: Whether to use bootstrap surrogate features (True) or legacy constants (False)
         
     Returns:
         TensorBackedAcquisitionState ready for training
@@ -616,13 +619,57 @@ def create_tensor_backed_state_from_scm(
         feature_dim=feature_dim
     )
     
-    # Create base JAX state
-    base_state = create_jax_state(
-        config=config,
-        best_value=best_value,
-        current_step=step,
-        uncertainty_bits=uncertainty_bits
-    )
+    if use_bootstrap_surrogate:
+        # NEW: Use bootstrap surrogate features for meaningful variable differentiation
+        from ..surrogate import (
+            create_bootstrap_surrogate_features, 
+            PhaseConfig, 
+            BootstrapConfig,
+            project_embeddings_to_mechanism_features
+        )
+        
+        # Create configurations
+        phase_config = PhaseConfig(bootstrap_steps=100, exploration_noise_start=0.5, exploration_noise_end=0.1)
+        bootstrap_config = BootstrapConfig(structure_encoding_dim=128)
+        
+        # Generate bootstrap features
+        bootstrap_features = create_bootstrap_surrogate_features(
+            scm=scm,
+            step=step,
+            config=phase_config,
+            bootstrap_config=bootstrap_config,
+            rng_key=jax.random.PRNGKey(42 + step)  # Step-dependent for variety
+        )
+        
+        # Project 128D embeddings to feature_dim (default 3)
+        mechanism_features = project_embeddings_to_mechanism_features(
+            bootstrap_features.node_embeddings, 
+            target_dim=feature_dim
+        )
+        
+        # Use bootstrap features instead of constants
+        marginal_probs = bootstrap_features.parent_probabilities
+        confidence_scores = 1.0 - bootstrap_features.uncertainties  # Convert uncertainty to confidence
+        
+        # Create base JAX state with bootstrap features
+        base_state = create_jax_state(
+            config=config,
+            mechanism_features=mechanism_features,
+            marginal_probs=marginal_probs,
+            confidence_scores=confidence_scores,
+            best_value=best_value,
+            current_step=step,
+            uncertainty_bits=uncertainty_bits
+        )
+        
+    else:
+        # LEGACY: Create base JAX state with constant defaults (for backward compatibility)
+        base_state = create_jax_state(
+            config=config,
+            best_value=best_value,
+            current_step=step,
+            uncertainty_bits=uncertainty_bits
+        )
     
     # Create meaningful parent sets based on SCM structure
     # For training, use simple parent set structure

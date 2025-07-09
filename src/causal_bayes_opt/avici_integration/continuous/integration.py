@@ -47,7 +47,8 @@ def create_continuous_surrogate_model(config: Dict[str, Any]) -> Callable:
             dropout=config.get('dropout', 0.1)
         )
         
-        parent_probs = model(data, target_variable, is_training)
+        outputs = model(data, target_variable, is_training)
+        parent_probs = outputs['parent_probabilities']
         
         # Apply optional post-processing
         if config.get('use_temperature_scaling', False):
@@ -165,7 +166,8 @@ class ContinuousParentSetCompatibilityWrapper:
         if rng_key is None:
             rng_key = jax.random.PRNGKey(42)
         
-        parent_probs = self.transformed.apply(self.params, rng_key, data, target_idx)
+        outputs = self.transformed.apply(self.params, rng_key, data, target_idx)
+        parent_probs = outputs['parent_probabilities']
         
         # Convert to legacy format
         legacy_format = convert_to_legacy_format(
@@ -210,7 +212,8 @@ class ContinuousParentSetCompatibilityWrapper:
         marginal_probs = {}
         
         for i, var_name in enumerate(variable_order):
-            parent_probs = self.transformed.apply(self.params, rng_key, data, i)
+            outputs = self.transformed.apply(self.params, rng_key, data, i)
+            parent_probs = outputs['parent_probabilities']
             # Use maximum probability as marginal probability
             marginal_probs[var_name] = float(jnp.max(parent_probs))
         
@@ -251,7 +254,8 @@ class ContinuousACBOIntegration:
                 dropout=config.get('dropout', 0.1)
             )
             
-            parent_probs = model(data, target_variable, is_training=False)
+            outputs = model(data, target_variable, is_training=False)
+            parent_probs = outputs['parent_probabilities']
             
             results = {
                 'parent_probabilities': parent_probs,

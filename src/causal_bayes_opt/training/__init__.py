@@ -26,28 +26,7 @@ from .config import (
     validate_training_config
 )
 
-# Surrogate training system
-from .surrogate_training import (
-    TrainingExample,
-    TrainingBatch,
-    TrainingBatchJAX,
-    TrainingMetrics,
-    ValidationResults,
-    kl_divergence_loss,
-    uncertainty_weighted_loss,
-    calibrated_loss,
-    multi_target_loss,
-    kl_divergence_loss_jax,
-    uncertainty_weighted_loss_jax,
-    convert_to_jax_batch,
-    create_jax_surrogate_train_step,
-    create_adaptive_train_step,
-    train_surrogate_model,
-    run_loss_function_experiment,
-    validate_surrogate_performance
-)
-
-# Decoupled surrogate training interface
+# Surrogate training system - using clean surrogate_trainer interface
 try:
     from .surrogate_trainer import (
         SurrogateTrainer,
@@ -112,29 +91,7 @@ __all__ = [
     "validate_training_config"
 ]
 
-# Add surrogate training to exports
-__all__.extend([
-    # Surrogate training
-    "TrainingExample",
-    "TrainingBatch",
-    "TrainingBatchJAX",
-    "TrainingMetrics", 
-    "ValidationResults",
-    "kl_divergence_loss",
-    "uncertainty_weighted_loss",
-    "calibrated_loss",
-    "multi_target_loss",
-    "kl_divergence_loss_jax",
-    "uncertainty_weighted_loss_jax",
-    "convert_to_jax_batch",
-    "create_jax_surrogate_train_step",
-    "create_adaptive_train_step",
-    "train_surrogate_model",
-    "run_loss_function_experiment",
-    "validate_surrogate_performance"
-])
-
-# Add decoupled surrogate trainer if available
+# Add surrogate trainer if available
 if _SURROGATE_TRAINER_AVAILABLE:
     __all__.extend([
         "SurrogateTrainer",
@@ -213,46 +170,22 @@ if _EXPERT_COLLECTION_AVAILABLE:
         "collect_expert_demonstrations_main"
     ])
 
-# GRPO Core Algorithm (Phase 2.2)
+# GRPO Core Algorithm - Use correct policy-only implementation
 try:
-    from .grpo_core import (
+    from ..acquisition.grpo import (
         GRPOConfig,
-        GRPOTrajectory,
-        GRPOUpdateResult,
-        compute_gae_advantages,
-        compute_simple_advantages,
-        normalize_advantages,
-        compute_policy_loss,
-        compute_value_loss,
-        compute_value_loss_jit,
-        compute_value_loss_clipped_jit,
-        compute_entropy_loss,
-        create_grpo_update_fn,
-        create_trajectory_from_experiences,
-        validate_grpo_config,
-        create_default_grpo_config,
-        create_high_performance_grpo_config,
-        create_exploration_grpo_config,
+        GRPOUpdate,
+        create_grpo_trainer,
+        collect_grpo_batch,
+        create_grpo_batch_from_samples,
     )
     __all__.extend([
-        # GRPO Core Algorithm
+        # GRPO Core Algorithm (Policy-Only)
         "GRPOConfig",
-        "GRPOTrajectory", 
-        "GRPOUpdateResult",
-        "compute_gae_advantages",
-        "compute_simple_advantages",
-        "normalize_advantages",
-        "compute_policy_loss",
-        "compute_value_loss",
-        "compute_value_loss_jit",
-        "compute_value_loss_clipped_jit",
-        "compute_entropy_loss",
-        "create_grpo_update_fn",
-        "create_trajectory_from_experiences",
-        "validate_grpo_config",
-        "create_default_grpo_config",
-        "create_high_performance_grpo_config",
-        "create_exploration_grpo_config",
+        "GRPOUpdate",
+        "create_grpo_trainer",
+        "collect_grpo_batch",
+        "create_grpo_batch_from_samples",
     ])
     _GRPO_CORE_AVAILABLE = True
 except ImportError:
@@ -291,7 +224,6 @@ try:
         TrainingMode,
         OptimizationLevel,
         PolicyNetworkConfig,
-        ValueNetworkConfig,
         CurriculumConfig,
         AdaptiveConfig,
         CheckpointingConfig,
@@ -309,7 +241,6 @@ try:
         "TrainingMode",
         "OptimizationLevel",
         "PolicyNetworkConfig",
-        "ValueNetworkConfig",
         "CurriculumConfig",
         "AdaptiveConfig",
         "CheckpointingConfig",

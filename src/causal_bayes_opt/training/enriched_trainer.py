@@ -56,24 +56,32 @@ class EnrichedGRPOTrainer:
         self.policy_params = self.policy_fn.init(init_key, dummy_input)
         self._current_key = trainer_key
         
-        # Create correct GRPO configuration (group-relative) 
-        # Use smaller group size that's achievable with episode length
-        episode_length = config.training.episode_length
-        achievable_group_size = max(16, min(64, episode_length * 8))  # Allow 8 episodes to accumulate
-        
-        # Increase entropy coefficient for better exploration if default is too small
-        entropy_coeff = getattr(config.training, 'entropy_coefficient', 0.01)
-        if entropy_coeff < 0.02:
-            logger.info(f"⚡ Increasing entropy coefficient from {entropy_coeff:.3f} to 0.02 for better exploration")
-            entropy_coeff = 0.02
-        
-        self.grpo_config = GRPOConfig(
-            group_size=achievable_group_size,
-            learning_rate=config.training.learning_rate,
-            clip_ratio=getattr(config.training, 'clip_ratio', 0.2),
-            entropy_coeff=entropy_coeff,
-            max_grad_norm=getattr(config.training, 'max_grad_norm', 1.0)
-        )
+        # Create correct GRPO configuration from provided config
+        # Use optimized same-state batching parameters
+        if hasattr(config.training, 'grpo_config'):
+            # Read from config if available
+            grpo_cfg = config.training.grpo_config
+            self.grpo_config = GRPOConfig(
+                group_size=getattr(grpo_cfg, 'group_size', 16),
+                interventions_per_state=getattr(grpo_cfg, 'interventions_per_state', 16),
+                learning_rate=getattr(grpo_cfg, 'learning_rate', config.training.learning_rate),
+                clip_ratio=getattr(grpo_cfg, 'clip_ratio', 0.2),
+                entropy_coeff=getattr(grpo_cfg, 'entropy_coeff', 0.01),
+                max_grad_norm=getattr(grpo_cfg, 'max_grad_norm', 1.0)
+            )
+            logger.info(f"✅ Using optimized GRPO config: group_size={self.grpo_config.group_size}, "
+                       f"interventions_per_state={self.grpo_config.interventions_per_state}")
+        else:
+            # Fallback with optimized defaults for same-state batching
+            logger.warning("⚠️ No GRPO config found, using optimized defaults")
+            self.grpo_config = GRPOConfig(
+                group_size=16,  # Optimized for same-state batching
+                interventions_per_state=16,  # Same-state batching
+                learning_rate=config.training.learning_rate,
+                clip_ratio=0.2,
+                entropy_coeff=0.01,
+                max_grad_norm=1.0
+            )
         
         # Create optimizer with learning rate schedule for better training dynamics
         base_lr = self.grpo_config.learning_rate
@@ -118,7 +126,8 @@ class EnrichedGRPOTrainer:
         
         # Initialize sample accumulation buffer for GRPO
         self.sample_buffer = []
-        self.update_frequency = max(1, self.grpo_config.group_size // episode_length)  # Update every N episodes
+        # For same-state batching, we update every episode (no accumulation across episodes)
+        self.update_frequency = 1  # Update every episode with same-state batching
         
         logger.info(f"Initialized trainer with {self.scm_manager.max_variables} max variables")
         logger.info(f"GRPO group size: {self.grpo_config.group_size}, update frequency: {self.update_frequency} episodes")
@@ -126,7 +135,7 @@ class EnrichedGRPOTrainer:
     def _create_dummy_input(self) -> jnp.ndarray:
         """Create dummy input for policy initialization."""
         max_history_size = self.config.training.state_config.get('max_history_size', 100)
-        num_channels = self.config.training.state_config.get('num_channels', 10)
+        num_channels = self.config.training.state_config.get('num_channels', 5)
         
         return jnp.zeros((max_history_size, self.scm_manager.max_variables, num_channels))
     
@@ -312,18 +321,20 @@ class EnrichedGRPOTrainer:
         return metrics
     
     def _create_tensor_backed_state(self, scm: pyr.PMap, step: int, best_value: float) -> Any:
-        """Create tensor-backed acquisition state for training."""
+        """Create tensor-backed acquisition state for training with bootstrap surrogate features."""
         from ..jax_native.state import create_tensor_backed_state_from_scm
         
-        # Create proper TensorBackedAcquisitionState instead of Mock objects
+        # Create proper TensorBackedAcquisitionState with bootstrap surrogate features
+        # This replaces the problematic constant default values with meaningful variable differentiation
         return create_tensor_backed_state_from_scm(
             scm=scm,
             step=step,
             best_value=best_value,
             uncertainty_bits=1.0 + step * 0.1,  # Gradual uncertainty increase
             max_samples=self.config.training.state_config.get('max_history_size', 100),
-            max_history=50,
-            feature_dim=3
+            max_history=self.config.training.state_config.get('max_history_size', 100),
+            feature_dim=3,
+            use_bootstrap_surrogate=True  # NEW: Enable bootstrap surrogate features
         )
     
     
@@ -331,150 +342,125 @@ class EnrichedGRPOTrainer:
                                 policy_output: Dict[str, jnp.ndarray],
                                 variables: List[str], 
                                 target: str,
-                                training_episode: Optional[int] = None) -> jnp.ndarray:
-        """Convert policy output to action vector."""
+                                training_episode: Optional[int] = None) -> Tuple[int, float]:
+        """
+        Convert policy output to per-variable action (variable index, intervention value).
+        
+        This implements explicit variable selection followed by value sampling for the
+        selected variable, enabling more efficient GRPO training.
+        
+        Returns:
+            Tuple of (selected_variable_index, intervention_value)
+        """
         variable_logits = policy_output.get('variable_logits', jnp.zeros(len(variables)))
         value_params = policy_output.get('value_params', jnp.zeros((len(variables), 2)))
         
-        # DEBUG PHASE 1: Log raw policy outputs
+        # Debug logging setup
         if not hasattr(self, '_action_debug_count'):
             self._action_debug_count = 0
         self._action_debug_count += 1
         
-        # PHASE 1 ENHANCED: Network output validation logging
-        if self._action_debug_count % 5 == 0:  # More frequent logging for debugging
-            logger.info(f"🔍 PHASE 1 ENHANCED - Network Output Validation (call {self._action_debug_count}):")
-            logger.info(f"  Raw variable_logits: {variable_logits}")
-            logger.info(f"  Raw value_params shape: {value_params.shape}")
-            logger.info(f"  Raw value_params means: {value_params[:, 0]}")
-            logger.info(f"  Raw value_params log_stds: {value_params[:, 1]}")
-            logger.info(f"  Raw value_params stds: {jnp.exp(value_params[:, 1])}")
+        # Get target index
+        target_idx = variables.index(target) if target in variables else -1
+        
+        # Log raw outputs periodically
+        if self._action_debug_count % 10 == 0:
+            logger.info(f"🔍 Per-Variable Encoding - Policy Output (call {self._action_debug_count}):")
+            logger.info(f"  Variable logits: {variable_logits}")
             logger.info(f"  Variables: {variables}, Target: {target}")
             
-            # CRITICAL VALIDATION: Check for all-zero outputs (indicates dead network)
-            means_magnitude = float(jnp.max(jnp.abs(value_params[:, 0])))
-            logits_magnitude = float(jnp.max(jnp.abs(variable_logits)))
-            
-            if means_magnitude < 1e-8:
-                logger.warning(f"⚠️ PHASE 1 CRITICAL: Policy means are nearly zero! Magnitude: {means_magnitude:.12f}")
-                logger.warning("  This suggests the policy network is not learning or is initialized poorly")
-            
-            if logits_magnitude < 1e-8:
-                logger.warning(f"⚠️ PHASE 1 CRITICAL: Variable logits are nearly zero! Magnitude: {logits_magnitude:.12f}")
-                logger.warning("  This suggests the policy network is outputting uniform distributions")
-            
-            # Check for NaN or infinite values
-            if jnp.any(jnp.isnan(value_params)) or jnp.any(jnp.isinf(value_params)):
-                logger.error("🚨 PHASE 1 CRITICAL: NaN or Inf detected in value_params!")
-            
-            if jnp.any(jnp.isnan(variable_logits)) or jnp.any(jnp.isinf(variable_logits)):
-                logger.error("🚨 PHASE 1 CRITICAL: NaN or Inf detected in variable_logits!")
-            
-            # Log standard deviation magnitudes (important for exploration)
-            std_magnitudes = jnp.exp(value_params[:, 1])
-            min_std = float(jnp.min(std_magnitudes))
-            max_std = float(jnp.max(std_magnitudes))
-            logger.info(f"  Standard deviation range: [{min_std:.6f}, {max_std:.6f}]")
-            
-            if max_std > 10.0:
-                logger.warning(f"⚠️ PHASE 1: Very large std detected ({max_std:.3f}) - may cause unstable sampling")
-            if min_std < 1e-6:
-                logger.warning(f"⚠️ PHASE 1: Very small std detected ({min_std:.6f}) - may prevent exploration")
+            # Check if target is properly masked
+            if target_idx >= 0:
+                target_logit = variable_logits[target_idx]
+                logger.info(f"  Target variable '{target}' at index {target_idx}, logit: {target_logit}")
+                if target_logit > -1e8:
+                    logger.warning("⚠️ Target variable not properly masked!")
         
-        # PHASE 1 CONTINUED: Check raw policy outputs before any processing
-        action = value_params[:, 0]  # Use means - this is our raw action before scaling/clipping
-        raw_action_magnitude = float(jnp.max(jnp.abs(action)))
-        
-        if self._action_debug_count % 5 == 0:
-            logger.info(f"  PHASE 1: Raw action before any scaling/clipping: {action}")
-            logger.info(f"  PHASE 1: Raw action magnitude: {raw_action_magnitude:.8f}")
-            
-            # CRITICAL: Check if policy is learning to produce non-zero actions
-            if raw_action_magnitude < 1e-6:
-                logger.warning(f"🚨 PHASE 1 CRITICAL: Policy producing extremely small actions ({raw_action_magnitude:.8f})")
-                logger.warning("  This indicates the policy may not be learning to take meaningful actions")
-                
-            # Check action distribution - are all actions similar or diverse?
-            action_std = float(jnp.std(action))
-            logger.info(f"  PHASE 1: Action diversity (std): {action_std:.8f}")
-            
-            if action_std < 1e-6:
-                logger.warning(f"⚠️ PHASE 1: Very low action diversity ({action_std:.8f}) - policy may be collapsed")
-            
-            # Track action evolution over time
-            if not hasattr(self, '_action_magnitude_history'):
-                self._action_magnitude_history = []
-            self._action_magnitude_history.append(raw_action_magnitude)
-            
-            # Show trend if we have enough history
-            if len(self._action_magnitude_history) >= 5:
-                recent_magnitudes = self._action_magnitude_history[-5:]
-                magnitude_trend = recent_magnitudes[-1] - recent_magnitudes[0]
-                logger.info(f"  PHASE 1: Action magnitude trend (last 5): {magnitude_trend:+.8f}")
-                
-                if abs(magnitude_trend) < 1e-8:
-                    logger.warning("⚠️ PHASE 1: Action magnitudes not changing - policy may be stuck")
-        
-        # Add exploration noise ONLY during training, with decay
-        exploration_applied = False
+        # STEP 1: Variable Selection using softmax over logits
+        # Apply temperature for exploration control during training
+        variable_selection_temp = 1.0  # Default temperature
         if training_episode is not None:
-            # Reduced exploration noise to avoid overwhelming tiny policy outputs
+            # Temperature decay: start at 2.0, decay to 0.5
             max_episodes = getattr(self.config.training, 'n_episodes', 100)
-            exploration_decay = max(0.05, 1.0 - (training_episode / max_episodes))
-            exploration_noise_scale = 0.1 * exploration_decay  # Reduced: starts at 0.1, decays to 0.005
-            
-            # Use safer deterministic key generation
-            action_sum = float(jnp.sum(jnp.abs(action))) 
-            seed_val = int((action_sum * 1000) % 1000000)  # Safer modulo
-            exploration_noise = random.normal(
-                random.PRNGKey(seed_val),
-                shape=action.shape
-            ) * exploration_noise_scale
-            
-            if self._action_debug_count % 10 == 0:
-                logger.debug(f"  Training episode: {training_episode}, Exploration decay: {exploration_decay:.3f}")
-                logger.debug(f"  Exploration noise scale: {exploration_noise_scale:.6f}")
-                logger.debug(f"  Exploration noise: {exploration_noise}")
-            
-            action = action + exploration_noise
-            exploration_applied = True
+            temp_decay = training_episode / max_episodes
+            variable_selection_temp = 2.0 - 1.5 * temp_decay  # 2.0 -> 0.5
         
-        # Mask target variable (set to zero after adding noise)
-        target_idx = variables.index(target) if target in variables else -1
-        if target_idx >= 0:
-            action = action.at[target_idx].set(0.0)
+        # Apply temperature scaling
+        scaled_logits = variable_logits / variable_selection_temp
         
-        final_action_magnitude = float(jnp.max(jnp.abs(action)))
+        # Compute probabilities (softmax handles -inf properly)
+        variable_probs = jax.nn.softmax(scaled_logits)
         
+        # Sample variable using a deterministic key for reproducibility
+        logit_sum = float(jnp.sum(jnp.abs(variable_logits)))
+        var_seed = int((logit_sum * 1000 + self._action_debug_count) % 1000000)
+        var_key = random.PRNGKey(var_seed)
+        
+        # Use categorical sampling
+        selected_var_idx = int(random.categorical(var_key, scaled_logits))
+        
+        # STEP 2: Value Selection for the selected variable
+        # Get parameters for selected variable
+        selected_mean = value_params[selected_var_idx, 0]
+        selected_log_std = value_params[selected_var_idx, 1]
+        selected_std = jnp.exp(selected_log_std)
+        
+        # Apply value temperature for exploration
+        value_temp = 1.0
+        if training_episode is not None:
+            # Value temperature: allow more exploration early
+            value_temp = 1.5 - 0.5 * temp_decay  # 1.5 -> 1.0
+        
+        # Sample intervention value from Gaussian
+        val_seed = int((float(selected_mean + selected_log_std) * 1000 + self._action_debug_count) % 1000000)
+        val_key = random.PRNGKey(val_seed)
+        
+        # Sample from scaled Gaussian
+        noise = random.normal(val_key, shape=())
+        intervention_value = float(selected_mean + selected_std * value_temp * noise)
+        
+        # Log selection details periodically
         if self._action_debug_count % 10 == 0:
-            logger.debug(f"  Final action: {action}")
-            logger.debug(f"  Final action magnitude: {final_action_magnitude:.8f}")
-            logger.debug(f"  Target masked at index: {target_idx}")
-            logger.debug(f"  Exploration applied: {exploration_applied}")
-            
-            # Analysis of action degradation
-            magnitude_change = final_action_magnitude - raw_action_magnitude
-            logger.debug(f"  Action magnitude change: {magnitude_change:+.8f}")
-            
-            if final_action_magnitude < 0.01:
-                logger.warning(f"⚠️ PHASE 1: Very small final action magnitude ({final_action_magnitude:.8f})")
-            if abs(magnitude_change) > raw_action_magnitude * 0.5:
-                logger.warning(f"⚠️ PHASE 1: Large magnitude change ({magnitude_change:+.8f}), exploration may be dominating")
+            logger.info(f"  Variable selection:")
+            logger.info(f"    Temperature: {variable_selection_temp:.2f}")
+            logger.info(f"    Probabilities: {variable_probs}")
+            logger.info(f"    Selected: {variables[selected_var_idx]} (index {selected_var_idx})")
+            logger.info(f"  Value selection:")
+            logger.info(f"    Mean: {selected_mean:.4f}, Std: {selected_std:.4f}")
+            logger.info(f"    Temperature: {value_temp:.2f}")
+            logger.info(f"    Sampled value: {intervention_value:.4f}")
         
-        return action
+        # Validate selection
+        if selected_var_idx == target_idx:
+            logger.warning(f"⚠️ Selected target variable for intervention! This should be rare.")
+        
+        return selected_var_idx, intervention_value
     
-    def _simulate_intervention(self, scm: pyr.PMap, action: jnp.ndarray) -> Tuple[pyr.PMap, float]:
-        """Simulate intervention and compute reward."""
+    def _simulate_intervention(self, scm: pyr.PMap, action: Tuple[int, float]) -> Tuple[pyr.PMap, float]:
+        """
+        Simulate intervention and compute reward.
+        
+        Args:
+            scm: Structural causal model
+            action: Tuple of (selected_variable_index, intervention_value)
+            
+        Returns:
+            Tuple of (intervention object, reward)
+        """
         variables = list(get_variables(scm))
         
-        # Create intervention from action
+        # Extract per-variable action
+        selected_var_idx, intervention_value = action
+        
+        # Create intervention from per-variable action
         intervention_targets = set()
         intervention_values = {}
         
-        for i, var in enumerate(variables):
-            if i < len(action) and abs(action[i]) > 0.005:  # Further lowered threshold to help untrained policy
-                intervention_targets.add(var)
-                intervention_values[var] = float(action[i])
+        # Only intervene if value is non-negligible
+        if abs(intervention_value) > 0.005:
+            selected_var = variables[selected_var_idx]
+            intervention_targets.add(selected_var)
+            intervention_values[selected_var] = float(intervention_value)
         
         intervention = pyr.m(
             type="perfect",
@@ -574,30 +560,51 @@ class EnrichedGRPOTrainer:
         return intervention, reward
     
     def _update_policy(self, trajectory: List[Dict[str, Any]], episode_idx: int) -> Dict[str, float]:
-        """Update policy parameters using proper GRPO implementation with sample accumulation."""
+        """Update policy parameters using proper GRPO implementation with same-state batching."""
         if not trajectory:
             return {'policy_loss': 0.0, 'value_loss': 0.0}
         
         try:
-            # Add trajectory samples to accumulation buffer
-            for step in trajectory:
+            # SAME-STATE BATCHING: Use only samples from current episode/trajectory
+            # Do not accumulate across different SCMs
+            if len(trajectory) < self.grpo_config.interventions_per_state:
+                logger.debug(f"Trajectory too short: {len(trajectory)} < {self.grpo_config.interventions_per_state}")
+                # For short trajectories, repeat samples to reach minimum
+                samples_needed = self.grpo_config.interventions_per_state
+                repeated_trajectory = []
+                while len(repeated_trajectory) < samples_needed:
+                    repeated_trajectory.extend(trajectory)
+                trajectory = repeated_trajectory[:samples_needed]
+            
+            # Clear sample buffer for same-state batching
+            self.sample_buffer = []
+            
+            # Add trajectory samples to buffer (all from same episode/SCM)
+            for step in trajectory[:self.grpo_config.group_size]:  # Limit to group size
                 # Format: (state, action, reward, old_log_prob)
-                # Use the enriched input tensor instead of mock state object
                 self.sample_buffer.append((step['state'], step['action'], float(step['reward']), 0.0))
             
-            # Only update when we have enough samples
-            if len(self.sample_buffer) < self.grpo_config.group_size:
-                logger.debug(f"Accumulating samples: {len(self.sample_buffer)}/{self.grpo_config.group_size}")
-                return {'policy_loss': 0.0, 'value_loss': 0.0, 'samples_accumulated': len(self.sample_buffer)}
+            # Ensure we have exactly group_size samples for same-state batching
+            if len(self.sample_buffer) != self.grpo_config.group_size:
+                logger.debug(f"Adjusting sample buffer: {len(self.sample_buffer)} -> {self.grpo_config.group_size}")
+                # Pad or trim to exact group size
+                while len(self.sample_buffer) < self.grpo_config.group_size:
+                    # Repeat samples if needed
+                    idx = len(self.sample_buffer) % len(trajectory)
+                    step = trajectory[idx]
+                    self.sample_buffer.append((step['state'], step['action'], float(step['reward']), 0.0))
+                self.sample_buffer = self.sample_buffer[:self.grpo_config.group_size]
             
             logger.debug(f"Running GRPO update with {len(self.sample_buffer)} samples")
             
-            # Convert trajectory to diagnostics
-            actions = jnp.stack([step['action'] for step in trajectory])
+            # Convert trajectory to diagnostics - handle per-variable actions
+            # Actions are now tuples (var_idx, value)
+            action_values = jnp.array([step['action'][1] for step in trajectory])  # Get intervention values
+            action_indices = jnp.array([step['action'][0] for step in trajectory])  # Get selected variables
             rewards = jnp.array([step['reward'] for step in trajectory])
             
             # Policy learning diagnostics - track action magnitudes and rewards
-            action_magnitudes = jnp.abs(actions)
+            action_magnitudes = jnp.abs(action_values)
             max_action_magnitude = float(jnp.max(action_magnitudes))
             mean_reward = float(jnp.mean(rewards))
             
@@ -608,43 +615,61 @@ class EnrichedGRPOTrainer:
             # Extract data from sample buffer for GRPO batch creation
             rewards_tensor = jnp.array([sample[2] for sample in self.sample_buffer])  # [batch_size]
             old_log_probs_tensor = jnp.array([sample[3] for sample in self.sample_buffer])  # [batch_size]
-            actions_tensor = jnp.stack([sample[1] for sample in self.sample_buffer])  # [batch_size, vars]
+            # Actions are now tuples (var_idx, value) - need to handle differently
+            actions_list = [sample[1] for sample in self.sample_buffer]  # List of (var_idx, value) tuples
             
             # CRITICAL DEBUG: Log parameters before GRPO update
             logger.debug(f"PRE-UPDATE: policy_params type: {type(self.policy_params)}")
-            logger.debug(f"PRE-UPDATE: batch shapes - actions: {actions_tensor.shape}, rewards: {rewards_tensor.shape}")
+            logger.debug(f"PRE-UPDATE: batch shapes - actions: {len(actions_list)}, rewards: {rewards_tensor.shape}")
             logger.debug(f"PRE-UPDATE: parameter norm: {float(old_param_norm):.8f}")
             
             # PHASE 3 FIX: Use TensorBackedAcquisitionState directly with updated GRPO
             logger.debug("Creating TensorBackedAcquisitionState objects for GRPO...")
             
-            # Get current SCM for state creation
-            current_scm_name, current_scm = self.scm_manager.scm_rotation[0]  # Get first SCM from rotation
+            # SAME-STATE BATCHING: Get current SCM from episode
+            current_scm_name, current_scm = self.scm_manager.get_current_scm(episode_idx)
+            logger.debug(f"Using SCM '{current_scm_name}' for same-state batch")
             
             # Create TensorBackedAcquisitionState objects for each sample in buffer
-            # Each sample in buffer corresponds to a step, so create state for each step
+            # All samples are from the same episode/SCM for same-state batching
             acquisition_states = []
             for i, (enriched_input, action, reward, old_log_prob) in enumerate(self.sample_buffer):
                 # Create TensorBackedAcquisitionState for this sample
                 step_state = self._create_tensor_backed_state(current_scm, step=i, best_value=reward)
                 acquisition_states.append(step_state)
             
-            # Convert tensor actions to intervention objects (simplified)
+            # Convert per-variable actions to intervention objects
             interventions = []
             variables = list(get_variables(current_scm))
-            for action_tensor in actions_tensor:
-                # Find the variable with max activation (simplified variable selection)
-                selected_var_idx = int(jnp.argmax(jnp.abs(action_tensor)))
-                selected_var = variables[selected_var_idx]
-                intervention_value = float(action_tensor[selected_var_idx])
+            for action_tuple in actions_list:
+                # Extract per-variable action components
+                selected_var_idx, intervention_value = action_tuple
                 
-                # Create intervention using existing framework
-                from ..interventions.handlers import create_perfect_intervention
-                intervention = create_perfect_intervention(
-                    targets=frozenset([selected_var]),
-                    values={selected_var: intervention_value}
-                )
-                interventions.append(intervention)
+                # Ensure variable index is valid
+                if selected_var_idx < len(variables):
+                    selected_var = variables[selected_var_idx]
+                    
+                    # Create intervention using existing framework
+                    from ..interventions.handlers import create_perfect_intervention
+                    intervention = create_perfect_intervention(
+                        targets=frozenset([selected_var]),
+                        values={selected_var: float(intervention_value)}
+                    )
+                    interventions.append(intervention)
+                else:
+                    logger.warning(f"Invalid variable index {selected_var_idx} for SCM with {len(variables)} variables")
+                    # Skip invalid indices to prevent dimension mismatches
+                    continue
+            
+            # Ensure all batch components have same size for same-state batching
+            if len(interventions) != len(acquisition_states):
+                logger.warning(f"Intervention count mismatch: {len(interventions)} != {len(acquisition_states)}")
+                # Pad interventions with dummy values if needed
+                while len(interventions) < len(acquisition_states):
+                    # Create a dummy no-op intervention
+                    from ..interventions.handlers import create_perfect_intervention
+                    dummy_intervention = create_perfect_intervention(targets=frozenset(), values={})
+                    interventions.append(dummy_intervention)
             
             # Create proper GRPO batch format
             grpo_batch_correct = {
@@ -653,6 +678,14 @@ class EnrichedGRPOTrainer:
                 'rewards': rewards_tensor,
                 'old_log_probs': old_log_probs_tensor
             }
+            
+            # Log batch dimensions for debugging
+            logger.debug(f"GRPO batch dimensions - states: {len(acquisition_states)}, "
+                        f"actions: {len(interventions)}, rewards: {rewards_tensor.shape}")
+            
+            # Verify same-state batching
+            scm_variables = list(get_variables(current_scm))
+            logger.debug(f"Same-state batch using SCM with {len(scm_variables)} variables: {scm_variables}")
             
             logger.debug("Calling CORRECT GRPO implementation...")
             # Use the correct GRPO loss computation with existing optimizer

@@ -38,7 +38,7 @@ from .grpo_config import ComprehensiveGRPOConfig, TrainingMode, OptimizationLeve
 # Use correct GRPO implementation (policy-only, no value functions)
 from ..acquisition.grpo import (
     GRPOConfig, GRPOUpdate, create_grpo_trainer, collect_grpo_batch,
-    create_grpo_batch_from_samples
+    collect_grpo_batch_same_state, create_grpo_batch_from_samples
 )
 from .experience_management import (
     ExperienceManager, Experience, ExperienceBatch,
@@ -113,12 +113,13 @@ class GRPOTrainingManager:
     Coordinates all aspects of GRPO training including experience collection,
     policy updates, diversity monitoring, and performance tracking.
     
+    GRPO is policy-only and does not require value networks.
+    
     Args:
         config: Comprehensive GRPO configuration
         environment: Intervention environment for experience collection
         reward_rubric: Reward computation system
-        policy_network: Policy network (external, for flexibility)
-        value_network: Value network (external, for flexibility)
+        policy_network: Policy network (JAX/Haiku network)
     """
     
     def __init__(
@@ -127,13 +128,11 @@ class GRPOTrainingManager:
         environment: InterventionEnvironment,
         reward_rubric: CausalRewardRubric,
         policy_network: Any,  # JAX/Haiku network
-        value_network: Any,   # JAX/Haiku network
     ):
         self.config = config
         self.environment = environment
         self.reward_rubric = reward_rubric
         self.policy_network = policy_network
-        self.value_network = value_network
         
         # Initialize subsystems
         self.experience_manager = ExperienceManager(
@@ -239,7 +238,7 @@ class GRPOTrainingManager:
         return experiences
     
     def update_policy(self, batch: ExperienceBatch) -> GRPOUpdate:
-        """Update policy using GRPO algorithm with enhanced networks.
+        """Update policy using GRPO algorithm with same-state batching.
         
         Args:
             batch: Batch of experiences for training
@@ -252,22 +251,56 @@ class GRPOTrainingManager:
             self._initialize_grpo_training()
         
         try:
-            # Convert experiences to GRPO sample format
-            samples = []
-            for exp in batch.experiences:
-                # Convert experience to GRPO sample tuple: (state, action, reward, old_log_prob)
-                samples.append((exp.state, exp.action, float(exp.reward.total_reward), exp.log_prob))
+            # For same-state batching, we need to use the correct approach
+            # Get the first experience to use as base state/SCM
+            if not batch.experiences:
+                raise ValueError("Cannot update policy with empty batch")
+                
+            base_experience = batch.experiences[0]
+            base_state = base_experience.state
             
-            # Create GRPO config (convert from comprehensive config)
+            # Extract SCM from the environment (this is a simplified approach)
+            # In practice, you'd need to get the SCM from the environment state
+            from ..data_structures.scm import create_scm_from_variables
+            # This is a placeholder - in real implementation, get actual SCM
+            base_scm = create_scm_from_variables(['X0', 'X1', 'X2'])  # Simplified
+            
+            # Create GRPO config using the same-state batching approach
             grpo_config = GRPOConfig(
-                group_size=min(len(samples), 64),  # Use available samples
+                group_size=getattr(self.config.grpo_algorithm, 'group_size', 64),
+                interventions_per_state=getattr(self.config.grpo_algorithm, 'interventions_per_state', 64),
                 learning_rate=self.config.grpo_algorithm.learning_rate,
                 clip_ratio=getattr(self.config.grpo_algorithm, 'clip_ratio', 0.2),
-                entropy_coeff=getattr(self.config.grpo_algorithm, 'entropy_coefficient', 0.01)
+                entropy_coeff=getattr(self.config.grpo_algorithm, 'entropy_coeff', 0.01)
             )
             
-            # Create GRPO batch from samples
-            grpo_batch = create_grpo_batch_from_samples(samples, grpo_config)
+            # Use same-state batching instead of mixed batching
+            key = jax.random.PRNGKey(42)  # Use a fixed key for now
+            
+            # Create policy config for same-state batching
+            from ..acquisition.policy import PolicyConfig
+            policy_config = PolicyConfig()
+            
+            # Create reward config for same-state batching
+            reward_config = pyr.pmap({
+                'discovery_bonus': 1.0,
+                'intervention_cost': 0.1,
+                'uncertainty_bonus': 0.5
+            })
+            
+            # Collect batch using same-state approach
+            grpo_batch = collect_grpo_batch_same_state(
+                policy_network=self.policy_network,
+                params=self.policy_network.params,
+                base_state=base_state,
+                base_scm=base_scm,
+                surrogate_model=None,  # Will be handled by state
+                surrogate_params=None,  # Will be handled by state
+                config=grpo_config,
+                reward_config=reward_config,
+                key=key,
+                policy_config=policy_config
+            )
             
             # Apply GRPO update (policy-only, no value network)
             new_params, new_opt_state, update_result = self.grpo_update_fn(
@@ -290,12 +323,13 @@ class GRPOTrainingManager:
     def _initialize_grpo_training(self) -> None:
         """Initialize GRPO training components using correct policy-only implementation."""
         try:
-            # Create GRPO config from comprehensive config
+            # Create GRPO config from comprehensive config with same-state batching
             grpo_config = GRPOConfig(
-                group_size=getattr(self.config.grpo_algorithm, 'batch_size', 64),
+                group_size=getattr(self.config.grpo_algorithm, 'group_size', 64),
+                interventions_per_state=getattr(self.config.grpo_algorithm, 'interventions_per_state', 64),
                 learning_rate=self.config.grpo_algorithm.learning_rate,
                 clip_ratio=getattr(self.config.grpo_algorithm, 'clip_ratio', 0.2),
-                entropy_coeff=getattr(self.config.grpo_algorithm, 'entropy_coefficient', 0.01),
+                entropy_coeff=getattr(self.config.grpo_algorithm, 'entropy_coeff', 0.01),
                 max_grad_norm=getattr(self.config.grpo_algorithm, 'max_grad_norm', 1.0)
             )
             
@@ -384,8 +418,7 @@ class GRPOTrainingManager:
         
         # Sample action from policy outputs
         variable_logits = policy_outputs['variable_logits']
-        value_params = policy_outputs['value_params']
-        state_value = policy_outputs['state_value']
+        value_params = policy_outputs['value_params']  # These are action value parameters, not state values
         
         # Sample which variable to intervene on
         variable_probs = jax.nn.softmax(variable_logits)
@@ -415,7 +448,7 @@ class GRPOTrainingManager:
         value_log_prob = -0.5 * ((intervention_value - mean) / (std + 1e-8)) ** 2 - 0.5 * jnp.log(2 * jnp.pi) - log_std
         total_log_prob = variable_log_prob + value_log_prob
         
-        return action, float(total_log_prob), float(state_value)
+        return action, float(total_log_prob), 0.0  # No state value in policy-only GRPO
     
     def save_checkpoint(self, path: Optional[str] = None) -> str:
         """Save training checkpoint.
@@ -436,7 +469,6 @@ class GRPOTrainingManager:
         checkpoint_data = {
             'config': self.config,
             'policy_params': self.policy_network.params,
-            'value_params': self.value_network.params,
             'step': self.current_step,
             'episode': self.current_episode,
             'performance_history': self.performance_history,
@@ -464,7 +496,6 @@ class GRPOTrainingManager:
         
         # Restore state
         self.policy_network = self.policy_network.replace(params=checkpoint_data['policy_params'])
-        self.value_network = self.value_network.replace(params=checkpoint_data['value_params'])
         self.current_step = checkpoint_data['step']
         self.current_episode = checkpoint_data['episode']
         self.performance_history = checkpoint_data.get('performance_history', [])
@@ -833,8 +864,7 @@ def create_grpo_training_manager(
     config: ComprehensiveGRPOConfig,
     environment: InterventionEnvironment,
     reward_rubric: CausalRewardRubric,
-    policy_network: Any,
-    value_network: Any
+    policy_network: Any
 ) -> GRPOTrainingManager:
     """Create GRPO training manager with validation.
     
@@ -842,8 +872,7 @@ def create_grpo_training_manager(
         config: Training configuration
         environment: Intervention environment
         reward_rubric: Reward computation system
-        policy_network: Policy network
-        value_network: Value network
+        policy_network: Policy network (policy-only GRPO)
         
     Returns:
         Configured GRPOTrainingManager
@@ -856,24 +885,21 @@ def create_grpo_training_manager(
         config=config,
         environment=environment,
         reward_rubric=reward_rubric,
-        policy_network=policy_network,
-        value_network=value_network
+        policy_network=policy_network
     )
 
 
 def create_debug_training_manager(
     environment: InterventionEnvironment,
     reward_rubric: CausalRewardRubric,
-    policy_network: Any,
-    value_network: Any
+    policy_network: Any
 ) -> GRPOTrainingManager:
     """Create training manager optimized for debugging.
     
     Args:
         environment: Intervention environment
         reward_rubric: Reward computation system
-        policy_network: Policy network
-        value_network: Value network
+        policy_network: Policy network (policy-only GRPO)
         
     Returns:
         Debug-optimized GRPOTrainingManager
@@ -886,8 +912,7 @@ def create_debug_training_manager(
         config=config,
         environment=environment,
         reward_rubric=reward_rubric,
-        policy_network=policy_network,
-        value_network=value_network
+        policy_network=policy_network
     )
 
 
@@ -895,7 +920,6 @@ def create_production_training_manager(
     environment: InterventionEnvironment,
     reward_rubric: CausalRewardRubric,
     policy_network: Any,
-    value_network: Any,
     max_training_steps: int = 25000
 ) -> GRPOTrainingManager:
     """Create training manager optimized for production.
@@ -903,8 +927,7 @@ def create_production_training_manager(
     Args:
         environment: Intervention environment
         reward_rubric: Reward computation system
-        policy_network: Policy network
-        value_network: Value network
+        policy_network: Policy network (policy-only GRPO)
         max_training_steps: Maximum training steps
         
     Returns:
@@ -918,6 +941,5 @@ def create_production_training_manager(
         config=config,
         environment=environment,
         reward_rubric=reward_rubric,
-        policy_network=policy_network,
-        value_network=value_network
+        policy_network=policy_network
     )

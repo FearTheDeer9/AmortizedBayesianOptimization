@@ -119,9 +119,39 @@ class SCMRotationManager:
     
     def _create_fallback_scms(self, scm_config) -> List[Tuple[str, pyr.PMap]]:
         """Create fallback SCMs if factory is not available."""
-        # Implementation for fallback SCMs
-        # This would use fixed benchmark SCMs
-        raise NotImplementedError("Fallback SCMs not implemented yet")
+        from ..experiments.benchmark_scms import create_fork_scm, create_chain_scm, create_collider_scm
+        
+        scms = []
+        fallback_names = scm_config.get('fallback_scms', ['fork_3var', 'chain_3var', 'collider_3var'])
+        
+        for scm_name in fallback_names:
+            try:
+                if scm_name == 'fork_3var':
+                    scm = create_fork_scm(noise_scale=1.0, target="Y")
+                    scms.append(("fork_3var", scm))
+                    
+                elif scm_name == 'chain_3var':
+                    scm = create_chain_scm(chain_length=3, coefficient=1.5, noise_scale=1.0)
+                    scms.append(("chain_3var", scm))
+                    
+                elif scm_name == 'collider_3var':
+                    scm = create_collider_scm(noise_scale=1.0)  # No target parameter
+                    scms.append(("collider_3var", scm))
+                    
+                else:
+                    logger.warning(f"Unknown fallback SCM: {scm_name}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to create fallback SCM {scm_name}: {e}")
+        
+        if not scms:
+            # If all else fails, create at least one simple SCM
+            logger.warning("Creating minimal fallback SCM")
+            scm = create_fork_scm(noise_scale=1.0, target="Y")
+            scms.append(("fallback_fork", scm))
+            
+        logger.info(f"Created {len(scms)} fallback SCMs for training")
+        return scms
     
     def _determine_max_variables(self) -> int:
         """Determine maximum variables across all SCMs."""
@@ -148,7 +178,8 @@ class StateConverter:
             standardize_values=config.training.state_config.get('standardize_values', True),
             include_temporal_features=config.training.state_config.get('include_temporal_features', True),
             max_history_size=config.training.state_config.get('max_history_size', 100),
-            support_variable_scms=True
+            support_variable_scms=True,
+            num_channels=config.training.state_config.get('num_channels', 5)  # Use configured channels
         )
     
     def convert_state_to_enriched_input(self, state: Any) -> jnp.ndarray:
@@ -156,39 +187,20 @@ class StateConverter:
         try:
             enriched_history, variable_mask = self.history_builder.build_enriched_history(state)
             
-            # Pad or truncate to max_variables if needed
-            current_vars = enriched_history.shape[1]
-            if current_vars != self.max_variables:
-                enriched_history = self._handle_variable_count_mismatch(
-                    enriched_history, current_vars, self.max_variables
-                )
-            
+            # No padding to max_variables - use actual SCM size for dynamic policy network
+            # This enables per-variable encoding without wasted computation
             return enriched_history
             
         except Exception as e:
             logger.error(f"State conversion failed: {e}")
-            # Return fallback tensor
+            # Return fallback tensor - use single variable as minimal fallback
+            logger.warning("Using single-variable fallback tensor due to state conversion failure")
             return jnp.zeros((
                 self.config.training.state_config.get('max_history_size', 100),
-                self.max_variables,
-                10  # Number of channels
+                1,  # Single variable fallback instead of max_variables
+                self.config.training.state_config.get('num_channels', 5)
             ))
     
-    def _handle_variable_count_mismatch(self, 
-                                       enriched_history: jnp.ndarray,
-                                       current_vars: int,
-                                       target_vars: int) -> jnp.ndarray:
-        """Handle variable count mismatch by padding or truncating."""
-        time_steps, _, num_channels = enriched_history.shape
-        
-        if current_vars < target_vars:
-            # Pad with zeros
-            padding_size = target_vars - current_vars
-            padding = jnp.zeros((time_steps, padding_size, num_channels))
-            return jnp.concatenate([enriched_history, padding], axis=1)
-        else:
-            # Truncate
-            return enriched_history[:, :target_vars, :]
 
 
 class CheckpointManager:

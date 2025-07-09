@@ -46,7 +46,8 @@ class EnrichedHistoryBuilder:
                  standardize_values: bool = True,
                  include_temporal_features: bool = True,
                  max_history_size: Optional[int] = None,
-                 support_variable_scms: bool = True):
+                 support_variable_scms: bool = True,
+                 num_channels: Optional[int] = None):
         """
         Initialize enriched history builder.
         
@@ -55,11 +56,12 @@ class EnrichedHistoryBuilder:
             include_temporal_features: Whether to include temporal context
             max_history_size: Maximum history size (uses class default if None)
             support_variable_scms: Whether to support variable-count SCMs (3-8 variables)
+            num_channels: Number of channels to use (defaults to CHANNEL_DEFINITIONS length)
         """
         self.standardize_values = standardize_values
         self.include_temporal_features = include_temporal_features
         self.max_history_size = max_history_size or self.MAX_HISTORY_SIZE
-        self.num_channels = len(self.CHANNEL_DEFINITIONS)
+        self.num_channels = num_channels if num_channels is not None else len(self.CHANNEL_DEFINITIONS)
         self.support_variable_scms = support_variable_scms
     
     def build_enriched_history(self, state) -> Tuple[jnp.ndarray, Optional[jnp.ndarray]]:
@@ -92,20 +94,30 @@ class EnrichedHistoryBuilder:
             all_samples, variable_order, state.current_target
         )
         
-        # Build context history (channels 3-9)
-        if self.include_temporal_features:
+        # Build context history (channels 3 onwards, up to num_channels)
+        if self.include_temporal_features and self.num_channels > 3:
             context_history = self._build_context_history(
                 all_samples, variable_order, state
             )
             
+            # Limit context to available channels
+            max_context_channels = self.num_channels - 3
+            if context_history.shape[2] > max_context_channels:
+                context_history = context_history[:, :, :max_context_channels]
+            
             # Combine core and context
             enriched_history = jnp.concatenate([core_history, context_history], axis=2)
         else:
-            # Pad core history to full channel size
-            padding_shape = (core_history.shape[0], core_history.shape[1], 
-                           self.num_channels - 3)
-            padding = jnp.zeros(padding_shape)
-            enriched_history = jnp.concatenate([core_history, padding], axis=2)
+            # Either no temporal features or num_channels <= 3
+            if self.num_channels > 3:
+                # Pad core history to full channel size
+                padding_shape = (core_history.shape[0], core_history.shape[1], 
+                               self.num_channels - 3)
+                padding = jnp.zeros(padding_shape)
+                enriched_history = jnp.concatenate([core_history, padding], axis=2)
+            else:
+                # Use only core channels (limit to num_channels)
+                enriched_history = core_history[:, :, :self.num_channels]
         
         # Create variable mask for variable-agnostic processing
         variable_mask = None

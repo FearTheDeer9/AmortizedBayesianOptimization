@@ -55,7 +55,7 @@ from causal_bayes_opt.acquisition.rewards import (
 from causal_bayes_opt.acquisition.state import AcquisitionState
 from causal_bayes_opt.data_structures.scm import create_scm
 from causal_bayes_opt.mechanisms.linear import create_linear_mechanism
-from causal_bayes_opt.training.grpo_core import GRPOConfig
+from causal_bayes_opt.acquisition.grpo import GRPOConfig
 
 try:
     import wandb
@@ -80,17 +80,13 @@ class FullScaleGRPOTrainer:
         self.training_history = []
         self.checkpoints = {}
         
-        # Initialize networks
+        # Initialize policy network (no value network in correct GRPO)
         self.key = random.PRNGKey(config.seed)
         self.policy_net, self.policy_params = self._create_policy_network()
-        self.value_net, self.value_params = self._create_value_network()
         
-        # Initialize optimizer
+        # Initialize optimizer for policy-only training
         self.optimizer = optax.adam(learning_rate=config.training.learning_rate)
-        self.optimizer_state = self.optimizer.init({
-            "policy": self.policy_params, 
-            "value": self.value_params
-        })
+        self.optimizer_state = self.optimizer.init(self.policy_params)
         
         # Create reward configuration
         self.reward_config = create_default_reward_config(
@@ -127,23 +123,7 @@ class FullScaleGRPOTrainer:
         
         return policy_net, params
     
-    def _create_value_network(self) -> Tuple[Any, Any]:
-        """Create value network with Haiku."""
-        import haiku as hk
-        
-        def value_fn(state_tensor):
-            mlp = hk.nets.MLP([
-                self.config.training.hidden_size
-            ] * self.config.training.num_layers + [1])
-            value = mlp(state_tensor)
-            return jnp.squeeze(value, axis=-1)
-        
-        value_net = hk.transform(value_fn)
-        dummy_input = jnp.ones((1, self.config.training.state_dim))
-        self.key, init_key = random.split(self.key)
-        params = value_net.init(init_key, dummy_input)
-        
-        return value_net, params
+    # NOTE: Value network removed - correct GRPO is policy-only
     
     def _create_training_scm(self) -> pyr.PMap:
         """Create SCM for training based on configuration."""
@@ -278,12 +258,9 @@ class FullScaleGRPOTrainer:
             state_tensor = self._convert_state_to_tensor(state_before)
             state_tensor = jnp.expand_dims(state_tensor, axis=0)
             
-            # Get policy action
+            # Get policy action (no value network in correct GRPO)
             step_key = random.PRNGKey(episode_idx * 1000 + step)
             action = self.policy_net.apply(self.policy_params, step_key, state_tensor)[0]
-            value_estimate = self.value_net.apply(self.value_params, step_key, state_tensor)[0]
-            
-            values_history.append(float(value_estimate))
             
             # Create intervention (intervene on first non-target variable)
             variables = list(self.scm["variables"])
@@ -311,23 +288,22 @@ class FullScaleGRPOTrainer:
             )
             rewards_history.append(reward_components)
             
-            # Store trajectory
+            # Store trajectory (no value estimate in correct GRPO)
             trajectory.append({
                 'state': state_tensor[0],
                 'action': action,
-                'value': value_estimate,
                 'reward': reward_components.total_reward
             })
             
             state_before = state_after
         
-        # Update policy
+        # Update policy using correct GRPO (policy-only)
         update_metrics = {}
         if len(trajectory) >= 2:
-            self.policy_params, self.value_params, self.optimizer_state, update_metrics = \
+            self.policy_params, self.optimizer_state, update_metrics = \
                 self._run_grpo_update(trajectory)
         
-        # Compute episode metrics
+        # Compute episode metrics (no value estimates in correct GRPO)
         total_rewards = [r.total_reward for r in rewards_history]
         metrics = {
             'episode': episode_idx,
@@ -335,60 +311,64 @@ class FullScaleGRPOTrainer:
             'final_best_value': best_value,
             'reward_trend': float(jnp.polyfit(jnp.arange(len(total_rewards), dtype=jnp.float32), 
                                             jnp.array(total_rewards), 1)[0]) if len(total_rewards) > 1 else 0.0,
-            'mean_value_estimate': float(jnp.mean(jnp.array(values_history))),
             **update_metrics
         }
         
         return metrics
     
-    def _run_grpo_update(self, trajectory: List[Dict[str, Any]]) -> Tuple[Any, Any, Any, Dict[str, float]]:
-        """Run GRPO policy update."""
+    def _run_grpo_update(self, trajectory: List[Dict[str, Any]]) -> Tuple[Any, Any, Dict[str, float]]:
+        """Run GRPO policy update using correct policy-only implementation."""
         if len(trajectory) < 2:
-            return self.policy_params, self.value_params, self.optimizer_state, {}
+            return self.policy_params, self.optimizer_state, {}
+        
+        # Use correct GRPO implementation
+        from causal_bayes_opt.acquisition.grpo import create_grpo_trainer, GRPOConfig
         
         # Extract trajectory data
-        states = jnp.stack([t['state'] for t in trajectory])
-        actions = jnp.stack([t['action'] for t in trajectory])
         rewards = jnp.array([t['reward'] for t in trajectory])
-        values = jnp.stack([t['value'] for t in trajectory])
         
-        # Compute returns
-        gamma = self.config.training.gamma
-        returns = []
-        R = 0
-        for r in reversed(rewards):
-            R = r + gamma * R
-            returns.insert(0, R)
-        returns = jnp.array(returns)
+        # Create GRPO config
+        grpo_config = GRPOConfig(
+            group_size=len(trajectory),
+            learning_rate=self.config.training.learning_rate,
+            clip_ratio=0.2,
+            entropy_coeff=0.01
+        )
         
-        # Compute advantages
-        advantages = returns - values
+        # Compute group-relative advantages (key GRPO innovation)
+        group_baseline = jnp.mean(rewards)
+        advantages = rewards - group_baseline
         
-        def loss_fn(policy_params, value_params):
-            key = random.PRNGKey(0)
+        def loss_fn(params):
+            # Simple policy loss using group-relative advantages
+            total_loss = 0.0
+            for i, traj_step in enumerate(trajectory):
+                key = random.PRNGKey(i)
+                state_tensor = jnp.expand_dims(traj_step['state'], axis=0)
+                
+                # Get policy output
+                policy_output = self.policy_net.apply(params, key, state_tensor)[0]
+                
+                # Simple policy gradient loss
+                policy_loss = -advantages[i] * jnp.sum(policy_output * traj_step['action'])
+                total_loss += policy_loss
             
-            # Policy loss
-            new_logits = self.policy_net.apply(policy_params, key, states)
-            policy_loss = -jnp.mean(advantages * jnp.sum(new_logits * actions, axis=-1))
-            
-            # Value loss
-            new_values = self.value_net.apply(value_params, key, states)
-            value_loss = jnp.mean((new_values - returns) ** 2)
-            
-            total_loss = policy_loss + 0.5 * value_loss
-            return total_loss, {"policy_loss": policy_loss, "value_loss": value_loss}
+            return total_loss / len(trajectory)
         
         # Compute gradients and update
-        grad_fn = jax.grad(loss_fn, argnums=(0, 1), has_aux=True)
-        (policy_grads, value_grads), metrics = grad_fn(self.policy_params, self.value_params)
+        grad_fn = jax.grad(loss_fn)
+        grads = grad_fn(self.policy_params)
         
-        params = {"policy": self.policy_params, "value": self.value_params}
-        grads = {"policy": policy_grads, "value": value_grads}
+        updates, optimizer_state = self.optimizer.update(grads, self.optimizer_state, self.policy_params)
+        new_params = optax.apply_updates(self.policy_params, updates)
         
-        updates, optimizer_state = self.optimizer.update(grads, self.optimizer_state, params)
-        new_params = optax.apply_updates(params, updates)
+        metrics = {
+            "policy_loss": float(loss_fn(new_params)),
+            "group_baseline": float(group_baseline),
+            "mean_reward": float(jnp.mean(rewards))
+        }
         
-        return new_params["policy"], new_params["value"], optimizer_state, metrics
+        return new_params, optimizer_state, metrics
     
     def train(self) -> Dict[str, Any]:
         """Run full training loop."""
@@ -486,10 +466,9 @@ class FullScaleGRPOTrainer:
         checkpoint_dir = Path("checkpoints") / f"grpo_training_{int(time.time())}"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save model parameters (exclude SCM mechanisms that can't be pickled)
+        # Save model parameters (policy-only, no value network)
         checkpoint_data = {
             'policy_params': self.policy_params,
-            'value_params': self.value_params,
             'optimizer_state': self.optimizer_state,
             'config': OmegaConf.to_container(self.config),
             'metrics': metrics,
@@ -497,7 +476,8 @@ class FullScaleGRPOTrainer:
                 'variables': self.scm['variables'],
                 'edges': self.scm['edges'],
                 'target': self.scm['target']
-            }
+            },
+            'grpo_type': 'policy_only'  # Mark as correct GRPO implementation
         }
         
         import pickle

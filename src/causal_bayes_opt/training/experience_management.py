@@ -29,7 +29,25 @@ import pyrsistent as pyr
 from ..jax_native.state import JAXAcquisitionState, get_policy_input_tensor_jax
 from ..acquisition.reward_rubric import RewardResult
 from ..environments.intervention_env import EnvironmentInfo
-from .grpo_core import GRPOTrajectory, GRPOConfig, create_trajectory_from_experiences
+from ..acquisition.grpo import GRPOConfig
+import warnings
+
+# Temporary data structure for compatibility while transitioning to policy-only GRPO
+@dataclass(frozen=True) 
+class SimpleTrajectory:
+    """Simplified trajectory for policy-only GRPO transition."""
+    states: jnp.ndarray
+    actions: jnp.ndarray
+    rewards: jnp.ndarray
+    log_probs: jnp.ndarray
+    dones: jnp.ndarray
+
+warnings.warn(
+    "experience_management.py is using deprecated Actor-Critic trajectory structure. "
+    "This needs to be updated for policy-only GRPO.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +112,13 @@ class ExperienceBatch:
     
     Args:
         experiences: List of experiences
-        trajectory: GRPO trajectory computed from experiences
+        trajectory: Simplified trajectory for policy-only GRPO
         importance_weights: Importance sampling weights (for prioritized replay)
         indices: Buffer indices of sampled experiences
         metadata: Additional batch metadata
     """
     experiences: List[Experience]
-    trajectory: GRPOTrajectory
+    trajectory: SimpleTrajectory
     importance_weights: jnp.ndarray
     indices: List[int]
     metadata: Dict[str, Any]
@@ -299,30 +317,23 @@ class ExperienceManager:
             metadata={'sampling_method': 'prioritized'}
         )
     
-    def _create_trajectory_from_experiences(self, experiences: List[Experience]) -> GRPOTrajectory:
-        """Create GRPO trajectory from experiences."""
+    def _create_trajectory_from_experiences(self, experiences: List[Experience]) -> SimpleTrajectory:
+        """Create simplified trajectory from experiences for policy-only GRPO."""
         # Extract simple tensor representations for states
         # For now, use mechanism features as a simple state representation
         states = jnp.stack([exp.state.mechanism_features.flatten() for exp in experiences])
         actions = jnp.stack([self._action_to_tensor(exp.action) for exp in experiences])
         rewards = jnp.array([exp.reward.total_reward for exp in experiences])
-        values = jnp.array([exp.value for exp in experiences])
         log_probs = jnp.array([exp.log_prob for exp in experiences])
         dones = jnp.array([exp.done for exp in experiences])
         
-        # Bootstrap value (last experience's next state value estimate)
-        bootstrap_value = 0.0 if experiences[-1].done else experiences[-1].value
-        
-        # Create trajectory using GRPO core function
-        return create_trajectory_from_experiences(
+        # Create simplified trajectory for policy-only GRPO
+        return SimpleTrajectory(
             states=states,
             actions=actions,
             rewards=rewards,
-            values=values,
             log_probs=log_probs,
-            dones=dones,
-            bootstrap_value=bootstrap_value,
-            config=self.grpo_config
+            dones=dones
         )
     
     def _action_to_tensor(self, action: pyr.PMap) -> jnp.ndarray:

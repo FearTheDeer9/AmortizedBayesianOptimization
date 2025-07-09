@@ -56,6 +56,12 @@ class AcquisitionState:
     """
     Immutable state representation for RL-based acquisition.
     
+    **DEPRECATION WARNING**: This class is being migrated to TensorBackedAcquisitionState
+    for improved JAX compilation performance. New code should use:
+    ```python
+    from causal_bayes_opt.jax_native.state import TensorBackedAcquisitionState
+    ```
+    
     Combines structural uncertainty (from ParentSetPosterior) with 
     optimization progress (from ExperienceBuffer) for decision making.
     
@@ -102,6 +108,15 @@ class AcquisitionState:
     
     def __post_init__(self):
         """Compute derived properties for efficient access during training."""
+        # Issue deprecation warning for new code
+        import warnings
+        warnings.warn(
+            "AcquisitionState is deprecated. Use TensorBackedAcquisitionState from "
+            "causal_bayes_opt.jax_native.state for better JAX compilation performance.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
         try:
             # Convert uncertainty from nats to bits for interpretability
             uncertainty_bits = self.posterior.uncertainty / jnp.log(2.0)

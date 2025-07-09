@@ -26,7 +26,7 @@ from ..environments.intervention_env import EnvironmentConfig
 from .async_training import AsyncTrainingConfig
 from .diversity_monitor import DiversityMonitor
 from .experience_management import ExperienceConfig
-from .grpo_core import GRPOConfig, validate_grpo_config
+from ..acquisition.grpo import GRPOConfig
 
 logger = logging.getLogger(__name__)
 
@@ -72,26 +72,7 @@ class PolicyNetworkConfig:
     embedding_dim: int = 32
 
 
-@dataclass(frozen=True)
-class ValueNetworkConfig:
-    """Configuration for value network architecture.
-    
-    Args:
-        hidden_dims: Hidden layer dimensions
-        activation: Activation function name
-        dropout_rate: Dropout rate for regularization
-        use_batch_norm: Whether to use batch normalization
-        use_residual: Whether to use residual connections
-        shared_layers: Number of layers to share with policy network
-        ensemble_size: Number of value networks in ensemble (if using)
-    """
-    hidden_dims: Tuple[int, ...] = (256, 128)
-    activation: str = "relu"
-    dropout_rate: float = 0.1
-    use_batch_norm: bool = True
-    use_residual: bool = False
-    shared_layers: int = 0
-    ensemble_size: int = 1
+# ValueNetworkConfig removed - GRPO is policy-only and doesn't use value networks
 
 
 @dataclass(frozen=True)
@@ -211,7 +192,6 @@ class ComprehensiveGRPOConfig:
         experience_management: Experience replay configuration
         async_training: Async training infrastructure configuration
         policy_network: Policy network architecture configuration
-        value_network: Value network architecture configuration
         reward_rubric: Reward system configuration
         environment_config: Environment configuration
         diversity_monitor: Diversity monitoring configuration
@@ -233,9 +213,8 @@ class ComprehensiveGRPOConfig:
     experience_management: ExperienceConfig
     async_training: AsyncTrainingConfig
 
-    # Network architectures
+    # Network architecture (policy-only GRPO)
     policy_network: PolicyNetworkConfig
-    value_network: ValueNetworkConfig
 
     # Training systems
     reward_rubric: Optional[CausalRewardRubric] = None
@@ -276,8 +255,13 @@ def validate_comprehensive_grpo_config(config: ComprehensiveGRPOConfig) -> None:
     Raises:
         ValueError: If configuration is invalid
     """
-    # Validate core GRPO config
-    validate_grpo_config(config.grpo_algorithm)
+    # Simple GRPO config validation (policy-only)
+    if config.grpo_algorithm.learning_rate <= 0:
+        raise ValueError(f"learning_rate must be positive, got {config.grpo_algorithm.learning_rate}")
+    if config.grpo_algorithm.group_size <= 0:
+        raise ValueError(f"group_size must be positive, got {config.grpo_algorithm.group_size}")
+    if config.grpo_algorithm.clip_ratio <= 0:
+        raise ValueError(f"clip_ratio must be positive, got {config.grpo_algorithm.clip_ratio}")
 
     # Validate training parameters
     if config.max_training_steps <= 0:
@@ -304,9 +288,8 @@ def validate_comprehensive_grpo_config(config: ComprehensiveGRPOConfig) -> None:
     if config.compile_mode not in valid_compile_modes:
         raise ValueError(f"compile_mode must be one of {valid_compile_modes}, got {config.compile_mode}")
 
-    # Validate network configurations
+    # Validate network configuration (policy-only GRPO)
     _validate_network_config(config.policy_network, "policy_network")
-    _validate_network_config(config.value_network, "value_network")
 
     # Validate curriculum configuration
     if config.curriculum.enable_curriculum:
@@ -321,7 +304,7 @@ def validate_comprehensive_grpo_config(config: ComprehensiveGRPOConfig) -> None:
     logger.info("GRPO configuration validation successful")
 
 
-def _validate_network_config(network_config: Union[PolicyNetworkConfig, ValueNetworkConfig], name: str) -> None:
+def _validate_network_config(network_config: PolicyNetworkConfig, name: str) -> None:
     """Validate network configuration."""
     if not network_config.hidden_dims:
         raise ValueError(f"{name}.hidden_dims cannot be empty")
@@ -428,7 +411,10 @@ def create_standard_grpo_config(
     Returns:
         Standard GRPO configuration
     """
-    grpo_config = GRPOConfig()
+    grpo_config = GRPOConfig(
+        group_size=16,  # Reduced for same-state batching efficiency
+        interventions_per_state=16  # Same-state batching: multiple interventions from same state/SCM
+    )
 
     experience_config = ExperienceConfig(
         max_buffer_size=buffer_size,
@@ -447,7 +433,6 @@ def create_standard_grpo_config(
         experience_management=experience_config,
         async_training=async_config,
         policy_network=PolicyNetworkConfig(),
-        value_network=ValueNetworkConfig(),
         max_training_steps=max_training_steps,
         training_mode=TrainingMode.FULL_GRPO,
         optimization_level=OptimizationLevel.PRODUCTION
@@ -471,10 +456,11 @@ def create_research_grpo_config(
     """
     # More conservative GRPO settings for research
     grpo_config = GRPOConfig(
+        group_size=20,  # Larger for research but still efficient
         learning_rate=1e-4,
-        value_learning_rate=5e-4,
         clip_ratio=0.1,
-        entropy_coefficient=0.02
+        entropy_coeff=0.02,
+        interventions_per_state=20  # Same-state batching for research
     )
 
     # Larger buffer for better sample diversity
@@ -498,11 +484,7 @@ def create_research_grpo_config(
         use_batch_norm=True
     )
 
-    value_network = ValueNetworkConfig(
-        hidden_dims=(512, 256),
-        dropout_rate=0.2,
-        ensemble_size=3  # Value ensemble for better estimation
-    )
+    # Value network removed - GRPO is policy-only
 
     curriculum = CurriculumConfig(
         enable_curriculum=enable_curriculum,
@@ -529,7 +511,6 @@ def create_research_grpo_config(
         experience_management=experience_config,
         async_training=async_config,
         policy_network=policy_network,
-        value_network=value_network,
         curriculum=curriculum,
         adaptive=adaptive,
         logging=logging_config,
@@ -556,11 +537,12 @@ def create_production_grpo_config(
     """
     # High-performance GRPO settings
     grpo_config = GRPOConfig(
+        group_size=min(batch_size, 16),  # Cap at 16 for same-state efficiency
         learning_rate=5e-4,
-        value_learning_rate=1e-3,
         clip_ratio=0.2,
-        entropy_coefficient=0.01,
-        max_grad_norm=1.0
+        entropy_coeff=0.01,
+        max_grad_norm=1.0,
+        interventions_per_state=min(batch_size, 16)  # Same-state batching for production
     )
 
     # Memory-efficient experience management
@@ -585,11 +567,7 @@ def create_production_grpo_config(
         use_batch_norm=False  # Faster without batch norm
     )
 
-    value_network = ValueNetworkConfig(
-        hidden_dims=(256, 128),
-        dropout_rate=0.1,
-        use_batch_norm=False
-    )
+    # Value network removed - GRPO is policy-only
 
     checkpointing = CheckpointingConfig(
         enable_checkpointing=enable_checkpointing,
@@ -609,7 +587,6 @@ def create_production_grpo_config(
         experience_management=experience_config,
         async_training=async_config,
         policy_network=policy_network,
-        value_network=value_network,
         checkpointing=checkpointing,
         logging=logging_config,
         max_training_steps=max_training_steps,
@@ -634,8 +611,9 @@ def create_debug_grpo_config(
         Debug GRPO configuration
     """
     grpo_config = GRPOConfig(
+        group_size=min(batch_size, 8),  # Small for debugging
         learning_rate=1e-3,
-        value_learning_rate=1e-3
+        interventions_per_state=min(batch_size, 8)  # Same-state batching for debugging
     )
 
     experience_config = ExperienceConfig(
@@ -656,10 +634,7 @@ def create_debug_grpo_config(
         dropout_rate=0.0  # No dropout for debugging
     )
 
-    value_network = ValueNetworkConfig(
-        hidden_dims=(64, 32),
-        dropout_rate=0.0
-    )
+    # Value network removed - GRPO is policy-only
 
     logging_config = LoggingConfig(
         log_level="DEBUG",
@@ -673,7 +648,6 @@ def create_debug_grpo_config(
         experience_management=experience_config,
         async_training=async_config,
         policy_network=policy_network,
-        value_network=value_network,
         logging=logging_config,
         max_training_steps=max_training_steps,
         training_mode=TrainingMode.FULL_GRPO,
@@ -708,13 +682,8 @@ def get_recommended_config_for_problem_size(
     if n_variables > 20:
         # Large problems need bigger networks
         policy_hidden = tuple(dim * 2 for dim in base_config.policy_network.hidden_dims)
-        value_hidden = tuple(dim * 2 for dim in base_config.value_network.hidden_dims)
-
         policy_network = PolicyNetworkConfig(
             **{**base_config.policy_network.__dict__, 'hidden_dims': policy_hidden}
-        )
-        value_network = ValueNetworkConfig(
-            **{**base_config.value_network.__dict__, 'hidden_dims': value_hidden}
         )
 
         # Larger buffer for complex problems
@@ -726,7 +695,6 @@ def get_recommended_config_for_problem_size(
         return ComprehensiveGRPOConfig(
             **{**base_config.__dict__,
                'policy_network': policy_network,
-               'value_network': value_network,
                'experience_management': experience_config}
         )
 

@@ -311,3 +311,49 @@ class MethodRegistry:
             intervention_value_range=(-2.0, 2.0),
             random_seed=getattr(config, 'seed', 42) + run_idx * 100 + scm_idx
         )
+
+
+# Global registry instance
+_GLOBAL_REGISTRY = MethodRegistry()
+
+
+def get_all_methods() -> Dict[str, ExperimentMethod]:
+    """Get all registered methods from the global registry.
+    
+    Returns:
+        Dictionary mapping method types to ExperimentMethod instances
+    """
+    return _GLOBAL_REGISTRY.methods
+
+
+def get_method(method_type: str) -> ExperimentMethod:
+    """Get a specific method from the global registry.
+    
+    Args:
+        method_type: Type of method to retrieve
+        
+    Returns:
+        ExperimentMethod instance
+        
+    Raises:
+        ValueError: If method type is not found
+    """
+    return _GLOBAL_REGISTRY.get_method(method_type)
+
+
+def list_available_methods() -> List[str]:
+    """List all available method types from the global registry.
+    
+    Returns:
+        List of method type strings
+    """
+    return _GLOBAL_REGISTRY.list_available_methods()
+
+
+def register_method(method: ExperimentMethod) -> None:
+    """Register a new method in the global registry.
+    
+    Args:
+        method: ExperimentMethod instance to register
+    """
+    _GLOBAL_REGISTRY.register_method(method)

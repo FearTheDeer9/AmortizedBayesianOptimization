@@ -1,0 +1,5 @@
+- policy_checkpoint_path=../../checkpoints/grpo_testing/enriched_grpo_final_backup
+- experiment.runs_per_method=1
+- experiment.intervention_budget=3
+- +n_scms=1
+- logging.wandb.enabled=false

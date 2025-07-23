@@ -124,17 +124,24 @@ class WandBLogger:
             
             for step_idx, step_metrics in enumerate(trajectory_metrics):
                 step_data = {
-                    # Method-specific metrics
+                    # Main metrics for easy dashboard creation
                     f"{method_name}/target_value": step_metrics.get('target_value', 0.0),
                     f"{method_name}/true_parent_likelihood": step_metrics.get('true_parent_likelihood', 0.0),
                     f"{method_name}/f1_score": step_metrics.get('f1_score', 0.0),
                     f"{method_name}/shd": step_metrics.get('shd', 0.0),
                     f"{method_name}/uncertainty": step_metrics.get('uncertainty', 0.0),
                     
-                    # SCM-specific metrics
+                    # P(Parents|Data) - clearer naming
+                    f"{method_name}/parent_probability": step_metrics.get('true_parent_likelihood', 0.0),
+                    
+                    # Structure recovery metrics
+                    f"{method_name}/structure_f1": step_metrics.get('f1_score', 0.0),
+                    f"{method_name}/structure_distance": step_metrics.get('shd', 0.0),
+                    
+                    # SCM-specific metrics for detailed analysis
                     f"{method_name}/target_value_{scm_name}": step_metrics.get('target_value', 0.0),
                     f"{method_name}/f1_score_{scm_name}": step_metrics.get('f1_score', 0.0),
-                    f"{method_name}/shd_{scm_name}": step_metrics.get('shd', 0.0),
+                    f"{method_name}/parent_prob_{scm_name}": step_metrics.get('true_parent_likelihood', 0.0),
                     
                     # Context information
                     "intervention_step": step_idx,
@@ -275,32 +282,120 @@ class WandBLogger:
             ]
             
             for method in method_types:
-                # Core metrics
+                # Core optimization metrics
                 self.run.define_metric(f"{method}/target_value", step_metric="intervention_step")
-                self.run.define_metric(f"{method}/true_parent_likelihood", step_metric="intervention_step")
+                
+                # Structure learning metrics (main focus)
                 self.run.define_metric(f"{method}/f1_score", step_metric="intervention_step")
+                self.run.define_metric(f"{method}/structure_f1", step_metric="intervention_step")
+                self.run.define_metric(f"{method}/true_parent_likelihood", step_metric="intervention_step")
+                self.run.define_metric(f"{method}/parent_probability", step_metric="intervention_step")
+                
+                # Distance metrics
                 self.run.define_metric(f"{method}/shd", step_metric="intervention_step")
+                self.run.define_metric(f"{method}/structure_distance", step_metric="intervention_step")
+                
+                # Uncertainty metrics
                 self.run.define_metric(f"{method}/uncertainty", step_metric="intervention_step")
+            
+            # Create custom charts for better visualization
+            self._create_custom_charts()
             
         except Exception as e:
             logger.warning(f"Failed to define custom metrics: {e}")
+    
+    def _create_custom_charts(self) -> None:
+        """Create custom chart configurations for better visualization."""
+        if not self.run:
+            return
+        
+        try:
+            # Create F1 Score comparison chart
+            f1_chart = {
+                "title": "F1 Score by Step (Structure Recovery)",
+                "x_axis": "intervention_step",
+                "y_axis": "f1_score",
+                "chart_type": "line",
+                "series": [
+                    "Random Policy + Untrained Model/f1_score",
+                    "Random Policy + Learning Model/f1_score",
+                    "Oracle Policy + Learning Model/f1_score",
+                    "Learned Enriched Policy + Learning Model/f1_score"
+                ]
+            }
+            
+            # Create P(Parents|Data) comparison chart
+            parent_prob_chart = {
+                "title": "P(Parents|Data) by Step",
+                "x_axis": "intervention_step",
+                "y_axis": "parent_probability",
+                "chart_type": "line",
+                "series": [
+                    "Random Policy + Untrained Model/parent_probability",
+                    "Random Policy + Learning Model/parent_probability",
+                    "Oracle Policy + Learning Model/parent_probability",
+                    "Learned Enriched Policy + Learning Model/parent_probability"
+                ]
+            }
+            
+            # Log custom charts config
+            self.run.log({
+                "custom_charts/f1_score_comparison": f1_chart,
+                "custom_charts/parent_probability_comparison": parent_prob_chart
+            })
+            
+        except Exception as e:
+            logger.warning(f"Failed to create custom charts: {e}")
     
     def _extract_trajectory_metrics(self, metrics: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Extract trajectory metrics for step-by-step logging."""
         trajectory_data = []
         
-        # Extract trajectory lists
-        steps = metrics.get('steps_trajectory', [])
-        target_values = metrics.get('target_values_trajectory', [])
-        f1_scores = metrics.get('f1_scores_trajectory', [])
-        shd_values = metrics.get('shd_values_trajectory', [])
-        true_parent_likelihoods = metrics.get('true_parent_likelihood_trajectory', [])
-        uncertainties = metrics.get('uncertainty_bits_trajectory', [])
+        # First check for detailed_results (from improved metrics collector)
+        detailed_results = metrics.get('detailed_results', {})
+        
+        # Extract trajectory lists with multiple possible key formats
+        # Check detailed_results first, then main metrics
+        steps = (detailed_results.get('steps') or 
+                metrics.get('steps_trajectory') or 
+                metrics.get('steps', []))
+        
+        target_values = (detailed_results.get('target_progress') or
+                        detailed_results.get('target_values') or
+                        metrics.get('target_values_trajectory') or 
+                        metrics.get('target_values') or
+                        metrics.get('target_progress', []))
+        
+        f1_scores = (detailed_results.get('f1_scores') or
+                    metrics.get('f1_scores_trajectory') or 
+                    metrics.get('f1_scores', []))
+        
+        shd_values = (detailed_results.get('shd_values') or
+                     metrics.get('shd_values_trajectory') or 
+                     metrics.get('shd_values', []))
+        
+        true_parent_likelihoods = (detailed_results.get('true_parent_likelihood') or
+                                  detailed_results.get('parent_probability') or
+                                  metrics.get('true_parent_likelihood_trajectory') or
+                                  metrics.get('true_parent_likelihood', []))
+        
+        uncertainties = (detailed_results.get('uncertainty_progress') or
+                        detailed_results.get('uncertainty_bits') or
+                        metrics.get('uncertainty_bits_trajectory') or
+                        metrics.get('uncertainty_bits', []))
+        
+        # Also check for learning_history format
+        learning_history = detailed_results.get('learning_history') or metrics.get('learning_history', [])
+        if learning_history and not target_values:
+            target_values = [step.get('outcome_value', 0.0) for step in learning_history]
+            f1_scores = [step.get('f1_score', 0.0) for step in learning_history]
+            shd_values = [step.get('shd', 0.0) for step in learning_history]
+            true_parent_likelihoods = [step.get('true_parent_likelihood', 0.0) for step in learning_history]
+            uncertainties = [step.get('uncertainty', 0.0) for step in learning_history]
         
         # Ensure all trajectories have the same length
-        max_length = max(len(lst) for lst in [steps, target_values, f1_scores, 
-                                            shd_values, true_parent_likelihoods, uncertainties] 
-                        if lst)
+        trajectory_lists = [steps, target_values, f1_scores, shd_values, true_parent_likelihoods, uncertainties]
+        max_length = max(len(lst) for lst in trajectory_lists if lst)
         
         if max_length == 0:
             return []

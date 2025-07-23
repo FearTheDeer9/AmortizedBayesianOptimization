@@ -53,6 +53,12 @@ class ACBOExperimentRunner:
         )
         self.visualization_manager = VisualizationManager()
         
+        # Checkpoint settings
+        self.checkpoint_enabled = config.get('checkpoint', {}).get('enabled', True)
+        self.checkpoint_dir = Path(config.get('checkpoint', {}).get('dir', 'checkpoints'))
+        self.checkpoint_dir.mkdir(exist_ok=True)
+        self.checkpoint_file = self.checkpoint_dir / f"acbo_checkpoint_{int(time.time())}.json"
+        
         logger.info(f"Initialized ACBO experiment runner: {config.experiment.name}")
     
     def run_experiment(self) -> Dict[str, Any]:
@@ -98,7 +104,7 @@ class ACBOExperimentRunner:
             
         except Exception as e:
             logger.error(f"❌ Experiment failed: {e}")
-            if self.wandb_logger.enabled:
+            if self.wandb_logger.enabled and self.wandb_logger.run is not None:
                 self.wandb_logger.run.log({"experiment_status": "failed", "error": str(e)})
             raise
         finally:
@@ -159,8 +165,17 @@ class ACBOExperimentRunner:
                     
                     # Collect metrics for this run
                     if result.success:
+                        # Pass the full result including detailed_results
+                        result_dict = result.__dict__.copy()
+                        # Ensure detailed_results are included at top level for backward compatibility
+                        if 'detailed_results' in result_dict and isinstance(result_dict['detailed_results'], dict):
+                            # Merge detailed_results into the main result dict for metrics collection
+                            result_with_details = {**result_dict, **result_dict['detailed_results']}
+                        else:
+                            result_with_details = result_dict
+                        
                         run_metrics = self.metrics_collector.collect_run_metrics(
-                            result.__dict__, scm, method_display_name, run_idx, scm_idx
+                            result_with_details, scm, method_display_name, run_idx, scm_idx
                         )
                         
                         # Log to WandB
@@ -170,11 +185,31 @@ class ACBOExperimentRunner:
             
             all_results[method_display_name] = method_results
             
+            # Save checkpoint after each method completes
+            if self.checkpoint_enabled:
+                self._save_checkpoint(all_results)
+            
             # Log method summary
-            successful_results = [r.__dict__ for r in method_results if r.success]
+            # Convert results to dicts, preserving detailed_results
+            successful_results = []
+            for r in method_results:
+                if r.success:
+                    result_dict = r.__dict__.copy()
+                    # Ensure detailed_results are preserved
+                    if 'detailed_results' in result_dict and isinstance(result_dict['detailed_results'], dict):
+                        # Also merge into top-level for backward compatibility
+                        result_with_trajectory = {**result_dict, **result_dict['detailed_results']}
+                        successful_results.append(result_with_trajectory)
+                    else:
+                        successful_results.append(result_dict)
+            
             aggregated_metrics = self.metrics_collector.aggregate_method_metrics(
                 method_display_name, successful_results
             )
+            
+            # Store aggregated metrics in collector for later retrieval
+            self.metrics_collector.collected_metrics[method_display_name] = aggregated_metrics
+            
             self.wandb_logger.log_method_summary(method_display_name, aggregated_metrics)
             
             success_rate = len(successful_results) / len(method_results) * 100
@@ -251,9 +286,32 @@ class ACBOExperimentRunner:
                               test_scms: List[tuple]) -> Dict[str, Any]:
         """Compile comprehensive final results."""
         
+        # Convert method results preserving detailed_results with trajectory data
+        method_results_dict = {}
+        for name, results in method_results.items():
+            method_results_dict[name] = []
+            for r in results:
+                result_dict = r.__dict__.copy()
+                # Ensure detailed_results with trajectory data are preserved
+                if 'detailed_results' in result_dict and isinstance(result_dict['detailed_results'], dict):
+                    # Keep trajectory data in detailed_results
+                    pass
+                method_results_dict[name].append(result_dict)
+        
+        # Extract aggregated trajectory data from metrics collector
+        aggregated_trajectories = {}
+        for method_name in method_results.keys():
+            if method_name in self.metrics_collector.collected_metrics:
+                method_metrics = self.metrics_collector.collected_metrics[method_name]
+                if isinstance(method_metrics, dict) and any(key.endswith('_mean') for key in method_metrics):
+                    aggregated_trajectories[method_name] = {
+                        k: v for k, v in method_metrics.items() 
+                        if k.endswith('_mean') or k.endswith('_trajectory')
+                    }
+        
         return {
             'experiment_config': OmegaConf.to_container(self.config),
-            'method_results': {name: [r.__dict__ for r in results] for name, results in method_results.items()},
+            'method_results': method_results_dict,
             'statistical_analysis': analysis_results,
             'visualizations': plots,
             'scm_summary': self.scm_manager.get_scm_characteristics_summary(),
@@ -263,5 +321,87 @@ class ACBOExperimentRunner:
                 'methods_tested': len(method_results),
                 'runs_per_method': self.config.experiment.get('runs_per_method', 3),
                 'total_experiments': sum(len(results) for results in method_results.values())
-            }
+            },
+            'aggregated_trajectories': aggregated_trajectories,
+            'trajectory_data': self._serialize_trajectory_data()  # Raw trajectory data
         }
+    
+    def _serialize_trajectory_data(self) -> Dict[str, Any]:
+        """Serialize trajectory data to ensure JSON compatibility."""
+        serialized = {}
+        
+        for key, value in self.metrics_collector.trajectory_data.items():
+            # Ensure key is a string
+            str_key = str(key) if not isinstance(key, str) else key
+            
+            # Recursively serialize the value
+            serialized[str_key] = self._serialize_value(value)
+        
+        return serialized
+    
+    def _serialize_value(self, value: Any) -> Any:
+        """Recursively serialize values for JSON compatibility."""
+        import jax.numpy as jnp
+        import numpy as onp
+        
+        if isinstance(value, dict):
+            return {str(k): self._serialize_value(v) for k, v in value.items()}
+        elif isinstance(value, (list, tuple)):
+            return [self._serialize_value(v) for v in value]
+        elif isinstance(value, (jnp.ndarray, onp.ndarray)):
+            return value.tolist()
+        elif isinstance(value, (int, float, str, bool, type(None))):
+            return value
+        else:
+            # Convert any other type to string
+            return str(value)
+    
+    def _save_checkpoint(self, partial_results: Dict[str, Any]) -> None:
+        """Save intermediate results as checkpoint."""
+        try:
+            import json
+            import tempfile
+            import shutil
+            from dataclasses import is_dataclass, asdict
+            
+            # Prepare checkpoint data
+            checkpoint_data = {
+                'timestamp': time.time(),
+                'elapsed_time': time.time() - self.start_time,
+                'partial_results': self._serialize_for_checkpoint(partial_results),
+                'completed_methods': list(partial_results.keys())
+            }
+            
+            # Atomic write
+            with tempfile.NamedTemporaryFile('w', delete=False, suffix='.json',
+                                           dir=self.checkpoint_dir) as temp_file:
+                json.dump(checkpoint_data, temp_file, indent=2, default=str)
+                temp_file.flush()
+                temp_path = temp_file.name
+            
+            shutil.move(temp_path, self.checkpoint_file)
+            logger.debug(f"Checkpoint saved: {self.checkpoint_file}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to save checkpoint: {e}")
+    
+    def _serialize_for_checkpoint(self, obj: Any) -> Any:
+        """Serialize object for checkpoint saving."""
+        from dataclasses import is_dataclass, asdict
+        import jax.numpy as jnp
+        import numpy as onp
+        
+        if isinstance(obj, dict):
+            return {str(k): self._serialize_for_checkpoint(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [self._serialize_for_checkpoint(item) for item in obj]
+        elif isinstance(obj, (jnp.ndarray, onp.ndarray)):
+            return obj.tolist()
+        elif is_dataclass(obj):
+            return self._serialize_for_checkpoint(asdict(obj))
+        elif hasattr(obj, '__dict__'):
+            return self._serialize_for_checkpoint(obj.__dict__)
+        elif isinstance(obj, (int, float, str, bool, type(None))):
+            return obj
+        else:
+            return str(obj)

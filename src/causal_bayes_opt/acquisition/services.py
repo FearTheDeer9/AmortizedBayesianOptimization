@@ -101,7 +101,8 @@ def create_acquisition_state(
     if not target_values:
         raise ValueError(f"No samples contain target variable '{target_variable}'")
     
-    best_value = float(jnp.max(jnp.array(target_values)))
+    # For minimization: best value is the minimum (lowest) value seen so far
+    best_value = float(jnp.min(jnp.array(target_values)))
     
     # Get posterior prediction from surrogate model
     try:
@@ -212,7 +213,8 @@ def update_state_with_intervention(
     current_target_value = outcome_values.get(current_state.current_target)
     
     if current_target_value is not None:
-        new_best_value = max(current_state.best_value, float(current_target_value))
+        # For minimization: best value is the minimum (lowest) value seen so far
+        new_best_value = min(current_state.best_value, float(current_target_value))
     else:
         new_best_value = current_state.best_value
         logger.warning(f"Outcome doesn't contain target variable '{current_state.current_target}'")
@@ -515,7 +517,8 @@ def create_acquisition_state_with_mechanisms(
     if not target_values:
         raise ValueError(f"No samples contain target variable '{target_variable}'")
     
-    best_value = float(jnp.max(jnp.array(target_values)))
+    # For minimization: best value is the minimum (lowest) value seen so far
+    best_value = float(jnp.min(jnp.array(target_values)))
     
     # Initialize mechanism predictions variables
     mechanism_predictions = None

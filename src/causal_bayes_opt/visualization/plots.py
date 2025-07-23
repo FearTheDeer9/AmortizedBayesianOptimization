@@ -76,11 +76,21 @@ def plot_convergence(
     if likelihood:
         ax1.plot(steps, likelihood, 'b-', linewidth=2, label='P(True Parents | Data)')
         ax1.axhline(y=0.9, color='r', linestyle='--', alpha=0.7, label='90% Threshold')
+        ax1.axhline(y=0.8, color='orange', linestyle='--', alpha=0.5, label='80% Threshold')
         ax1.set_ylabel('Likelihood')
         ax1.set_title('Convergence to True Parent Set')
         ax1.legend()
         ax1.set_ylim(0, 1.05)
         ax1.grid(True, alpha=0.3)
+        
+        # Add convergence annotation
+        if max(likelihood) > 0.9:
+            convergence_step = next((i for i, l in enumerate(likelihood) if l > 0.9), None)
+            if convergence_step is not None:
+                ax1.annotate(f'Convergence at step {convergence_step}', 
+                           xy=(convergence_step, likelihood[convergence_step]), 
+                           xytext=(convergence_step + len(steps)//10, likelihood[convergence_step] + 0.05),
+                           arrowprops=dict(arrowstyle='->', color='red', alpha=0.7))
     
     subplot_idx = 1
     
@@ -91,11 +101,21 @@ def plot_convergence(
         if f1_scores:
             ax2.plot(steps, f1_scores, 'g-', linewidth=2, label='F1 Score')
             ax2.axhline(y=0.7, color='r', linestyle='--', alpha=0.7, label='70% Threshold')
+            ax2.axhline(y=0.5, color='orange', linestyle='--', alpha=0.5, label='50% Threshold')
             ax2.set_ylabel('F1 Score')
             ax2.set_title('Structure Recovery F1 Score')
             ax2.legend()
             ax2.set_ylim(0, 1.05)
             ax2.grid(True, alpha=0.3)
+            
+            # Add max F1 annotation
+            if f1_scores:
+                max_f1 = max(f1_scores)
+                max_f1_step = f1_scores.index(max_f1)
+                ax2.annotate(f'Max F1: {max_f1:.3f}', 
+                           xy=(max_f1_step, max_f1), 
+                           xytext=(max_f1_step + len(steps)//10, max_f1 + 0.05),
+                           arrowprops=dict(arrowstyle='->', color='green', alpha=0.7))
         subplot_idx += 1
     
     # Plot 3: Uncertainty (optional)
@@ -199,6 +219,182 @@ def plot_target_optimization(
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         logger.info(f"Saved target optimization plot to {save_path}")
+    
+    return fig
+
+
+def plot_baseline_comparison(
+    results_by_method: Dict[str, Dict[str, List[float]]],
+    title: str = "Active Learning vs Surrogate Methods Comparison",
+    save_path: Optional[str] = None,
+    figsize: Tuple[float, float] = (16, 12)
+) -> plt.Figure:
+    """
+    Create baseline comparison plot matching the screenshot style.
+    
+    This function creates a 3-panel plot comparing different methods on:
+    - Structure Recovery SHD (lower is better)
+    - Structure Recovery F1 Score (higher is better) 
+    - Target Variable Optimization (higher is better)
+    
+    Args:
+        results_by_method: Dict mapping method names to learning curves
+        title: Main plot title
+        save_path: Optional path to save the plot
+        figsize: Figure size tuple
+        
+    Returns:
+        Matplotlib figure object
+    """
+    if not results_by_method:
+        logger.warning("No results provided for baseline comparison")
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        ax.text(0.5, 0.5, 'No data available', ha='center', va='center')
+        ax.set_title(title)
+        return fig
+    
+    # Create figure with 3 subplots
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=figsize, sharex=True)
+    
+    # Define color scheme matching screenshot
+    method_colors = {
+        "Random Policy + Untrained Model": "#3498db",  # Blue
+        "Random Policy + Learning Model": "#2ecc71",   # Green  
+        "Oracle Policy + Learning Model": "#e74c3c",   # Red
+        "Learned Policy + Learning Model": "#9b59b6",  # Purple
+        # Fallback colors for other methods
+        "default": ["#3498db", "#2ecc71", "#e74c3c", "#9b59b6", "#f39c12", "#1abc9c"]
+    }
+    
+    color_idx = 0
+    
+    # Plot 1: SHD (Lower is Better)
+    for method_name, learning_curve in results_by_method.items():
+        if not learning_curve or 'shd_mean' not in learning_curve:
+            continue
+            
+        steps = learning_curve.get('steps', [])
+        mean_values = learning_curve.get('shd_mean', [])
+        std_values = learning_curve.get('shd_std', [])
+        n_runs = learning_curve.get('n_runs', 1)
+        
+        if not steps or not mean_values:
+            continue
+        
+        # Get color for this method
+        if method_name in method_colors:
+            color = method_colors[method_name]
+        else:
+            color = method_colors["default"][color_idx % len(method_colors["default"])]
+            color_idx += 1
+        
+        # Plot mean line
+        ax1.plot(steps, mean_values, color=color, linewidth=2, 
+                label=f'{method_name} (n={n_runs})', marker='o', markersize=4)
+        
+        # Plot confidence interval
+        if std_values and n_runs > 1:
+            mean_array = onp.array(mean_values)
+            std_array = onp.array(std_values)
+            se = std_array / onp.sqrt(n_runs)
+            ax1.fill_between(steps, mean_array - se, mean_array + se, 
+                           color=color, alpha=0.2)
+    
+    ax1.set_ylabel('Structural Hamming Distance')
+    ax1.set_title('Structure Recovery - SHD (Lower is Better)')
+    ax1.axhline(y=0, color='gray', linestyle='--', alpha=0.5, label='Perfect Recovery')
+    ax1.legend(loc='upper right')
+    ax1.grid(True, alpha=0.3)
+    ax1.set_ylim(bottom=-0.5)
+    
+    # Plot 2: F1 Score (Higher is Better)
+    color_idx = 0
+    for method_name, learning_curve in results_by_method.items():
+        if not learning_curve or 'f1_mean' not in learning_curve:
+            continue
+            
+        steps = learning_curve.get('steps', [])
+        mean_values = learning_curve.get('f1_mean', [])
+        std_values = learning_curve.get('f1_std', [])
+        n_runs = learning_curve.get('n_runs', 1)
+        
+        if not steps or not mean_values:
+            continue
+        
+        # Get color for this method
+        if method_name in method_colors:
+            color = method_colors[method_name]
+        else:
+            color = method_colors["default"][color_idx % len(method_colors["default"])]
+            color_idx += 1
+        
+        # Plot mean line
+        ax2.plot(steps, mean_values, color=color, linewidth=2, 
+                label=f'{method_name} (n={n_runs})', marker='s', markersize=4)
+        
+        # Plot confidence interval
+        if std_values and n_runs > 1:
+            mean_array = onp.array(mean_values)
+            std_array = onp.array(std_values)
+            se = std_array / onp.sqrt(n_runs)
+            ax2.fill_between(steps, mean_array - se, mean_array + se, 
+                           color=color, alpha=0.2)
+    
+    ax2.set_ylabel('F1 Score')
+    ax2.set_title('Structure Recovery F1 Score (Higher is Better)')
+    ax2.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, label='Perfect Recovery')
+    ax2.legend(loc='lower right')
+    ax2.grid(True, alpha=0.3)
+    ax2.set_ylim(0, 1.05)
+    
+    # Plot 3: Target Value (Higher is Better)
+    color_idx = 0
+    for method_name, learning_curve in results_by_method.items():
+        if not learning_curve or 'target_mean' not in learning_curve:
+            continue
+            
+        steps = learning_curve.get('steps', [])
+        mean_values = learning_curve.get('target_mean', [])
+        std_values = learning_curve.get('target_std', [])
+        n_runs = learning_curve.get('n_runs', 1)
+        
+        if not steps or not mean_values:
+            continue
+        
+        # Get color for this method
+        if method_name in method_colors:
+            color = method_colors[method_name]
+        else:
+            color = method_colors["default"][color_idx % len(method_colors["default"])]
+            color_idx += 1
+        
+        # Plot mean line
+        ax3.plot(steps, mean_values, color=color, linewidth=2, 
+                label=f'{method_name} (n={n_runs})', marker='^', markersize=4)
+        
+        # Plot confidence interval
+        if std_values and n_runs > 1:
+            mean_array = onp.array(mean_values)
+            std_array = onp.array(std_values)
+            se = std_array / onp.sqrt(n_runs)
+            ax3.fill_between(steps, mean_array - se, mean_array + se, 
+                           color=color, alpha=0.2)
+    
+    ax3.set_ylabel('Target Value (Minimization Goal)')
+    ax3.set_title('Target Value Progress (Lower is Better for Minimization)')
+    ax3.set_xlabel('Intervention Steps')
+    ax3.legend(loc='lower right')
+    ax3.grid(True, alpha=0.3)
+    
+    # Add main title
+    fig.suptitle(title, fontsize=16, y=0.98)
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        logger.info(f"Saved baseline comparison plot to {save_path}")
     
     return fig
 
@@ -427,7 +623,7 @@ def create_experiment_dashboard(
     ax3 = fig.add_subplot(gs[1, 0])
     if trajectory_metrics.get('target_values'):
         ax3.plot(steps, trajectory_metrics['target_values'], 'purple', linewidth=2)
-        ax3.set_ylabel('Target Value')
+        ax3.set_ylabel('Target Value (Minimization Goal)')
         ax3.set_title('Target Optimization')
         ax3.grid(True, alpha=0.3)
     
@@ -783,6 +979,14 @@ def save_all_plots(
         target_path = output_path / f"{prefix}_target_optimization.png"
         plot_target_optimization(trajectory_metrics, save_path=str(target_path))
         saved_files.append(str(target_path))
+        
+        # Save structure learning dashboard if metrics available
+        if (trajectory_metrics.get('f1_scores') or 
+            trajectory_metrics.get('true_parent_likelihood') or 
+            trajectory_metrics.get('shd_values')):
+            structure_path = output_path / f"{prefix}_structure_learning.png"
+            plot_structure_learning_dashboard(trajectory_metrics, save_path=str(structure_path))
+            saved_files.append(str(structure_path))
     
     # Extract marginals over time if available
     marginals_over_time = []
@@ -819,6 +1023,126 @@ def save_all_plots(
 
 
 # Utility function to close all figures
+def plot_structure_learning_dashboard(
+    trajectory_metrics: Dict[str, List[float]],
+    title: str = "Structure Learning Dashboard", 
+    save_path: Optional[str] = None
+) -> plt.Figure:
+    """
+    Create comprehensive structure learning dashboard.
+    
+    Args:
+        trajectory_metrics: Output from compute_trajectory_metrics
+        title: Dashboard title
+        save_path: Optional path to save the dashboard
+        
+    Returns:
+        Matplotlib figure object
+    """
+    if not trajectory_metrics or not trajectory_metrics.get('steps'):
+        logger.warning("Empty trajectory metrics provided")
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        ax.text(0.5, 0.5, 'No data available', ha='center', va='center')
+        ax.set_title(title)
+        return fig
+    
+    # Create 2x2 dashboard
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    steps = trajectory_metrics['steps']
+    
+    # Plot 1: Parent Likelihood with convergence analysis
+    ax1 = axes[0, 0]
+    likelihood = trajectory_metrics.get('true_parent_likelihood', [])
+    if likelihood:
+        ax1.plot(steps, likelihood, 'b-', linewidth=2, label='P(True Parents | Data)')
+        ax1.axhline(y=0.9, color='r', linestyle='--', alpha=0.7, label='90% Threshold')
+        ax1.axhline(y=0.8, color='orange', linestyle='--', alpha=0.5, label='80% Threshold')
+        ax1.set_ylabel('Likelihood')
+        ax1.set_title('Parent Likelihood Convergence')
+        ax1.legend()
+        ax1.set_ylim(0, 1.05)
+        ax1.grid(True, alpha=0.3)
+        
+        # Add final value annotation
+        if likelihood:
+            final_val = likelihood[-1]
+            ax1.text(0.02, 0.98, f'Final: {final_val:.3f}', 
+                    transform=ax1.transAxes, verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+    
+    # Plot 2: F1 Score progression
+    ax2 = axes[0, 1]
+    f1_scores = trajectory_metrics.get('f1_scores', [])
+    if f1_scores:
+        ax2.plot(steps, f1_scores, 'g-', linewidth=2, label='F1 Score')
+        ax2.axhline(y=0.7, color='r', linestyle='--', alpha=0.7, label='70% Threshold')
+        ax2.axhline(y=0.5, color='orange', linestyle='--', alpha=0.5, label='50% Threshold')
+        ax2.set_ylabel('F1 Score')
+        ax2.set_title('Structure Recovery F1 Score')
+        ax2.legend()
+        ax2.set_ylim(0, 1.05)
+        ax2.grid(True, alpha=0.3)
+        
+        # Add max F1 annotation
+        max_f1 = max(f1_scores)
+        final_f1 = f1_scores[-1]
+        ax2.text(0.02, 0.98, f'Max: {max_f1:.3f}\nFinal: {final_f1:.3f}', 
+                transform=ax2.transAxes, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.8))
+    
+    # Plot 3: SHD progression
+    ax3 = axes[1, 0]
+    shd_values = trajectory_metrics.get('shd_values', [])
+    if shd_values:
+        ax3.plot(steps, shd_values, 'r-', linewidth=2, label='SHD')
+        ax3.axhline(y=0, color='g', linestyle='--', alpha=0.7, label='Perfect Recovery')
+        ax3.set_ylabel('Structural Hamming Distance')
+        ax3.set_title('Structural Hamming Distance (Lower is Better)')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        
+        # Add min SHD annotation
+        min_shd = min(shd_values)
+        final_shd = shd_values[-1]
+        ax3.text(0.02, 0.98, f'Min: {min_shd}\nFinal: {final_shd}', 
+                transform=ax3.transAxes, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
+    
+    # Plot 4: Combined metrics comparison
+    ax4 = axes[1, 1]
+    if likelihood and f1_scores:
+        ax4.plot(steps, likelihood, 'b-', linewidth=2, label='Parent Likelihood')
+        ax4.plot(steps, f1_scores, 'g-', linewidth=2, label='F1 Score')
+        ax4.set_ylabel('Score')
+        ax4.set_title('Structure Learning Metrics Comparison')
+        ax4.legend()
+        ax4.set_ylim(0, 1.05)
+        ax4.grid(True, alpha=0.3)
+        
+        # Add correlation coefficient
+        try:
+            import numpy as np
+            correlation = np.corrcoef(likelihood, f1_scores)[0, 1]
+            ax4.text(0.02, 0.02, f'Correlation: {correlation:.3f}', 
+                    transform=ax4.transAxes, verticalalignment='bottom',
+                    bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+        except:
+            pass
+    
+    # Set common x-axis label
+    axes[1, 0].set_xlabel('Intervention Steps')
+    axes[1, 1].set_xlabel('Intervention Steps')
+    
+    plt.suptitle(title, fontsize=16, y=0.98)
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        logger.info(f"Saved structure learning dashboard to {save_path}")
+    
+    return fig
+
+
 def close_all_figures():
     """Close all matplotlib figures to free memory."""
     plt.close('all')
@@ -829,10 +1153,12 @@ __all__ = [
     'plot_convergence',
     'plot_target_optimization',
     'plot_method_comparison',
+    'plot_baseline_comparison',
     'plot_intervention_efficiency',
     'plot_calibration_curves',
     'plot_precision_recall_curves',
     'create_experiment_dashboard',
+    'plot_structure_learning_dashboard',
     'save_all_plots',
     'close_all_figures'
 ]

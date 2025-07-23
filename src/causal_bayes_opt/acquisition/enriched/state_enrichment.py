@@ -237,9 +237,10 @@ class EnrichedHistoryBuilder:
     def _extract_variable_values(self, sample: Any, variable_order: List[str]) -> jnp.ndarray:
         """Extract variable values from sample."""
         values = []
+        sample_values = sample.get('values', {}) if hasattr(sample, 'get') else {}
         for var_name in variable_order:
-            if hasattr(sample, 'values') and var_name in sample.values:
-                values.append(float(sample.values[var_name]))
+            if var_name in sample_values:
+                values.append(float(sample_values[var_name]))
             else:
                 values.append(0.0)  # Default value if missing
         return jnp.array(values)
@@ -247,8 +248,9 @@ class EnrichedHistoryBuilder:
     def _extract_intervention_flags(self, sample: Any, variable_order: List[str]) -> jnp.ndarray:
         """Extract intervention indicators from sample."""
         flags = []
+        intervention_targets = sample.get('intervention_targets', set()) if hasattr(sample, 'get') else set()
         for var_name in variable_order:
-            if hasattr(sample, 'interventions') and var_name in sample.interventions:
+            if var_name in intervention_targets:
                 flags.append(1.0)
             else:
                 flags.append(0.0)
@@ -348,14 +350,22 @@ class EnrichedHistoryBuilder:
         
         # Extract target values from samples
         target_values = []
+        current_target = state.current_target if hasattr(state, 'current_target') else None
+        
         for sample in step_samples:
-            if hasattr(sample, 'target_value'):
+            sample_values = sample.get('values', {}) if hasattr(sample, 'get') else {}
+            
+            # Try to get target value from sample values
+            if current_target and current_target in sample_values:
+                target_values.append(float(sample_values[current_target]))
+            # Fallback to checking attributes (for mock samples)
+            elif hasattr(sample, 'target_value'):
                 target_values.append(float(sample.target_value))
             elif hasattr(sample, 'reward'):
                 target_values.append(float(sample.reward))
         
         if target_values:
-            return float(max(target_values))
+            return float(min(target_values))  # Changed to min for minimization
         return 0.0
     
     def _compute_stagnation_at_step(self, step: int, all_samples: List[Any], state) -> float:
@@ -372,9 +382,16 @@ class EnrichedHistoryBuilder:
         best_value = self._compute_best_value_at_step(step, all_samples, state)
         
         # Count backwards from current step
+        current_target = state.current_target if hasattr(state, 'current_target') else None
+        
         for i in range(step, -1, -1):
             sample = all_samples[i]
-            if hasattr(sample, 'target_value'):
+            sample_values = sample.get('values', {}) if hasattr(sample, 'get') else {}
+            
+            # Try to get target value
+            if current_target and current_target in sample_values:
+                value = float(sample_values[current_target])
+            elif hasattr(sample, 'target_value'):
                 value = float(sample.target_value)
             elif hasattr(sample, 'reward'):
                 value = float(sample.reward)

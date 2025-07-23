@@ -60,11 +60,13 @@ class EnrichedPolicyWrapper:
         self.policy_config = self.checkpoint_data['policy_config']
         
         # Create enriched history builder with variable-agnostic support
+        # Use 5 channels to match the trained model
         self.history_builder = EnrichedHistoryBuilder(
             standardize_values=True,
             include_temporal_features=True,
             max_history_size=100,
-            support_variable_scms=True  # Enable variable-agnostic processing
+            support_variable_scms=True,  # Enable variable-agnostic processing
+            num_channels=5  # Match trained model's 5-channel format
         )
         
         logger.info(f"Loaded enriched policy from {checkpoint_path}")
@@ -253,7 +255,8 @@ class EnrichedPolicyWrapper:
         
         # Create empty enriched history with correct shape
         max_history_size = 100
-        num_channels = 10
+        # Use the same number of channels as the history builder
+        num_channels = self.history_builder.num_channels
         fallback_history = jnp.zeros((max_history_size, n_vars, num_channels))
         
         # Fill with basic state information if available
@@ -262,17 +265,21 @@ class EnrichedPolicyWrapper:
             best_value = getattr(state, 'best_value', 0.0)
             fallback_history = fallback_history.at[-1, :, 0].set(best_value)
             
+            # Channel 1: No interventions in fallback
+            # Channel 2: Target indicators - mark all as potential targets
+            fallback_history = fallback_history.at[-1, :, 2].set(1.0)
+            
+            # Channel 3: Marginal parent probabilities (if available)
+            if hasattr(state, 'marginal_parent_probs'):
+                for i, var in enumerate(variables[:n_vars]):
+                    if var in state.marginal_parent_probs:
+                        prob = float(state.marginal_parent_probs[var])
+                        fallback_history = fallback_history.at[-1, i, 3].set(prob)
+            
             # Channel 4: Uncertainty
-            uncertainty = getattr(state, 'uncertainty_bits', 1.0)
-            fallback_history = fallback_history.at[-1, :, 4].set(uncertainty)
-            
-            # Channel 8: Step progression
-            step = getattr(state, 'step', 0)
-            fallback_history = fallback_history.at[-1, :, 8].set(step / 100.0)
-            
-            # Channel 9: Variable indicator (1.0 for valid variables, 0.0 for padding)
-            actual_var_count = len(variables) if 'variables' in locals() else n_vars
-            fallback_history = fallback_history.at[-1, :actual_var_count, 9].set(1.0)
+            if num_channels > 4:
+                uncertainty = getattr(state, 'uncertainty_bits', 1.0)
+                fallback_history = fallback_history.at[-1, :, 4].set(uncertainty)
             
         except Exception as e:
             logger.warning(f"Could not populate fallback history: {e}")

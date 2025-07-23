@@ -187,7 +187,8 @@ class OptimizationBenchmark:
         # Find root variables (can be intervened on)
         root_variables = [var for var in variables if not any(e[1] == var for e in edges)]
         
-        best_value = float('-inf')
+        # For minimization: start with positive infinity as worst case
+        best_value = float('inf')
         best_intervention = {}
         interventions_tried = 0
         
@@ -200,7 +201,8 @@ class OptimizationBenchmark:
                 intervention = {root_var: intervention_strength}
                 target_value = self._evaluate_intervention(scm, intervention)
                 
-                if target_value > best_value:
+                # For minimization: keep value if it's lower (better)
+                if target_value < best_value:
                     best_value = target_value
                     best_intervention = intervention
         

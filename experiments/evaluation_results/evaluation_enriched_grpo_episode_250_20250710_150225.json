@@ -1,0 +1,58 @@
+{
+  "checkpoint": {
+    "name": "enriched_grpo_episode_250",
+    "path": "/Users/harellidar/Documents/Imperial/Individual_Project/causal_bayes_opt/checkpoints/grpo_testing/enriched_grpo_episode_250",
+    "metadata": null
+  },
+  "evaluation_config": {
+    "num_test_scms": 10,
+    "runs_per_method": 3,
+    "intervention_budget": 10,
+    "description": "Fast evaluation for quick results"
+  },
+  "policy_metrics": {
+    "avg_magnitude": 0.18049297009428475,
+    "avoidance_rate": 1.0,
+    "intervention_rate": 1.0,
+    "ready_for_comparison": true
+  },
+  "comparison_results": {
+    "success": true,
+    "duration_minutes": 7.793398185571035,
+    "method_performance": {
+      "[2025-07-10 15:02:21,116][__main__][INFO] -   Random + Untrained": {
+        "target_improvement": 2.8794,
+        "structure_accuracy": 0.0,
+        "sample_efficiency": 0.0,
+        "runs": 24
+      },
+      "[2025-07-10 15:02:21,116][__main__][INFO] -   Random + Learning": {
+        "target_improvement": 0.5628,
+        "structure_accuracy": 0.0,
+        "sample_efficiency": 0.0,
+        "runs": 24
+      },
+      "[2025-07-10 15:02:21,116][__main__][INFO] -   Oracle + Learning": {
+        "target_improvement": 1.8136,
+        "structure_accuracy": 0.0,
+        "sample_efficiency": 0.0,
+        "runs": 24
+      },
+      "[2025-07-10 15:02:21,116][__main__][INFO] -   Trained Policy + Learning": {
+        "target_improvement": 1.7503,
+        "structure_accuracy": 0.0,
+        "sample_efficiency": 0.0,
+        "runs": 24
+      }
+    }
+  },
+  "test_set": {
+    "num_scms": 10,
+    "structure_distribution": {
+      "fork": 4,
+      "chain": 4,
+      "collider": 2
+    }
+  },
+  "timestamp": "20250710_150225"
+}

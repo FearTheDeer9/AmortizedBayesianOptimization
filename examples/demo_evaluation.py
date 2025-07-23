@@ -552,3 +552,155 @@ def compare_intervention_strategies_detailed(strategy1_results: Dict[str, Any], 
             'strategy2': summary2
         }
     }
+
+
+def extract_trajectory_metrics_from_demo(demo_results: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract trajectory metrics from demo results in the format expected by visualization functions.
+    
+    This function bridges the gap between demo experiment results and the visualization
+    functions in plots.py, ensuring all necessary metrics are available for plotting.
+    
+    Args:
+        demo_results: Results from run_progressive_learning_demo or similar
+        
+    Returns:
+        Dictionary with trajectory metrics suitable for visualization
+    """
+    # Extract basic info
+    target_variable = demo_results.get('target_variable', 'target')
+    true_parents = demo_results.get('true_parents', [])
+    learning_history = demo_results.get('learning_history', [])
+    
+    # Initialize trajectory lists
+    steps = []
+    target_values = []
+    f1_scores = []
+    precisions = []
+    recalls = []
+    shd_values = []
+    true_parent_likelihood = []
+    uncertainty_bits = []
+    rewards = []  # For reward signal visualization
+    
+    # Process learning history to extract metrics
+    for i, step_data in enumerate(learning_history):
+        steps.append(i + 1)
+        
+        # Target value (outcome)
+        outcome_value = step_data.get('outcome_value', 0.0)
+        target_values.append(outcome_value)
+        
+        # For reward signal, we can use the improvement from baseline
+        if i == 0:
+            baseline_value = outcome_value
+        reward = outcome_value - baseline_value if i > 0 else 0.0
+        rewards.append(reward)
+        
+        # Marginal probabilities
+        marginals = step_data.get('marginals', {})
+        
+        # Compute F1 metrics
+        f1_metrics = compute_f1_metrics(marginals, true_parents, threshold=0.5)
+        f1_scores.append(f1_metrics['f1_score'])
+        precisions.append(f1_metrics['precision'])
+        recalls.append(f1_metrics['recall'])
+        
+        # Compute SHD (Structural Hamming Distance)
+        # For SHD, count the number of edge differences
+        predicted_parents = {var for var, prob in marginals.items() if prob > 0.5}
+        true_parent_set = set(true_parents)
+        
+        # Edge differences = (predicted but not true) + (true but not predicted)
+        false_positives = len(predicted_parents - true_parent_set)
+        false_negatives = len(true_parent_set - predicted_parents)
+        shd = false_positives + false_negatives
+        shd_values.append(shd)
+        
+        # True parent likelihood (average probability of true parents)
+        if true_parents:
+            parent_probs = [marginals.get(parent, 0.0) for parent in true_parents]
+            avg_parent_prob = np.mean(parent_probs)
+        else:
+            avg_parent_prob = 0.0
+        true_parent_likelihood.append(avg_parent_prob)
+        
+        # Uncertainty
+        uncertainty = step_data.get('uncertainty', 0.0)
+        uncertainty_bits.append(uncertainty)
+    
+    # Also extract from dedicated progress lists if available
+    if 'target_progress' in demo_results:
+        # Use the cumulative best values for target optimization
+        target_values = demo_results['target_progress'][1:]  # Skip initial value
+        
+    if 'uncertainty_progress' in demo_results:
+        uncertainty_bits = demo_results['uncertainty_progress'][1:]  # Skip initial value
+        
+    if 'marginal_prob_progress' in demo_results:
+        # Recompute metrics from marginal progress for consistency
+        true_parent_likelihood = []
+        f1_scores = []
+        shd_values = []
+        
+        for marginals in demo_results['marginal_prob_progress'][1:]:  # Skip initial
+            # True parent likelihood
+            if true_parents:
+                parent_probs = [marginals.get(parent, 0.0) for parent in true_parents]
+                avg_parent_prob = np.mean(parent_probs)
+            else:
+                avg_parent_prob = 0.0
+            true_parent_likelihood.append(avg_parent_prob)
+            
+            # F1 score
+            f1_metrics = compute_f1_metrics(marginals, true_parents, threshold=0.5)
+            f1_scores.append(f1_metrics['f1_score'])
+            
+            # SHD
+            predicted_parents = {var for var, prob in marginals.items() if prob > 0.5}
+            true_parent_set = set(true_parents)
+            false_positives = len(predicted_parents - true_parent_set)
+            false_negatives = len(true_parent_set - predicted_parents)
+            shd = false_positives + false_negatives
+            shd_values.append(shd)
+    
+    # Ensure all lists have the same length
+    max_length = max(len(lst) for lst in [steps, target_values, f1_scores, shd_values, 
+                                          true_parent_likelihood, uncertainty_bits] if lst)
+    
+    # Pad shorter lists with their last value
+    def pad_list(lst, target_length):
+        if not lst:
+            return [0.0] * target_length
+        while len(lst) < target_length:
+            lst.append(lst[-1])
+        return lst[:target_length]
+    
+    steps = list(range(1, max_length + 1))
+    target_values = pad_list(target_values, max_length)
+    f1_scores = pad_list(f1_scores, max_length)
+    shd_values = pad_list(shd_values, max_length)
+    true_parent_likelihood = pad_list(true_parent_likelihood, max_length)
+    uncertainty_bits = pad_list(uncertainty_bits, max_length)
+    rewards = pad_list(rewards, max_length)
+    
+    # Return in format expected by plotting functions
+    return {
+        'steps': steps,
+        'target_values': target_values,
+        'f1_scores': f1_scores,
+        'precisions': precisions[:max_length] if precisions else [0.0] * max_length,
+        'recalls': recalls[:max_length] if recalls else [0.0] * max_length,
+        'shd_values': shd_values,
+        'true_parent_likelihood': true_parent_likelihood,
+        'uncertainty_bits': uncertainty_bits,
+        'rewards': rewards,
+        
+        # Additional metadata
+        'target_variable': target_variable,
+        'true_parents': true_parents,
+        'final_best': demo_results.get('final_best', target_values[-1] if target_values else 0.0),
+        'improvement': demo_results.get('improvement', 0.0),
+        'converged': demo_results.get('converged_to_truth', {}).get('converged', False),
+        'total_samples': demo_results.get('total_samples', len(steps))
+    }

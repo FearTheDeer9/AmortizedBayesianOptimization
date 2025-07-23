@@ -11,9 +11,8 @@ from typing import Dict, List, Callable, Any, Optional
 from pathlib import Path
 import sys
 
-# Add project root to path for imports
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# Note: Proper imports should be handled via PYTHONPATH or package installation
+# Avoid modifying sys.path in production code
 
 import jax.random as random
 import pyrsistent as pyr
@@ -139,7 +138,7 @@ class MethodRegistry:
                 )
             
             # Convert to standardized format
-            return self._convert_to_standard_result(result, method, run_idx, scm_idx)
+            return self._convert_to_standard_result(result, method, run_idx, scm_idx, scm)
             
         except Exception as e:
             logger.error(f"Method {method_type} failed: {e}")
@@ -159,26 +158,64 @@ class MethodRegistry:
             )
     
     def _convert_to_standard_result(self, raw_result: Dict[str, Any], method: ExperimentMethod, 
-                                  run_idx: int, scm_idx: int) -> MethodResult:
+                                  run_idx: int, scm_idx: int, scm: pyr.PMap = None) -> MethodResult:
         """Convert method-specific result to standardized format."""
         from causal_bayes_opt.data_structures.scm import get_target, get_parents
         
         # Extract standard metrics with fallbacks
         final_target_value = raw_result.get('final_target_value', 
                                            raw_result.get('final_best', 0.0))
-        target_improvement = raw_result.get('target_improvement', 
-                                          raw_result.get('improvement', 0.0))
+        # Handle both old 'improvement' and new 'reduction' keys
+        target_reduction = raw_result.get('target_reduction',
+                                        raw_result.get('reduction', 
+                                        raw_result.get('target_improvement',
+                                        raw_result.get('improvement', 0.0))))
+        
+        # Compute structure accuracy if SCM is provided and final_marginal_probs exist
         structure_accuracy = raw_result.get('structure_accuracy', 0.0)
+        if scm is not None and structure_accuracy == 0.0 and 'final_marginal_probs' in raw_result:
+            try:
+                from scripts.core.acbo_wandb_experiment import compute_structure_accuracy_from_result
+                structure_accuracy = compute_structure_accuracy_from_result(raw_result, scm)
+            except Exception as e:
+                logger.warning(f"Failed to compute structure accuracy: {e}")
+                structure_accuracy = 0.0
         sample_efficiency = raw_result.get('sample_efficiency', 0.0)
         intervention_count = raw_result.get('intervention_count', 
                                           len(raw_result.get('learning_history', [])))
         convergence_steps = raw_result.get('convergence_steps', 
                                          len(raw_result.get('target_progress', [])))
         
-        # Preserve detailed results
+        # Preserve detailed results including all trajectory data
         detailed_results = raw_result.get('detailed_results', {})
-        if 'learning_history' in raw_result:
-            detailed_results['learning_history'] = raw_result['learning_history']
+        
+        # Preserve all trajectory data with standardized keys
+        trajectory_keys = [
+            'learning_history',
+            'target_progress',
+            'uncertainty_progress', 
+            'marginal_prob_progress',
+            'data_likelihood_progress',
+            'f1_scores',
+            'shd_values',
+            'true_parent_likelihood',
+            'uncertainty_bits',
+            'target_values',
+            'steps'
+        ]
+        
+        # First check detailed_results for these keys
+        for key in trajectory_keys:
+            if key in detailed_results:
+                continue  # Already in detailed_results
+            elif key in raw_result:
+                detailed_results[key] = raw_result[key]
+        
+        # Also check for trajectory suffixed keys
+        for key in list(raw_result.keys()):
+            if key.endswith('_trajectory') or key.endswith('_progress'):
+                if key not in detailed_results:
+                    detailed_results[key] = raw_result[key]
         
         # Create metadata
         metadata = {
@@ -198,7 +235,7 @@ class MethodRegistry:
             method_name=method.name,
             method_type=method.type,
             final_target_value=final_target_value,
-            target_improvement=target_improvement,
+            target_improvement=target_reduction,
             structure_accuracy=structure_accuracy,
             sample_efficiency=sample_efficiency,
             intervention_count=intervention_count,
@@ -212,14 +249,8 @@ class MethodRegistry:
         """Initialize default ACBO methods."""
         # Import method implementations
         try:
-            # Import from the acbo_wandb_experiment module using absolute path
-            import sys
-            from pathlib import Path
-            scripts_core_path = Path(__file__).parent.parent
-            if str(scripts_core_path) not in sys.path:
-                sys.path.insert(0, str(scripts_core_path))
-            
-            from acbo_wandb_experiment import (
+            # Import method implementations
+            from scripts.core.acbo_wandb_experiment import (
                 run_random_untrained_demo,
                 run_learned_enriched_policy_demo
             )
@@ -293,21 +324,54 @@ class MethodRegistry:
     
     def _wrap_enriched_policy(self, scm: pyr.PMap, config, run_idx: int, scm_idx: int) -> Dict[str, Any]:
         """Wrapper for enriched policy method."""
-        from acbo_wandb_experiment import run_learned_enriched_policy_demo
+        from examples.complete_workflow_demo import run_progressive_learning_demo_with_custom_policy
         from examples.demo_learning import DemoConfig
+        from causal_bayes_opt.acquisition.grpo_enriched_integration import (
+            create_enriched_policy_intervention_function
+        )
         
         acbo_config = self._create_acbo_config(config, run_idx, scm_idx)
-        return run_learned_enriched_policy_demo(scm, acbo_config, config)
+        checkpoint_path = getattr(config, 'policy_checkpoint_path', None)
+        
+        if not checkpoint_path:
+            raise ValueError("No policy checkpoint path configured for learned enriched policy method")
+        
+        # Create enriched policy intervention function
+        try:
+            policy_fn = create_enriched_policy_intervention_function(
+                checkpoint_path=checkpoint_path,
+                intervention_value_range=acbo_config.intervention_value_range
+            )
+            
+            # Run progressive learning with the enriched policy
+            result = run_progressive_learning_demo_with_custom_policy(scm, acbo_config, policy_fn)
+            
+            # Update method name in result
+            result['method'] = 'learned_enriched_policy'
+            result['policy_checkpoint_used'] = checkpoint_path
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to run enriched policy: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # If enriched policy fails, raise the error to be handled by the caller
+            raise
     
     def _create_acbo_config(self, config, run_idx: int, scm_idx: int):
         """Create ACBO configuration from experiment config."""
         from examples.demo_learning import DemoConfig
         
+        # Extract ACBO config if available, otherwise use defaults
+        acbo_cfg = getattr(config, 'acbo', {})
+        
         return DemoConfig(
-            n_observational_samples=10,
-            n_intervention_steps=getattr(config.experiment.target, 'max_interventions', 15),
-            learning_rate=1e-3,
-            scoring_method='bic',
-            intervention_value_range=(-2.0, 2.0),
-            random_seed=getattr(config, 'seed', 42) + run_idx * 100 + scm_idx
+            n_observational_samples=acbo_cfg.get('n_observational_samples', 10),
+            n_intervention_steps=acbo_cfg.get('n_intervention_steps', 15),
+            learning_rate=acbo_cfg.get('learning_rate', 1e-3),
+            scoring_method=acbo_cfg.get('scoring_method', 'bic'),
+            intervention_value_range=acbo_cfg.get('intervention_value_range', (-2.0, 2.0)),
+            random_seed=acbo_cfg.get('random_seed', 42) + run_idx * 100 + scm_idx
         )

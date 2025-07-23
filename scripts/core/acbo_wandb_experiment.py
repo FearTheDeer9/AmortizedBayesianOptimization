@@ -415,14 +415,12 @@ def run_acbo_method(
         standardized_result = {
             'method_name': method_type,
             'final_target_value': result.get('final_best', 0.0),
-            'target_improvement': result.get('improvement', 0.0),
+            'target_improvement': result.get('reduction', result.get('improvement', 0.0)),  # Support both keys
             'structure_accuracy': compute_structure_accuracy_from_result(result, scm),
-            'sample_efficiency': result.get('improvement', 0.0) / result.get('total_samples', 1),
+            'sample_efficiency': abs(result.get('reduction', result.get('improvement', 0.0))) / result.get('total_samples', 1),
             'intervention_count': len(result.get('learning_history', [])),
             'convergence_steps': len(result.get('target_progress', [])),
-            'detailed_results': {
-                'learning_history': result.get('learning_history', [])
-            },
+            'detailed_results': result.get('detailed_results', {}),
             'metadata': {
                 'method': result.get('method', method_type),
                 'total_samples': result.get('total_samples', 0),
@@ -432,6 +430,17 @@ def run_acbo_method(
             'run_idx': run_idx,
             'scm_idx': scm_idx
         }
+        
+        # Ensure learning_history is in detailed_results
+        if 'learning_history' not in standardized_result['detailed_results'] and 'learning_history' in result:
+            standardized_result['detailed_results']['learning_history'] = result['learning_history']
+        
+        # Ensure all trajectory data is preserved
+        trajectory_keys = ['target_progress', 'uncertainty_progress', 'marginal_prob_progress', 
+                          'data_likelihood_progress', 'f1_scores', 'shd_values', 'true_parent_likelihood']
+        for key in trajectory_keys:
+            if key in result and key not in standardized_result['detailed_results']:
+                standardized_result['detailed_results'][key] = result[key]
         
         # Add final marginal probabilities for structure accuracy calculation
         final_marginals = result.get('final_marginal_probs', {})
@@ -457,11 +466,12 @@ def run_random_untrained_demo(scm: pyr.PMap, acbo_config) -> Dict[str, Any]:
     try:
         from examples.demo_learning import DemoConfig, create_random_intervention_policy
         from examples.complete_workflow_demo import generate_initial_data
-        from causal_bayes_opt.data_structures.scm import get_variables, get_target
+        from causal_bayes_opt.data_structures.scm import get_variables, get_target, get_parents
         from causal_bayes_opt.environments.sampling import sample_with_intervention
         
         variables = sorted(get_variables(scm))
         target = get_target(scm)
+        true_parents = list(get_parents(scm, target)) if target else []
         
         # Generate initial observational data
         key = jax.random.PRNGKey(acbo_config.random_seed)
@@ -476,14 +486,20 @@ def run_random_untrained_demo(scm: pyr.PMap, acbo_config) -> Dict[str, Any]:
         learning_history = []
         target_progress = []
         
-        # Handle initial target value
+        # Handle initial target value (minimization)
         if initial_samples:
-            target_values = [sample.get(target, 0.0) for sample in initial_samples]
-            initial_target = max(target_values)  # Best from initial data
+            from causal_bayes_opt.data_structures import get_values
+            target_values = [get_values(sample)[target] for sample in initial_samples]
+            initial_mean = jnp.mean(jnp.array(target_values))  # Use mean instead of min
+            has_initial_baseline = True
         else:
-            initial_target = 0.0
+            initial_mean = 0.0  # No initial baseline
+            has_initial_baseline = False
         
-        best_value = initial_target
+        best_value = min(target_values) if initial_samples else None  # Still track best for reference
+        
+        # Add initial mean to target progress (consistent with other methods)
+        target_progress.append(initial_mean)
         
         for step in range(acbo_config.n_intervention_steps):
             # Generate random intervention
@@ -495,17 +511,16 @@ def run_random_untrained_demo(scm: pyr.PMap, acbo_config) -> Dict[str, Any]:
             outcome_sample = outcome_samples[0]  # Extract the single sample from the list
             outcome_value = outcome_sample['values'].get(target, 0.0)
             
-            # Track progress
-            if outcome_value > best_value:
+            # Track progress (minimization)
+            if best_value is None:  # First intervention becomes the baseline
                 best_value = outcome_value
-            
-            target_improvement = best_value - initial_target
+            elif outcome_value < best_value:  # Better if lower
+                best_value = outcome_value
             
             step_info = {
                 'step': step,
                 'intervention': intervention,
                 'outcome_value': outcome_value,
-                'target_improvement': target_improvement,
                 'uncertainty': 0.0,  # No learning = no uncertainty tracking
                 'marginals': {}  # No learning = no structure learning
             }
@@ -513,17 +528,37 @@ def run_random_untrained_demo(scm: pyr.PMap, acbo_config) -> Dict[str, Any]:
             learning_history.append(step_info)
             target_progress.append(outcome_value)
         
-        # Return result in standard format
+        # Build trajectory arrays for visualization
+        steps = list(range(acbo_config.n_intervention_steps))
+        f1_scores = [0.0] * len(steps)  # No structure learning
+        shd_values = [len(true_parents)] * len(steps)  # Worst case SHD
+        true_parent_likelihood = [0.0] * len(steps)  # No learning
+        
+        # Calculate mean of intervention outcomes for fair comparison
+        intervention_values = target_progress if target_progress else []
+        intervention_mean = jnp.mean(jnp.array(intervention_values)) if intervention_values else initial_mean
+        
+        # Return result in standard format with trajectory data
         return {
             'method': 'random_untrained',
             'learning_history': learning_history,
             'target_progress': target_progress,
-            'final_best': best_value,
-            'improvement': best_value - initial_target,
+            'initial_mean': initial_mean,
+            'intervention_mean': intervention_mean,
+            'reduction': initial_mean - intervention_mean,  # Positive reduction is good
             'total_samples': acbo_config.n_observational_samples + acbo_config.n_intervention_steps,
             'final_uncertainty': 0.0,
             'converged_to_truth': False,
-            'final_marginal_probs': {}  # No structure learning
+            'final_marginal_probs': {},  # No structure learning
+            # Add detailed results with trajectory data
+            'detailed_results': {
+                'learning_history': learning_history,
+                'target_progress': target_progress,
+                'f1_scores': f1_scores,
+                'shd_values': shd_values,
+                'true_parent_likelihood': true_parent_likelihood,
+                'steps': steps
+            }
         }
         
     except Exception as e:
@@ -552,130 +587,24 @@ def run_learned_enriched_policy_demo(scm: pyr.PMap, acbo_config, cfg: DictConfig
             logger.warning("Falling back to random policy")
             return run_random_untrained_demo(scm, acbo_config)
         
-        # Import required modules
-        from examples.demo_learning import DemoConfig, create_random_intervention_policy
-        from examples.complete_workflow_demo import generate_initial_data
-        from causal_bayes_opt.data_structures.scm import get_variables, get_target
-        from causal_bayes_opt.environments.sampling import sample_with_intervention
+        # Use the progressive learning demo with enriched policy
+        from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
+        from causal_bayes_opt.acquisition.grpo_enriched_integration import (
+            create_enriched_policy_intervention_function
+        )
         
-        # Create enriched policy intervention function
-        try:
-            enriched_policy_fn = create_enriched_policy_intervention_function(
-                checkpoint_path=str(checkpoint_path),
-                intervention_value_range=acbo_config.intervention_value_range
-            )
-            logger.info(f"Successfully loaded enriched policy from {policy_checkpoint_path}")
-        except Exception as e:
-            logger.error(f"Failed to load enriched policy: {e}")
-            logger.warning("Falling back to random policy")
-            return run_random_untrained_demo(scm, acbo_config)
+        # Create enriched policy acquisition function
+        policy_fn = create_enriched_policy_intervention_function(
+            checkpoint_path=str(checkpoint_path),
+            intervention_value_range=acbo_config.intervention_value_range
+        )
         
-        variables = sorted(get_variables(scm))
-        target = get_target(scm)
-        
-        # Generate initial observational data
-        key = jax.random.PRNGKey(acbo_config.random_seed)
-        initial_samples, buffer = generate_initial_data(scm, acbo_config, key)
-        
-        # Create mock progressive learning framework
-        # NOTE: This is a simplified version that uses the enriched policy for intervention
-        # selection but doesn't implement full progressive learning (which would require
-        # integrating with the complete ACBO pipeline)
-        
-        learning_history = []
-        target_progress = []
-        
-        # Handle initial target value
-        if initial_samples:
-            target_values = [sample.get(target, 0.0) for sample in initial_samples]
-            initial_target = max(target_values)
-        else:
-            initial_target = 0.0
-        
-        best_value = initial_target
-        
-        # Create mock acquisition state for policy
-        from unittest.mock import Mock
-        
-        for step in range(acbo_config.n_intervention_steps):
-            # Create mock state for enriched policy
-            mock_state = Mock()
-            mock_buffer = Mock()
-            mock_buffer.get_all_samples.return_value = []  # Simplified
-            mock_buffer.get_variable_coverage.return_value = variables
-            
-            mock_state.buffer = mock_buffer
-            mock_state.current_target = target
-            mock_state.step = step
-            mock_state.best_value = best_value
-            mock_state.uncertainty_bits = max(0.1, 2.0 - step * 0.1)
-            mock_state.marginal_parent_probs = {
-                var: max(0.1, 0.8 - step * 0.05) for var in variables if var != target
-            }
-            mock_state.mechanism_confidence = {var: 0.7 for var in variables}
-            
-            def mock_mechanism_insights():
-                return {
-                    'predicted_effects': {var: 1.0 for var in variables},
-                    'mechanism_types': {var: 'linear' for var in variables}
-                }
-            
-            def mock_optimization_progress():
-                return {'best_value': best_value, 'steps_since_improvement': step}
-            
-            mock_state.get_mechanism_insights = mock_mechanism_insights
-            mock_state.get_optimization_progress = mock_optimization_progress
-            
-            # Get intervention from enriched policy
-            key, subkey = jax.random.split(key)
-            try:
-                intervention = enriched_policy_fn(mock_state, scm, subkey)
-            except Exception as e:
-                logger.warning(f"Policy intervention failed at step {step}: {e}")
-                # Fallback to random intervention
-                from causal_bayes_opt.acquisition.grpo_enriched_integration import create_demo_enriched_policy
-                random_policy = create_demo_enriched_policy()
-                intervention = random_policy(mock_state, scm, subkey)
-            
-            # Apply intervention and get outcome
-            outcome_samples = sample_with_intervention(scm, intervention, n_samples=1, seed=int(subkey[0]))
-            outcome_sample = outcome_samples[0]
-            outcome_value = outcome_sample['values'].get(target, 0.0)
-            
-            # Track progress
-            if outcome_value > best_value:
-                best_value = outcome_value
-            
-            target_improvement = best_value - initial_target
-            
-            step_info = {
-                'step': step,
-                'intervention': intervention,
-                'outcome_value': outcome_value,
-                'target_improvement': target_improvement,
-                'uncertainty': mock_state.uncertainty_bits,
-                'policy_type': 'enriched_grpo'
-            }
-            
-            learning_history.append(step_info)
-            target_progress.append(outcome_value)
-        
-        # Return result in standard format
-        return {
-            'method': 'learned_enriched_policy',
-            'learning_history': learning_history,
-            'target_progress': target_progress,
-            'final_best': best_value,
-            'improvement': best_value - initial_target,
-            'total_samples': acbo_config.n_observational_samples + acbo_config.n_intervention_steps,
-            'final_uncertainty': max(0.1, 2.0 - acbo_config.n_intervention_steps * 0.1),
-            'converged_to_truth': best_value > initial_target + 0.5,  # Simple criterion
-            'final_marginal_probs': {
-                var: max(0.1, 0.8 - acbo_config.n_intervention_steps * 0.05) 
-                for var in variables if var != target
-            },
-            'policy_checkpoint_used': str(policy_checkpoint_path)
-        }
+        # Use the new custom policy integration
+        from examples.complete_workflow_demo import run_progressive_learning_demo_with_custom_policy
+        result = run_progressive_learning_demo_with_custom_policy(scm, acbo_config, policy_fn)
+        result['method'] = 'learned_enriched_policy'
+        result['policy_checkpoint_used'] = str(checkpoint_path)
+        return result
         
     except Exception as e:
         logger.error(f"Learned enriched policy demo failed: {e}")

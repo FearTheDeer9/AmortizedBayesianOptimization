@@ -221,8 +221,8 @@ def add_sample_to_state_jax(
         state.sample_buffer, variable_values, intervention_mask, target_value
     )
     
-    # Update best value if this target is better
-    new_best_value = jnp.maximum(state.best_value, target_value)
+    # Update best value if this target is better (minimization: lower is better)
+    new_best_value = jnp.minimum(state.best_value, target_value)
     
     # Increment step
     new_step = state.current_step + 1

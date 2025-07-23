@@ -1,0 +1,34 @@
+🎯 GRPO Testing Pipeline - Results Summary
+============================================================
+
+📊 Performance Summary:
+
+Random + Untrained:
+  - Final F1 Score: 0.096
+  - Final P(Parents|Data): 0.149
+  - Target Improvement: 0.011
+
+Random + Learning:
+  - Final F1 Score: 0.516
+  - Final P(Parents|Data): 0.734
+  - Target Improvement: 0.508
+
+Oracle + Learning:
+  - Final F1 Score: 0.862
+  - Final P(Parents|Data): 0.818
+  - Target Improvement: 0.431
+
+Trained Policy + Learning (GRPO):
+  - Final F1 Score: 0.971
+  - Final P(Parents|Data): 0.912
+  - Target Improvement: 0.675
+
+🏆 Key Findings:
+  - Best F1 Score: Trained Policy (0.971)
+  - Best P(Parents|Data): Trained Policy (0.912)
+  - Most Efficient Learning: Trained Policy (steepest improvement curve)
+
+📈 GRPO Advantages:
+  - Faster structure discovery compared to random baseline
+  - Competitive with oracle policy despite not having ground truth
+  - Demonstrates effective amortized learning from offline data

@@ -18,6 +18,11 @@ from ..training.expert_collection.data_structures import (
     DemonstrationBatch
 )
 from ..data_structures.scm import get_variables, get_edges
+from ..analysis.trajectory_metrics import (
+    compute_f1_score_from_marginals, 
+    compute_true_parent_likelihood,
+    compute_shd_from_marginals
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +137,17 @@ def extract_training_pairs_from_trajectory(
             'graph_type': graph_type,
             'edge_density': len(scm.get('edges', frozenset())) / (n_nodes * (n_nodes - 1))
         })
+        
+        # Compute structure learning metrics for this state
+        true_parents = []  # Extract true parents from SCM
+        edges = scm.get('edges', frozenset())
+        for edge in edges:
+            if len(edge) == 2 and edge[1] == target_variable:
+                true_parents.append(edge[0])
+        
+        structure_metrics = compute_structure_learning_metrics_from_posterior(
+            posterior_dict, true_parents, variable_order
+        )
         
         # Create base TrainingExample
         base_example = SurrogateTrainingExample(
@@ -397,6 +413,69 @@ def create_train_val_split(
     return train_examples, val_examples
 
 
+def compute_structure_learning_metrics_from_posterior(
+    posterior_dict: Dict[Any, float],
+    true_parents: List[str],
+    variable_order: List[str]
+) -> Dict[str, float]:
+    """
+    Compute structure learning metrics from posterior distribution.
+    
+    Args:
+        posterior_dict: Dictionary mapping parent sets to probabilities
+        true_parents: List of true parent variable names
+        variable_order: List of all variable names in order
+        
+    Returns:
+        Dictionary with F1 score, true parent likelihood, and SHD
+    """
+    try:
+        # Convert posterior to marginal probabilities
+        marginal_probs = {}
+        
+        # Initialize all variables with 0 probability
+        for var in variable_order:
+            marginal_probs[var] = 0.0
+        
+        # Aggregate probability for each variable being a parent
+        for parent_set, prob in posterior_dict.items():
+            # Convert parent set to list if needed
+            if isinstance(parent_set, tuple):
+                parents = list(parent_set)
+            elif isinstance(parent_set, frozenset):
+                parents = list(parent_set)
+            elif isinstance(parent_set, list):
+                parents = parent_set
+            else:
+                continue
+            
+            # Add probability for each parent in this set
+            for parent in parents:
+                if parent in marginal_probs:
+                    marginal_probs[parent] += prob
+        
+        # Compute metrics
+        f1_score = compute_f1_score_from_marginals(marginal_probs, true_parents)
+        parent_likelihood = compute_true_parent_likelihood(marginal_probs, true_parents)
+        shd = compute_shd_from_marginals(marginal_probs, true_parents)
+        
+        return {
+            'f1_score': f1_score,
+            'true_parent_likelihood': parent_likelihood,
+            'shd': shd,
+            'marginal_probs': marginal_probs
+        }
+        
+    except Exception as e:
+        logger.debug(f"Failed to compute structure learning metrics: {e}")
+        return {
+            'f1_score': 0.0,
+            'true_parent_likelihood': 0.0,
+            'shd': len(true_parents),
+            'marginal_probs': {}
+        }
+
+
 def compute_training_statistics(examples: List[SurrogateTrainingExample]) -> Dict[str, Any]:
     """
     Compute statistics about the training data.
@@ -451,4 +530,54 @@ def compute_training_statistics(examples: List[SurrogateTrainingExample]) -> Dic
         }
     }
     
+    # Add structure learning metrics if available
+    # This would require extracting true parents from SCM and computing metrics
+    # For now, we'll add placeholders that can be populated in future iterations
+    
     return stats
+
+
+def extract_trajectory_structure_metrics(
+    trajectory_data: List[Dict[str, Any]],
+    true_parents: List[str],
+    variable_order: List[str]
+) -> Dict[str, List[float]]:
+    """
+    Extract structure learning metrics from trajectory data.
+    
+    Args:
+        trajectory_data: List of trajectory steps with posterior information
+        true_parents: List of true parent variable names
+        variable_order: List of all variable names
+        
+    Returns:
+        Dictionary with time series of structure learning metrics
+    """
+    f1_scores = []
+    parent_likelihoods = []
+    shd_values = []
+    
+    for step_data in trajectory_data:
+        if 'posterior' in step_data:
+            posterior_dict = step_data['posterior']
+            
+            # Compute structure metrics for this step
+            metrics = compute_structure_learning_metrics_from_posterior(
+                posterior_dict, true_parents, variable_order
+            )
+            
+            f1_scores.append(metrics['f1_score'])
+            parent_likelihoods.append(metrics['true_parent_likelihood'])
+            shd_values.append(metrics['shd'])
+        else:
+            # No posterior data available
+            f1_scores.append(0.0)
+            parent_likelihoods.append(0.0)
+            shd_values.append(len(true_parents))
+    
+    return {
+        'f1_scores': f1_scores,
+        'true_parent_likelihoods': parent_likelihoods,
+        'shd_values': shd_values,
+        'steps': list(range(len(trajectory_data)))
+    }

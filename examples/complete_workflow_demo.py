@@ -12,7 +12,7 @@ Organized into modular components with comprehensive validation capabilities.
 Includes progressive learning, intervention strategy testing, and difficulty studies.
 """
 
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Callable
 import jax
 import jax.numpy as jnp
 import jax.random as random
@@ -25,7 +25,8 @@ try:
     from .demo_learning import (
         DemoConfig, _get_true_parents_for_scm, create_learnable_surrogate_model,
         create_acquisition_state_from_buffer, create_random_intervention_policy,
-        create_fixed_intervention_policy, create_oracle_intervention_policy
+        create_fixed_intervention_policy, create_oracle_intervention_policy,
+        create_structure_aware_intervention_policy
     )
     from .demo_evaluation import (
         analyze_convergence, compute_data_likelihood_from_posterior,
@@ -38,7 +39,8 @@ except ImportError:
     from demo_learning import (
         DemoConfig, _get_true_parents_for_scm, create_learnable_surrogate_model,
         create_acquisition_state_from_buffer, create_random_intervention_policy,
-        create_fixed_intervention_policy, create_oracle_intervention_policy
+        create_fixed_intervention_policy, create_oracle_intervention_policy,
+        create_structure_aware_intervention_policy
     )
     from demo_evaluation import (
         analyze_convergence, compute_data_likelihood_from_posterior,
@@ -108,13 +110,15 @@ def run_progressive_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfig) ->
     marginal_prob_progress = []
     data_likelihood_progress = []
     
-    # Initial progress tracking
+    # Initial progress tracking (minimization)
     if initial_samples:
         initial_values = [get_values(s)[target] for s in initial_samples]
-        best_so_far = max(initial_values)
+        initial_mean = jnp.mean(jnp.array(initial_values))  # Use mean instead of min
+        best_so_far = min(initial_values)  # Still track best for other purposes
     else:
-        best_so_far = float('-inf')  # No initial data
-    target_progress.append(best_so_far)
+        initial_mean = 0.0  # No initial data
+        best_so_far = float('inf')
+    target_progress.append(initial_mean)  # Store mean as first entry
     
     # Get initial posterior and metrics (only if we have samples)
     if initial_samples:
@@ -177,8 +181,8 @@ def run_progressive_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfig) ->
         
         # Track progress
         outcome_value = get_values(outcome)[target]
-        best_so_far = max(best_so_far, outcome_value) if best_so_far != float('-inf') else outcome_value
-        target_progress.append(best_so_far)
+        best_so_far = min(best_so_far, outcome_value) if best_so_far != float('inf') else outcome_value
+        target_progress.append(outcome_value)  # Track actual value, not cumulative best
         
         # Get updated state for metrics (only if we have enough samples)
         all_samples = buffer.get_all_samples()
@@ -246,9 +250,9 @@ def run_progressive_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfig) ->
         'target_variable': target,
         'true_parents': true_parents,
         'config': config,
-        'initial_best': target_progress[0],
-        'final_best': target_progress[-1],
-        'improvement': target_progress[-1] - target_progress[0],
+        'initial_mean': target_progress[0],
+        'intervention_mean': jnp.mean(jnp.array(target_progress[1:])) if len(target_progress) > 1 else target_progress[0],
+        'reduction': target_progress[0] - (jnp.mean(jnp.array(target_progress[1:])) if len(target_progress) > 1 else target_progress[0]),  # Positive reduction is good
         'total_samples': buffer.size(),
         'intervention_counts': intervention_counts,
         
@@ -263,6 +267,215 @@ def run_progressive_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfig) ->
         'final_uncertainty': final_state.uncertainty_bits,
         'final_marginal_probs': final_state.marginal_parent_probs,
         'converged_to_truth': analyze_convergence(marginal_prob_progress, true_parents)
+    }
+
+
+def run_progressive_learning_demo_with_custom_policy(
+    scm: pyr.PMap, 
+    config: DemoConfig,
+    intervention_fn: Callable[[Any, pyr.PMap, jax.Array], pyr.PMap]
+) -> Dict[str, Any]:
+    """
+    Run progressive learning demo with a custom intervention policy.
+    
+    This function is identical to run_progressive_learning_demo_with_scm except
+    it accepts a custom intervention function that can use the acquisition state,
+    SCM, and random key to make decisions. This enables integration with trained
+    policies like the enriched GRPO policy.
+    
+    Args:
+        scm: Structural causal model
+        config: Demo configuration
+        intervention_fn: Custom intervention function with signature (state, scm, key) -> intervention
+        
+    Returns:
+        Results dictionary with learning history and metrics
+    """
+    print(f"🎯 Progressive Learning with Custom Policy")
+    print("=" * 60)
+    
+    # Setup
+    key = random.PRNGKey(config.random_seed)
+    variables = sorted(get_variables(scm))
+    target = get_target(scm)
+    
+    # Create learnable surrogate model
+    key, surrogate_key = random.split(key)
+    surrogate_fn, _net, params, opt_state, update_fn = create_learnable_surrogate_model(
+        variables, surrogate_key, config.learning_rate, config.scoring_method
+    )
+    
+    # Generate initial data
+    key, data_key = random.split(key)
+    initial_samples, buffer = generate_initial_data(scm, config, data_key)
+    
+    # Track learning progress
+    learning_history = []
+    target_progress = []
+    uncertainty_progress = []
+    marginal_prob_progress = []
+    data_likelihood_progress = []
+    
+    # Initial progress tracking (minimization)
+    if initial_samples:
+        initial_values = [get_values(s)[target] for s in initial_samples]
+        initial_mean = jnp.mean(jnp.array(initial_values))  # Use mean instead of min
+        best_so_far = min(initial_values)  # Still track best for other purposes
+    else:
+        initial_mean = 0.0  # No initial data
+        best_so_far = float('inf')
+    target_progress.append(initial_mean)  # Store mean as first entry
+    
+    # Get initial posterior and metrics (only if we have samples)
+    if initial_samples:
+        current_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, 0, params)
+        uncertainty_progress.append(current_state.uncertainty_bits)
+        marginal_prob_progress.append(dict(current_state.marginal_parent_probs))
+        
+        # Initial data likelihood
+        initial_likelihood = compute_data_likelihood_from_posterior(current_state.posterior, initial_samples, target)
+        data_likelihood_progress.append(initial_likelihood)
+    else:
+        # No initial data - start with high uncertainty
+        uncertainty_progress.append(float('inf'))
+        marginal_prob_progress.append({v: 0.0 for v in variables if v != target})
+        data_likelihood_progress.append(0.0)
+    
+    # Run intervention and learning loop
+    keys = random.split(key, config.n_intervention_steps)
+    current_params = params
+    current_opt_state = opt_state
+    
+    for step in range(config.n_intervention_steps):
+        # Get current posterior with latest parameters (only if we have samples)
+        all_samples = buffer.get_all_samples()
+        if len(all_samples) >= 1:
+            current_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, step, current_params)
+        else:
+            current_state = None  # No samples yet for meaningful state
+        
+        # Execute custom intervention policy
+        intervention = intervention_fn(current_state, scm, keys[step])
+        _, outcome_key = random.split(keys[step])
+        
+        if intervention and intervention.get('values'):
+            # Apply intervention
+            outcome = sample_with_intervention(scm, intervention, n_samples=1, seed=int(outcome_key[0]))[0]
+            buffer.add_intervention(intervention, outcome)
+        else:
+            # Observational fallback
+            outcome = sample_from_linear_scm(scm, n_samples=1, seed=int(outcome_key[0]))[0]
+            buffer.add_observation(outcome)
+        
+        # Update model with more samples for better learning signal
+        all_samples = buffer.get_all_samples()
+        new_samples = all_samples[-15:] if len(all_samples) >= 15 else all_samples
+        
+        # Try to update model parameters using self-supervised signal (only if we have enough samples)
+        if len(all_samples) >= 5 and current_state is not None:
+            try:
+                current_params, current_opt_state, (loss, param_norm, grad_norm, update_norm) = update_fn(
+                    current_params, current_opt_state, current_state.posterior, 
+                    new_samples, variables, target
+                )
+            except Exception:
+                # If update fails, continue with current parameters
+                loss, param_norm, grad_norm, update_norm = float('nan'), float('nan'), float('nan'), float('nan')
+        else:
+            # Not enough samples yet for meaningful updates
+            loss, param_norm, grad_norm, update_norm = 0.0, 0.0, 0.0, 0.0
+        
+        # Track progress
+        outcome_value = get_values(outcome)[target]
+        best_so_far = min(best_so_far, outcome_value) if best_so_far != float('inf') else outcome_value
+        target_progress.append(outcome_value)  # Track actual value, not cumulative best
+        
+        # Get updated state for metrics (only if we have enough samples)
+        all_samples = buffer.get_all_samples()
+        if len(all_samples) >= 5:
+            updated_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, step+1, current_params)
+            uncertainty_progress.append(updated_state.uncertainty_bits)
+            marginal_prob_progress.append(dict(updated_state.marginal_parent_probs))
+            
+            # Compute data likelihood progress
+            likelihood = compute_data_likelihood_from_posterior(updated_state.posterior, all_samples, target)
+            data_likelihood_progress.append(likelihood)
+        else:
+            # Not enough samples for meaningful metrics yet
+            uncertainty_progress.append(float('inf'))
+            marginal_prob_progress.append({v: 0.0 for v in variables if v != target})
+            data_likelihood_progress.append(0.0)
+        
+        # Store step info (only if we have meaningful metrics)
+        if len(all_samples) >= 5:
+            learning_history.append({
+                'step': step + 1,
+                'intervention': intervention,
+                'outcome_value': outcome_value,
+                'loss': loss,
+                'param_norm': param_norm,
+                'grad_norm': grad_norm,
+                'update_norm': update_norm,
+                'uncertainty': uncertainty_progress[-1],
+                'marginals': marginal_prob_progress[-1],
+                'data_likelihood': data_likelihood_progress[-1]
+            })
+        else:
+            # Minimal logging for early steps
+            learning_history.append({
+                'step': step + 1,
+                'intervention': intervention,
+                'outcome_value': outcome_value,
+                'loss': loss,
+                'param_norm': param_norm,
+                'grad_norm': grad_norm,
+                'update_norm': update_norm,
+                'uncertainty': float('inf'),
+                'marginals': {v: 0.0 for v in variables if v != target},
+                'data_likelihood': 0.0
+            })
+    
+    # Final analysis (identical to regular demo)
+    final_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, config.n_intervention_steps, current_params)
+    
+    # Count intervention types
+    intervention_counts = {}
+    for step_info in learning_history:
+        intervention = step_info['intervention']
+        if intervention and intervention.get('values'):
+            vars_intervened = list(intervention['values'].keys())
+            for var in vars_intervened:
+                intervention_counts[var] = intervention_counts.get(var, 0) + 1
+        else:
+            intervention_counts['observational'] = intervention_counts.get('observational', 0) + 1
+    
+    # Get true parents based on SCM structure
+    true_parents = _get_true_parents_for_scm(scm, target)
+    
+    return {
+        'target_variable': target,
+        'true_parents': true_parents,
+        'config': config,
+        'initial_mean': target_progress[0],
+        'intervention_mean': jnp.mean(jnp.array(target_progress[1:])) if len(target_progress) > 1 else target_progress[0],
+        'reduction': target_progress[0] - (jnp.mean(jnp.array(target_progress[1:])) if len(target_progress) > 1 else target_progress[0]),  # Positive reduction is good
+        'total_samples': buffer.size(),
+        'intervention_counts': intervention_counts,
+        
+        # Learning progress metrics
+        'learning_history': learning_history,
+        'target_progress': target_progress,
+        'uncertainty_progress': uncertainty_progress,
+        'marginal_prob_progress': marginal_prob_progress,
+        'data_likelihood_progress': data_likelihood_progress,
+        
+        # Final state
+        'final_uncertainty': final_state.uncertainty_bits,
+        'final_marginal_probs': final_state.marginal_parent_probs,
+        'converged_to_truth': analyze_convergence(marginal_prob_progress, true_parents),
+        
+        # Mark as custom policy method
+        'method': 'custom_policy_learning'
     }
 
 
@@ -311,13 +524,15 @@ def run_progressive_learning_demo_with_oracle_interventions(scm: pyr.PMap, confi
     marginal_prob_progress = []
     data_likelihood_progress = []
     
-    # Initial progress tracking (identical to regular demo)
+    # Initial progress tracking (minimization)
     if initial_samples:
         initial_values = [get_values(s)[target] for s in initial_samples]
-        best_so_far = max(initial_values)
+        initial_mean = jnp.mean(jnp.array(initial_values))  # Use mean instead of min
+        best_so_far = min(initial_values)  # Still track best for other purposes
     else:
-        best_so_far = float('-inf')  # No initial data
-    target_progress.append(best_so_far)
+        initial_mean = 0.0  # No initial data
+        best_so_far = float('inf')
+    target_progress.append(initial_mean)  # Store mean as first entry
     
     # Get initial posterior and metrics (identical to regular demo)
     if initial_samples:
@@ -355,8 +570,8 @@ def run_progressive_learning_demo_with_oracle_interventions(scm: pyr.PMap, confi
             
             # Track target value progress (identical to regular demo)
             outcome_value = get_values(outcome)[target]
-            best_so_far = max(best_so_far, outcome_value)
-            target_progress.append(best_so_far)
+            best_so_far = min(best_so_far, outcome_value)  # Minimization
+            target_progress.append(outcome_value)  # Track actual value, not cumulative best
             
             # Update surrogate model with data likelihood (identical to regular demo)
             all_samples = buffer.get_all_samples()
@@ -391,7 +606,7 @@ def run_progressive_learning_demo_with_oracle_interventions(scm: pyr.PMap, confi
         else:
             # Failed to sample - record defaults
             outcome_value = 0.0
-            target_progress.append(best_so_far)
+            target_progress.append(outcome_value)  # Track actual value even for failed samples
             loss = 0.0
             param_norm = 0.0
             grad_norm = 0.0
@@ -451,9 +666,9 @@ def run_progressive_learning_demo_with_oracle_interventions(scm: pyr.PMap, confi
         'target_variable': target,
         'true_parents': true_parents,
         'config': config,
-        'initial_best': target_progress[0],
-        'final_best': target_progress[-1],
-        'improvement': target_progress[-1] - target_progress[0],
+        'initial_mean': target_progress[0],
+        'intervention_mean': jnp.mean(jnp.array(target_progress[1:])) if len(target_progress) > 1 else target_progress[0],
+        'reduction': target_progress[0] - (jnp.mean(jnp.array(target_progress[1:])) if len(target_progress) > 1 else target_progress[0]),  # Positive reduction is good
         'total_samples': buffer.size(),
         'intervention_counts': intervention_counts,
         
@@ -471,6 +686,209 @@ def run_progressive_learning_demo_with_oracle_interventions(scm: pyr.PMap, confi
         
         # Mark as oracle method
         'method': 'oracle_learning_surrogate'
+    }
+
+
+def run_structure_guided_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfig) -> Dict[str, Any]:
+    """
+    Run structure-guided learning demo with a specific SCM.
+    
+    This uses the structure-aware intervention policy that:
+    1. Learns causal structure through progressive learning
+    2. Uses learned marginal probabilities to guide intervention selection
+    3. Combines the benefits of learning with intelligent intervention targeting
+    
+    This replaces the misleading "Random + Learning" method with proper
+    structure-guided acquisition.
+    """
+    print(f"🎯 Structure-Guided Learning Demo")
+    print("=" * 60)
+    
+    # Setup
+    key = random.PRNGKey(config.random_seed)
+    variables = sorted(get_variables(scm))
+    target = get_target(scm)
+    
+    # Create learnable surrogate model and structure-aware intervention policy
+    key, surrogate_key = random.split(key)
+    surrogate_fn, _net, params, opt_state, update_fn = create_learnable_surrogate_model(
+        variables, surrogate_key, config.learning_rate, config.scoring_method
+    )
+    intervention_fn = create_structure_aware_intervention_policy(
+        variables, target, config.intervention_value_range, temperature=1.0
+    )
+    
+    # Generate initial data
+    key, data_key = random.split(key)
+    initial_samples, buffer = generate_initial_data(scm, config, data_key)
+    
+    # Track learning progress
+    learning_history = []
+    target_progress = []
+    uncertainty_progress = []
+    marginal_prob_progress = []
+    data_likelihood_progress = []
+    
+    # Initial progress tracking (minimization)
+    if initial_samples:
+        initial_values = [get_values(s)[target] for s in initial_samples]
+        initial_mean = jnp.mean(jnp.array(initial_values))  # Use mean instead of min
+        best_so_far = min(initial_values)  # Still track best for other purposes
+    else:
+        initial_mean = 0.0  # No initial data
+        best_so_far = float('inf')
+    target_progress.append(initial_mean)  # Store mean as first entry
+    
+    # Get initial posterior and metrics (only if we have samples)
+    if initial_samples:
+        current_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, 0, params)
+        uncertainty_progress.append(current_state.uncertainty_bits)
+        marginal_prob_progress.append(dict(current_state.marginal_parent_probs))
+        
+        # Initial data likelihood
+        initial_likelihood = compute_data_likelihood_from_posterior(current_state.posterior, initial_samples, target)
+        data_likelihood_progress.append(initial_likelihood)
+    else:
+        # No initial data - start with high uncertainty
+        uncertainty_progress.append(float('inf'))
+        marginal_prob_progress.append({v: 0.0 for v in variables if v != target})
+        data_likelihood_progress.append(0.0)
+    
+    # Run intervention and learning loop
+    keys = random.split(key, config.n_intervention_steps)
+    current_params = params
+    current_opt_state = opt_state
+    
+    for step in range(config.n_intervention_steps):
+        # Get current posterior with latest parameters (only if we have samples)
+        all_samples = buffer.get_all_samples()
+        if len(all_samples) >= 1:
+            current_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, step, current_params)
+        else:
+            current_state = None  # No samples yet for meaningful state
+        
+        # Execute structure-aware intervention (pass state for marginal probabilities)
+        intervention = intervention_fn(state=current_state, key=keys[step])
+        _, outcome_key = random.split(keys[step])
+        
+        if intervention and intervention.get('values'):
+            # Apply intervention
+            outcome = sample_with_intervention(scm, intervention, n_samples=1, seed=int(outcome_key[0]))[0]
+            buffer.add_intervention(intervention, outcome)
+        else:
+            # Observational fallback
+            outcome = sample_from_linear_scm(scm, n_samples=1, seed=int(outcome_key[0]))[0]
+            buffer.add_observation(outcome)
+        
+        # Update model with more samples for better learning signal
+        all_samples = buffer.get_all_samples()
+        new_samples = all_samples[-15:] if len(all_samples) >= 15 else all_samples
+        
+        # Try to update model parameters using self-supervised signal (only if we have enough samples)
+        if len(all_samples) >= 5 and current_state is not None:
+            try:
+                current_params, current_opt_state, (loss, param_norm, grad_norm, update_norm) = update_fn(
+                    current_params, current_opt_state, current_state.posterior, 
+                    new_samples, variables, target
+                )
+            except Exception:
+                # If update fails, continue with current parameters
+                loss, param_norm, grad_norm, update_norm = float('nan'), float('nan'), float('nan'), float('nan')
+        else:
+            # Not enough samples yet for meaningful updates
+            loss, param_norm, grad_norm, update_norm = 0.0, 0.0, 0.0, 0.0
+        
+        # Track progress
+        outcome_value = get_values(outcome)[target]
+        best_so_far = min(best_so_far, outcome_value) if best_so_far != float('inf') else outcome_value
+        target_progress.append(outcome_value)  # Track actual value, not cumulative best
+        
+        # Get updated state for metrics (only if we have enough samples)
+        all_samples = buffer.get_all_samples()
+        if len(all_samples) >= 5:
+            updated_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, step+1, current_params)
+            uncertainty_progress.append(updated_state.uncertainty_bits)
+            marginal_prob_progress.append(dict(updated_state.marginal_parent_probs))
+            
+            # Compute data likelihood progress
+            likelihood = compute_data_likelihood_from_posterior(updated_state.posterior, all_samples, target)
+            data_likelihood_progress.append(likelihood)
+        else:
+            # Not enough samples for meaningful metrics yet
+            uncertainty_progress.append(float('inf'))
+            marginal_prob_progress.append({v: 0.0 for v in variables if v != target})
+            data_likelihood_progress.append(0.0)
+        
+        # Store step info (only if we have meaningful metrics)
+        if len(all_samples) >= 5:
+            learning_history.append({
+                'step': step + 1,
+                'intervention': intervention,
+                'outcome_value': outcome_value,
+                'loss': loss,
+                'param_norm': param_norm,
+                'grad_norm': grad_norm,
+                'update_norm': update_norm,
+                'uncertainty': uncertainty_progress[-1],
+                'marginals': marginal_prob_progress[-1],
+                'data_likelihood': data_likelihood_progress[-1]
+            })
+        else:
+            # Minimal logging for early steps
+            learning_history.append({
+                'step': step + 1,
+                'intervention': intervention,
+                'outcome_value': outcome_value,
+                'loss': loss,
+                'param_norm': param_norm,
+                'grad_norm': grad_norm,
+                'update_norm': update_norm,
+                'uncertainty': float('inf'),
+                'marginals': {v: 0.0 for v in variables if v != target},
+                'data_likelihood': 0.0
+            })
+    
+    # Final analysis
+    final_state = create_acquisition_state_from_buffer(buffer, surrogate_fn, variables, target, config.n_intervention_steps, current_params)
+    
+    # Count intervention types
+    intervention_counts = {}
+    for step_info in learning_history:
+        intervention = step_info['intervention']
+        if intervention and intervention.get('values'):
+            vars_intervened = list(intervention['values'].keys())
+            for var in vars_intervened:
+                intervention_counts[var] = intervention_counts.get(var, 0) + 1
+        else:
+            intervention_counts['observational'] = intervention_counts.get('observational', 0) + 1
+    
+    # Get true parents based on SCM structure
+    true_parents = _get_true_parents_for_scm(scm, target)
+    
+    return {
+        'target_variable': target,
+        'true_parents': true_parents,
+        'config': config,
+        'initial_mean': target_progress[0],
+        'intervention_mean': jnp.mean(jnp.array(target_progress[1:])) if len(target_progress) > 1 else target_progress[0],
+        'reduction': target_progress[0] - (jnp.mean(jnp.array(target_progress[1:])) if len(target_progress) > 1 else target_progress[0]),  # Positive reduction is good
+        'total_samples': buffer.size(),
+        'intervention_counts': intervention_counts,
+        
+        # Learning progress metrics
+        'learning_history': learning_history,
+        'target_progress': target_progress,
+        'uncertainty_progress': uncertainty_progress,
+        'marginal_prob_progress': marginal_prob_progress,
+        'data_likelihood_progress': data_likelihood_progress,
+        
+        # Final state
+        'final_uncertainty': final_state.uncertainty_bits,
+        'final_marginal_probs': final_state.marginal_parent_probs,
+        'converged_to_truth': analyze_convergence(marginal_prob_progress, true_parents),
+        
+        # Mark as structure-guided method
+        'method': 'structure_guided_learning'
     }
 
 
@@ -628,8 +1046,8 @@ def run_zero_obs_fixed_intervention_test(config: Optional[DemoConfig] = None) ->
         
         # Track progress
         outcome_value = get_values(outcome)[target]
-        best_so_far = max(best_so_far, outcome_value) if best_so_far != float('-inf') else outcome_value
-        target_progress.append(best_so_far)
+        best_so_far = min(best_so_far, outcome_value) if best_so_far != float('inf') else outcome_value
+        target_progress.append(outcome_value)  # Track actual value, not cumulative best
         
         # Update metrics
         all_samples = buffer.get_all_samples()
@@ -885,3 +1303,31 @@ if __name__ == "__main__":
     print(f"Difficulty degradation observed: {difficulty_results['summary']['shows_degradation']}")
     
     print("\n✅ Refactored demo testing complete!")
+    
+    # Test visualization integration
+    print("\n3. Testing visualization integration...")
+    try:
+        from demo_evaluation import extract_trajectory_metrics_from_demo
+        from causal_bayes_opt.visualization.plots import plot_convergence, plot_structure_learning_dashboard
+        
+        # Extract trajectory metrics
+        trajectory_metrics = extract_trajectory_metrics_from_demo(results)
+        
+        # Create simple plots (without saving to avoid cluttering)
+        import matplotlib.pyplot as plt
+        plt.ioff()  # Turn off interactive mode
+        
+        # Generate convergence plot
+        fig1 = plot_convergence(trajectory_metrics, title="Demo Convergence")
+        plt.close(fig1)
+        
+        # Generate dashboard
+        fig2 = plot_structure_learning_dashboard(trajectory_metrics, title="Demo Dashboard")
+        plt.close(fig2)
+        
+        print("   ✅ Visualization integration working!")
+        
+    except Exception as e:
+        print(f"   ⚠️  Visualization test failed: {e}")
+    
+    print("\n✅ All demo tests complete!")

@@ -39,6 +39,11 @@ class TrainingMetrics:
     policy_loss: float
     value_loss: float
     scm_type: str
+    # New structure learning metrics
+    f1_score: Optional[float] = None
+    true_parent_likelihood: Optional[float] = None
+    shd: Optional[int] = None
+    marginal_probs: Optional[Dict[str, float]] = None
 
 
 class PolicyFactory:
@@ -242,7 +247,11 @@ class CheckpointManager:
                 'optimization_improvement': metrics.optimization_improvement,
                 'policy_loss': metrics.policy_loss,
                 'value_loss': metrics.value_loss,
-                'scm_type': metrics.scm_type
+                'scm_type': metrics.scm_type,
+                'f1_score': metrics.f1_score,
+                'true_parent_likelihood': metrics.true_parent_likelihood,
+                'shd': metrics.shd,
+                'marginal_probs': metrics.marginal_probs
             }
         
         checkpoint_file = checkpoint_path / "checkpoint.pkl"
@@ -279,7 +288,12 @@ class MetricsCollector:
         rewards = [m.mean_reward for m in self.metrics_history]
         accuracies = [m.structure_accuracy for m in self.metrics_history]
         
-        return {
+        # Collect structure learning metrics
+        f1_scores = [m.f1_score for m in self.metrics_history if m.f1_score is not None]
+        parent_likelihoods = [m.true_parent_likelihood for m in self.metrics_history if m.true_parent_likelihood is not None]
+        shd_values = [m.shd for m in self.metrics_history if m.shd is not None]
+        
+        analysis = {
             'total_episodes': len(self.metrics_history),
             'training_time': total_time,
             'final_reward': rewards[-1],
@@ -289,3 +303,29 @@ class MetricsCollector:
             'reward_improvement': rewards[-1] - rewards[0] if len(rewards) > 1 else 0.0,
             'episodes_per_second': len(self.metrics_history) / total_time
         }
+        
+        # Add structure learning metrics if available
+        if f1_scores:
+            analysis.update({
+                'final_f1_score': f1_scores[-1],
+                'max_f1_score': float(jnp.max(jnp.array(f1_scores))),
+                'mean_f1_score': float(jnp.mean(jnp.array(f1_scores))),
+                'f1_improvement': f1_scores[-1] - f1_scores[0] if len(f1_scores) > 1 else 0.0
+            })
+        
+        if parent_likelihoods:
+            analysis.update({
+                'final_parent_likelihood': parent_likelihoods[-1],
+                'max_parent_likelihood': float(jnp.max(jnp.array(parent_likelihoods))),
+                'mean_parent_likelihood': float(jnp.mean(jnp.array(parent_likelihoods))),
+                'parent_likelihood_improvement': parent_likelihoods[-1] - parent_likelihoods[0] if len(parent_likelihoods) > 1 else 0.0
+            })
+        
+        if shd_values:
+            analysis.update({
+                'final_shd': shd_values[-1],
+                'min_shd': int(jnp.min(jnp.array(shd_values))),
+                'mean_shd': float(jnp.mean(jnp.array(shd_values)))
+            })
+        
+        return analysis

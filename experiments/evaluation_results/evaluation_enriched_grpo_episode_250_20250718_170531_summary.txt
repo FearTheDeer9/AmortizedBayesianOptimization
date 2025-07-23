@@ -1,0 +1,33 @@
+GRPO Evaluation Summary
+======================
+
+Checkpoint: enriched_grpo_episode_250
+Date: 20250718_170531
+Evaluation mode: QUICK
+
+Policy Metrics:
+  Average magnitude: 0.1805
+  Target avoidance: 100.00%
+  Intervention rate: 100.00%
+
+Comparison Results:
+
+  Random + Untrained:
+    Target improvement: 3.442
+    Structure accuracy: 0.000
+    Sample efficiency: 0.500
+
+  Random + Learning:
+    Target improvement: 0.592
+    Structure accuracy: 0.000
+    Sample efficiency: 0.500
+
+  Oracle + Learning:
+    Target improvement: 1.684
+    Structure accuracy: 0.000
+    Sample efficiency: 0.500
+
+  Trained Policy + Learning:
+    Target improvement: 1.797
+    Structure accuracy: 0.000
+    Sample efficiency: 0.500

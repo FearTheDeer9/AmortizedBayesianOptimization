@@ -28,6 +28,12 @@ from ..acquisition.grpo import (
 from ..acquisition.state import AcquisitionState
 from ..acquisition.rewards import create_default_reward_config
 from ..data_structures.scm import get_variables, get_target
+from ..analysis.trajectory_metrics import (
+    compute_f1_score_from_marginals, 
+    compute_true_parent_likelihood,
+    compute_shd_from_marginals
+)
+from ..visualization.metric_dashboard import TrainingMetricsLogger
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +137,16 @@ class EnrichedGRPOTrainer:
         
         logger.info(f"Initialized trainer with {self.scm_manager.max_variables} max variables")
         logger.info(f"GRPO group size: {self.grpo_config.group_size}, update frequency: {self.update_frequency} episodes")
+        
+        # Enable structure learning metrics tracking
+        self.track_structure_metrics = config.training.get('track_structure_metrics', True)
+        
+        # Initialize metrics dashboard if enabled
+        self.enable_dashboard = config.training.get('enable_dashboard', False)
+        if self.enable_dashboard:
+            self.metrics_logger = TrainingMetricsLogger()
+        else:
+            self.metrics_logger = None
     
     def _create_dummy_input(self) -> jnp.ndarray:
         """Create dummy input for policy initialization."""
@@ -196,6 +212,11 @@ class EnrichedGRPOTrainer:
         if self.config.logging.wandb.enabled:
             self._setup_wandb()
         
+        # Start metrics dashboard if enabled
+        if self.metrics_logger:
+            self.metrics_logger.start_logging()
+            logger.info("Started real-time metrics dashboard")
+        
         # Training loop with proper key threading
         training_key = self._current_key
         
@@ -210,13 +231,27 @@ class EnrichedGRPOTrainer:
                 # Update metrics collector (immutable)
                 self.metrics_collector = self.metrics_collector.add_metrics(metrics)
                 
+                # Log to dashboard if enabled
+                if self.metrics_logger:
+                    self.metrics_logger.log_episode_metrics(episode, metrics)
+                
                 # Log progress
                 if episode % 10 == 0:
-                    logger.info(
+                    log_msg = (
                         f"Episode {episode}: reward={metrics.mean_reward:.3f}, "
                         f"intervention_rate={metrics.structure_accuracy:.3f}, "
                         f"scm={metrics.scm_type}"
                     )
+                    
+                    # Add structure learning metrics if available
+                    if metrics.f1_score is not None:
+                        log_msg += f", F1={metrics.f1_score:.3f}"
+                    if metrics.true_parent_likelihood is not None:
+                        log_msg += f", P(Parents)={metrics.true_parent_likelihood:.3f}"
+                    if metrics.shd is not None:
+                        log_msg += f", SHD={metrics.shd}"
+                    
+                    logger.info(log_msg)
                 
                 # Save periodic checkpoints
                 if episode % 50 == 0 and episode > 0:
@@ -239,14 +274,31 @@ class EnrichedGRPOTrainer:
         total_time = time.time() - start_time
         performance_analysis = self.metrics_collector.analyze_performance(total_time)
         
+        # Stop metrics dashboard and export final metrics
+        if self.metrics_logger:
+            self.metrics_logger.stop_logging()
+            metrics_file = self.metrics_logger.export_final_metrics()
+            training_summary = self.metrics_logger.get_training_summary()
+            
+            logger.info(f"Exported training metrics to {metrics_file}")
+            logger.info(f"Training summary: {training_summary}")
+        
         logger.info(f"Training completed in {total_time:.1f}s")
         logger.info(f"Final checkpoint: {final_checkpoint}")
         
-        return {
+        result = {
             'checkpoint_path': str(final_checkpoint),
             'performance': performance_analysis,
             'policy_config': self.policy_config
         }
+        
+        # Add metrics summary if available
+        if self.metrics_logger:
+            result['metrics_summary'] = self.metrics_logger.get_training_summary()
+            if metrics_file:
+                result['metrics_export'] = str(metrics_file)
+        
+        return result
     
     def _run_episode(self, episode_idx: int, episode_key: jax.random.PRNGKey) -> TrainingMetrics:
         """Run a single training episode."""
@@ -307,7 +359,31 @@ class EnrichedGRPOTrainer:
         # Track action magnitudes for policy learning assessment
         max_action_magnitude = policy_losses.get('max_action_magnitude', 0.0)
         
-        # Create metrics with meaningful intervention-focused metrics
+        # Compute structure learning metrics if enabled
+        f1_score, true_parent_likelihood, shd = None, None, None
+        marginal_probs_dict = None
+        
+        if self.track_structure_metrics and trajectory:
+            # Extract marginal probabilities from the final state
+            final_enriched_input = trajectory[-1]['state']
+            marginal_probs_dict = self._extract_marginal_probabilities(final_enriched_input)
+            
+            # Update marginal probabilities to use actual variable names
+            if marginal_probs_dict:
+                # Map generic variable names to actual variable names
+                actual_marginal_probs = {}
+                for i, var_name in enumerate(variables):
+                    if i < len(marginal_probs_dict):
+                        generic_name = f"X{i}"
+                        if generic_name in marginal_probs_dict:
+                            actual_marginal_probs[var_name] = marginal_probs_dict[generic_name]
+                
+                marginal_probs_dict = actual_marginal_probs
+                
+                # Compute structure learning metrics
+                f1_score, true_parent_likelihood, shd = self._compute_structure_learning_metrics(scm, marginal_probs_dict)
+        
+        # Create metrics with structure learning metrics included
         metrics = TrainingMetrics(
             episode=episode_idx,
             mean_reward=float(jnp.mean(jnp.array(episode_rewards))),
@@ -315,7 +391,11 @@ class EnrichedGRPOTrainer:
             optimization_improvement=float(jnp.mean(jnp.array(episode_rewards)) - episode_rewards[0]),
             policy_loss=policy_losses['policy_loss'],
             value_loss=policy_losses['value_loss'],
-            scm_type=scm_name
+            scm_type=scm_name,
+            f1_score=f1_score,
+            true_parent_likelihood=true_parent_likelihood,
+            shd=shd,
+            marginal_probs=marginal_probs_dict
         )
         
         return metrics
@@ -336,6 +416,91 @@ class EnrichedGRPOTrainer:
             feature_dim=3,
             use_bootstrap_surrogate=True  # NEW: Enable bootstrap surrogate features
         )
+    
+    def _compute_structure_learning_metrics(self, scm: pyr.PMap, marginal_probs: Dict[str, float]) -> Tuple[Optional[float], Optional[float], Optional[int]]:
+        """
+        Compute structure learning metrics: F1 score, true parent likelihood, and SHD.
+        
+        Args:
+            scm: The structural causal model
+            marginal_probs: Dictionary mapping variables to their marginal parent probabilities
+            
+        Returns:
+            Tuple of (f1_score, true_parent_likelihood, shd)
+        """
+        try:
+            target = get_target(scm)
+            if not target:
+                return None, None, None
+            
+            # Get true parents for the target variable
+            # In a real implementation, this would extract from the SCM structure
+            # For now, we'll use the SCM's adjacency structure
+            variables = list(get_variables(scm))
+            
+            # Extract true parents from SCM (simplified - real implementation depends on SCM format)
+            true_parents = []
+            adjacency_matrix = scm.get('adjacency_matrix', {})
+            
+            if adjacency_matrix and target in adjacency_matrix:
+                # Get incoming edges to target
+                for var in variables:
+                    if var != target and adjacency_matrix.get(var, {}).get(target, 0) != 0:
+                        true_parents.append(var)
+            else:
+                # Fallback: try to infer from edge structure if available
+                edges = scm.get('edges', frozenset())
+                for edge in edges:
+                    if len(edge) == 2 and edge[1] == target:
+                        true_parents.append(edge[0])
+            
+            if not marginal_probs:
+                logger.debug("No marginal probabilities available for structure metrics")
+                return None, None, None
+            
+            # Compute metrics
+            f1_score = compute_f1_score_from_marginals(marginal_probs, true_parents, threshold=0.5)
+            parent_likelihood = compute_true_parent_likelihood(marginal_probs, true_parents)
+            shd = compute_shd_from_marginals(marginal_probs, true_parents, threshold=0.5)
+            
+            return f1_score, parent_likelihood, shd
+            
+        except Exception as e:
+            logger.debug(f"Failed to compute structure learning metrics: {e}")
+            return None, None, None
+    
+    def _extract_marginal_probabilities(self, enriched_input: jnp.ndarray) -> Dict[str, float]:
+        """
+        Extract marginal parent probabilities from enriched input tensor.
+        
+        Args:
+            enriched_input: Enriched history tensor [history_size, n_vars, n_channels]
+            
+        Returns:
+            Dictionary mapping variable names to marginal parent probabilities
+        """
+        try:
+            # Extract marginal probabilities from channel 1 (parent probabilities)
+            # Use the most recent step (last in history)
+            if enriched_input.shape[0] == 0:
+                return {}
+            
+            recent_probs = enriched_input[-1, :, 1]  # Channel 1 = parent probabilities
+            
+            # Get variable names (this would need to be passed or stored)
+            # For now, create generic variable names
+            n_vars = enriched_input.shape[1]
+            variable_names = [f"X{i}" for i in range(n_vars)]
+            
+            marginal_probs = {}
+            for i, var_name in enumerate(variable_names):
+                marginal_probs[var_name] = float(recent_probs[i])
+            
+            return marginal_probs
+            
+        except Exception as e:
+            logger.debug(f"Failed to extract marginal probabilities: {e}")
+            return {}
     
     
     def _policy_output_to_action(self, 

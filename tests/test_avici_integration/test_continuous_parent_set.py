@@ -78,7 +78,8 @@ class TestContinuousParentSetModel:
         
         transformed = hk.transform(model_fn)
         params = transformed.init(rng_key, data, target_variable)
-        parent_probs = transformed.apply(params, rng_key, data, target_variable)
+        outputs = transformed.apply(params, rng_key, data, target_variable)
+        parent_probs = outputs['parent_probabilities']
         
         # Properties of valid probability distribution
         assert parent_probs.shape == (n_vars,), f"Expected shape ({n_vars},), got {parent_probs.shape}"
@@ -93,7 +94,8 @@ class TestContinuousParentSetModel:
         
         def model_fn(data, target_variable):
             model = ContinuousParentSetPredictionModel(hidden_dim=64, num_layers=2)
-            parent_probs = model(data, target_variable)
+            outputs = model(data, target_variable)
+            parent_probs = outputs['parent_probabilities']
             # Simple loss: negative entropy (encourages confident predictions)
             entropy = -jnp.sum(parent_probs * jnp.log(parent_probs + 1e-8))
             return entropy, parent_probs
@@ -132,7 +134,8 @@ class TestContinuousParentSetModel:
         params = transformed.init(rng_key, sample_data, 0)
         
         for target_var in range(n_vars):
-            parent_probs = transformed.apply(params, rng_key, sample_data, target_var)
+            outputs = transformed.apply(params, rng_key, sample_data, target_var)
+            parent_probs = outputs['parent_probabilities']
             assert jnp.isclose(parent_probs[target_var], 0.0), \
                 f"Target variable {target_var} should have zero parent probability"
     
@@ -151,7 +154,7 @@ class TestContinuousParentSetModel:
         result1 = transformed.apply(params, rng_key, sample_data, target_variable)
         result2 = transformed.apply(params, rng_key, sample_data, target_variable)
         
-        assert jnp.allclose(result1, result2), "Model should be deterministic"
+        assert jnp.allclose(result1['parent_probabilities'], result2['parent_probabilities']), "Model should be deterministic"
     
     @pytest.mark.parametrize("n_vars", [5, 10, 20])
     def test_scalability_vs_discrete(self, rng_key, n_vars):
@@ -170,7 +173,7 @@ class TestContinuousParentSetModel:
         # Measure computation time and memory
         import time
         start_time = time.time()
-        result = transformed.apply(params, rng_key, data, target_variable)
+        outputs = transformed.apply(params, rng_key, data, target_variable)
         end_time = time.time()
         
         # Continuous model should be fast and memory-efficient
@@ -360,7 +363,8 @@ class TestContinuousIntegration:
         
         def model_fn(data, target_variable):
             model = ContinuousParentSetPredictionModel(hidden_dim=64, num_layers=2)
-            parent_probs = model(data, target_variable)
+            outputs = model(data, target_variable)
+            parent_probs = outputs['parent_probabilities']
             
             # Convert to discrete format for compatibility
             top_k = 3

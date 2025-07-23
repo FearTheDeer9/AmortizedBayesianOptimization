@@ -17,25 +17,25 @@ def create_easy_scm() -> pyr.PMap:
     edges = frozenset([('A', 'B'), ('B', 'D'), ('E', 'C'), ('C', 'D')])
     
     mechanisms = {
-        'A': create_root_mechanism(mean=0.0, noise_scale=1.0),
-        'E': create_root_mechanism(mean=0.0, noise_scale=1.0),
+        'A': create_root_mechanism(mean=0.0, noise_scale=0.1),
+        'E': create_root_mechanism(mean=0.0, noise_scale=0.1),
         'B': create_linear_mechanism(
             parents=['A'],
             coefficients={'A': 1.5},
             intercept=0.0,
-            noise_scale=0.8
+            noise_scale=0.1
         ),
         'C': create_linear_mechanism(
             parents=['E'],
             coefficients={'E': 2.0},
             intercept=0.0,
-            noise_scale=0.8
+            noise_scale=0.1
         ),
         'D': create_linear_mechanism(
             parents=['B', 'C'],
             coefficients={'B': 1.2, 'C': 0.8},  # Strong coefficients
             intercept=0.0,
-            noise_scale=0.5  # Low noise
+            noise_scale=0.1  # Very low noise for clear signal
         )
     }
     
@@ -54,26 +54,26 @@ def create_easy_scm_with_disconnected_var() -> pyr.PMap:
     edges = frozenset([('A', 'B'), ('B', 'D'), ('E', 'C'), ('C', 'D')])  # X has no edges
     
     mechanisms = {
-        'A': create_root_mechanism(mean=0.0, noise_scale=1.0),
-        'E': create_root_mechanism(mean=0.0, noise_scale=1.0),
-        'X': create_root_mechanism(mean=0.0, noise_scale=1.0),  # Completely disconnected
+        'A': create_root_mechanism(mean=0.0, noise_scale=0.1),
+        'E': create_root_mechanism(mean=0.0, noise_scale=0.1),
+        'X': create_root_mechanism(mean=0.0, noise_scale=0.1),  # Completely disconnected
         'B': create_linear_mechanism(
             parents=['A'],
             coefficients={'A': 1.5},
             intercept=0.0,
-            noise_scale=0.8
+            noise_scale=0.1
         ),
         'C': create_linear_mechanism(
             parents=['E'],
             coefficients={'E': 2.0},
             intercept=0.0,
-            noise_scale=0.8
+            noise_scale=0.1
         ),
         'D': create_linear_mechanism(
             parents=['B', 'C'],
             coefficients={'B': 1.2, 'C': 0.8},  # Strong coefficients
             intercept=0.0,
-            noise_scale=0.5  # Low noise
+            noise_scale=0.1  # Very low noise for clear signal
         )
     }
     
@@ -97,38 +97,38 @@ def create_medium_scm() -> pyr.PMap:
     ])
     
     mechanisms = {
-        'A': create_root_mechanism(mean=0.0, noise_scale=1.0),
-        'E': create_root_mechanism(mean=0.0, noise_scale=1.0),
-        'H': create_root_mechanism(mean=0.0, noise_scale=1.0),
+        'A': create_root_mechanism(mean=0.0, noise_scale=0.1),
+        'E': create_root_mechanism(mean=0.0, noise_scale=0.1),
+        'H': create_root_mechanism(mean=0.0, noise_scale=0.1),
         'B': create_linear_mechanism(
             parents=['A'],
             coefficients={'A': 1.2},
             intercept=0.0,
-            noise_scale=1.0
+            noise_scale=0.1
         ),
         'C': create_linear_mechanism(
             parents=['E', 'A'],  # Confounded by A
             coefficients={'E': 1.8, 'A': 0.5},
             intercept=0.0,
-            noise_scale=1.0
+            noise_scale=0.1
         ),
         'D': create_linear_mechanism(
             parents=['B', 'C'],
             coefficients={'B': 0.7, 'C': 0.6},  # Moderate coefficients
             intercept=0.0,
-            noise_scale=1.2
+            noise_scale=0.1
         ),
         'G': create_linear_mechanism(
             parents=['H'],
             coefficients={'H': 1.4},
             intercept=0.0,
-            noise_scale=1.0
+            noise_scale=0.1
         ),
         'F': create_linear_mechanism(
             parents=['D', 'G'],
             coefficients={'D': 0.8, 'G': 0.9},  # Moderate coefficients
             intercept=0.0,
-            noise_scale=1.0
+            noise_scale=0.1
         )
     }
     
@@ -201,7 +201,7 @@ def create_hard_scm() -> pyr.PMap:
             parents=['H', 'I'],
             coefficients={'H': 0.3, 'I': 0.4},  # Weak coefficients
             intercept=0.0,
-            noise_scale=2.0  # High noise
+            noise_scale=0.2  # Low noise even for hard SCM
         )
     }
     

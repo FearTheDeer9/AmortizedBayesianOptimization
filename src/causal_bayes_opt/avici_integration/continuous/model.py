@@ -1,8 +1,7 @@
 """
-Continuous Parent Set Prediction Model.
+Fixed Continuous Parent Set Prediction Model.
 
-This module implements a continuous alternative to discrete parent set enumeration,
-using attention mechanisms and probability distributions for scalable causal discovery.
+This fixes the attention mechanism to properly compute parent scores.
 """
 
 import jax
@@ -12,7 +11,7 @@ from typing import Optional
 
 
 class ParentAttentionLayer(hk.Module):
-    """Attention layer for learning parent relationships."""
+    """Fixed attention layer that properly computes parent relationships."""
     
     def __init__(self, 
                  hidden_dim: int = 128,
@@ -32,6 +31,9 @@ class ParentAttentionLayer(hk.Module):
         """
         Compute attention scores between target node and all potential parents.
         
+        Key fix: Use proper attention where the target queries each potential parent,
+        not where identical queries are used for all parents.
+        
         Args:
             query: Target node embedding [hidden_dim]
             key_value: All node embeddings [n_vars, hidden_dim]
@@ -41,32 +43,28 @@ class ParentAttentionLayer(hk.Module):
         """
         n_vars = key_value.shape[0]
         
-        # Expand query to match batch dimension
-        query_expanded = jnp.tile(query[None, :], (n_vars, 1))  # [n_vars, hidden_dim]
+        # Method 1: Simple dot product attention
+        # This directly measures similarity between target and each potential parent
+        # parent_logits = jnp.dot(key_value, query)  # [n_vars]
         
-        # Multi-head attention computation
-        attention = hk.MultiHeadAttention(
-            num_heads=self.num_heads,
-            key_size=self.key_size,
-            w_init_scale=2.0,
-            model_size=self.hidden_dim,
-        )
+        # Method 2: Learned attention with proper query-key interaction
+        # Transform query and keys to attention space
+        query_projection = hk.Linear(self.key_size, w_init=self.w_init, name="query_proj")
+        key_projection = hk.Linear(self.key_size, w_init=self.w_init, name="key_proj")
         
-        # Compute attention: query attends to all potential parents
-        attended = attention(
-            query=query_expanded,    # [n_vars, hidden_dim]
-            key=key_value,          # [n_vars, hidden_dim]  
-            value=key_value         # [n_vars, hidden_dim]
-        )  # [n_vars, hidden_dim]
+        q = query_projection(query)  # [key_size]
+        k = key_projection(key_value)  # [n_vars, key_size]
         
-        # Project to scalar scores
-        parent_logits = hk.Linear(1, w_init=self.w_init)(attended).squeeze(-1)  # [n_vars]
+        # Compute attention scores
+        scores = jnp.dot(k, q) / jnp.sqrt(self.key_size)  # [n_vars]
         
-        return parent_logits
+        # Return scores directly without variable-specific bias
+        # This ensures the model remains truly variable-agnostic
+        return scores
 
 
 class NodeEncoder(hk.Module):
-    """Encoder for learning node representations from intervention data."""
+    """Encoder that preserves variable-specific information."""
     
     def __init__(self,
                  hidden_dim: int = 128,
@@ -85,7 +83,7 @@ class NodeEncoder(hk.Module):
             data: Intervention data [N, d, 3] where:
                   [:, :, 0] = variable values
                   [:, :, 1] = intervention indicators
-                  [:, :, 2] = target indicators
+                  [:, :, 2] = observation indicators
                   
         Returns:
             Node embeddings [d, hidden_dim]
@@ -93,24 +91,59 @@ class NodeEncoder(hk.Module):
         N, d, channels = data.shape
         assert channels == 3, f"Expected 3 channels, got {channels}"
         
-        # Flatten across samples for processing: [N*d, 3]
-        flattened = data.reshape(N * d, channels)
+        # Create shared layers once (outside the loop)
+        layers = []
+        for i in range(self.num_layers):
+            layers.append(hk.Linear(self.hidden_dim, w_init=self.w_init, name=f"encoder_layer_{i}"))
         
-        # Initial embedding
-        x = hk.Linear(self.hidden_dim, w_init=self.w_init)(flattened)  # [N*d, hidden_dim]
-        x = jax.nn.relu(x)
+        # Process all variables in parallel using vmap for true variable-agnostic behavior
+        def process_single_variable(var_data):
+            """Process a single variable's data."""
+            # var_data shape: [N, 3]
+            values = var_data[:, 0]  # [N]
+            interventions = var_data[:, 1]  # [N]
+            observations = var_data[:, 2]  # [N]
+            
+            # Only use observational data for statistics
+            obs_mask = observations * (1 - interventions)
+            masked_values = jnp.where(obs_mask, values, 0.0)
+            
+            # Compute features
+            count = jnp.sum(obs_mask) + 1e-8
+            mean = jnp.sum(masked_values) / count
+            variance = jnp.sum(masked_values**2 * obs_mask) / count - mean**2
+            std = jnp.sqrt(jnp.maximum(variance, 0.0))
+            
+            # Intervention statistics
+            n_interventions = jnp.sum(interventions)
+            intervention_rate = n_interventions / N
+            
+            # Create feature vector
+            features = jnp.array([
+                mean,
+                std,
+                intervention_rate,
+                jnp.min(values),
+                jnp.max(values),
+                jnp.mean(values),  # Including intervened values
+                jnp.std(values)
+            ])
+            
+            # Pad to hidden_dim
+            x = jnp.pad(features, (0, self.hidden_dim - len(features)))
+            
+            # Process through shared MLP
+            for i, layer in enumerate(layers):
+                x = layer(x)
+                if i < len(layers) - 1:  # Apply ReLU to all but last layer
+                    x = jax.nn.relu(x)
+            
+            return x
         
-        # Additional layers for more complex representations
-        for _ in range(self.num_layers - 1):
-            residual = x
-            x = hk.Linear(self.hidden_dim, w_init=self.w_init)(x)
-            x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(x)
-            x = jax.nn.relu(x)
-            x = x + residual  # Residual connection
-        
-        # Reshape back and aggregate across samples: [N, d, hidden_dim] -> [d, hidden_dim]
-        x = x.reshape(N, d, self.hidden_dim)
-        node_embeddings = jnp.mean(x, axis=0)  # Average across samples
+        # Apply to all variables in parallel
+        # Transpose to [d, N, 3] for vmap over first dimension
+        data_transposed = jnp.transpose(data, (1, 0, 2))
+        node_embeddings = jax.vmap(process_single_variable)(data_transposed)  # [d, hidden_dim]
         
         return node_embeddings
 

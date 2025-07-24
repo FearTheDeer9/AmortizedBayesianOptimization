@@ -39,7 +39,7 @@ class EnhancedPolicyNetwork(hk.Module):
                  num_heads: int = 8,
                  key_size: int = 32,
                  # Policy parameters
-                 num_variables: int = 5,
+                 num_variables: Optional[int] = None,  # Can be None for dynamic inference
                  intervention_dim: int = 64,
                  # Training parameters
                  dropout: float = 0.1,
@@ -49,7 +49,7 @@ class EnhancedPolicyNetwork(hk.Module):
         self.num_layers = num_layers
         self.num_heads = num_heads
         self.key_size = key_size
-        self.num_variables = num_variables
+        self.num_variables = num_variables  # Can be None for dynamic sizing
         self.intervention_dim = intervention_dim
         self.dropout = dropout
         
@@ -115,11 +115,13 @@ class EnhancedPolicyNetwork(hk.Module):
             is_training=is_training
         )
         
-        # Rename outputs to match expected interface
+        # Return outputs with expected keys for BC trainer
         return {
-            'intervention_logits': policy_outputs['variable_logits'],
+            'variable_logits': policy_outputs['variable_logits'],  # BC trainer expects this key
+            'intervention_logits': policy_outputs['variable_logits'],  # Also keep for GRPO compatibility
             'value_params': policy_outputs['value_params'],
-            'value_estimate': policy_outputs['state_value']
+            'value_estimate': policy_outputs['state_value'],
+            'state_value': policy_outputs['state_value']  # Also add this for compatibility
         }
 
 

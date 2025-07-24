@@ -204,6 +204,11 @@ class SurrogateTrainingConfig:
     max_parent_size: int = 5
     dropout: float = 0.1
     
+    # BC-specific configuration for dynamic dimensions
+    use_continuous_model: bool = True
+    use_scm_aware_batching: bool = True
+    use_jax_unified: bool = False
+    
     def get_model_kwargs(self) -> Dict[str, Any]:
         """Get model configuration parameters."""
         return {

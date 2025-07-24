@@ -42,6 +42,48 @@ from scripts.notebooks.interface_adapters import (
 from scripts.notebooks.base_components import CheckpointManager
 
 
+def extract_trajectories_from_raw_results(method_results: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract trajectory data from raw method results."""
+    plot_data = {}
+    
+    for method_name, results in method_results.items():
+        if isinstance(results, list) and results:
+            # Check if first result has detailed_results
+            if isinstance(results[0], dict) and 'detailed_results' in results[0]:
+                # Aggregate trajectories from all runs
+                all_target_values = []
+                all_f1_scores = []
+                all_shd_values = []
+                steps = None
+                
+                for result in results:
+                    detailed = result.get('detailed_results', {})
+                    if 'target_progress' in detailed:
+                        all_target_values.append(detailed['target_progress'])
+                    if 'f1_scores' in detailed:
+                        all_f1_scores.append(detailed['f1_scores'])
+                    if 'shd_values' in detailed:
+                        all_shd_values.append(detailed['shd_values'])
+                    if steps is None and 'steps' in detailed:
+                        steps = detailed['steps']
+                
+                # Create aggregated data
+                if all_target_values:
+                    import numpy as np
+                    plot_data[method_name] = {
+                        'steps': steps or list(range(len(all_target_values[0]))),
+                        'target_mean': np.mean(all_target_values, axis=0).tolist() if all_target_values else [],
+                        'target_std': np.std(all_target_values, axis=0).tolist() if all_target_values else [],
+                        'f1_mean': np.mean(all_f1_scores, axis=0).tolist() if all_f1_scores else [],
+                        'f1_std': np.std(all_f1_scores, axis=0).tolist() if all_f1_scores else [],
+                        'shd_mean': np.mean(all_shd_values, axis=0).tolist() if all_shd_values else [],
+                        'shd_std': np.std(all_shd_values, axis=0).tolist() if all_shd_values else [],
+                        'n_runs': len(results)
+                    }
+    
+    return plot_data
+
+
 def find_latest_checkpoint(checkpoint_dir: Path) -> CheckpointInterface:
     """Find the latest GRPO checkpoint using standardized interface."""
     checkpoint_manager = CheckpointManager(checkpoint_dir)
@@ -156,17 +198,28 @@ def run_acbo_comparison(
                     with open(results_file, 'r') as f:
                         raw_results = json.load(f)
                     
-                    # Convert to standardized format
-                    evaluation_results = ResultsAdapter.convert_acbo_results(
-                        raw_results,
+                    # Create a properly formatted evaluation results object
+                    # The raw_results from run_acbo_comparison.py have the actual data
+                    evaluation_results = EvaluationResults(
+                        evaluation_timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         checkpoint_name=checkpoint.name,
-                        optimization_config=checkpoint.optimization_config
+                        optimization_config=checkpoint.optimization_config,
+                        num_scms=raw_results.get('execution_metadata', {}).get('scms_tested', 0),
+                        runs_per_method=raw_results.get('execution_metadata', {}).get('runs_per_method', 0),
+                        intervention_budget=checkpoint.intervention_budget if hasattr(checkpoint, 'intervention_budget') else intervention_budget,
+                        method_results=raw_results.get('method_results', {}),
+                        summary_statistics=raw_results.get('statistical_analysis', {}).get('summary_statistics', {}),
+                        pairwise_comparisons=raw_results.get('statistical_analysis', {}).get('pairwise_comparisons', {}),
+                        total_duration_minutes=duration / 60
                     )
                     
-                    # Set execution metadata
-                    evaluation_results.total_duration_minutes = duration / 60
+                    # Add trajectory data if available
+                    if 'trajectory_data' in raw_results:
+                        evaluation_results.trajectory_data = raw_results['trajectory_data']
+                    if 'aggregated_trajectories' in raw_results:
+                        evaluation_results.aggregated_trajectories = raw_results['aggregated_trajectories']
                     
-                    logger.info(f"✅ Converted results to standardized format")
+                    logger.info(f"✅ Created evaluation results with {len(evaluation_results.method_results)} methods")
                     return evaluation_results
                     
                 except json.JSONDecodeError as e:
@@ -220,11 +273,28 @@ def generate_trajectory_plots(
     logger.info("📊 Generating trajectory plots...")
     
     try:
-        # Extract plot data using new interface
-        plot_data = ResultsAdapter.extract_plot_data(evaluation_results)
+        # First try to use aggregated trajectories if available
+        plot_data = {}
+        
+        if hasattr(evaluation_results, 'aggregated_trajectories') and evaluation_results.aggregated_trajectories:
+            logger.info("Using aggregated trajectory data")
+            # Convert aggregated trajectories to plot format
+            for method_name, trajectory_data in evaluation_results.aggregated_trajectories.items():
+                plot_data[method_name] = trajectory_data
+        else:
+            # Fall back to extracting from method_results
+            logger.info("Extracting plot data from method results")
+            plot_data = ResultsAdapter.extract_plot_data(evaluation_results)
         
         if not plot_data:
             logger.warning("No plot data could be extracted from results")
+            # Try to extract from raw method_results as last resort
+            if hasattr(evaluation_results, 'method_results') and evaluation_results.method_results:
+                logger.info("Attempting to extract trajectory data from raw method results")
+                plot_data = extract_trajectories_from_raw_results(evaluation_results.method_results)
+        
+        if not plot_data:
+            logger.error("No trajectory data available for plotting")
             return False
         
         # Create the three-panel plot

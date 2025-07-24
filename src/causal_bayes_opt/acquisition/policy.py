@@ -59,10 +59,13 @@ class PolicyConfig:
     hidden_dim: int = 128
     num_layers: int = 4
     num_heads: int = 8
+    key_size: int = 32  # Required for EnhancedPolicyNetwork
     dropout: float = 0.1
     exploration_noise: float = 0.1
     variable_selection_temp: float = 1.0
     value_selection_temp: float = 1.0
+    # BC-specific configuration for dynamic dimensions
+    use_enhanced_policy: bool = True
 
 
 class AlternatingAttentionEncoder(hk.Module):

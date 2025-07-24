@@ -1,0 +1,237 @@
+"""
+Fixed Continuous Parent Set Prediction Model.
+
+This fixes the attention mechanism to properly compute parent scores.
+"""
+
+import jax
+import jax.numpy as jnp
+import haiku as hk
+from typing import Optional
+
+
+class FixedParentAttentionLayer(hk.Module):
+    """Fixed attention layer that properly computes parent relationships."""
+    
+    def __init__(self, 
+                 hidden_dim: int = 128,
+                 num_heads: int = 8,
+                 key_size: int = 32,
+                 name: str = "FixedParentAttentionLayer"):
+        super().__init__(name=name)
+        self.hidden_dim = hidden_dim
+        self.num_heads = num_heads
+        self.key_size = key_size
+        self.w_init = hk.initializers.VarianceScaling(2.0, "fan_in", "uniform")
+    
+    def __call__(self, 
+                 query: jnp.ndarray,      # [hidden_dim] - target node embedding
+                 key_value: jnp.ndarray   # [n_vars, hidden_dim] - all node embeddings
+                 ) -> jnp.ndarray:        # [n_vars] - parent attention scores
+        """
+        Compute attention scores between target node and all potential parents.
+        
+        Key fix: Use proper attention where the target queries each potential parent,
+        not where identical queries are used for all parents.
+        
+        Args:
+            query: Target node embedding [hidden_dim]
+            key_value: All node embeddings [n_vars, hidden_dim]
+            
+        Returns:
+            Parent attention logits [n_vars]
+        """
+        n_vars = key_value.shape[0]
+        
+        # Method 1: Simple dot product attention
+        # This directly measures similarity between target and each potential parent
+        # parent_logits = jnp.dot(key_value, query)  # [n_vars]
+        
+        # Method 2: Learned attention with proper query-key interaction
+        # Transform query and keys to attention space
+        query_projection = hk.Linear(self.key_size, w_init=self.w_init, name="query_proj")
+        key_projection = hk.Linear(self.key_size, w_init=self.w_init, name="key_proj")
+        
+        q = query_projection(query)  # [key_size]
+        k = key_projection(key_value)  # [n_vars, key_size]
+        
+        # Compute attention scores
+        scores = jnp.dot(k, q) / jnp.sqrt(self.key_size)  # [n_vars]
+        
+        # Optional: Add learned bias for each variable
+        bias = hk.get_parameter("attention_bias", [n_vars], init=jnp.zeros)
+        parent_logits = scores + bias
+        
+        return parent_logits
+
+
+class FixedNodeEncoder(hk.Module):
+    """Encoder that preserves variable-specific information."""
+    
+    def __init__(self,
+                 hidden_dim: int = 128,
+                 num_layers: int = 2,
+                 name: str = "FixedNodeEncoder"):
+        super().__init__(name=name)
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.w_init = hk.initializers.VarianceScaling(2.0, "fan_in", "uniform")
+    
+    def __call__(self, data: jnp.ndarray) -> jnp.ndarray:
+        """
+        Encode intervention data into node representations.
+        
+        Args:
+            data: Intervention data [N, d, 3] where:
+                  [:, :, 0] = variable values
+                  [:, :, 1] = intervention indicators
+                  [:, :, 2] = observation indicators
+                  
+        Returns:
+            Node embeddings [d, hidden_dim]
+        """
+        N, d, channels = data.shape
+        assert channels == 3, f"Expected 3 channels, got {channels}"
+        
+        # Process each variable separately to preserve distinctions
+        node_embeddings = []
+        
+        for var_idx in range(d):
+            # Get data for this variable across all samples
+            var_data = data[:, var_idx, :]  # [N, 3]
+            
+            # Compute variable-specific statistics
+            values = var_data[:, 0]  # [N]
+            interventions = var_data[:, 1]  # [N]
+            observations = var_data[:, 2]  # [N]
+            
+            # Only use observational data for statistics
+            obs_mask = observations * (1 - interventions)
+            masked_values = jnp.where(obs_mask, values, 0.0)
+            
+            # Compute features
+            count = jnp.sum(obs_mask) + 1e-8
+            mean = jnp.sum(masked_values) / count
+            variance = jnp.sum(masked_values**2 * obs_mask) / count - mean**2
+            std = jnp.sqrt(jnp.maximum(variance, 0.0))
+            
+            # Intervention statistics
+            n_interventions = jnp.sum(interventions)
+            intervention_rate = n_interventions / N
+            
+            # Create feature vector for this variable
+            features = jnp.array([
+                mean,
+                std,
+                intervention_rate,
+                jnp.min(values),
+                jnp.max(values),
+                jnp.mean(values),  # Including intervened values
+                jnp.std(values)
+            ])
+            
+            # Pad to hidden_dim
+            padded_features = jnp.pad(features, (0, self.hidden_dim - len(features)))
+            
+            # Process through MLP
+            x = hk.Linear(self.hidden_dim, w_init=self.w_init, name=f"var{var_idx}_linear1")(padded_features)
+            x = jax.nn.relu(x)
+            
+            for layer_idx in range(self.num_layers - 1):
+                x = hk.Linear(self.hidden_dim, w_init=self.w_init, name=f"var{var_idx}_linear{layer_idx+2}")(x)
+                x = jax.nn.relu(x)
+            
+            node_embeddings.append(x)
+        
+        # Stack embeddings
+        node_embeddings = jnp.stack(node_embeddings, axis=0)  # [d, hidden_dim]
+        
+        return node_embeddings
+
+
+class FixedContinuousParentSetPredictionModel(hk.Module):
+    """
+    Fixed continuous parent set prediction model.
+    
+    Key fixes:
+    1. Proper attention mechanism that differentiates between parents
+    2. Node encoder that preserves variable-specific information
+    3. No averaging that destroys correlations
+    """
+    
+    def __init__(self,
+                 hidden_dim: int = 128,
+                 num_layers: int = 4,
+                 num_heads: int = 8,
+                 key_size: int = 32,
+                 dropout: float = 0.1,
+                 name: str = "FixedContinuousParentSetPredictionModel"):
+        super().__init__(name=name)
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.num_heads = num_heads
+        self.key_size = key_size
+        self.dropout = dropout
+    
+    def __call__(self, 
+                 data: jnp.ndarray,         # [N, d, 3] intervention data
+                 target_variable: int,      # Target variable index
+                 is_training: bool = True   # Training mode flag
+                 ) -> dict[str, jnp.ndarray]:  # Dictionary with embeddings and probabilities
+        """
+        Predict parent probabilities for target variable.
+        
+        Args:
+            data: Intervention data [N, d, 3]
+            target_variable: Index of target variable (0 <= target_variable < d)
+            is_training: Whether model is in training mode
+            
+        Returns:
+            Dictionary containing:
+            - 'node_embeddings': Node representations [d, hidden_dim]
+            - 'target_embedding': Target node representation [hidden_dim]
+            - 'attention_logits': Raw attention scores [d]
+            - 'parent_probabilities': Parent probabilities [d] (sum to 1.0, target has prob 0.0)
+        """
+        N, d, channels = data.shape
+        
+        dropout_rate = self.dropout if is_training else 0.0
+        
+        # Encode intervention data into node representations
+        node_encoder = FixedNodeEncoder(
+            hidden_dim=self.hidden_dim,
+            num_layers=self.num_layers
+        )
+        node_embeddings = node_encoder(data)  # [d, hidden_dim]
+        
+        # Apply dropout for regularization
+        if is_training:
+            node_embeddings = hk.dropout(hk.next_rng_key(), dropout_rate, node_embeddings)
+        
+        # Get target node embedding
+        target_embedding = node_embeddings[target_variable]  # [hidden_dim]
+        
+        # Compute parent attention scores using fixed mechanism
+        parent_attention = FixedParentAttentionLayer(
+            hidden_dim=self.hidden_dim,
+            num_heads=self.num_heads,
+            key_size=self.key_size
+        )
+        parent_logits = parent_attention(target_embedding, node_embeddings)  # [d]
+        
+        # Mask target variable (cannot be its own parent)
+        masked_logits = jnp.where(
+            jnp.arange(d) == target_variable,
+            -1e9,
+            parent_logits
+        )
+        
+        # Convert to probabilities
+        parent_probs = jax.nn.softmax(masked_logits)  # [d]
+        
+        return {
+            'node_embeddings': node_embeddings,
+            'target_embedding': target_embedding,
+            'attention_logits': parent_logits,
+            'parent_probabilities': parent_probs
+        }

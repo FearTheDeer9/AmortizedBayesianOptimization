@@ -119,8 +119,15 @@ class MethodRegistry:
                     error_message="Configuration validation failed"
                 )
             
-            # Run the method
-            result = method.run_function(scm, config, run_idx, scm_idx)
+            # Run the method - baseline methods have different signature
+            if method_type in ['random_baseline', 'oracle_baseline', 'learning_baseline', 
+                               'bc_surrogate_random', 'bc_acquisition_learning', 'bc_trained_both']:
+                # New methods use (scm, config, scm_idx, seed) signature
+                seed = getattr(config, 'seed', 42) + run_idx * 100 + scm_idx
+                result = method.run_function(scm, config, scm_idx, seed)
+            else:
+                # Old methods use (scm, config, run_idx, scm_idx) signature
+                result = method.run_function(scm, config, run_idx, scm_idx)
             
             if not result:
                 return MethodResult(
@@ -262,7 +269,83 @@ class MethodRegistry:
                 requires_checkpoint=True
             ))
             
-            logger.info("Initialized default ACBO methods")
+            # Add BC trained methods
+            self.register_method(ExperimentMethod(
+                name="BC Trained Surrogate + Random Policy",
+                type="bc_surrogate_random",
+                description="Behavioral cloning trained surrogate with random acquisition policy",
+                run_function=self._wrap_bc_surrogate_random,
+                config={},
+                requires_checkpoint=True
+            ))
+            
+            self.register_method(ExperimentMethod(
+                name="BC Trained Acquisition + Learning Surrogate",
+                type="bc_acquisition_learning",
+                description="Behavioral cloning trained acquisition policy with learning surrogate",
+                run_function=self._wrap_bc_acquisition_learning,
+                config={},
+                requires_checkpoint=True
+            ))
+            
+            self.register_method(ExperimentMethod(
+                name="BC Trained Both (Surrogate + Acquisition)",
+                type="bc_trained_both",
+                description="Both surrogate and acquisition models trained with behavioral cloning",
+                run_function=self._wrap_bc_trained_both,
+                config={},
+                requires_checkpoint=True
+            ))
+            
+            logger.info("Initialized default ACBO methods including BC trained variants")
+            
+            # Import and register new baseline and BC methods
+            try:
+                from .baseline_methods import (
+                    create_random_baseline_method,
+                    create_oracle_baseline_method,
+                    create_learning_baseline_method
+                )
+                from .bc_method_wrappers import (
+                    create_bc_surrogate_random_method,
+                    create_bc_acquisition_learning_method,
+                    create_bc_trained_both_method
+                )
+                
+                # Override with proper implementations
+                # Baselines
+                self.methods["random_baseline"] = create_random_baseline_method()
+                self.methods["oracle_baseline"] = create_oracle_baseline_method()
+                self.methods["learning_baseline"] = create_learning_baseline_method()
+                
+                # BC methods with checkpoint paths
+                # These will be overridden when actual checkpoints are provided via config
+                bc_surrogate_checkpoint = Path(__file__).parent.parent.parent / "checkpoints" / "bc_surrogate_latest.pkl"
+                bc_acquisition_checkpoint = Path(__file__).parent.parent.parent / "checkpoints" / "bc_acquisition_latest.pkl"
+                
+                if bc_surrogate_checkpoint.exists():
+                    self.methods["bc_surrogate_random"] = create_bc_surrogate_random_method(
+                        str(bc_surrogate_checkpoint)
+                    )
+                    logger.info(f"Registered BC surrogate method with checkpoint: {bc_surrogate_checkpoint}")
+                
+                if bc_acquisition_checkpoint.exists():
+                    self.methods["bc_acquisition_learning"] = create_bc_acquisition_learning_method(
+                        str(bc_acquisition_checkpoint)
+                    )
+                    logger.info(f"Registered BC acquisition method with checkpoint: {bc_acquisition_checkpoint}")
+                
+                if bc_surrogate_checkpoint.exists() and bc_acquisition_checkpoint.exists():
+                    self.methods["bc_trained_both"] = create_bc_trained_both_method(
+                        str(bc_surrogate_checkpoint),
+                        str(bc_acquisition_checkpoint)
+                    )
+                    logger.info("Registered BC both trained method with checkpoints")
+                
+                logger.info("Registered new baseline and BC methods with actual CBO experiments")
+                
+            except ImportError as e:
+                logger.warning(f"Could not import new baseline/BC methods: {e}")
             
         except ImportError as e:
             logger.error(f"Failed to import method implementations: {e}")
@@ -299,6 +382,100 @@ class MethodRegistry:
         acbo_config = self._create_acbo_config(config, run_idx, scm_idx)
         return run_learned_enriched_policy_demo(scm, acbo_config, config)
     
+    def _wrap_bc_surrogate_random(self, scm: pyr.PMap, config, run_idx: int, scm_idx: int) -> Dict[str, Any]:
+        """Wrapper for BC trained surrogate with random policy."""
+        from src.causal_bayes_opt.training.utils.model_loading import load_checkpoint_model, wrap_for_acbo
+        from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
+        from examples.demo_learning import DemoConfig
+        
+        try:
+            # Load BC trained surrogate
+            surrogate_checkpoint = getattr(config, 'surrogate_checkpoint_path', None)
+            if not surrogate_checkpoint:
+                raise ValueError("BC surrogate method requires surrogate_checkpoint_path")
+            
+            loaded_surrogate = load_checkpoint_model(surrogate_checkpoint, 'surrogate')
+            bc_surrogate = wrap_for_acbo(loaded_surrogate)
+            
+            # Create config with BC surrogate
+            acbo_config = self._create_acbo_config(config, run_idx, scm_idx)
+            
+            # Run with BC surrogate and random policy
+            result = run_progressive_learning_demo_with_scm(scm, acbo_config, 
+                                                          pretrained_surrogate=bc_surrogate)
+            result['method'] = 'bc_surrogate_random'
+            result['surrogate_checkpoint_used'] = surrogate_checkpoint
+            return result
+            
+        except Exception as e:
+            logger.error(f"BC surrogate random method failed: {e}")
+            return {'error': str(e), 'method': 'bc_surrogate_random'}
+    
+    def _wrap_bc_acquisition_learning(self, scm: pyr.PMap, config, run_idx: int, scm_idx: int) -> Dict[str, Any]:
+        """Wrapper for BC trained acquisition with learning surrogate."""
+        from src.causal_bayes_opt.training.utils.model_loading import load_checkpoint_model, wrap_for_acbo
+        from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
+        from examples.demo_learning import DemoConfig
+        
+        try:
+            # Load BC trained acquisition policy
+            acquisition_checkpoint = getattr(config, 'acquisition_checkpoint_path', None)
+            if not acquisition_checkpoint:
+                raise ValueError("BC acquisition method requires acquisition_checkpoint_path")
+            
+            loaded_acquisition = load_checkpoint_model(acquisition_checkpoint, 'acquisition')
+            bc_acquisition = wrap_for_acbo(loaded_acquisition)
+            
+            # Create config with BC acquisition
+            acbo_config = self._create_acbo_config(config, run_idx, scm_idx)
+            
+            # Run with learning surrogate and BC acquisition policy
+            result = run_progressive_learning_demo_with_scm(scm, acbo_config,
+                                                          pretrained_acquisition=bc_acquisition)
+            result['method'] = 'bc_acquisition_learning'
+            result['acquisition_checkpoint_used'] = acquisition_checkpoint
+            return result
+            
+        except Exception as e:
+            logger.error(f"BC acquisition learning method failed: {e}")
+            return {'error': str(e), 'method': 'bc_acquisition_learning'}
+    
+    def _wrap_bc_trained_both(self, scm: pyr.PMap, config, run_idx: int, scm_idx: int) -> Dict[str, Any]:
+        """Wrapper for both BC trained surrogate and acquisition."""
+        from src.causal_bayes_opt.training.utils.model_loading import load_checkpoint_model, wrap_for_acbo
+        from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
+        from examples.demo_learning import DemoConfig
+        
+        try:
+            # Load both BC trained models
+            surrogate_checkpoint = getattr(config, 'surrogate_checkpoint_path', None)
+            acquisition_checkpoint = getattr(config, 'acquisition_checkpoint_path', None)
+            
+            if not surrogate_checkpoint or not acquisition_checkpoint:
+                raise ValueError("BC both method requires both surrogate_checkpoint_path and acquisition_checkpoint_path")
+            
+            loaded_surrogate = load_checkpoint_model(surrogate_checkpoint, 'surrogate')
+            loaded_acquisition = load_checkpoint_model(acquisition_checkpoint, 'acquisition')
+            
+            bc_surrogate = wrap_for_acbo(loaded_surrogate)
+            bc_acquisition = wrap_for_acbo(loaded_acquisition)
+            
+            # Create config
+            acbo_config = self._create_acbo_config(config, run_idx, scm_idx)
+            
+            # Run with both BC models
+            result = run_progressive_learning_demo_with_scm(scm, acbo_config,
+                                                          pretrained_surrogate=bc_surrogate,
+                                                          pretrained_acquisition=bc_acquisition)
+            result['method'] = 'bc_trained_both'
+            result['surrogate_checkpoint_used'] = surrogate_checkpoint
+            result['acquisition_checkpoint_used'] = acquisition_checkpoint
+            return result
+            
+        except Exception as e:
+            logger.error(f"BC both trained method failed: {e}")
+            return {'error': str(e), 'method': 'bc_trained_both'}
+
     def _create_acbo_config(self, config, run_idx: int, scm_idx: int):
         """Create ACBO configuration from experiment config."""
         from examples.demo_learning import DemoConfig

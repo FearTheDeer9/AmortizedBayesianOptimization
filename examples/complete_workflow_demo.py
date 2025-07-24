@@ -12,7 +12,7 @@ Organized into modular components with comprehensive validation capabilities.
 Includes progressive learning, intervention strategy testing, and difficulty studies.
 """
 
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Callable
 import jax
 import jax.numpy as jnp
 import jax.random as random
@@ -72,7 +72,12 @@ def generate_initial_data(scm: pyr.PMap, config: DemoConfig, key: jax.Array) -> 
         return [], create_empty_buffer()
 
 
-def run_progressive_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfig) -> Dict[str, Any]:
+def run_progressive_learning_demo_with_scm(
+    scm: pyr.PMap, 
+    config: DemoConfig, 
+    pretrained_surrogate: Optional[Tuple[Any, Any, Any, Any, Any]] = None,
+    pretrained_acquisition: Optional[Callable] = None
+) -> Dict[str, Any]:
     """
     Run progressive learning demo with a specific SCM.
     
@@ -81,6 +86,14 @@ def run_progressive_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfig) ->
     2. Progressive model parameter updates
     3. Diverse intervention selection
     4. Convergence to true causal structure
+    
+    Args:
+        scm: The structural causal model to run experiments on
+        config: Demo configuration parameters
+        pretrained_surrogate: Optional tuple of (surrogate_fn, net, params, opt_state, update_fn)
+                              for BC methods. If None, creates a new learnable model.
+        pretrained_acquisition: Optional pretrained acquisition function for BC methods.
+                               If None, creates a random intervention policy.
     """
     print(f"🧠 Progressive Learning Demo")
     print("=" * 60)
@@ -90,12 +103,28 @@ def run_progressive_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfig) ->
     variables = sorted(get_variables(scm))
     target = get_target(scm)
     
-    # Create learnable surrogate model and random intervention policy
+    # Create or use surrogate model and random intervention policy
     key, surrogate_key = random.split(key)
-    surrogate_fn, _net, params, opt_state, update_fn = create_learnable_surrogate_model(
-        variables, surrogate_key, config.learning_rate, config.scoring_method
-    )
-    intervention_fn = create_random_intervention_policy(variables, target, config.intervention_value_range)
+    if pretrained_surrogate is not None:
+        # Use pretrained BC surrogate model
+        surrogate_fn, _net, params, opt_state, update_fn = pretrained_surrogate
+        print("🎯 Using pretrained BC surrogate model")
+    else:
+        # Create new learnable surrogate model
+        surrogate_fn, _net, params, opt_state, update_fn = create_learnable_surrogate_model(
+            variables, surrogate_key, config.learning_rate, config.scoring_method
+        )
+        print("🧠 Using learnable surrogate model")
+    
+    # Create or use intervention policy
+    if pretrained_acquisition is not None:
+        # Use pretrained BC acquisition policy
+        intervention_fn = pretrained_acquisition
+        print("🎯 Using pretrained BC acquisition policy")
+    else:
+        # Create random intervention policy
+        intervention_fn = create_random_intervention_policy(variables, target, config.intervention_value_range)
+        print("🎲 Using random intervention policy")
     
     # Generate initial data
     key, data_key = random.split(key)

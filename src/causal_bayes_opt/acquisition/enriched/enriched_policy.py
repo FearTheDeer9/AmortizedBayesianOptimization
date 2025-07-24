@@ -295,6 +295,9 @@ class EnrichedAttentionEncoder(hk.Module):
         """
         Aggregate temporal information to get final variable embeddings.
         
+        Uses a learnable query vector for attention-based aggregation that is
+        independent of the temporal dimension T, allowing variable sequence lengths.
+        
         Args:
             x: Input [T, n_vars, hidden_dim]
             
@@ -306,21 +309,29 @@ class EnrichedAttentionEncoder(hk.Module):
         # Apply final layer normalization
         x = layer_norm(axis=-1, name="final_layer_norm")(x)
         
-        # Learnable temporal aggregation weights
-        temporal_weights = hk.Linear(
-            T, w_init=self.w_init, name="temporal_aggregation_weights"
-        )(x)  # [T, n_vars, T]
+        # Create learnable query vector for temporal aggregation
+        # This is T-independent, allowing variable sequence lengths
+        query = hk.get_parameter(
+            "temporal_aggregation_query",
+            shape=[hidden_dim],
+            dtype=x.dtype,
+            init=self.w_init
+        )
         
-        # Apply softmax across time dimension
-        temporal_weights = jax.nn.softmax(temporal_weights, axis=0)  # [T, n_vars, T]
+        # Compute attention scores between query and temporal features
+        # Shape: [T, n_vars] - dot product of query with each temporal position
+        attention_scores = jnp.einsum('tvi,i->tv', x, query)
         
-        # Weighted sum across time
-        aggregated = jnp.einsum('tvi,tvt->vi', x, temporal_weights)  # [n_vars, hidden_dim]
+        # Apply softmax across time dimension to get attention weights
+        attention_weights = jax.nn.softmax(attention_scores / jnp.sqrt(hidden_dim), axis=0)
         
-        # Optional: Add max pooling as additional information
+        # Weighted sum across time using attention weights
+        aggregated = jnp.einsum('tvi,tv->vi', x, attention_weights)  # [n_vars, hidden_dim]
+        
+        # Optional: Add max pooling as auxiliary information
         max_pooled = jnp.max(x, axis=0)  # [n_vars, hidden_dim]
         
-        # Combine weighted sum and max pooling
+        # Combine weighted attention and max pooling
         combined = aggregated + 0.1 * max_pooled  # Small weight for max pooling
         
         # Final projection and normalization

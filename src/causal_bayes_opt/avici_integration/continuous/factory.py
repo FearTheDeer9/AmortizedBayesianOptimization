@@ -39,18 +39,21 @@ def create_continuous_parent_set_config(
             "hidden_dim": 32,
             "num_layers": 2,
             "num_heads": 2,
+            "key_size": 16,
             "dropout": 0.1
         },
         "medium": {
             "hidden_dim": 64,
             "num_layers": 3,
             "num_heads": 4,
+            "key_size": 32,
             "dropout": 0.1
         },
         "full": {
             "hidden_dim": 128,
             "num_layers": 4,
             "num_heads": 8,
+            "key_size": 64,
             "dropout": 0.1
         }
     }
@@ -87,34 +90,33 @@ def create_continuous_parent_set_model(
     try:
         from .model import ContinuousParentSetPredictionModel
         
-        # Create model class instance
-        model = ContinuousParentSetPredictionModel(
-            n_variables=config["n_variables"],
-            hidden_dim=config["hidden_dim"],
-            num_layers=config["num_layers"],
-            num_heads=config.get("num_heads", 4),
-            use_attention=config["use_attention"],
-            temperature=config["temperature"],
-            dropout=config.get("dropout", 0.1)
-        )
-        
-        # Create Haiku transform
-        def model_fn(x, is_training=True):
-            return model(x, is_training=is_training)
+        # Create Haiku transform with model initialization inside
+        def model_fn(data, target_variable, is_training=True):
+            # Create model instance inside hk.transform
+            model = ContinuousParentSetPredictionModel(
+                hidden_dim=config["hidden_dim"],
+                num_layers=config["num_layers"],
+                num_heads=config.get("num_heads", 4),
+                key_size=config.get("key_size", 32),
+                dropout=config.get("dropout", 0.1),
+                name="ContinuousParentSetPredictionModel"
+            )
+            return model(data, target_variable, is_training=is_training)
         
         # Transform to pure function
         transformed_model = hk.transform(model_fn)
         
         model_config = {
-            "input_shape": (config["n_variables"], config["hidden_dim"]),
-            "output_shape": (config["n_variables"], config["n_variables"]),
+            "input_shape": "dynamic",  # Model infers from data
+            "output_shape": "dynamic",  # Model infers from data
             "model_type": "continuous_parent_set",
-            "complexity": config["model_complexity"],
+            "complexity": config.get("model_complexity", "medium"),
             "parameters": {
-                "n_variables": config["n_variables"],
                 "hidden_dim": config["hidden_dim"],
                 "num_layers": config["num_layers"],
-                "use_attention": config["use_attention"]
+                "num_heads": config.get("num_heads", 4),
+                "key_size": config.get("key_size", 32),
+                "use_attention": config.get("use_attention", True)
             }
         }
         
@@ -260,18 +262,21 @@ def _create_fallback_continuous_model(config: Dict[str, Any]) -> Tuple[Callable,
     
     def fallback_model_fn(params, key, x):
         """Fallback model that returns identity transformation."""
-        n_vars = config["n_variables"]
+        # Infer n_vars from input shape
+        if len(x.shape) == 3:
+            n_vars = x.shape[1]  # [batch, n_vars, features]
+        else:
+            n_vars = x.shape[0]  # [n_vars, features]
         # Return identity-like parent set probabilities
         return jnp.eye(n_vars) * 0.5 + 0.1  # Weak diagonal preference
     
     fallback_config = {
-        "input_shape": (config["n_variables"], config.get("hidden_dim", 32)),
-        "output_shape": (config["n_variables"], config["n_variables"]),
+        "input_shape": "dynamic",
+        "output_shape": "dynamic",
         "model_type": "fallback_continuous_parent_set",
         "complexity": "minimal",
         "fallback": True,
         "parameters": {
-            "n_variables": config["n_variables"],
             "model_complexity": "fallback"
         }
     }

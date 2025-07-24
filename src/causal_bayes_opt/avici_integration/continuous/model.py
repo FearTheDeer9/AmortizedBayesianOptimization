@@ -58,11 +58,9 @@ class ParentAttentionLayer(hk.Module):
         # Compute attention scores
         scores = jnp.dot(k, q) / jnp.sqrt(self.key_size)  # [n_vars]
         
-        # Optional: Add learned bias for each variable
-        bias = hk.get_parameter("attention_bias", [n_vars], init=jnp.zeros)
-        parent_logits = scores + bias
-        
-        return parent_logits
+        # Return scores directly without variable-specific bias
+        # This ensures the model remains truly variable-agnostic
+        return scores
 
 
 class NodeEncoder(hk.Module):
@@ -93,14 +91,15 @@ class NodeEncoder(hk.Module):
         N, d, channels = data.shape
         assert channels == 3, f"Expected 3 channels, got {channels}"
         
-        # Process each variable separately to preserve distinctions
-        node_embeddings = []
+        # Create shared layers once (outside the loop)
+        layers = []
+        for i in range(self.num_layers):
+            layers.append(hk.Linear(self.hidden_dim, w_init=self.w_init, name=f"encoder_layer_{i}"))
         
-        for var_idx in range(d):
-            # Get data for this variable across all samples
-            var_data = data[:, var_idx, :]  # [N, 3]
-            
-            # Compute variable-specific statistics
+        # Process all variables in parallel using vmap for true variable-agnostic behavior
+        def process_single_variable(var_data):
+            """Process a single variable's data."""
+            # var_data shape: [N, 3]
             values = var_data[:, 0]  # [N]
             interventions = var_data[:, 1]  # [N]
             observations = var_data[:, 2]  # [N]
@@ -119,7 +118,7 @@ class NodeEncoder(hk.Module):
             n_interventions = jnp.sum(interventions)
             intervention_rate = n_interventions / N
             
-            # Create feature vector for this variable
+            # Create feature vector
             features = jnp.array([
                 mean,
                 std,
@@ -131,20 +130,20 @@ class NodeEncoder(hk.Module):
             ])
             
             # Pad to hidden_dim
-            padded_features = jnp.pad(features, (0, self.hidden_dim - len(features)))
+            x = jnp.pad(features, (0, self.hidden_dim - len(features)))
             
-            # Process through MLP
-            x = hk.Linear(self.hidden_dim, w_init=self.w_init, name=f"var{var_idx}_linear1")(padded_features)
-            x = jax.nn.relu(x)
+            # Process through shared MLP
+            for i, layer in enumerate(layers):
+                x = layer(x)
+                if i < len(layers) - 1:  # Apply ReLU to all but last layer
+                    x = jax.nn.relu(x)
             
-            for layer_idx in range(self.num_layers - 1):
-                x = hk.Linear(self.hidden_dim, w_init=self.w_init, name=f"var{var_idx}_linear{layer_idx+2}")(x)
-                x = jax.nn.relu(x)
-            
-            node_embeddings.append(x)
+            return x
         
-        # Stack embeddings
-        node_embeddings = jnp.stack(node_embeddings, axis=0)  # [d, hidden_dim]
+        # Apply to all variables in parallel
+        # Transpose to [d, N, 3] for vmap over first dimension
+        data_transposed = jnp.transpose(data, (1, 0, 2))
+        node_embeddings = jax.vmap(process_single_variable)(data_transposed)  # [d, hidden_dim]
         
         return node_embeddings
 

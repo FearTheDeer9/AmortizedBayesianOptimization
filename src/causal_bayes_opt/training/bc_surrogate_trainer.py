@@ -925,6 +925,24 @@ class BCSurrogateTrainer:
         """
         checkpoint_name = f"{self.config.experiment_name}_epoch_{state.epoch}_level_{state.current_difficulty.value}"
         
+        # Determine model type and configuration
+        model_type = "continuous_surrogate"  # Default
+        model_config = {}
+        
+        if hasattr(self, '_model_config') and self._model_config:
+            model_config = self._model_config
+            # Determine model type from config
+            if model_config.get("model_type") == "continuous_parent_set":
+                model_type = "continuous_surrogate"
+            elif model_config.get("model_type") == "jax_unified":
+                model_type = "jax_unified_surrogate"
+        
+        # Add variables information if available
+        if hasattr(self, '_variable_names'):
+            model_config['variables'] = self._variable_names
+        if hasattr(self, '_target_variable'):
+            model_config['target_variable'] = self._target_variable
+            
         # Create checkpoint data
         checkpoint_data = {
             'config': self.config,
@@ -932,7 +950,9 @@ class BCSurrogateTrainer:
             'current_difficulty': state.current_difficulty,
             'epoch': state.epoch,
             'model_params': state.model_params,
-            'optimizer_state': state.optimizer_state
+            'optimizer_state': state.optimizer_state,
+            'model_type': model_type,
+            'model_config': model_config
         }
         
         checkpoint_info = self.checkpoint_manager.save_checkpoint(
@@ -1283,8 +1303,19 @@ class BCSurrogateTrainer:
             config=self.config.surrogate_config
         )
         
-        # Get n_vars from first example for logging
-        n_vars = len(first_example.variable_order) if first_example and hasattr(first_example, 'variable_order') else 0
+        # Store variable information for checkpoint saving
+        if first_example and hasattr(first_example, 'variable_order'):
+            self._variable_names = first_example.variable_order
+            n_vars = len(first_example.variable_order)
+        else:
+            self._variable_names = []
+            n_vars = 0
+            
+        if first_example and hasattr(first_example, 'target_variable'):
+            self._target_variable = first_example.target_variable
+        else:
+            self._target_variable = None
+            
         logger.info(f"Created JAX training step for {n_vars} variables")
 
 

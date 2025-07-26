@@ -33,8 +33,8 @@ sys.path.insert(0, str(current_dir))
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-# Import from current directory
-from acbo_comparison.experiment_runner import ACBOExperimentRunner
+# Import our unified evaluation system
+from src.causal_bayes_opt.evaluation import run_evaluation
 
 # Configure logging
 logging.basicConfig(
@@ -93,9 +93,49 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"Configuration:\n{OmegaConf.to_yaml(cfg)}")
     
     try:
-        # Create and run experiment
-        runner = ACBOExperimentRunner(cfg)
-        results = runner.run_experiment()
+        # Get output directory from config or use default
+        output_dir = Path(cfg.get('output_dir', './results/acbo_comparison'))
+        
+        # Extract checkpoint path
+        checkpoint_path = None
+        if 'policy_checkpoint_path' in cfg:
+            checkpoint_path = Path(cfg.policy_checkpoint_path)
+        
+        # Run evaluation using unified system
+        logger.info(f"Running evaluation with output directory: {output_dir}")
+        comparison_results = run_evaluation(
+            checkpoint_path=checkpoint_path,
+            output_dir=output_dir,
+            config=cfg
+        )
+        
+        # Convert to legacy format for compatibility
+        results = {
+            'method_results': {},
+            'execution_metadata': {
+                'methods_tested': len(comparison_results.method_results),
+                'scms_tested': comparison_results.config.get('n_scms', 0),
+                'runs_per_method': comparison_results.config.get('n_seeds', 0),
+                'total_experiments': len(comparison_results.method_results) * 
+                                   comparison_results.config.get('n_scms', 0) * 
+                                   comparison_results.config.get('n_seeds', 0),
+                'total_time': sum(m.mean_time for m in comparison_results.method_results.values())
+            },
+            'statistical_analysis': {
+                'summary_statistics': {},
+                'pairwise_comparisons': comparison_results.statistical_tests
+            },
+            'visualizations': {}
+        }
+        
+        # Convert method results to legacy format
+        for method_name, metrics in comparison_results.method_results.items():
+            results['statistical_analysis']['summary_statistics'][method_name] = {
+                'target_improvement_mean': metrics.mean_improvement,
+                'target_improvement_std': metrics.std_improvement,
+                'structure_accuracy_mean': metrics.mean_final_f1,
+                'target_improvement_count': metrics.n_runs
+            }
         
         # Log summary
         execution_metadata = results['execution_metadata']
@@ -143,51 +183,10 @@ def main(cfg: DictConfig) -> None:
         import shutil
         import hydra
         
-        # Use Hydra's working directory if available, otherwise fall back to current directory
-        try:
-            # Get Hydra's output directory (respects hydra.run.dir override)
-            hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
-            results_dir = Path(hydra_cfg.runtime.output_dir)
-            logger.info(f"Using Hydra output directory: {results_dir}")
-        except:
-            # Fallback to relative results directory
-            results_dir = Path("results")
-            logger.info(f"Hydra not configured, using fallback directory: {results_dir}")
+        # Results are already saved by run_evaluation
+        results_file = output_dir / "comparison_results.json"
         
-        results_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Use consistent filename expected by unified pipeline
-        results_file = results_dir / "comparison_results.json"
-        
-        # Ensure results are JSON serializable
-        logger.info("\n🔄 Serializing results...")
-        serializable_results = make_json_serializable(results)
-        
-        # Atomic write: write to temp file first, then move
-        try:
-            with tempfile.NamedTemporaryFile('w', delete=False, suffix='.json', 
-                                           dir=results_dir) as temp_file:
-                logger.info(f"Writing to temporary file: {temp_file.name}")
-                json.dump(serializable_results, temp_file, indent=2, default=str)
-                temp_file.flush()
-                os.fsync(temp_file.fileno())  # Force write to disk
-                temp_path = temp_file.name
-            
-            # Validate the JSON file
-            logger.info("Validating JSON file...")
-            with open(temp_path, 'r') as f:
-                json.load(f)  # This will raise if JSON is invalid
-            
-            # Move temp file to final location (atomic on most systems)
-            shutil.move(temp_path, results_file)
-            logger.info(f"\n✅ Results successfully saved to: {results_file}")
-            
-        except Exception as e:
-            logger.error(f"Failed to save results: {e}")
-            # Clean up temp file if it exists
-            if 'temp_path' in locals() and os.path.exists(temp_path):
-                os.unlink(temp_path)
-            raise
+        logger.info(f"\n✅ Results saved to: {results_file}")
         
     except Exception as e:
         logger.error(f"❌ Experiment failed: {e}")

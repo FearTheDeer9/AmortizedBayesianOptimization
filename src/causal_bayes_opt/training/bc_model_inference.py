@@ -147,7 +147,7 @@ def create_bc_surrogate_inference_fn(
         except ValueError:
             raise ValueError(f"Target {target} not found in variables: {variables}")
         
-        # Apply model
+        # Apply model (model_fn expects 2 args: data, target_idx)
         output = model.apply(model_params, avici_data, target_idx)
         
         # Extract parent probabilities
@@ -218,22 +218,30 @@ def create_bc_acquisition_inference_fn(
     if not policy_params:
         raise ValueError(f"No policy_params found in checkpoint: {checkpoint_path}")
     
-    # Extract policy config
+    # Extract policy config from checkpoint
     training_state = checkpoint_data.get('training_state', {})
+    model_config = checkpoint_data.get('model_config', {})
     n_vars = len(variables)
     target_idx = variables.index(target_variable)
     
+    # Use config from checkpoint or defaults
+    hidden_dim = model_config.get('hidden_dim', 128)
+    num_layers = model_config.get('num_layers', 3)
+    num_heads = model_config.get('num_heads', 4)
+    key_size = model_config.get('key_size', 32)
+    
     logger.info(f"Loaded BC acquisition policy for {n_vars} variables, target={target_variable}")
+    logger.info(f"Using model config: hidden_dim={hidden_dim}, num_layers={num_layers}, num_heads={num_heads}")
     
     # Create Haiku-transformed policy
     def policy_fn(state_tensor: jnp.ndarray) -> Dict[str, jnp.ndarray]:
         """Apply enhanced policy network."""
-        # Use architecture matching the checkpoint
+        # Use architecture from checkpoint config
         policy = EnhancedPolicyNetwork(
-            hidden_dim=128,  # Standard hidden dim
-            num_layers=2,    # Simplified for BC
-            num_heads=4,     # Matching checkpoint structure
-            key_size=32,
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            num_heads=num_heads,
+            key_size=key_size,
             num_variables=n_vars,
             intervention_dim=64,
             dropout=0.0,  # No dropout for inference
@@ -247,8 +255,8 @@ def create_bc_acquisition_inference_fn(
             is_training=False
         )
     
-    # Transform policy for JAX
-    policy = hk.without_apply_rng(hk.transform(policy_fn))
+    # Transform policy for JAX (keep RNG for dropout/attention)
+    policy = hk.transform(policy_fn)
     
     def acquisition_inference_fn(key: jax.Array) -> Dict[str, Any]:
         """
@@ -267,8 +275,8 @@ def create_bc_acquisition_inference_fn(
             Intervention decision dict
         """
         # Create state tensor matching checkpoint expectations
-        # The checkpoint expects 10-dimensional features based on the error
-        feature_dim = 10  # Match checkpoint expectations
+        # Get feature dimension from checkpoint config if available
+        feature_dim = model_config.get('feature_dim', 10)  # Default to 10 as per training
         state_tensor = jnp.zeros((n_vars, feature_dim))
         
         # Add features to match training
@@ -286,8 +294,8 @@ def create_bc_acquisition_inference_fn(
         noise_key, value_key = random.split(key)
         state_tensor = state_tensor.at[:, 5:].set(random.normal(noise_key, (n_vars, 5)) * 0.1)
         
-        # Apply policy
-        policy_output = policy.apply(policy_params, state_tensor)
+        # Apply policy with random key
+        policy_output = policy.apply(policy_params, key, state_tensor)
         
         # Extract intervention decision
         variable_logits = policy_output['variable_logits']  # [n_vars]
@@ -309,9 +317,10 @@ def create_bc_acquisition_inference_fn(
         # Clip to reasonable range
         value = jnp.clip(value, -2.0, 2.0)
         
+        # Return in format expected by bc_runner
         return {
-            'intervention_variables': frozenset([selected_var]),
-            'intervention_values': (float(value),)
+            'variable': selected_var,
+            'value': float(value)
         }
     
     return acquisition_inference_fn

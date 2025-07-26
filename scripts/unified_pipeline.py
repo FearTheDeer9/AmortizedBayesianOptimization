@@ -155,112 +155,82 @@ def run_acbo_comparison(
         output_dir = project_root / "results" / f"unified_pipeline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Run comparison from scripts/core directory
-    scripts_core_dir = project_root / "scripts" / "core"
+    # Use the unified evaluation system directly
+    from src.causal_bayes_opt.evaluation import run_evaluation
     
-    cmd = [
-        "poetry", "run", "python",
-        "run_acbo_comparison.py",
-        "--config-name=acbo_4method_comparison",
-        f"policy_checkpoint_path={checkpoint.path}",
-        f"seed=42",
-        f"experiment.runs_per_method={runs_per_method}",
-        f"experiment.intervention_budget={intervention_budget}",
-        f"+n_scms={num_scms}",  # Use + to add new parameter
-        "logging.wandb.enabled=false",
-        f"hydra.run.dir={output_dir}"  # Override Hydra output directory
-    ]
-    
-    logger.info(f"Running command from {scripts_core_dir}")
-    logger.info(f"Command: {' '.join(cmd)}")
+    logger.info(f"Running evaluation using unified system")
     
     start_time = time.time()
     
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=scripts_core_dir
+        # Create evaluation config
+        eval_config = {
+            'n_scms': num_scms,
+            'experiment': {
+                'runs_per_method': runs_per_method,
+                'target': {
+                    'max_interventions': intervention_budget,
+                    'n_observational_samples': 100,
+                    'optimization_direction': checkpoint.optimization_config.direction
+                },
+                'methods': {
+                    "Random + Untrained": "random_untrained",
+                    "Random + Learning": "random_learning",
+                    "Oracle + Learning": "oracle_learning",
+                    "Trained Policy + Learning": "learned_enriched_policy"
+                }
+            },
+            'policy_checkpoint_path': str(checkpoint.path),
+            'visualization': {
+                'enabled': True,
+                'plot_types': ['target_trajectory', 'f1_trajectory', 'shd_trajectory', 'method_comparison']
+            }
+        }
+        
+        # Run evaluation
+        comparison_results = run_evaluation(
+            checkpoint_path=checkpoint.path,
+            output_dir=output_dir,
+            config=eval_config
         )
         
         duration = time.time() - start_time
+        logger.info(f"✅ Comparison completed in {duration/60:.1f} minutes")
         
-        if result.returncode == 0:
-            logger.info(f"✅ Comparison completed in {duration/60:.1f} minutes")
-            
-            # Use standard results location
-            results_file = output_dir / "comparison_results.json"
-            
-            if results_file.exists():
-                try:
-                    # Load and convert results
-                    with open(results_file, 'r') as f:
-                        raw_results = json.load(f)
-                    
-                    # Create a properly formatted evaluation results object
-                    # The raw_results from run_acbo_comparison.py have the actual data
-                    evaluation_results = EvaluationResults(
-                        evaluation_timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        checkpoint_name=checkpoint.name,
-                        optimization_config=checkpoint.optimization_config,
-                        num_scms=raw_results.get('execution_metadata', {}).get('scms_tested', 0),
-                        runs_per_method=raw_results.get('execution_metadata', {}).get('runs_per_method', 0),
-                        intervention_budget=checkpoint.intervention_budget if hasattr(checkpoint, 'intervention_budget') else intervention_budget,
-                        method_results=raw_results.get('method_results', {}),
-                        summary_statistics=raw_results.get('statistical_analysis', {}).get('summary_statistics', {}),
-                        pairwise_comparisons=raw_results.get('statistical_analysis', {}).get('pairwise_comparisons', {}),
-                        total_duration_minutes=duration / 60
-                    )
-                    
-                    # Add trajectory data if available
-                    if 'trajectory_data' in raw_results:
-                        evaluation_results.trajectory_data = raw_results['trajectory_data']
-                    if 'aggregated_trajectories' in raw_results:
-                        evaluation_results.aggregated_trajectories = raw_results['aggregated_trajectories']
-                    
-                    logger.info(f"✅ Created evaluation results with {len(evaluation_results.method_results)} methods")
-                    return evaluation_results
-                    
-                except json.JSONDecodeError as e:
-                    logger.error(f"Results file is not valid JSON: {e}")
-                    raise ValueError(f'Invalid JSON in results file: {e}')
-                except Exception as e:
-                    logger.error(f"Error processing results: {e}")
-                    raise ValueError(f'Failed to process results: {e}')
-            else:
-                # Check for results in alternative locations and move to standard location
-                potential_files = [
-                    output_dir / "results.json",
-                    *output_dir.glob("*results*.json"),
-                    scripts_core_dir / "results" / "comparison_results.json"
-                ]
-                
-                found_file = None
-                for potential in potential_files:
-                    if potential.exists():
-                        found_file = potential
-                        break
-                
-                if found_file:
-                    logger.info(f"📁 Found results at {found_file}, moving to standard location")
-                    import shutil
-                    shutil.copy(found_file, results_file)
-                    # Recursive call now that file is in right place
-                    return run_acbo_comparison(checkpoint, num_scms, runs_per_method, 
-                                             intervention_budget, output_dir)
-                else:
-                    logger.error("❌ No results file found in any expected location")
-                    raise FileNotFoundError('No results file generated')
-                
-        else:
-            logger.error(f"❌ Comparison failed with code {result.returncode}")
-            logger.error(f"Error output:\n{result.stderr[:2000]}")
-            logger.error(f"Standard output:\n{result.stdout[:1000]}")
-            raise RuntimeError(f"ACBO comparison failed: {result.stderr}")
-            
+        # Convert to EvaluationResults format for compatibility
+        evaluation_results = EvaluationResults(
+            evaluation_timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            checkpoint_name=checkpoint.name,
+            optimization_config=checkpoint.optimization_config,
+            num_scms=num_scms,
+            runs_per_method=runs_per_method,
+            intervention_budget=intervention_budget,
+            method_results={},
+            summary_statistics={},
+            pairwise_comparisons={},
+            total_duration_minutes=duration / 60
+        )
+        
+        # Convert method results
+        for method_name, metrics in comparison_results.method_results.items():
+            evaluation_results.method_results[method_name] = {
+                'mean': metrics.mean_improvement,
+                'std': metrics.std_improvement,
+                'count': metrics.n_runs
+            }
+            evaluation_results.summary_statistics[method_name] = {
+                'target_improvement_mean': metrics.mean_improvement,
+                'target_improvement_std': metrics.std_improvement,
+                'structure_accuracy_mean': metrics.mean_final_f1,
+                'target_improvement_count': metrics.n_runs
+            }
+        
+        evaluation_results.pairwise_comparisons = comparison_results.statistical_tests
+        
+        return evaluation_results
+        
     except Exception as e:
-        logger.error(f"Failed to run comparison: {e}")
+        logger.error(f"Failed to run evaluation: {e}")
         raise
 
 

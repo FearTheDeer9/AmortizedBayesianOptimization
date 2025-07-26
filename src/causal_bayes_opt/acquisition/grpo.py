@@ -654,6 +654,9 @@ def _compute_grpo_loss(
     action_var_indices = []
     action_values = []
     
+    # Get variable names from the first state (all states in batch have same variables)
+    variable_names = states[0].variable_names if states else []
+    
     for action in actions:
         # Get intervention details
         targets = action.get('targets', set())
@@ -667,11 +670,18 @@ def _compute_grpo_loss(
             target_var = list(targets)[0]
             target_val = values[target_var]
             
-            # Find variable index (assume variable names are 'X0', 'X1', etc.)
-            if target_var.startswith('X'):
-                var_idx = int(target_var[1:])
+            # Find variable index using the actual variable names list
+            if target_var in variable_names:
+                var_idx = variable_names.index(target_var)
             else:
-                var_idx = 0  # Fallback
+                # Fallback: try old 'X0' pattern for backwards compatibility
+                if target_var.startswith('X') and len(target_var) > 1:
+                    try:
+                        var_idx = int(target_var[1:])
+                    except ValueError:
+                        var_idx = 0  # Default fallback
+                else:
+                    var_idx = 0  # Default fallback
             
             action_var_indices.append(var_idx)
             action_values.append(target_val)

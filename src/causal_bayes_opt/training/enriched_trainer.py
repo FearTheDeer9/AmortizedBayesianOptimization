@@ -28,6 +28,8 @@ from ..acquisition.grpo import (
 from ..acquisition.state import AcquisitionState
 from ..acquisition.rewards import create_default_reward_config
 from ..data_structures.scm import get_variables, get_target
+from ..data_structures.buffer import ExperienceBuffer
+from ..data_structures.sample import get_values
 from ..analysis.trajectory_metrics import (
     compute_f1_score_from_marginals, 
     compute_true_parent_likelihood,
@@ -36,6 +38,64 @@ from ..analysis.trajectory_metrics import (
 from ..visualization.metric_dashboard import TrainingMetricsLogger
 
 logger = logging.getLogger(__name__)
+
+
+class EpisodeState:
+    """
+    Maintains real observation history for a single episode.
+    
+    This class tracks actual interventions and outcomes during an episode,
+    allowing the policy to learn from real data instead of synthetic features.
+    """
+    def __init__(self, scm: pyr.PMap):
+        """Initialize episode state for the given SCM."""
+        self.scm = scm
+        self.buffer = ExperienceBuffer()  # Real observation storage
+        self.observations = []  # List of (intervention, outcome) pairs
+        self.best_value = float('-inf')  # Track best target value seen
+        self.target_variable = get_target(scm)
+        self.variables = list(get_variables(scm))
+        
+        # Optional: Maintain posterior (can be expensive to update)
+        self.posterior = None
+        
+        # Add initial observational sample to establish baseline
+        self._add_initial_observation()
+    
+    def _add_initial_observation(self):
+        """Add an initial observational sample to establish baseline."""
+        from ..environments.sampling import sample_from_linear_scm
+        
+        # Sample one observational data point
+        obs_samples = sample_from_linear_scm(self.scm, n_samples=1, seed=42)
+        if obs_samples:
+            self.buffer.add_observation(obs_samples[0])
+            # Update best value from initial observation
+            values = get_values(obs_samples[0])
+            if self.target_variable in values:
+                self.best_value = float(values[self.target_variable])
+    
+    def add_intervention_outcome(self, intervention: pyr.PMap, outcome: pyr.PMap):
+        """Add a real intervention and its outcome to the history."""
+        self.observations.append((intervention, outcome))
+        self.buffer.add_intervention(intervention, outcome)
+        
+        # Update best value
+        values = get_values(outcome)
+        if self.target_variable in values:
+            target_value = float(values[self.target_variable])
+            self.best_value = max(self.best_value, target_value)
+    
+    def get_intervention_count(self) -> int:
+        """Get number of interventions performed."""
+        return len(self.observations)
+    
+    def get_unique_intervention_targets(self) -> set:
+        """Get set of variables that have been intervened upon."""
+        targets = set()
+        for intervention, _ in self.observations:
+            targets.update(intervention.get('targets', set()))
+        return targets
 
 
 class EnrichedGRPOTrainer:
@@ -124,10 +184,20 @@ class EnrichedGRPOTrainer:
         # GRPO update function already created above during initialization
         
         # Create reward configuration
+        # Get optimization direction from config, default to MAXIMIZE
+        optimization_direction = 'MAXIMIZE'  # Default
+        if hasattr(config, 'optimization') and hasattr(config.optimization, 'direction'):
+            optimization_direction = config.optimization.direction
+        elif hasattr(config, 'experiment') and hasattr(config.experiment, 'optimization_direction'):
+            optimization_direction = config.experiment.optimization_direction
+        elif config.get('optimization_direction'):
+            optimization_direction = config.get('optimization_direction')
+        
         self.reward_config = create_default_reward_config(
             optimization_weight=config.training.reward_weights.optimization,
             structure_weight=config.training.reward_weights.discovery,
-            exploration_weight=config.training.reward_weights.efficiency
+            exploration_weight=config.training.reward_weights.efficiency,
+            optimization_direction=optimization_direction
         )
         
         # Initialize sample accumulation buffer for GRPO
@@ -301,11 +371,28 @@ class EnrichedGRPOTrainer:
         return result
     
     def _run_episode(self, episode_idx: int, episode_key: jax.random.PRNGKey) -> TrainingMetrics:
-        """Run a single training episode."""
+        """Run a single training episode with real observations."""
         # Get current SCM
         scm_name, scm = self.scm_manager.get_current_scm(episode_idx)
         variables = list(get_variables(scm))
         target = get_target(scm)
+        
+        # Check if we should use real observations
+        use_real_observations = self.config.training.get('use_real_observations', True)
+        
+        # Log configuration
+        if hasattr(self.config.training, 'synthetic_features'):
+            synthetic_enabled = self.config.training.synthetic_features.get('enabled', False)
+            if synthetic_enabled:
+                logger.warning("synthetic_features.enabled is DEPRECATED - use use_real_observations instead")
+        
+        if use_real_observations:
+            # Create episode state for tracking real observations
+            episode_state = EpisodeState(scm)
+            logger.info(f"Episode {episode_idx}: Using REAL observations for {scm_name}")
+        else:
+            # Fall back to synthetic features (for comparison/debugging)
+            logger.warning(f"Episode {episode_idx}: Using SYNTHETIC features (not recommended)")
         
         # Collect trajectory
         trajectory = []
@@ -314,18 +401,33 @@ class EnrichedGRPOTrainer:
         # Thread keys through episode steps
         step_key = episode_key
         
+        # For compatibility with old approach
+        best_value = 0.0
+        previous_state = None
+        
         for step in range(self.config.training.episode_length):
             # Split key for this step
             step_key, action_key = random.split(step_key)
             
-            # Create tensor-backed state for this step
-            state = self._create_tensor_backed_state(scm, step, 0.0)
-            
-            # Convert to enriched input
-            enriched_input = self.state_converter.convert_state_to_enriched_input(state)
+            if use_real_observations:
+                # Create state from REAL observations
+                state = self._create_real_state(episode_state, step)
+                
+                # Convert to tensor format for policy (this is where we bridge to tensors)
+                # For now, we'll use the existing converter but with real state
+                tensor_state = self._convert_real_state_to_tensor(state, step)
+                enriched_input = self.state_converter.convert_state_to_enriched_input(tensor_state)
+            else:
+                # Old approach: synthetic tensor-backed state
+                state = self._create_tensor_backed_state(scm, step, best_value)
+                enriched_input = self.state_converter.convert_state_to_enriched_input(state)
             
             # Get target variable index
             target_idx = variables.index(target) if target in variables else 0
+            
+            # Log channel statistics for debugging (every 100 episodes on first step)
+            if step == 0 and episode_idx % 100 == 0:
+                self._log_channel_statistics(enriched_input, variables, target_idx)
             
             # Policy forward pass
             policy_output = self.policy_fn.apply(
@@ -335,8 +437,41 @@ class EnrichedGRPOTrainer:
             # Convert policy output to action (with training episode for exploration)
             action = self._policy_output_to_action(policy_output, variables, target, episode_idx)
             
-            # Simulate intervention
-            intervention, reward = self._simulate_intervention(scm, action)
+            # Simulate intervention and get outcome
+            intervention, outcome = self._simulate_intervention_outcome(scm, action)
+            
+            if use_real_observations:
+                # Add real outcome to episode state
+                episode_state.add_intervention_outcome(intervention, outcome)
+            
+            # Calculate reward
+            if use_real_observations and step > 0:
+                # Use the full verifiable reward system with real observations
+                # Create the state before intervention for reward computation
+                state_before = self._create_real_state(episode_state, step - 1)
+                
+                # Try to use verifiable reward system
+                try:
+                    # Create state after intervention (includes the new outcome)
+                    state_after = self._create_real_state(episode_state, step)
+                    
+                    reward = self._compute_reward(
+                        state_before=state_before,
+                        state_after=state_after,
+                        intervention=intervention,
+                        outcome=outcome
+                    )
+                except Exception as e:
+                    logger.warning(f"Verifiable reward failed: {e}, falling back to training reward")
+                    reward = self._compute_training_reward(
+                        episode_state=episode_state,
+                        intervention=intervention,
+                        outcome=outcome,
+                        step=step
+                    )
+            else:
+                # Fallback to simple reward for first step or synthetic mode
+                reward = self._compute_simple_reward(outcome, target)
             
             # Store step data
             trajectory.append({
@@ -345,9 +480,21 @@ class EnrichedGRPOTrainer:
                 'reward': reward,
                 'policy_output': policy_output,
                 'target_idx': target_idx,
-                'intervention': intervention  # Store intervention for metrics
+                'intervention': intervention,  # Store intervention for metrics
+                'outcome': outcome  # Store outcome for analysis
             })
             episode_rewards.append(reward)
+            
+            # Update best value for compatibility
+            outcome_values = get_values(outcome)
+            target_value = float(outcome_values.get(target, 0.0))
+            if self.reward_config.get('optimization_direction') == 'MAXIMIZE':
+                best_value = max(best_value, target_value)
+            else:
+                best_value = min(best_value, target_value)
+            
+            # Update previous state for next iteration
+            previous_state = state
         
         # Update policy with sample accumulation
         policy_losses = self._update_policy(trajectory, episode_idx)
@@ -416,6 +563,72 @@ class EnrichedGRPOTrainer:
             feature_dim=3,
             use_bootstrap_surrogate=True  # NEW: Enable bootstrap surrogate features
         )
+    
+    def _create_real_state(self, episode_state: EpisodeState, step: int) -> AcquisitionState:
+        """
+        Create acquisition state from real observations.
+        
+        This method creates a state that reflects actual intervention history
+        rather than synthetic bootstrap features.
+        
+        Args:
+            episode_state: Current episode state with real observations
+            step: Current step number
+            
+        Returns:
+            AcquisitionState with real data
+        """
+        from ..avici_integration.parent_set import ParentSetPosterior
+        
+        # Use real buffer with actual observations
+        buffer = episode_state.buffer
+        
+        # Create posterior (start uniform if not available)
+        if episode_state.posterior is None:
+            # Create uniform posterior over parent sets
+            n_vars = len(episode_state.variables)
+            
+            # Create a more realistic initial posterior:
+            # Include empty set and all single-parent sets
+            parent_sets = [frozenset()]  # Empty parent set
+            
+            # Add each single variable as a potential parent
+            for var in episode_state.variables:
+                if var != episode_state.target_variable:
+                    parent_sets.append(frozenset([var]))
+            
+            # Uniform probabilities over all parent sets
+            n_sets = len(parent_sets)
+            probabilities = jnp.ones(n_sets) / n_sets
+            
+            # Import the create function
+            from ..avici_integration.parent_set.posterior import create_parent_set_posterior
+            
+            # Create uniform posterior over empty and single-parent sets
+            posterior = create_parent_set_posterior(
+                target_variable=episode_state.target_variable,
+                parent_sets=parent_sets,
+                probabilities=probabilities,
+                metadata=pyr.m(initial_posterior=True, n_parent_sets_total=2**(n_vars-1))
+            )
+        else:
+            posterior = episode_state.posterior
+        
+        # Create real acquisition state
+        state = AcquisitionState(
+            posterior=posterior,
+            buffer=buffer,
+            best_value=episode_state.best_value,
+            current_target=episode_state.target_variable,
+            step=step,
+            metadata=pyr.m(
+                scm=episode_state.scm,
+                intervention_count=episode_state.get_intervention_count(),
+                unique_targets=episode_state.get_unique_intervention_targets()
+            )
+        )
+        
+        return state
     
     def _compute_structure_learning_metrics(self, scm: pyr.PMap, marginal_probs: Dict[str, float]) -> Tuple[Optional[float], Optional[float], Optional[int]]:
         """
@@ -540,6 +753,33 @@ class EnrichedGRPOTrainer:
                 logger.info(f"  Target variable '{target}' at index {target_idx}, logit: {target_logit}")
                 if target_logit > -1e8:
                     logger.warning("⚠️ Target variable not properly masked!")
+            
+            # Check for identical logits (posterior collapse)
+            non_target_indices = [i for i in range(len(variable_logits)) if i != target_idx]
+            if non_target_indices:
+                non_target_logits = variable_logits[jnp.array(non_target_indices)]
+                unique_logits = jnp.unique(non_target_logits)
+                logit_variance = jnp.var(non_target_logits)
+                
+                # Log variance to track collapse
+                logger.info(f"  Non-target logit variance: {logit_variance:.6f}")
+                
+                if len(unique_logits) == 1 or logit_variance < 1e-6:
+                    logger.warning(f"⚠️ IDENTICAL LOGITS for all non-target variables: {unique_logits[0]:.6f}")
+                    logger.warning("  This indicates posterior collapse - policy cannot differentiate between variables!")
+                    logger.warning(f"  Logit variance: {logit_variance:.8f}")
+                elif logit_variance < 0.01:
+                    logger.warning(f"⚠️ Low logit variance ({logit_variance:.6f}) - approaching posterior collapse")
+        
+        # Add diversity bonus during training to prevent posterior collapse
+        if training_episode is not None and training_episode < 50:
+            # Add small random noise to logits to maintain diversity early in training
+            noise_scale = 0.1 * (1.0 - training_episode / 50.0)  # Decay noise over time
+            key = jax.random.PRNGKey(self._action_debug_count + training_episode)
+            noise = jax.random.normal(key, shape=variable_logits.shape) * noise_scale
+            # Only add noise to non-target variables
+            noise_mask = jnp.arange(len(variables)) != target_idx
+            variable_logits = variable_logits + (noise * noise_mask)
         
         # STEP 1: Variable Selection using softmax over logits
         # Apply temperature for exploration control during training
@@ -601,18 +841,102 @@ class EnrichedGRPOTrainer:
         
         return selected_var_idx, intervention_value
     
-    def _simulate_intervention(self, scm: pyr.PMap, action: Tuple[int, float]) -> Tuple[pyr.PMap, float]:
+    def _create_acquisition_state(
+        self, 
+        scm: pyr.PMap, 
+        buffer: Optional[ExperienceBuffer] = None,
+        posterior: Optional[Any] = None,
+        best_value: Optional[float] = None,
+        step: int = 0
+    ) -> Any:
         """
-        Simulate intervention and compute reward.
+        Create an AcquisitionState for reward computation.
+        
+        Args:
+            scm: Structural causal model
+            buffer: Experience buffer (will create empty if None)
+            posterior: Parent set posterior (will create default if None)
+            best_value: Best observed value (will use 0.0 if None)
+            step: Current step number
+            
+        Returns:
+            AcquisitionState object
+        """
+        from ..acquisition.state import AcquisitionState
+        from ..data_structures.buffer import ExperienceBuffer
+        from ..avici_integration.parent_set import ParentSetPosterior
+        
+        target_var = get_target(scm)
+        variables = list(get_variables(scm))
+        
+        # Create default buffer if needed
+        if buffer is None:
+            from ..data_structures.sample import create_sample
+            buffer = ExperienceBuffer()
+            # Add a dummy observational sample so buffer knows about all variables
+            dummy_values = {var: 0.0 for var in variables}
+            dummy_sample = create_sample(values=dummy_values)
+            buffer.add_observation(dummy_sample)
+        
+        # Create default posterior if needed
+        if posterior is None:
+            # Simple uniform posterior for training
+            variables = list(get_variables(scm))
+            n_parent_sets = 2 ** (len(variables) - 1)  # All possible parent sets
+            posterior_probs = jnp.ones(n_parent_sets) / n_parent_sets
+            
+            # Create minimal posterior object
+            # Import the create function if not already imported
+            from ..avici_integration.parent_set.posterior import create_parent_set_posterior
+            
+            # Create initial posterior with empty and single-parent sets
+            parent_sets = [frozenset()]  # Empty parent set
+            
+            # Add single-parent sets
+            for var in variables:
+                if var != target_var:
+                    parent_sets.append(frozenset([var]))
+            
+            # Uniform probabilities
+            n_sets = len(parent_sets)
+            probabilities = jnp.ones(n_sets) / n_sets
+            
+            posterior = create_parent_set_posterior(
+                target_variable=target_var,
+                parent_sets=parent_sets,
+                probabilities=probabilities,
+                metadata=pyr.m(initial_posterior=True)
+            )
+        
+        # Use provided or default best value
+        if best_value is None:
+            best_value = 0.0
+        
+        # Create acquisition state
+        state = AcquisitionState(
+            posterior=posterior,
+            buffer=buffer,
+            best_value=best_value,
+            current_target=target_var,
+            step=step,
+            metadata=pyr.m(scm=scm)
+        )
+        
+        return state
+    
+    def _simulate_intervention_outcome(self, scm: pyr.PMap, action: Tuple[int, float]) -> Tuple[pyr.PMap, pyr.PMap]:
+        """
+        Simulate intervention and return the outcome.
         
         Args:
             scm: Structural causal model
             action: Tuple of (selected_variable_index, intervention_value)
             
         Returns:
-            Tuple of (intervention object, reward)
+            Tuple of (intervention object, outcome sample)
         """
         variables = list(get_variables(scm))
+        target_var = get_target(scm)
         
         # Extract per-variable action
         selected_var_idx, intervention_value = action
@@ -633,96 +957,226 @@ class EnrichedGRPOTrainer:
             values=intervention_values
         )
         
-        # PHASE 4: Validate reward function incentive structure
-        if hasattr(self, '_reward_debug_count'):
-            self._reward_debug_count += 1
+        # Sample outcome from intervention
+        from ..environments.sampling import sample_with_intervention
+        seed = int(time.time() * 1000000) % 1000000
+        outcomes = sample_with_intervention(scm, intervention, n_samples=1, seed=seed)
+        outcome = outcomes[0]
+        
+        return intervention, outcome
+    
+    def _compute_simple_reward(self, outcome: pyr.PMap, target: str) -> float:
+        """
+        Compute simple reward for first step (no previous state).
+        
+        Args:
+            outcome: Outcome sample from intervention
+            target: Target variable name
+            
+        Returns:
+            Simple reward based on target value
+        """
+        outcome_values = get_values(outcome)
+        target_value = float(outcome_values.get(target, 0.0))
+        
+        # Simple reward based on optimization direction
+        optimization_direction = self.reward_config.get('optimization_direction', 'MAXIMIZE')
+        if optimization_direction == 'MINIMIZE':
+            # For minimization, negative values are good
+            return -target_value * 0.1
         else:
-            self._reward_debug_count = 1
+            # For maximization, positive values are good
+            return target_value * 0.1
+    
+    def _compute_reward(
+        self, 
+        state_before: Any, 
+        state_after: Any, 
+        intervention: pyr.PMap, 
+        outcome: pyr.PMap
+    ) -> float:
+        """
+        Compute reward using the sophisticated reward system.
         
-        debug_rewards = (self._reward_debug_count % 10 == 0)  # Debug every 10th reward computation
-        
-        # For training, use simplified reward calculation
-        # In real ACBO, this would use the full verifiable reward system
-        target_var = get_target(scm)
-        
-        # PHASE 4: Detailed reward component analysis
-        reward_components = {}
-        
-        # Simple reward: positive for intervening on non-target variables
-        reward = 0.0
-        if intervention_targets:
-            # Bonus for intervening (exploration)
-            exploration_bonus = 0.2
-            reward += exploration_bonus
-            reward_components['exploration_bonus'] = exploration_bonus
+        Args:
+            state_before: State before intervention
+            state_after: State after intervention
+            intervention: Intervention that was applied
+            outcome: Outcome from the intervention
             
-            # Penalty if intervening on target (invalid)
-            if target_var in intervention_targets:
-                target_penalty = -0.5
-                reward += target_penalty
-                reward_components['target_penalty'] = target_penalty
+        Returns:
+            Reward value
+        """
+        from ..acquisition.rewards import compute_verifiable_reward, create_default_reward_config
+        
+        # Create reward config with user's requirements
+        # Use weights from training config
+        weights = self.config.training.reward_weights
+        reward_config = create_default_reward_config(
+            optimization_weight=weights.get('optimization', 1.0),
+            structure_weight=weights.get('discovery', 0.5),
+            parent_weight=0.3,  # Reward intervening on parents
+            exploration_weight=weights.get('efficiency', 0.1),
+            optimization_direction=self.reward_config.get('optimization_direction', 'MAXIMIZE')
+        )
+        
+        # Add flag for expected value baseline
+        reward_config = reward_config.set('use_expected_value_baseline', True)
+        
+        try:
+            # Compute verifiable reward with all components
+            reward_components = compute_verifiable_reward(
+                state_before=state_before,
+                intervention=intervention,
+                outcome=outcome,
+                state_after=state_after,
+                config=reward_config
+            )
+            
+            reward = float(reward_components.total_reward)
+            
+            # Log reward decomposition periodically
+            if hasattr(self, '_reward_log_count'):
+                self._reward_log_count += 1
             else:
-                valid_intervention_bonus = 0.3  # Bonus for valid intervention
-                reward += valid_intervention_bonus
-                reward_components['valid_intervention_bonus'] = valid_intervention_bonus
-            
-            # Scale by intervention magnitude (realistic outcome simulation)
-            intervention_magnitude = sum(abs(v) for v in intervention_values.values())
-            magnitude_bonus = min(0.5, intervention_magnitude * 0.1)
-            reward += magnitude_bonus
-            reward_components['magnitude_bonus'] = magnitude_bonus
-        else:
-            # No intervention penalty
-            no_action_penalty = -0.1
-            reward += no_action_penalty
-            reward_components['no_action_penalty'] = no_action_penalty
-        
-        # Ensure reward is in reasonable range
-        reward_before_clipping = reward
-        reward = max(-1.0, min(1.0, reward))
-        
-        # PHASE 4: Log reward analysis for debugging incentive structure
-        if debug_rewards:
-            logger.info(f"🔍 PHASE 4 REWARD ANALYSIS (computation {self._reward_debug_count}):")
-            logger.info(f"  Action: {action}")
-            logger.info(f"  Intervention targets: {intervention_targets}")
-            logger.info(f"  Intervention values: {intervention_values}")
-            logger.info(f"  Target variable: {target_var}")
-            logger.info(f"  Reward components: {reward_components}")
-            logger.info(f"  Total reward before clipping: {reward_before_clipping:.6f}")
-            logger.info(f"  Final reward: {reward:.6f}")
-            
-            # CRITICAL: Check reward incentive alignment
-            if intervention_targets:
-                if target_var in intervention_targets:
-                    logger.info("  ✅ INCENTIVE CHECK: Correctly penalizing intervention on target variable")
-                else:
-                    logger.info("  ✅ INCENTIVE CHECK: Correctly rewarding intervention on non-target variables")
-            else:
-                logger.info("  ⚠️ INCENTIVE CHECK: No intervention detected - applying no-action penalty")
-            
-            # Check for potential reward hacking
-            if reward > 0.8:
-                logger.info(f"  💰 HIGH REWARD: Policy achieved high reward ({reward:.3f}) - good performance!")
-            elif reward < -0.8:
-                logger.warning(f"  💸 LOW REWARD: Policy received low reward ({reward:.3f}) - poor performance")
-            
-            # Track reward distribution over time
-            if not hasattr(self, '_reward_history'):
-                self._reward_history = []
-            self._reward_history.append(reward)
-            
-            # Analyze reward trends
-            if len(self._reward_history) >= 10:
-                recent_rewards = self._reward_history[-10:]
-                reward_trend = recent_rewards[-1] - recent_rewards[0]
-                reward_mean = sum(recent_rewards) / len(recent_rewards)
-                logger.info(f"  REWARD TREND: mean={reward_mean:.3f}, trend={reward_trend:+.3f}")
+                self._reward_log_count = 1
                 
-                if reward_mean < 0:
-                    logger.warning("⚠️ PHASE 4: Negative average reward - policy may not be learning effective actions!")
+            # Log more frequently during early training
+            log_freq = 10 if self._reward_log_count < 100 else 100
+            if self._reward_log_count % log_freq == 0:
+                logger.info(f"Reward decomposition: {reward_components.summary()}")
+                logger.info(f"Total reward: {reward:.4f}")
+            
+            return reward
+            
+        except Exception as e:
+            logger.warning(f"Failed to compute verifiable reward: {e}, using simple fallback")
+            # Fallback to simple reward
+            return self._compute_simple_reward(outcome, state_before.current_target)
+    
+    def _compute_training_reward(
+        self,
+        episode_state: EpisodeState,
+        intervention: pyr.PMap,
+        outcome: pyr.PMap,
+        step: int
+    ) -> float:
+        """
+        Compute training reward without requiring a surrogate model.
         
-        return intervention, reward
+        This method computes rewards based on real observations without
+        requiring pre-trained models or synthetic features.
+        
+        Args:
+            episode_state: Current episode state with real observations
+            intervention: The intervention that was applied
+            outcome: The observed outcome
+            step: Current step number
+            
+        Returns:
+            Reward value
+        """
+        target_var = episode_state.target_variable
+        outcome_values = get_values(outcome)
+        target_value = float(outcome_values.get(target_var, 0.0))
+        
+        # Get optimization direction
+        optimization_direction = self.reward_config.get('optimization_direction', 'MAXIMIZE')
+        
+        # 1. Optimization reward - based on actual improvement
+        optimization_reward = 0.0
+        
+        # Compare to mean of recent observations (expected value baseline)
+        recent_values = []
+        for obs_intervention, obs_outcome in episode_state.observations[-10:]:  # Last 10 observations
+            obs_values = get_values(obs_outcome)
+            if target_var in obs_values:
+                recent_values.append(float(obs_values[target_var]))
+        
+        if recent_values:
+            baseline_value = sum(recent_values) / len(recent_values)
+        else:
+            baseline_value = episode_state.best_value
+        
+        # Compute improvement from baseline
+        if optimization_direction == 'MINIMIZE':
+            improvement = baseline_value - target_value  # Lower is better
+        else:
+            improvement = target_value - baseline_value  # Higher is better
+        
+        # Normalize by typical value range (estimate from observations)
+        value_range = 1.0  # Default
+        if len(recent_values) > 1:
+            value_range = max(recent_values) - min(recent_values)
+            if value_range < 0.1:
+                value_range = 1.0  # Avoid division by small numbers
+        
+        optimization_reward = improvement / value_range
+        
+        # 2. Simple exploration reward - encourage trying different variables
+        exploration_reward = 0.0
+        intervention_targets = intervention.get('targets', set())
+        
+        if intervention_targets:
+            # Count how many times we've intervened on these variables
+            target_counts = {}
+            for past_intervention, _ in episode_state.observations:
+                past_targets = past_intervention.get('targets', set())
+                for var in past_targets:
+                    target_counts[var] = target_counts.get(var, 0) + 1
+            
+            # Reward less-explored variables
+            avg_count = sum(target_counts.values()) / max(len(target_counts), 1)
+            for var in intervention_targets:
+                var_count = target_counts.get(var, 0)
+                if var_count <= avg_count:
+                    exploration_reward += 0.1  # Bonus for exploring less-visited variables
+        
+        # 3. Skip structure discovery reward (requires surrogate)
+        # 4. Skip parent intervention reward (requires posterior)
+        
+        # Combine rewards
+        total_reward = (
+            self.reward_config.get('optimization_weight', 1.0) * optimization_reward +
+            self.reward_config.get('exploration_weight', 0.1) * exploration_reward
+        )
+        
+        # Log periodically
+        if step % 10 == 0:
+            logger.debug(
+                f"Training reward: opt={optimization_reward:.3f}, "
+                f"explore={exploration_reward:.3f}, total={total_reward:.3f}"
+            )
+        
+        return float(total_reward)
+    
+    def _convert_real_state_to_tensor(self, state: AcquisitionState, step: int) -> AcquisitionState:
+        """
+        Convert real AcquisitionState to format expected by StateConverter.
+        
+        In practice, our real AcquisitionState already has the required interface:
+        - buffer with get_all_samples() and get_variable_coverage()
+        - current_target attribute
+        
+        So we can return it directly. This method exists for clarity and
+        potential future transformations.
+        
+        Args:
+            state: Real AcquisitionState from _create_real_state
+            step: Current step (for potential future use)
+            
+        Returns:
+            The state itself (no conversion needed currently)
+        """
+        # Verify state has required attributes
+        if not hasattr(state, 'buffer'):
+            raise ValueError("State missing 'buffer' attribute")
+        if not hasattr(state, 'current_target'):
+            raise ValueError("State missing 'current_target' attribute")
+            
+        # Could add step-specific transformations here if needed
+        # For now, just return the state as-is
+        return state
     
     def _update_policy(self, trajectory: List[Dict[str, Any]], episode_idx: int) -> Dict[str, float]:
         """Update policy parameters using proper GRPO implementation with same-state batching."""
@@ -997,3 +1451,93 @@ class EnrichedGRPOTrainer:
             logger.info("WandB logging enabled")
         except ImportError:
             logger.warning("WandB not available, skipping logging setup")
+    
+    def _log_channel_statistics(self, enriched_input: jnp.ndarray, variables: List[str], target_idx: int):
+        """
+        Log channel statistics to debug posterior collapse.
+        
+        Args:
+            enriched_input: Enriched history tensor [T, n_vars, n_channels]
+            variables: List of variable names
+            target_idx: Index of target variable
+        """
+        try:
+            # Get the most recent timestep for analysis
+            recent_step = enriched_input[-1]  # [n_vars, n_channels]
+            n_vars, n_channels = recent_step.shape
+            
+            logger.info(f"\n=== Channel Statistics (n_vars={n_vars}, n_channels={n_channels}) ===")
+            
+            # Channel names from state enrichment
+            channel_names = [
+                "variable_values",
+                "intervention_indicators", 
+                "target_indicators",
+                "marginal_parent_probs",
+                "intervention_recency"
+            ]
+            
+            # Analyze each channel
+            for ch_idx in range(n_channels):
+                if ch_idx < len(channel_names):
+                    ch_name = channel_names[ch_idx]
+                else:
+                    ch_name = f"channel_{ch_idx}"
+                
+                channel_values = recent_step[:, ch_idx]
+                
+                # Check if all values are identical (posterior collapse indicator)
+                unique_values = jnp.unique(channel_values)
+                is_collapsed = len(unique_values) == 1
+                
+                # Compute statistics
+                ch_mean = jnp.mean(channel_values)
+                ch_std = jnp.std(channel_values)
+                ch_min = jnp.min(channel_values)
+                ch_max = jnp.max(channel_values)
+                
+                # Log channel info
+                logger.info(f"\nChannel {ch_idx} ({ch_name}):")
+                logger.info(f"  Values: {channel_values}")
+                logger.info(f"  Stats: mean={ch_mean:.4f}, std={ch_std:.4f}, min={ch_min:.4f}, max={ch_max:.4f}")
+                
+                if is_collapsed:
+                    logger.warning(f"  ⚠️ COLLAPSED: All values identical ({unique_values[0]:.4f})")
+                else:
+                    logger.info(f"  ✅ Variable-specific: {len(unique_values)} unique values")
+                
+                # Special checks for specific channels
+                if ch_idx == 2:  # Target indicators
+                    target_value = channel_values[target_idx] if target_idx < n_vars else -1
+                    logger.info(f"  Target variable {variables[target_idx]} has value: {target_value}")
+                    if target_value != 1.0:
+                        logger.warning("  ⚠️ Target indicator not set correctly!")
+            
+            # Check overall differentiation
+            all_identical = True
+            for i in range(n_vars):
+                for j in range(i+1, n_vars):
+                    var_i_features = recent_step[i, :]
+                    var_j_features = recent_step[j, :]
+                    if not jnp.allclose(var_i_features, var_j_features):
+                        all_identical = False
+                        break
+                if not all_identical:
+                    break
+            
+            if all_identical and n_vars > 1:
+                logger.error("\n🚨 CRITICAL: All variables have IDENTICAL features - complete posterior collapse!")
+            else:
+                # Find which channels provide differentiation
+                differentiating_channels = []
+                for ch_idx in range(n_channels):
+                    channel_values = recent_step[:, ch_idx]
+                    if len(jnp.unique(channel_values)) > 1:
+                        differentiating_channels.append(ch_idx)
+                
+                logger.info(f"\n✅ Variables are differentiable via channels: {differentiating_channels}")
+            
+            logger.info("=" * 60 + "\n")
+            
+        except Exception as e:
+            logger.error(f"Failed to log channel statistics: {e}")

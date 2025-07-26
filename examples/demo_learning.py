@@ -35,7 +35,7 @@ class DemoConfig:
     """Configuration for progressive learning demo."""
     n_observational_samples: int = 30  # More initial data for complex SCM
     n_intervention_steps: int = 20  # Reasonable number of steps
-    learning_rate: float = 1e-3  # More realistic learning rate
+    learning_rate: float = 1e-4  # Conservative learning rate for stable training
     intervention_value_range: Tuple[float, float] = (-2.0, 2.0)
     random_seed: int = 42
     scoring_method: str = "bic"  # Scoring method: "bic", "aic", "mdl", or "likelihood"
@@ -236,8 +236,14 @@ def create_learnable_surrogate_model(
     dummy_data = jnp.zeros((10, n_vars, 3))
     params = net.init(key, dummy_data, variables, variables[0], False)
     
-    # Create optimizer for online learning
-    optimizer = optax.adam(learning_rate=learning_rate)
+    # Create optimizer with adaptive learning rate schedule
+    # Use cosine decay to gradually reduce learning rate for stable convergence
+    schedule = optax.cosine_decay_schedule(
+        init_value=learning_rate,
+        decay_steps=100,  # Decay over 100 update steps
+        alpha=0.1  # Final learning rate will be 0.1 * initial
+    )
+    optimizer = optax.adam(learning_rate=schedule)
     opt_state = optimizer.init(params)
     
     def predict_posterior_wrapper(data: jnp.ndarray, variable_order: List[str], 
@@ -258,6 +264,11 @@ def create_learnable_surrogate_model(
                                         variable_order: List[str], target_variable: str) -> Tuple[object, object, Tuple[float, float, float, float]]:
         """Update model parameters using data likelihood as training signal."""
         
+        # Skip update if not enough samples
+        if len(new_samples) < 5:
+            # Return zeros for diagnostics
+            return current_params, current_opt_state, (0.0, 0.0, 0.0, 0.0)
+        
         # Data likelihood loss function for self-supervised learning
         def loss_fn(params):
             # Get new prediction with current params
@@ -271,8 +282,11 @@ def create_learnable_surrogate_model(
             logits = pred_output['parent_set_logits']  # [k] logits for top-k parent sets
             parent_sets = pred_output['parent_sets']   # List of k parent sets
             
-            # Convert logits to probabilities
-            probs = jax.nn.softmax(logits)  # [k] probabilities over parent sets
+            # Convert logits to probabilities with temperature scaling for stability
+            # Higher temperature = smoother gradients, more exploration
+            temperature = 3.0  # Increased from 1.0 for more stable gradients
+            scaled_logits = logits / temperature
+            probs = jax.nn.softmax(scaled_logits)  # [k] probabilities over parent sets
             
             # Compute scores for each parent set (JAX-compatible version)
             # Using configurable scoring method to prevent overfitting to large parent sets
@@ -281,23 +295,54 @@ def create_learnable_surrogate_model(
                 scoring_method=scoring_method
             )  # [k] scores for each parent set
             
-            # Weighted score (expectation over posterior)
-            total_score = jnp.sum(probs * scores_per_set)
+            # Principled normalization:
+            # 1. Expected log-likelihood per sample under simple Gaussian is approximately -1.4 (log(2π) + 0.5)
+            # 2. We normalize scores by this expected scale to keep gradients reasonable
+            expected_ll_per_sample = -1.4
+            scores_normalized = scores_per_set / len(new_samples)  # Per-sample scores
+            scores_centered = scores_normalized - expected_ll_per_sample  # Center around expected value
             
-            # Return negative score as loss (minimize this)
-            return -total_score
+            # Use log-sum-exp for numerical stability
+            # Now we're working with centered scores that are typically in range [-2, 2]
+            log_partition = jax.nn.logsumexp(scores_centered, b=probs)
+            
+            # Loss is negative log expected score (centered)
+            # This keeps the loss in a reasonable range (typically 0-5) instead of 20+
+            loss = -log_partition
+            
+            # Add moderate L2 regularization for stability
+            l2_reg = 1e-4 * sum(
+                jnp.sum(p**2) for p in jax.tree.leaves(params)
+            )
+            
+            return loss + l2_reg
         
-        # Compute gradients and update
+        # Compute gradients and update with gradient clipping
         loss_val, grads = jax.value_and_grad(loss_fn)(current_params)
+        
+        # Clip gradients to prevent instability
+        # With proper normalization, we can use a tighter clip threshold
+        max_grad_norm = 1.0  # Much more conservative than 10.0
+        grad_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree.leaves(grads)))
+        
+        if grad_norm > max_grad_norm:
+            # Scale gradients to have max_grad_norm
+            grads = jax.tree.map(
+                lambda g: g * max_grad_norm / (grad_norm + 1e-8), 
+                grads
+            )
+            clipped_grad_norm = max_grad_norm
+        else:
+            clipped_grad_norm = grad_norm
+        
         updates, new_opt_state = optimizer.update(grads, current_opt_state, current_params)
         new_params = optax.apply_updates(current_params, updates)
         
         # Compute diagnostics for monitoring learning
-        param_norm = jnp.sqrt(sum(jnp.sum(p**2) for p in jax.tree_util.tree_leaves(current_params)))
-        grad_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree_util.tree_leaves(grads)))
-        update_norm = jnp.sqrt(sum(jnp.sum(u**2) for u in jax.tree_util.tree_leaves(updates)))
+        param_norm = jnp.sqrt(sum(jnp.sum(p**2) for p in jax.tree.leaves(current_params)))
+        update_norm = jnp.sqrt(sum(jnp.sum(u**2) for u in jax.tree.leaves(updates)))
         
-        return new_params, new_opt_state, (float(loss_val), float(param_norm), float(grad_norm), float(update_norm))
+        return new_params, new_opt_state, (float(loss_val), float(param_norm), float(clipped_grad_norm), float(update_norm))
     
     return predict_posterior_wrapper, net, params, opt_state, update_model_with_data_likelihood
 

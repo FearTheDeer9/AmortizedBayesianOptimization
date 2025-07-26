@@ -197,6 +197,7 @@ class BCAcquisitionTrainer:
                     }
                     
                     # Forward pass through policy network
+                    # Haiku transformed functions: apply(params, rng, *args)
                     policy_output = policy_network.apply(params, key, state_dict, True)  # is_training=True
                     
                     # Extract predictions - use dynamic dimensions from state tensor
@@ -226,7 +227,8 @@ class BCAcquisitionTrainer:
                         return params[clipped_idx, 0]
                     
                     # Variable selection loss with label smoothing
-                    label_smoothing = 0.1
+                    # Increased from 0.1 to 0.2 to prevent overconfident predictions
+                    label_smoothing = 0.2
                     n_classes = variable_logits.shape[0]
                     
                     # Create smoothed labels
@@ -246,34 +248,66 @@ class BCAcquisitionTrainer:
                     value_loss = (pred_mean - expert_value) ** 2
                     
                     # Combined loss with proper weighting
-                    combined_loss = (self.config.variable_selection_weight * var_loss + 
-                                   self.config.intervention_value_weight * value_loss)
+                    raw_combined_loss = (self.config.variable_selection_weight * var_loss + 
+                                        self.config.intervention_value_weight * value_loss)
+                    
+                    # Store raw values for diagnostic logging (will be aggregated outside JAX)
+                    raw_var_loss = var_loss
+                    raw_value_loss = value_loss
                     
                     # Check for invalid loss values
                     def validate_loss(loss, loss_name):
+                        # Use a small epsilon instead of 0 to maintain gradient flow
+                        # This prevents gradient collapse when losses become invalid
                         return jnp.where(
                             jnp.isnan(loss) | jnp.isinf(loss),
-                            jnp.array(0.0),  # Replace NaN/Inf with 0
+                            jnp.array(1e-6),  # Small epsilon to maintain gradients
                             loss
                         )
                     
                     var_loss = validate_loss(var_loss, "var_loss")
                     value_loss = validate_loss(value_loss, "value_loss")
-                    combined_loss = validate_loss(combined_loss, "combined_loss")
+                    combined_loss = validate_loss(raw_combined_loss, "combined_loss")
                     
-                    # Clip total loss to reasonable range
-                    combined_loss = jnp.clip(combined_loss, 0.0, 10.0)
+                    # Diagnostic: compute softmax probabilities for entropy
+                    probs = jax.nn.softmax(variable_logits)
+                    max_prob = jnp.max(probs)
+                    entropy = -jnp.sum(probs * jnp.log(probs + 1e-8))
                     
+                    # Use softer clipping to avoid gradient issues
+                    # Updated: Use larger scale factor to maintain gradients at typical loss values
+                    # Analysis showed that at loss=22, gradient with scale=10 is only 0.048
+                    # With scale=50, gradient is 0.829, allowing learning to continue
+                    clipped_loss = 50.0 * jnp.tanh(combined_loss / 50.0)
                     
-                    return combined_loss
+                    # Return a tuple with loss and diagnostics
+                    # The diagnostics will be aggregated and logged outside JAX
+                    diagnostics = {
+                        'raw_var_loss': raw_var_loss,
+                        'raw_value_loss': raw_value_loss, 
+                        'raw_combined_loss': raw_combined_loss,
+                        'clipped_loss': clipped_loss,
+                        'max_prob': max_prob,
+                        'entropy': entropy,
+                        'expert_var_idx': expert_var_idx,
+                        'n_vars': n_vars
+                    }
+                    
+                    return combined_loss, diagnostics
                 
                 # Use vmap to vectorize over batch
                 keys = random.split(key, batch_size)
-                losses = jax.vmap(compute_single_loss)(jnp.arange(batch_size), keys)
+                # Now returns (losses, diagnostics)
+                results = jax.vmap(compute_single_loss)(jnp.arange(batch_size), keys)
+                losses, batch_diagnostics = results
                 
-                return jnp.mean(losses)
+                # Aggregate diagnostics for logging
+                mean_diagnostics = jax.tree.map(lambda x: jnp.mean(x), batch_diagnostics)
+                
+                return jnp.mean(losses), mean_diagnostics
             
-            loss_value, grads = jax.value_and_grad(loss_fn)(params)
+            # Use has_aux=True to handle the diagnostics tuple
+            (loss_value, diagnostics), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
             
             # Monitor gradients for debugging
             grad_norms = jax.tree.map(lambda x: jnp.linalg.norm(x), grads)
@@ -282,12 +316,13 @@ class BCAcquisitionTrainer:
             updates, new_opt_state = self.optimizer.update(grads, opt_state, params)
             new_params = optax.apply_updates(params, updates)
             
-            return new_params, new_opt_state, loss_value, total_grad_norm
+            return new_params, new_opt_state, loss_value, total_grad_norm, diagnostics
         
         @jax.jit
         def predict_step(params, state_dict, key):
             """Compiled prediction step."""
             # Use actual policy network for predictions
+            # Haiku transformed functions: apply(params, rng, *args)
             policy_output = policy_network.apply(params, key, state_dict, False)
             
             # Extract logits and sample action - use dynamic dimensions
@@ -602,7 +637,7 @@ class BCAcquisitionTrainer:
         total_loss = 0.0
         total_batches = len(batch_indices)
         
-        for batch_idx in batch_indices:
+        for batch_num, batch_idx in enumerate(batch_indices):
             batch_steps = [trajectory_steps[i] for i in batch_idx]
             
             # Extract states and actions
@@ -701,12 +736,16 @@ class BCAcquisitionTrainer:
                 variables = []
                 if hasattr(first_state, 'posterior') and hasattr(first_state.posterior, 'variable_order'):
                     variables = list(first_state.posterior.variable_order)
-                    logger.info(f"Using posterior variable_order: {variables}")
+                    # Reduce logging frequency - only log on first batch
+                    if batch_num == 0:
+                        logger.info(f"Using posterior variable_order: {variables[:5]}...")  # Show only first 5
                 elif hasattr(first_state, 'metadata') and 'scm_info' in first_state.metadata:
                     # Get variables from metadata.scm_info
                     scm_info = first_state.metadata['scm_info']
                     variables = list(scm_info.get('variables', [])) if isinstance(scm_info, dict) else []
-                    logger.info(f"Using metadata scm_info variables: {variables}")
+                    # Reduce logging frequency - only log on first batch
+                    if batch_num == 0:
+                        logger.info(f"Using metadata scm_info variables: {variables[:5]}...")  # Show only first 5
                 else:
                     logger.warning("No variable information found in state - this will cause mapping failures!")
                 
@@ -716,7 +755,9 @@ class BCAcquisitionTrainer:
                 
                 # Create variable to index mapping
                 var_to_idx = {var: idx for idx, var in enumerate(variables)}
-                logger.info(f"Created variable mapping: {var_to_idx}")
+                # Only log variable mapping on first batch to reduce spam
+                if batch_idx == batch_indices[0]:
+                    logger.debug(f"Created variable mapping for {len(var_to_idx)} variables")
                 
                 for action in batch_actions:
                     if isinstance(action, dict):
@@ -730,9 +771,11 @@ class BCAcquisitionTrainer:
                                 raise ValueError(f"Expert variable '{var_name}' not in variable list {variables}")
                             var_idx = var_to_idx[var_name]
                             value = intervention_vals[0] if intervention_vals else 0.0
-                            logger.debug(f"Mapped expert action: {var_name} -> {var_idx}, value={value}")
+                            # Remove per-action logging to reduce memory usage
+                            pass  # logger.debug(f"Mapped expert action: {var_name} -> {var_idx}, value={value}")
                         else:
-                            logger.warning(f"No intervention vars ({intervention_vars}) or empty variables list")
+                            # Reduce warning spam - only log once per epoch
+                            pass  # logger.warning removed to reduce memory usage
                             var_idx = 0
                             value = 0.0
                         
@@ -768,7 +811,7 @@ class BCAcquisitionTrainer:
                 # logger.info(f"Action distribution: {action_counts}")
                 
                 # Use JAX train step to update parameters
-                updated_params, updated_opt_state, loss_value, grad_norm = self.jax_train_step(
+                updated_params, updated_opt_state, loss_value, grad_norm, diagnostics = self.jax_train_step(
                     state.policy_params,
                     state.optimizer_state,
                     batch_tensor_dict,  # or appropriate state representation
@@ -779,6 +822,26 @@ class BCAcquisitionTrainer:
                 # Monitor loss and gradients for debugging
                 loss_float = float(loss_value)
                 grad_norm_float = float(grad_norm)
+                
+                # Extract and log diagnostics (only on first batch and every 10th batch to avoid spam)
+                if batch_num == 0 or batch_num % 10 == 0:
+                    diag = {k: float(v) for k, v in diagnostics.items()}
+                    logger.info(f"=== Loss Diagnostics (Batch {batch_num}) ===")
+                    logger.info(f"Raw var_loss: {diag['raw_var_loss']:.4f}")
+                    logger.info(f"Raw value_loss: {diag['raw_value_loss']:.4f}") 
+                    logger.info(f"Raw combined_loss: {diag['raw_combined_loss']:.4f}")
+                    logger.info(f"Clipped loss: {diag['clipped_loss']:.4f}")
+                    logger.info(f"Max probability: {diag['max_prob']:.4f}")
+                    logger.info(f"Entropy: {diag['entropy']:.4f}")
+                    logger.info(f"Gradient norm: {grad_norm_float:.6f}")
+                    
+                    # Check for loss saturation with updated threshold
+                    if diag['raw_combined_loss'] > 100.0:
+                        logger.warning(f"Very high raw loss detected: {diag['raw_combined_loss']:.2f}")
+                        logger.warning("This may reduce gradient magnitude (scale=50 threshold)")
+                    elif diag['raw_combined_loss'] > 200.0:
+                        logger.error(f"Extremely high raw loss: {diag['raw_combined_loss']:.2f}")
+                        logger.error("This will cause gradient vanishing even with scale=50")
                 
                 if jnp.isnan(loss_value) or jnp.isinf(loss_value):
                     logger.error(f"NaN/Inf loss detected: {loss_float}")
@@ -795,9 +858,17 @@ class BCAcquisitionTrainer:
                     logger.warning(f"Action indices: {batch_actions_tensor[:5, 0]}")  # First 5 for debugging
                     logger.warning(f"Expected n_vars: {n_vars_expected}")
                 elif loss_float > 100:  # High but potentially recoverable
-                    logger.info(f"High loss: {loss_float}, grad_norm: {grad_norm_float} - may indicate training issues")
+                    # Only log every 10th batch to reduce spam
+                    if batch_num % 10 == 0:
+                        logger.info(f"High loss: {loss_float:.2f}, grad_norm: {grad_norm_float:.4f}")
                 else:
-                    logger.debug(f"Normal loss: {loss_float}, grad_norm: {grad_norm_float}")
+                    # Log gradient health for first batch only
+                    if batch_num == 0:  # First batch of epoch
+                        logger.debug(f"Gradient health - norm: {grad_norm_float:.4f}, loss: {loss_float:.4f}")
+                        
+                        # Simple gradient vanishing check based on norm
+                        if grad_norm_float < 1e-8 and loss_float > 0.01:
+                            logger.warning("Potential gradient vanishing detected - check loss computation")
                 
                 # Update state with new parameters
                 state = replace(
@@ -858,16 +929,20 @@ class BCAcquisitionTrainer:
                     state_arrays = self._state_to_arrays(step.state)
                     
                     # Get policy logits directly from the policy network
+                    # Need to provide RNG key for Haiku transformed functions
+                    eval_key = random.PRNGKey(0)  # Deterministic key for evaluation
                     policy_output = self._policy_network.apply(
-                        state.policy_params, state_arrays, False  # is_training=False
+                        state.policy_params, eval_key, state_arrays, False  # is_training=False
                     )
                     policy_logits = policy_output.get('variable_logits', jnp.zeros(self._num_variables or 5))
                     
                 else:
                     # Fallback for non-JAX prediction
                     state_dict = self._state_to_arrays(step.state)
+                    # Need to provide RNG key for Haiku transformed functions
+                    eval_key = random.PRNGKey(0)  # Deterministic key for evaluation
                     policy_output = self._policy_network.apply(
-                        state.policy_params, state_dict, False
+                        state.policy_params, eval_key, state_dict, False
                     )
                     policy_logits = policy_output.get('variable_logits', jnp.zeros(self._num_variables or 5))
                 
@@ -963,8 +1038,9 @@ class BCAcquisitionTrainer:
                 state_dict = self._state_to_arrays(state)
                 
                 # Use the actual policy network
+                # Haiku needs RNG key as second argument
                 policy_output = self._policy_network.apply(
-                    params, state_dict, False  # is_training=False
+                    params, random_key, state_dict, False  # is_training=False
                 )
                 
                 # Extract variable logits and value parameters
@@ -1403,6 +1479,24 @@ class BCAcquisitionTrainer:
         """
         checkpoint_name = f"{self.config.experiment_name}_epoch_{state.epoch}_level_{state.current_difficulty.value}"
         
+        # Determine model type based on policy configuration
+        use_enhanced = getattr(self.config.policy_config, 'use_enhanced_policy', True)
+        model_type = "enhanced_acquisition" if use_enhanced else "standard_acquisition"
+        
+        # Extract policy configuration
+        model_config = {
+            'hidden_dim': self.config.policy_config.hidden_dim,
+            'num_layers': self.config.policy_config.num_layers,
+            'num_heads': self.config.policy_config.num_heads,
+            'key_size': getattr(self.config.policy_config, 'key_size', 32),
+            'dropout': self.config.policy_config.dropout,
+            'use_enhanced_policy': use_enhanced
+        }
+        
+        # Add number of variables if available
+        if hasattr(self, '_num_variables') and self._num_variables is not None:
+            model_config['num_variables'] = self._num_variables
+            
         # Create checkpoint data
         checkpoint_data = {
             'config': self.config,
@@ -1410,7 +1504,9 @@ class BCAcquisitionTrainer:
             'current_difficulty': state.current_difficulty,
             'epoch': state.epoch,
             'policy_params': state.policy_params,
-            'optimizer_state': state.optimizer_state
+            'optimizer_state': state.optimizer_state,
+            'model_type': model_type,
+            'model_config': model_config
         }
         
         checkpoint_info = self.checkpoint_manager.save_checkpoint(

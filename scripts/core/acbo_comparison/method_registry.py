@@ -445,7 +445,7 @@ class MethodRegistry:
     
     def _wrap_bc_surrogate_random(self, scm: pyr.PMap, config, run_idx: int, scm_idx: int) -> Dict[str, Any]:
         """Wrapper for BC trained surrogate with random policy."""
-        from src.causal_bayes_opt.training.utils.model_loading import load_checkpoint_model, wrap_for_acbo
+        from src.causal_bayes_opt.training.bc_model_loader import load_bc_model, validate_checkpoint
         from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
         from examples.demo_learning import DemoConfig
         
@@ -455,8 +455,13 @@ class MethodRegistry:
             if not surrogate_checkpoint:
                 raise ValueError("BC surrogate method requires surrogate_checkpoint_path")
             
-            loaded_surrogate = load_checkpoint_model(surrogate_checkpoint, 'surrogate')
-            bc_surrogate = wrap_for_acbo(loaded_surrogate)
+            # Validate and load surrogate
+            validation = validate_checkpoint(surrogate_checkpoint)
+            if not validation['valid']:
+                raise ValueError(f"Invalid checkpoint: {validation.get('error', 'Unknown error')}")
+            
+            # Load returns tuple for surrogate: (init_fn, apply_fn, encoder_init, encoder_apply, params)
+            bc_surrogate = load_bc_model(surrogate_checkpoint, 'surrogate')
             
             # Create config with BC surrogate
             acbo_config = self._create_acbo_config(config, run_idx, scm_idx)
@@ -474,7 +479,7 @@ class MethodRegistry:
     
     def _wrap_bc_acquisition_learning(self, scm: pyr.PMap, config, run_idx: int, scm_idx: int) -> Dict[str, Any]:
         """Wrapper for BC trained acquisition with learning surrogate."""
-        from src.causal_bayes_opt.training.utils.model_loading import load_checkpoint_model, wrap_for_acbo
+        from src.causal_bayes_opt.training.bc_model_loader import load_bc_model, validate_checkpoint
         from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
         from examples.demo_learning import DemoConfig
         
@@ -484,8 +489,13 @@ class MethodRegistry:
             if not acquisition_checkpoint:
                 raise ValueError("BC acquisition method requires acquisition_checkpoint_path")
             
-            loaded_acquisition = load_checkpoint_model(acquisition_checkpoint, 'acquisition')
-            bc_acquisition = wrap_for_acbo(loaded_acquisition)
+            # Validate and load acquisition
+            validation = validate_checkpoint(acquisition_checkpoint)
+            if not validation['valid']:
+                raise ValueError(f"Invalid checkpoint: {validation.get('error', 'Unknown error')}")
+            
+            # Load returns callable for acquisition
+            bc_acquisition = load_bc_model(acquisition_checkpoint, 'acquisition')
             
             # Create config with BC acquisition
             acbo_config = self._create_acbo_config(config, run_idx, scm_idx)
@@ -503,7 +513,7 @@ class MethodRegistry:
     
     def _wrap_bc_trained_both(self, scm: pyr.PMap, config, run_idx: int, scm_idx: int) -> Dict[str, Any]:
         """Wrapper for both BC trained surrogate and acquisition."""
-        from src.causal_bayes_opt.training.utils.model_loading import load_checkpoint_model, wrap_for_acbo
+        from src.causal_bayes_opt.training.bc_model_loader import load_bc_model, validate_checkpoint
         from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
         from examples.demo_learning import DemoConfig
         
@@ -515,11 +525,18 @@ class MethodRegistry:
             if not surrogate_checkpoint or not acquisition_checkpoint:
                 raise ValueError("BC both method requires both surrogate_checkpoint_path and acquisition_checkpoint_path")
             
-            loaded_surrogate = load_checkpoint_model(surrogate_checkpoint, 'surrogate')
-            loaded_acquisition = load_checkpoint_model(acquisition_checkpoint, 'acquisition')
+            # Validate and load both models
+            validation = validate_checkpoint(surrogate_checkpoint)
+            if not validation['valid']:
+                raise ValueError(f"Invalid surrogate checkpoint: {validation.get('error', 'Unknown error')}")
             
-            bc_surrogate = wrap_for_acbo(loaded_surrogate)
-            bc_acquisition = wrap_for_acbo(loaded_acquisition)
+            bc_surrogate = load_bc_model(surrogate_checkpoint, 'surrogate')
+            
+            validation = validate_checkpoint(acquisition_checkpoint)
+            if not validation['valid']:
+                raise ValueError(f"Invalid acquisition checkpoint: {validation.get('error', 'Unknown error')}")
+            
+            bc_acquisition = load_bc_model(acquisition_checkpoint, 'acquisition')
             
             # Create config
             acbo_config = self._create_acbo_config(config, run_idx, scm_idx)

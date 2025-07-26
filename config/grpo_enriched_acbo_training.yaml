@@ -54,7 +54,7 @@ training:
     max_history_size: 100
     include_temporal_features: true
     standardize_values: true
-    num_channels: 10  # Enriched representation channels
+    num_channels: 5  # Simplified to 5 meaningful channels (all variable-specific)
   
   # Action space (intervention values)
   max_intervention_value: 2.0  # Match experiment range

@@ -161,10 +161,10 @@ error_handling:
   save_failure_logs: true
   detailed_error_reporting: true
 
-# Hydra configuration
+# Output configuration
+output_dir: results/acbo_comparison
+
+# Hydra configuration (minimal - just for parameter management)
 hydra:
-  run:
-    dir: outputs/4method_comparison/latest
-  sweep:
-    dir: multirun/4method_comparison/latest
-    subdir: job
+  job_logging:
+    level: INFO

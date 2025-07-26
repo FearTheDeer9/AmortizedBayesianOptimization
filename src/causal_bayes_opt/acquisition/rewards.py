@@ -139,7 +139,7 @@ def compute_verifiable_reward(
     
     # 1. Optimization reward: target variable improvement (CRITICAL for our dual-objective approach)
     opt_reward = _compute_optimization_reward(
-        state_before, outcome, target_variable
+        state_before, outcome, target_variable, config
     )
     
     # 2. Structure discovery reward: AVICI improvement (similar to CAASL but adapted for dual objectives)
@@ -193,7 +193,8 @@ def compute_verifiable_reward(
 def _compute_optimization_reward(
     state_before: AcquisitionState,
     outcome: pyr.PMap,
-    target_variable: str
+    target_variable: str,
+    config: Optional[pyr.PMap] = None
 ) -> float:
     """
     Continuous SCM-objective reward that doesn't rely on relative improvement.
@@ -243,7 +244,7 @@ def _compute_optimization_reward(
         
         # Fallback to improved relative reward (better than original)
         relative_reward = _compute_improved_relative_reward(
-            state_before, target_value, target_variable
+            state_before, target_value, target_variable, config
         )
         
         logger.debug(
@@ -339,64 +340,95 @@ def _compute_scm_objective_reward(
 def _compute_improved_relative_reward(
     state_before: AcquisitionState,
     target_value: float,
-    target_variable: str
+    target_variable: str,
+    config: Optional[pyr.PMap] = None
 ) -> float:
     """
-    Improved relative reward that's less susceptible to the "optimal avoidance" problem.
+    Improved relative reward that compares against expected/mean value baseline.
     
-    Instead of just comparing to the best value seen so far, this reward:
-    1. Normalizes by the observed value range to provide context
-    2. Uses a more gradual scaling function
-    3. Provides positive rewards for near-optimal values
+    This reward:
+    1. Uses expected value (mean) as baseline instead of range center
+    2. Normalizes by the observed value range to provide context
+    3. Rewards proportional to outcome improvement (not intervention magnitude)
+    4. Prevents "nudging" by using stable baseline
     
     Args:
         state_before: State before intervention
         target_value: Observed target value
         target_variable: Target variable name
+        config: Optional configuration with optimization_direction
         
     Returns:
         Reward in [0, 1] range
     """
     try:
-        # Get current best and value range information
-        best_value = state_before.best_value
+        # Extract optimization direction from config
+        optimization_direction = 'MAXIMIZE'  # Default
+        if config:
+            optimization_direction = config.get('optimization_direction', 'MAXIMIZE')
         
-        # Estimate value range from experience buffer if available
+        # Use expected value baseline if configured
+        use_expected_baseline = config.get('use_expected_value_baseline', True) if config else True
+        
+        # Estimate expected value and range from experience buffer
+        expected_value = state_before.best_value  # Fallback
+        value_range = 2.0  # Default range
+        
         if hasattr(state_before, 'buffer') and state_before.buffer:
-            # Extract target values from buffer to estimate range
+            # Extract target values from buffer to compute statistics
             buffer_values = []
-            for sample in state_before.buffer.samples[-20:]:  # Use recent samples
+            for sample in state_before.buffer.samples[-50:]:  # Use more samples for stable estimate
                 sample_values = get_values(sample)
                 if target_variable in sample_values:
                     buffer_values.append(float(sample_values[target_variable]))
             
             if len(buffer_values) > 1:
+                # Compute expected value (mean) as baseline
+                expected_value = float(jnp.mean(jnp.array(buffer_values)))
                 value_range = max(buffer_values) - min(buffer_values)
-                range_center = (max(buffer_values) + min(buffer_values)) / 2
+                
+                # If range is too small, use standard deviation based range
+                if value_range < 0.1:
+                    std_dev = float(jnp.std(jnp.array(buffer_values)))
+                    value_range = max(4 * std_dev, 0.5)  # At least 4 std devs or 0.5
             else:
-                value_range = 2.0  # Default range
-                range_center = best_value
-        else:
-            value_range = 2.0  # Default range
-            range_center = best_value
+                # Not enough data, use current best as expected value
+                expected_value = state_before.best_value
+        
+        # Use expected value or best value as baseline based on configuration
+        baseline_value = expected_value if use_expected_baseline else state_before.best_value
         
         # Avoid division by zero
         if value_range == 0:
             value_range = 1.0
         
-        # Compute normalized position within range
-        # Higher values are better (assumes maximization)
-        normalized_position = (target_value - range_center) / value_range
+        # Compute reward based on improvement from baseline
+        if optimization_direction == 'MINIMIZE':
+            # For minimization: reward = how much we decreased from baseline
+            improvement = baseline_value - target_value
+        else:
+            # For maximization: reward = how much we increased from baseline
+            improvement = target_value - baseline_value
         
-        # Use sigmoid to convert to [0, 1] range with smooth scaling
-        # This gives positive rewards for values above center, even if not improving best
-        reward = float(1.0 / (1.0 + jnp.exp(-2.0 * normalized_position)))
+        # Normalize improvement by value range
+        normalized_improvement = improvement / value_range
+        
+        # Convert to [0, 1] range using sigmoid
+        # Center at 0 improvement, positive improvement gives reward > 0.5
+        reward = float(1.0 / (1.0 + jnp.exp(-4.0 * normalized_improvement)))
+        
+        # Log details for debugging
+        logger.debug(
+            f"Relative reward: target={target_value:.3f}, baseline={baseline_value:.3f}, "
+            f"improvement={improvement:.3f}, normalized={normalized_improvement:.3f}, "
+            f"reward={reward:.3f}, direction={optimization_direction}"
+        )
         
         return reward
         
     except Exception as e:
         logger.debug(f"Error in improved relative reward: {e}")
-        # Ultimate fallback: simple positive reward for any finite value
+        # Ultimate fallback: neutral reward
         return 0.5
 
 
@@ -686,7 +718,8 @@ def create_default_reward_config(
     optimization_weight: float = 1.0,
     structure_weight: float = 0.5,
     parent_weight: float = 0.3,
-    exploration_weight: float = 0.1
+    exploration_weight: float = 0.1,
+    optimization_direction: str = 'MAXIMIZE'
 ) -> pyr.PMap:
     """
     Create a default reward configuration.
@@ -696,6 +729,7 @@ def create_default_reward_config(
         structure_weight: Weight for structure discovery  
         parent_weight: Weight for parent intervention guidance
         exploration_weight: Weight for exploration bonus
+        optimization_direction: Direction of optimization ('MINIMIZE' or 'MAXIMIZE')
         
     Returns:
         Validated reward configuration
@@ -713,7 +747,8 @@ def create_default_reward_config(
             'parent': parent_weight,
             'exploration': exploration_weight
         },
-        'exploration_weight': exploration_weight
+        'exploration_weight': exploration_weight,
+        'optimization_direction': optimization_direction
     })
     
     if not validate_reward_config(config):

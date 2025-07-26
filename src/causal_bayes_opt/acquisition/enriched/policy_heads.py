@@ -33,7 +33,8 @@ class SimplifiedPolicyHeads(hk.Module):
         self.hidden_dim = hidden_dim
         self.intermediate_dim = intermediate_dim or hidden_dim // 2
         self.dropout = dropout
-        self.w_init = hk.initializers.VarianceScaling(2.0, "fan_in", "uniform")
+        # Use smaller initialization to prevent early saturation and maintain gradient flow
+        self.w_init = hk.initializers.VarianceScaling(0.5, "fan_in", "uniform")
     
     def __call__(self,
                  variable_embeddings: jnp.ndarray,  # [n_vars, hidden_dim] or [batch_size, n_vars, hidden_dim]
@@ -128,9 +129,9 @@ class SimplifiedPolicyHeads(hk.Module):
         x = jax.nn.relu(x)
         x = hk.dropout(hk.next_rng_key(), dropout_rate, x)
         
-        # Output layer - use smaller initialization for better training dynamics
-        small_init = hk.initializers.VarianceScaling(0.01, "fan_in", "normal")  # Much smaller init
-        variable_logits = hk.Linear(1, w_init=small_init, name="var_select_output")(x).squeeze(-1)
+        # Output layer - use standard initialization to avoid vanishing gradients
+        # Using standard variance scaling (1.0) instead of very small (0.01) to maintain gradient flow
+        variable_logits = hk.Linear(1, w_init=self.w_init, name="var_select_output")(x).squeeze(-1)
         
         # Mask target variable (cannot intervene on target)
         if is_batched:
@@ -175,9 +176,9 @@ class SimplifiedPolicyHeads(hk.Module):
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name="val_select_norm2")(x)
         x = jax.nn.relu(x)
         
-        # Output layer for mean and log_std - use smaller initialization for better training dynamics
-        small_init = hk.initializers.VarianceScaling(0.01, "fan_in", "normal")  # Much smaller init
-        value_params = hk.Linear(2, w_init=small_init, name="val_select_output")(x)
+        # Output layer for mean and log_std - use standard initialization to avoid vanishing gradients
+        # Using standard variance scaling (2.0) instead of very small (0.01) to maintain gradient flow
+        value_params = hk.Linear(2, w_init=self.w_init, name="val_select_output")(x)
         
         # Split into means and log_stds and apply constraints
         if len(value_params.shape) == 2:
@@ -227,9 +228,9 @@ class SimplifiedPolicyHeads(hk.Module):
         x = hk.Linear(self.intermediate_dim // 2, w_init=self.w_init, name="state_val_linear2")(x)
         x = jax.nn.relu(x)
         
-        # Output layer - use smaller initialization for better training dynamics
-        small_init = hk.initializers.VarianceScaling(0.01, "fan_in", "normal")  # Much smaller init
-        state_value = hk.Linear(1, w_init=small_init, name="state_val_output")(x).squeeze(-1)
+        # Output layer - use standard initialization to avoid vanishing gradients
+        # Using standard variance scaling (2.0) instead of very small (0.01) to maintain gradient flow
+        state_value = hk.Linear(1, w_init=self.w_init, name="state_val_output")(x).squeeze(-1)
         
         return state_value
 

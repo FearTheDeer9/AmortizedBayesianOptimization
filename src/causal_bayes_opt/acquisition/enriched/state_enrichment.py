@@ -28,18 +28,13 @@ class EnrichedHistoryBuilder:
     # Fixed maximum history size for consistent transformer input shape
     MAX_HISTORY_SIZE = 100
     
-    # Channel definitions for enriched input
+    # Channel definitions for enriched input - reduced to 5 meaningful channels
     CHANNEL_DEFINITIONS = {
-        0: "variable_values",           # Standardized variable values
-        1: "intervention_indicators",   # 1 if intervened, 0 otherwise  
-        2: "target_indicators",         # 1 if target variable, 0 otherwise
-        3: "marginal_parent_probs",     # Parent probability evolution
-        4: "uncertainty_bits",          # Uncertainty evolution over time
-        5: "mechanism_confidence",      # Mechanism confidence trajectory
-        6: "predicted_effects",         # Predicted effect magnitudes
-        7: "mechanism_type_encoding",   # Mechanism type encoding
-        8: "best_value_progression",    # Best value found so far
-        9: "steps_since_improvement",   # Stagnation indicator
+        0: "variable_values",           # Standardized variable values (variable-specific)
+        1: "intervention_indicators",   # 1 if intervened, 0 otherwise (variable-specific)
+        2: "target_indicators",         # 1 if target variable, 0 otherwise (variable-specific)
+        3: "marginal_parent_probs",     # Parent probability for each variable (variable-specific)
+        4: "intervention_recency",      # Steps since last intervention on each variable (variable-specific)
     }
     
     def __init__(self, 
@@ -177,7 +172,7 @@ class EnrichedHistoryBuilder:
                              variable_order: List[str], 
                              state) -> jnp.ndarray:
         """
-        Build context history (channels 3-9).
+        Build context history (channels 3-4).
         
         Args:
             all_samples: List of samples from buffer
@@ -185,54 +180,63 @@ class EnrichedHistoryBuilder:
             state: AcquisitionState with context information
             
         Returns:
-            Context history [MAX_HISTORY_SIZE, n_vars, 7]
+            Context history [MAX_HISTORY_SIZE, n_vars, 2]
         """
         n_vars = len(variable_order)
         history_length = min(len(all_samples), self.max_history_size)
         
-        # Initialize context history tensor
-        context_history = jnp.zeros((self.max_history_size, n_vars, 7))
+        # Initialize context history tensor (only 2 channels now: 3 and 4)
+        context_history = jnp.zeros((self.max_history_size, n_vars, 2))
         
         # Get static context information
         marginal_probs = self._get_marginal_probabilities(variable_order, state)
-        mechanism_insights = state.get_mechanism_insights() if hasattr(state, 'get_mechanism_insights') else {}
-        optimization_progress = state.get_optimization_progress() if hasattr(state, 'get_optimization_progress') else {}
         
         # Process temporal evolution
         for t in range(history_length):
             history_idx = self.max_history_size - history_length + t
             
-            # Channel 3: Marginal parent probabilities (static for now)
+            # Channel 3: Marginal parent probabilities (variable-specific)
             context_history = context_history.at[history_idx, :, 0].set(marginal_probs)
             
-            # Channel 4: Uncertainty bits evolution
-            uncertainty_bits = self._compute_uncertainty_at_step(t, all_samples, state)
-            uncertainty_vector = jnp.full((n_vars,), uncertainty_bits)
-            context_history = context_history.at[history_idx, :, 1].set(uncertainty_vector)
-            
-            # Channel 5: Mechanism confidence trajectory
-            mechanism_confidence = self._get_mechanism_confidence_vector(variable_order, state)
-            context_history = context_history.at[history_idx, :, 2].set(mechanism_confidence)
-            
-            # Channel 6: Predicted effect magnitudes
-            predicted_effects = self._get_predicted_effects_vector(variable_order, mechanism_insights)
-            context_history = context_history.at[history_idx, :, 3].set(predicted_effects)
-            
-            # Channel 7: Mechanism type encoding
-            mechanism_types = self._get_mechanism_type_vector(variable_order, mechanism_insights)
-            context_history = context_history.at[history_idx, :, 4].set(mechanism_types)
-            
-            # Channel 8: Best value progression
-            best_value = self._compute_best_value_at_step(t, all_samples, state)
-            best_value_vector = jnp.full((n_vars,), best_value)
-            context_history = context_history.at[history_idx, :, 5].set(best_value_vector)
-            
-            # Channel 9: Steps since improvement
-            steps_since_improvement = self._compute_stagnation_at_step(t, all_samples, state)
-            stagnation_vector = jnp.full((n_vars,), steps_since_improvement)
-            context_history = context_history.at[history_idx, :, 6].set(stagnation_vector)
+            # Channel 4: Intervention recency (variable-specific)
+            # Count steps since last intervention for each variable
+            intervention_recency = self._compute_intervention_recency(t, all_samples, variable_order)
+            context_history = context_history.at[history_idx, :, 1].set(intervention_recency)
         
         return context_history
+    
+    def _compute_intervention_recency(self, current_step: int, all_samples: List[Any], variable_order: List[str]) -> jnp.ndarray:
+        """
+        Compute steps since last intervention for each variable.
+        
+        Args:
+            current_step: Current step in history
+            all_samples: All samples in buffer
+            variable_order: Ordered list of variable names
+            
+        Returns:
+            Array of intervention recency for each variable [n_vars]
+        """
+        n_vars = len(variable_order)
+        recency = jnp.full(n_vars, float(current_step + 1))  # Default to current_step + 1 if never intervened
+        
+        # Look backwards from current step to find last intervention for each variable
+        for step in range(current_step, -1, -1):
+            if step < len(all_samples):
+                sample = all_samples[step]
+                intervention_targets = sample.get('intervention_targets', set()) if hasattr(sample, 'get') else set()
+                
+                for i, var_name in enumerate(variable_order):
+                    if var_name in intervention_targets and recency[i] == current_step + 1:
+                        # Found most recent intervention for this variable
+                        recency = recency.at[i].set(float(current_step - step))
+        
+        # Normalize to [0, 1] range for better network processing
+        max_recency = float(current_step + 1)
+        if max_recency > 0:
+            recency = recency / max_recency
+        
+        return recency
     
     def _extract_variable_values(self, sample: Any, variable_order: List[str]) -> jnp.ndarray:
         """Extract variable values from sample."""
@@ -405,7 +409,8 @@ class EnrichedHistoryBuilder:
     
     def get_channel_info(self) -> Dict[int, str]:
         """Get information about enriched input channels."""
-        return self.CHANNEL_DEFINITIONS.copy()
+        # Return only the channels we actually use
+        return {k: v for k, v in self.CHANNEL_DEFINITIONS.items() if k < self.num_channels}
     
     def validate_enriched_history(self, enriched_history: jnp.ndarray) -> bool:
         """
@@ -547,7 +552,9 @@ def validate_enriched_state_integration() -> bool:
         )
         
         # Validate tensor shape
-        expected_shape = (20, 2, 10)  # [max_history_size, n_vars, num_channels]
+        builder = EnrichedHistoryBuilder()
+        expected_channels = builder.num_channels  # Use actual configured channels
+        expected_shape = (20, 2, expected_channels)  # [max_history_size, n_vars, num_channels]
         if enriched_tensor.shape != expected_shape:
             logger.error(f"Unexpected tensor shape: {enriched_tensor.shape}, expected: {expected_shape}")
             return False

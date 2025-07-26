@@ -34,6 +34,11 @@ training:
     num_channels: 10
     standardize_values: true
     include_temporal_features: true
+  
+  # Real observation configuration
+  use_real_observations: true  # Use real intervention outcomes instead of synthetic bootstrap features
+  synthetic_features:
+    enabled: false  # DEPRECATED: Use bootstrap surrogate features (kept for backwards compatibility)
 
 # Experiment configuration
 experiment:

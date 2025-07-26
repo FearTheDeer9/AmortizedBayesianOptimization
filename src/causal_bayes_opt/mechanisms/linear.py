@@ -21,6 +21,7 @@ from ..data_structures.scm import (
     get_variables, get_mechanisms, validate_mechanisms
 )
 from ..data_structures.sample import create_sample
+from .serializable_mechanisms import LinearMechanism, RootMechanism
 
 # Type aliases
 MechanismFunction = Callable[[Dict[str, float], jax.Array], float]
@@ -258,7 +259,7 @@ def create_linear_mechanism(
     # Handle root variables (no parents)
     if not parents:
         logger.debug(f"Creating root mechanism with mean={intercept}, noise_scale={noise_scale}")
-        mechanism = _create_root_mechanism_impl(intercept, noise_scale)
+        mechanism = RootMechanism(intercept, noise_scale)
         
         if _return_descriptor:
             from .descriptors import RootMechanismDescriptor
@@ -272,7 +273,7 @@ def create_linear_mechanism(
     
     # Create linear mechanism
     logger.debug(f"Creating linear mechanism with {len(parents)} parents, intercept={intercept}")
-    mechanism = _create_linear_mechanism_impl(coefficients, intercept, noise_scale)
+    mechanism = LinearMechanism(coefficients, intercept, noise_scale)
     
     if _return_descriptor:
         from .descriptors import LinearMechanismDescriptor
@@ -317,7 +318,7 @@ def create_root_mechanism(
     if not isinstance(mean, (int, float)) or not jnp.isfinite(mean):
         raise ValueError(f"Mean must be a finite number, got: {mean}")
     
-    mechanism = _create_root_mechanism_impl(mean, noise_scale)
+    mechanism = RootMechanism(mean, noise_scale)
     
     if _return_descriptor:
         from .descriptors import RootMechanismDescriptor

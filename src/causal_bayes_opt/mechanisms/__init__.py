@@ -12,9 +12,15 @@ from .linear import (
     create_root_mechanism,
     sample_from_linear_scm
 )
+from .serializable_mechanisms import (
+    LinearMechanism,
+    RootMechanism
+)
 
 __all__ = [
     'create_linear_mechanism',
     'create_root_mechanism', 
-    'sample_from_linear_scm'
+    'sample_from_linear_scm',
+    'LinearMechanism',
+    'RootMechanism'
 ]

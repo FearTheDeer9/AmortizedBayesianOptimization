@@ -15,6 +15,7 @@ Key features:
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Tuple, List
 import warnings
+import time
 import jax
 import jax.numpy as jnp
 import pyrsistent as pyr
@@ -427,9 +428,13 @@ class TensorBackedAcquisitionState(JAXAcquisitionState):
         
         return BufferStatistics(
             total_samples=n_samples,
-            intervention_samples=max(0, n_samples - 1),  # Assume first is observational
-            observational_samples=min(1, n_samples),
-            variable_coverage=set(self.variable_names) - {self.current_target}
+            num_interventions=max(0, n_samples - 1),  # Assume first is observational
+            num_observations=min(1, n_samples),
+            unique_variables=len(self.variable_names),
+            unique_intervention_types=1,  # Assume perfect interventions
+            unique_intervention_targets=len(self.variable_names) - 1,  # All except target
+            creation_time=time.time(),
+            last_update_time=time.time()
         )
     
     @property

@@ -1,0 +1,89 @@
+{
+  "method_metrics": {
+    "Random_Baseline": {
+      "n_runs": 27,
+      "n_successful": 27,
+      "success_rate": 1.0,
+      "mean_final_value": -0.16444641173196337,
+      "std_final_value": 0.9617718961015341,
+      "mean_improvement": -0.1905419230547354,
+      "std_improvement": 0.9922271722577592,
+      "mean_steps": 21.0,
+      "mean_time": 1.540811370920252
+    },
+    "Oracle_Baseline": {
+      "n_runs": 27,
+      "n_successful": 27,
+      "success_rate": 1.0,
+      "mean_final_value": -2.1338645860345826,
+      "std_final_value": 1.0584276793271417,
+      "mean_improvement": -2.159960097357355,
+      "std_improvement": 1.074032608722659,
+      "mean_steps": 21.0,
+      "mean_time": 8.169993118003562
+    },
+    "Learning_Baseline": {
+      "n_runs": 27,
+      "n_successful": 27,
+      "success_rate": 1.0,
+      "mean_final_value": -0.0796104221932452,
+      "std_final_value": 0.5749908496829245,
+      "mean_improvement": -0.061215499338383474,
+      "std_improvement": 0.5848630372197922,
+      "mean_steps": 21.0,
+      "mean_time": 34.666291899151275
+    },
+    "BC_Surrogate_Random": {
+      "n_runs": 27,
+      "n_successful": 0,
+      "success_rate": 0.0,
+      "mean_final_value": 0.0,
+      "std_final_value": 0.0,
+      "mean_improvement": 0.0,
+      "std_improvement": 0.0,
+      "mean_steps": 0.0,
+      "mean_time": 0.0
+    },
+    "BC_Acquisition_Learning": {
+      "n_runs": 27,
+      "n_successful": 0,
+      "success_rate": 0.0,
+      "mean_final_value": 0.0,
+      "std_final_value": 0.0,
+      "mean_improvement": 0.0,
+      "std_improvement": 0.0,
+      "mean_steps": 0.0,
+      "mean_time": 0.0
+    },
+    "BC_Both": {
+      "n_runs": 27,
+      "n_successful": 0,
+      "success_rate": 0.0,
+      "mean_final_value": 0.0,
+      "std_final_value": 0.0,
+      "mean_improvement": 0.0,
+      "std_improvement": 0.0,
+      "mean_steps": 0.0,
+      "mean_time": 0.0
+    }
+  },
+  "scm_metadata": {
+    "n_scms": 9,
+    "n_runs_per_scm": 3,
+    "scm_details": []
+  },
+  "config": {
+    "experiment": {
+      "target": {
+        "n_observational_samples": 100,
+        "max_interventions": 20,
+        "intervention_value_range": [
+          -2.0,
+          2.0
+        ],
+        "optimization_direction": "MINIMIZE"
+      }
+    }
+  },
+  "timestamp": "2025-07-25T15:33:49.084680"
+}

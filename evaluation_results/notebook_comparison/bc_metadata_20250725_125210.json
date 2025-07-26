@@ -1,0 +1,17 @@
+{
+  "notebook": "bc_development_workflow.ipynb",
+  "timestamp": "20250725_125210",
+  "methods_evaluated": [
+    "Random_Baseline",
+    "Oracle_Baseline",
+    "Learning_Baseline",
+    "BC_Surrogate_Random",
+    "BC_Acquisition_Learning",
+    "BC_Both"
+  ],
+  "n_scms": 9,
+  "n_runs_per_scm": 3,
+  "results_file": "bc_unified_results_20250725_125210.pkl",
+  "summary_file": "bc_unified_summary_20250725_125210.csv",
+  "config_file": "bc_unified_config_20250725_125210.pkl"
+}

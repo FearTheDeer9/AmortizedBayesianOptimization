@@ -92,10 +92,10 @@ performance:
   cache_scms: true  # Cache generated SCMs for reproducibility
   profile_performance: false
 
-# Hydra configuration
+# Output configuration
+output_dir: results/acbo_comparison
+
+# Hydra configuration (minimal - just for parameter management)
 hydra:
-  run:
-    dir: outputs/3method_comparison/${now:%Y-%m-%d}/${now:%H-%M-%S}
-  sweep:
-    dir: multirun/3method_comparison/${now:%Y-%m-%d}/${now:%H-%M-%S}
-    subdir: ${hydra:job.num}
+  job_logging:
+    level: INFO

@@ -25,7 +25,7 @@ class TrainingModeConfig:
     group_size: int = 64
     interventions_per_state: int = 8
     clip_ratio: float = 0.2
-    entropy_coeff: float = 0.01
+    entropy_coeff: float = 0.1  # Increased to prevent posterior collapse
 
 
 # Standard training mode configurations

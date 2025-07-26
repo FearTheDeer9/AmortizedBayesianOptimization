@@ -32,7 +32,7 @@ import jax.numpy as jnp
 import jax.random as random
 from omegaconf import DictConfig
 
-from src.causal_bayes_opt.training.utils.model_loading import load_checkpoint_model
+from src.causal_bayes_opt.training.bc_model_loader import load_bc_model, validate_checkpoint
 from examples.complete_workflow_demo import run_progressive_learning_demo_with_scm
 from examples.demo_learning import DemoConfig
 from .method_registry import ExperimentMethod
@@ -152,10 +152,14 @@ def create_bc_surrogate_random_method(surrogate_checkpoint_path: str) -> Experim
         try:
             # Load BC trained surrogate
             logger.info(f"Loading BC surrogate from {surrogate_checkpoint_path}")
-            loaded_surrogate = load_checkpoint_model(surrogate_checkpoint_path, 'surrogate')
             
-            if not loaded_surrogate.success:
-                raise ValueError(f"Failed to load surrogate: {loaded_surrogate.error_message}")
+            # Validate checkpoint first
+            validation = validate_checkpoint(surrogate_checkpoint_path)
+            if not validation['valid']:
+                raise ValueError(f"Invalid checkpoint: {validation.get('error', 'Unknown error')}")
+            
+            # Load the model - returns tuple for surrogate
+            loaded_surrogate = load_bc_model(surrogate_checkpoint_path, 'surrogate')
             
             # Create ACBO config
             acbo_config = DemoConfig(
@@ -181,11 +185,14 @@ def create_bc_surrogate_random_method(surrogate_checkpoint_path: str) -> Experim
                 # BC inference function expects 3 args, ignore current_params
                 return bc_surrogate_fn(avici_data, variables, target)
             
+            # loaded_surrogate is already a tuple: (init_fn, apply_fn, encoder_init, encoder_apply, params)
+            init_fn, apply_fn, encoder_init, encoder_apply, params = loaded_surrogate
+            
             # Create surrogate components matching expected format
             bc_surrogate_tuple = (
                 bc_surrogate_wrapper,  # surrogate function with correct signature
                 None,  # net (not needed for frozen model)
-                loaded_surrogate.model_params,  # params
+                params,  # params from loaded model
                 None,  # opt_state (no optimization)
                 lambda p, o, post, samples, vars, tgt: (p, o, (0.0, 0.0, 0.0, 0.0))  # no-op update
             )
@@ -246,10 +253,14 @@ def create_bc_acquisition_learning_method(acquisition_checkpoint_path: str) -> E
         try:
             # Load BC trained acquisition
             logger.info(f"Loading BC acquisition from {acquisition_checkpoint_path}")
-            loaded_acquisition = load_checkpoint_model(acquisition_checkpoint_path, 'acquisition')
             
-            if not loaded_acquisition.success:
-                raise ValueError(f"Failed to load acquisition: {loaded_acquisition.error_message}")
+            # Validate checkpoint first
+            validation = validate_checkpoint(acquisition_checkpoint_path)
+            if not validation['valid']:
+                raise ValueError(f"Invalid checkpoint: {validation.get('error', 'Unknown error')}")
+            
+            # Load the model - returns callable for acquisition
+            loaded_acquisition = load_bc_model(acquisition_checkpoint_path, 'acquisition')
             
             # Create ACBO config
             acbo_config = DemoConfig(
@@ -351,16 +362,24 @@ def create_bc_trained_both_method(
         try:
             # Load both BC models
             logger.info(f"Loading BC surrogate from {surrogate_checkpoint_path}")
-            loaded_surrogate = load_checkpoint_model(surrogate_checkpoint_path, 'surrogate')
             
-            if not loaded_surrogate.success:
-                raise ValueError(f"Failed to load surrogate: {loaded_surrogate.error_message}")
+            # Validate surrogate checkpoint
+            validation = validate_checkpoint(surrogate_checkpoint_path)
+            if not validation['valid']:
+                raise ValueError(f"Invalid surrogate checkpoint: {validation.get('error', 'Unknown error')}")
+            
+            # Load surrogate - returns tuple
+            loaded_surrogate = load_bc_model(surrogate_checkpoint_path, 'surrogate')
             
             logger.info(f"Loading BC acquisition from {acquisition_checkpoint_path}")
-            loaded_acquisition = load_checkpoint_model(acquisition_checkpoint_path, 'acquisition')
             
-            if not loaded_acquisition.success:
-                raise ValueError(f"Failed to load acquisition: {loaded_acquisition.error_message}")
+            # Validate acquisition checkpoint
+            validation = validate_checkpoint(acquisition_checkpoint_path)
+            if not validation['valid']:
+                raise ValueError(f"Invalid acquisition checkpoint: {validation.get('error', 'Unknown error')}")
+            
+            # Load acquisition - returns callable
+            loaded_acquisition = load_bc_model(acquisition_checkpoint_path, 'acquisition')
             
             # Create ACBO config
             acbo_config = DemoConfig(
@@ -389,11 +408,14 @@ def create_bc_trained_both_method(
                 # BC inference function expects 3 args, ignore current_params
                 return bc_surrogate_fn(avici_data, variables, target)
             
+            # loaded_surrogate is a tuple: (init_fn, apply_fn, encoder_init, encoder_apply, params)
+            init_fn, apply_fn, encoder_init, encoder_apply, params = loaded_surrogate
+            
             # Create surrogate components
             bc_surrogate_tuple = (
                 bc_surrogate_wrapper,
                 None,
-                loaded_surrogate.model_params,
+                params,  # params from loaded model
                 None,
                 lambda p, o, post, samples, vars, tgt: (p, o, (0.0, 0.0, 0.0, 0.0))
             )

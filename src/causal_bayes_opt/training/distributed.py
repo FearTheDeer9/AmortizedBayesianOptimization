@@ -553,14 +553,14 @@ def _create_data_parallel_setup(
     # Utility functions for data parallelism
     def replicate_params(params):
         """Replicate parameters across devices."""
-        return jax.tree_map(
+        return jax.tree.map(
             lambda x: jnp.broadcast_to(x, (len(config.devices),) + x.shape),
             params
         )
     
     def unreplicate_params(replicated_params):
         """Get parameters from first device."""
-        return jax.tree_map(lambda x: x[0], replicated_params)
+        return jax.tree.map(lambda x: x[0], replicated_params)
     
     def shard_batch(batch, device_count: int):
         """Shard batch across devices."""
@@ -569,7 +569,7 @@ def _create_data_parallel_setup(
             per_device_batch_size = batch_size // device_count
             return arr.reshape((device_count, per_device_batch_size) + arr.shape[1:])
         
-        return jax.tree_map(shard_array, batch)
+        return jax.tree.map(shard_array, batch)
     
     return {
         'mesh': mesh,

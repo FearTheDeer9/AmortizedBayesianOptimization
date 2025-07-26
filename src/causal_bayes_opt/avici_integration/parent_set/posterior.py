@@ -102,7 +102,8 @@ def create_parent_set_posterior(
     
     # Compute uncertainty (entropy in nats)
     # H = -sum(p * log(p)) where log is natural logarithm
-    uncertainty = float(-jnp.sum(probabilities * jnp.log(probabilities + 1e-12)))
+    # Clamp to ensure non-negative due to numerical precision
+    uncertainty = float(jnp.maximum(0.0, -jnp.sum(probabilities * jnp.log(probabilities + 1e-12))))
     
     # Create top-k list (sorted by probability, descending)
     sorted_indices = jnp.argsort(probabilities)[::-1]  # Descending order

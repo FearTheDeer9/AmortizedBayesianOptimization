@@ -103,7 +103,8 @@ def create_parent_set_posterior(
     # Compute uncertainty (entropy in nats)
     # H = -sum(p * log(p)) where log is natural logarithm
     # Clamp to ensure non-negative due to numerical precision
-    uncertainty = float(jnp.maximum(0.0, -jnp.sum(probabilities * jnp.log(probabilities + 1e-12))))
+    raw_uncertainty = -jnp.sum(probabilities * jnp.log(probabilities + 1e-12))
+    uncertainty = float(jnp.maximum(0.0, raw_uncertainty))
     
     # Create top-k list (sorted by probability, descending)
     sorted_indices = jnp.argsort(probabilities)[::-1]  # Descending order
@@ -428,7 +429,8 @@ def _validate_posterior_consistency(posterior: ParentSetPosterior) -> None:
             )
     
     # Check uncertainty bounds (should be non-negative and bounded by log(n))
-    if posterior.uncertainty < 0:
+    # Allow small negative values due to numerical precision
+    if posterior.uncertainty < -1e-10:
         raise ValueError(f"Uncertainty cannot be negative: {posterior.uncertainty}")
     
     max_entropy = jnp.log(len(posterior.parent_set_probs))

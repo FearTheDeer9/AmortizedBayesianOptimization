@@ -274,28 +274,28 @@ def create_bc_acquisition_inference_fn(
         Returns:
             Intervention decision dict
         """
-        # Create state tensor matching checkpoint expectations
-        # Get feature dimension from checkpoint config if available
-        feature_dim = model_config.get('feature_dim', 10)  # Default to 10 as per training
-        state_tensor = jnp.zeros((n_vars, feature_dim))
+        # Create enriched state tensor with 5 channels
+        num_channels = 5
+        state_tensor = jnp.zeros((n_vars, num_channels))
         
-        # Add features to match training
-        # Feature 0: Variable index (normalized)
-        state_tensor = state_tensor.at[:, 0].set(jnp.arange(n_vars) / n_vars)
-        # Feature 1: Is target (binary)
-        state_tensor = state_tensor.at[target_idx, 1].set(1.0)
-        # Feature 2: Posterior uncertainty (simulated)
-        state_tensor = state_tensor.at[:, 2].set(0.5)
-        # Feature 3: Parent probability (simulated)
-        state_tensor = state_tensor.at[:, 3].set(0.3)
-        # Feature 4: Historical performance (simulated)
-        state_tensor = state_tensor.at[:, 4].set(0.0)
-        # Features 5-9: Additional context features
+        # Channel 0: Variable values (simulated)
         noise_key, value_key = random.split(key)
-        state_tensor = state_tensor.at[:, 5:].set(random.normal(noise_key, (n_vars, 5)) * 0.1)
+        state_tensor = state_tensor.at[:, 0].set(random.normal(noise_key, (n_vars,)) * 0.5)
+        
+        # Channel 1: Intervention indicators (all zeros for initial state)
+        state_tensor = state_tensor.at[:, 1].set(0.0)
+        
+        # Channel 2: Target indicators
+        state_tensor = state_tensor.at[target_idx, 2].set(1.0)
+        
+        # Channel 3: Marginal parent probabilities (simulated)
+        state_tensor = state_tensor.at[:, 3].set(0.3)
+        
+        # Channel 4: Intervention recency (all zeros for initial state)
+        state_tensor = state_tensor.at[:, 4].set(0.0)
         
         # Apply policy with random key
-        policy_output = policy.apply(policy_params, key, state_tensor)
+        policy_output = policy.apply(policy_params, value_key, state_tensor)
         
         # Extract intervention decision
         variable_logits = policy_output['variable_logits']  # [n_vars]
@@ -317,10 +317,10 @@ def create_bc_acquisition_inference_fn(
         # Clip to reasonable range
         value = jnp.clip(value, -2.0, 2.0)
         
-        # Return in format expected by bc_runner
+        # Return in format expected by full_acquisition_fn
         return {
-            'variable': selected_var,
-            'value': float(value)
+            'intervention_variables': frozenset([selected_var]),
+            'intervention_values': (float(value),)
         }
     
     return acquisition_inference_fn
@@ -356,35 +356,42 @@ def create_full_bc_acquisition_fn(
     n_vars = len(variables)
     target_idx = variables.index(target_variable)
     
+    # Extract actual config from checkpoint
+    model_config = checkpoint_data.get('model_config', {})
+    
     # Create policy network
     def policy_fn(state_dict: Dict[str, jnp.ndarray]) -> Dict[str, jnp.ndarray]:
         """Apply policy to state dictionary."""
         # Extract state tensor from dict
-        state_tensor = state_dict['state_tensor']  # [n_vars, feature_dim]
+        state_tensor = state_dict['state_tensor']  # [n_vars, num_channels]
+        history_tensor = state_dict.get('history_tensor', None)  # [T, n_vars, num_channels]
         
+        # Use the exact same configuration as training
         policy = EnhancedPolicyNetwork(
-            hidden_dim=128,
-            num_layers=2,
-            num_heads=4,
-            key_size=32,
-            num_variables=n_vars,
+            hidden_dim=model_config.get('hidden_dim', 128),
+            num_layers=model_config.get('num_layers', 4),
+            num_heads=model_config.get('num_heads', 8),
+            key_size=model_config.get('key_size', 32),
+            num_variables=model_config.get('num_variables', n_vars),
             intervention_dim=64,
-            dropout=0.0,
+            dropout=0.0,  # No dropout for inference
             name="EnhancedPolicyNetwork"
         )
         
-        # Extract other features if available
-        history = state_dict.get('intervention_history', None)
+        # The EnhancedPolicyNetwork will concatenate state_tensor with history_tensor
+        # so they must have the same number of channels
+        # Since history_tensor has 5 channels, state_tensor must also have 5 channels
         
+        # Use the enriched state directly since it already has 5 channels
         return policy(
-            state_tensor=state_tensor,
+            state_tensor=state_tensor,  # This has shape [n_vars, 5]
             target_variable_idx=target_idx,
-            history_tensor=history,
+            history_tensor=history_tensor,  # This has shape [T, n_vars, 5]
             is_training=False
         )
     
-    # Transform for JAX
-    policy = hk.without_apply_rng(hk.transform(policy_fn))
+    # Transform for JAX - keep RNG for dropout
+    policy = hk.transform(policy_fn)
     
     def full_acquisition_fn(
         acquisition_state: AcquisitionState,
@@ -400,15 +407,35 @@ def create_full_bc_acquisition_fn(
         Returns:
             Intervention decision
         """
-        # Convert acquisition state to tensors
-        state_dict = convert_acquisition_state_to_tensors(
-            acquisition_state,
-            target_variable_idx=target_idx,
-            max_history_length=10
+        # Use enriched history builder directly
+        from ..acquisition.enriched.state_enrichment import EnrichedHistoryBuilder
+        
+        # Create enriched history builder
+        history_builder = EnrichedHistoryBuilder(
+            standardize_values=True,
+            include_temporal_features=True,
+            max_history_size=100,
+            support_variable_scms=True,
+            num_channels=5  # Use 5 enriched channels
         )
         
-        # Apply policy
-        policy_output = policy.apply(policy_params, state_dict)
+        # Build enriched history from acquisition state
+        enriched_history, variable_mask = history_builder.build_enriched_history(acquisition_state)
+        
+        # Extract current state (last timestep)
+        enriched_state = enriched_history[-1]  # [n_vars, 5]
+        
+        # Use last 3 timesteps for history (to match training)
+        history_tensor = enriched_history[-3:]  # [3, n_vars, 5]
+        
+        state_dict = {
+            'state_tensor': enriched_state,  # [n_vars, 5]
+            'target_variable_idx': target_idx,
+            'history_tensor': history_tensor  # [3, n_vars, 5]
+        }
+        
+        # Apply policy with random key
+        policy_output = policy.apply(policy_params, key, state_dict)
         
         # Extract decision
         variable_logits = policy_output['variable_logits']

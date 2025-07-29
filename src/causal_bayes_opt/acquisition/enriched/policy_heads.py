@@ -254,6 +254,7 @@ class EnrichedAcquisitionPolicyNetwork(hk.Module):
                  dropout: float = 0.1,
                  # Policy head parameters
                  policy_intermediate_dim: Optional[int] = None,
+                 use_role_based_projection: bool = True,
                  name: str = "EnrichedAcquisitionPolicyNetwork"):
         super().__init__(name=name)
         self.num_layers = num_layers
@@ -263,6 +264,7 @@ class EnrichedAcquisitionPolicyNetwork(hk.Module):
         self.widening_factor = widening_factor
         self.dropout = dropout
         self.policy_intermediate_dim = policy_intermediate_dim or hidden_dim // 2
+        self.use_role_based_projection = use_role_based_projection
     
     def __call__(self,
                  enriched_history: jnp.ndarray,  # [max_history_size, n_vars, num_channels]
@@ -289,10 +291,21 @@ class EnrichedAcquisitionPolicyNetwork(hk.Module):
             hidden_dim=self.hidden_dim,
             key_size=self.key_size,
             widening_factor=self.widening_factor,
-            dropout=self.dropout
+            dropout=self.dropout,
+            use_role_based_projection=self.use_role_based_projection
         )
         
-        variable_embeddings = encoder(enriched_history, is_training)  # [n_vars, hidden_dim]
+        # Create target mask from target variable index
+        n_vars = enriched_history.shape[1]
+        target_mask = jnp.array([1.0 if i == target_variable_idx else 0.0 for i in range(n_vars)])
+        
+        # Create intervention mask from enriched history (channel 1 contains intervention indicators)
+        intervention_indicators = enriched_history[:, :, 1]  # [T, n_vars]
+        intervention_mask = jnp.any(intervention_indicators > 0, axis=0).astype(jnp.float32)  # [n_vars]
+        
+        variable_embeddings = encoder(
+            enriched_history, is_training, target_mask, intervention_mask
+        )  # [n_vars, hidden_dim]
         
         # Apply simplified policy heads
         policy_heads = SimplifiedPolicyHeads(

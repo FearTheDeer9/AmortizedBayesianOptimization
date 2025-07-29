@@ -957,8 +957,11 @@ def collect_grpo_batch_same_state(
     
     # Create enriched input tensor with correct variable count
     num_vars = len(variables)
-    # Note: This is a temporary dummy tensor for policy initialization - should use actual max_history_size
-    enriched_input = jnp.zeros((100, num_vars, 5))  # [time, actual_vars, channels] - 5-channel system
+    # Create dummy enriched input for policy forward pass
+    # TODO: Use actual enriched history from base_state when available
+    max_history_size = 100  # Default history size - should match state_config
+    num_channels = 5  # Default channel count - should match state_config
+    enriched_input = jnp.zeros((max_history_size, num_vars, num_channels))
     
     # Generate random key for policy network
     policy_key, key = jax.random.split(key)

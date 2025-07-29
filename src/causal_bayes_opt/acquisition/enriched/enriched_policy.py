@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import haiku as hk
 from typing import Optional
 import logging
+from .role_based_projection import RoleBasedProjection
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class EnrichedAttentionEncoder(hk.Module):
                  key_size: int = 32,
                  widening_factor: int = 4,
                  dropout: float = 0.1,
+                 use_role_based_projection: bool = True,  # Changed back to True to match saved checkpoints
                  name: str = "EnrichedAttentionEncoder"):
         super().__init__(name=name)
         self.num_layers = num_layers
@@ -44,11 +46,14 @@ class EnrichedAttentionEncoder(hk.Module):
         self.key_size = key_size
         self.widening_factor = widening_factor
         self.dropout = dropout
+        self.use_role_based_projection = use_role_based_projection
         self.w_init = hk.initializers.VarianceScaling(2.0, "fan_in", "uniform")
     
     def __call__(self, 
                  enriched_history: jnp.ndarray,  # [max_history_size, n_vars, num_channels]
-                 is_training: bool = True        # Training mode flag
+                 is_training: bool = True,       # Training mode flag
+                 target_mask: Optional[jnp.ndarray] = None,  # [n_vars] binary mask for target
+                 intervention_mask: Optional[jnp.ndarray] = None  # [n_vars] binary mask for interventions
                  ) -> jnp.ndarray:               # [n_vars, hidden_dim]
         """
         Process enriched history through transformer attention.
@@ -56,6 +61,8 @@ class EnrichedAttentionEncoder(hk.Module):
         Args:
             enriched_history: Multi-channel temporal input [T, n_vars, C]
             is_training: Whether model is in training mode
+            target_mask: Optional binary mask indicating target variable
+            intervention_mask: Optional binary mask indicating intervention variables
             
         Returns:
             Variable embeddings [n_vars, hidden_dim]
@@ -64,7 +71,12 @@ class EnrichedAttentionEncoder(hk.Module):
         dropout_rate = self.dropout if is_training else 0.0
         
         # Project enriched input to hidden dimension
-        x = self._project_enriched_input(enriched_history)  # [T, n_vars, hidden_dim]
+        if self.use_role_based_projection:
+            x = self._project_enriched_input_with_roles(
+                enriched_history, target_mask, intervention_mask
+            )  # [T, n_vars, hidden_dim]
+        else:
+            x = self._project_enriched_input(enriched_history)  # [T, n_vars, hidden_dim]
         
         # Add positional encoding for temporal information
         x = self._add_positional_encoding(x)  # [T, n_vars, hidden_dim]
@@ -108,6 +120,36 @@ class EnrichedAttentionEncoder(hk.Module):
         
         # Reshape back to temporal structure
         x = combined.reshape(T, n_vars, self.hidden_dim)
+        
+        # Apply layer normalization
+        x = layer_norm(axis=-1, name="input_layer_norm")(x)
+        
+        return x
+    
+    def _project_enriched_input_with_roles(self, 
+                                          enriched_history: jnp.ndarray,
+                                          target_mask: Optional[jnp.ndarray] = None,
+                                          intervention_mask: Optional[jnp.ndarray] = None) -> jnp.ndarray:
+        """
+        Project multi-channel input to hidden dimension using role-based projections.
+        
+        Args:
+            enriched_history: Input [T, n_vars, num_channels]
+            target_mask: Optional binary mask for target variable [n_vars]
+            intervention_mask: Optional binary mask for intervention variables [n_vars]
+            
+        Returns:
+            Projected input [T, n_vars, hidden_dim]
+        """
+        T, n_vars, num_channels = enriched_history.shape
+        
+        # Use role-based projection
+        role_projection = RoleBasedProjection(
+            hidden_dim=self.hidden_dim,
+            w_init=self.w_init
+        )
+        
+        x = role_projection(enriched_history, target_mask, intervention_mask)
         
         # Apply layer normalization
         x = layer_norm(axis=-1, name="input_layer_norm")(x)
@@ -247,6 +289,7 @@ class EnrichedAttentionEncoder(hk.Module):
             q_in = layer_norm(axis=-1, name=f"variable_attn_{layer_idx}_q_norm")(timestep_vars)
             k_in = layer_norm(axis=-1, name=f"variable_attn_{layer_idx}_k_norm")(timestep_vars)
             v_in = layer_norm(axis=-1, name=f"variable_attn_{layer_idx}_v_norm")(timestep_vars)
+            
             
             attn_out = hk.MultiHeadAttention(
                 num_heads=self.num_heads,

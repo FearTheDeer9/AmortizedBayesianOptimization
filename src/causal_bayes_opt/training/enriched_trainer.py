@@ -20,6 +20,7 @@ from .modular_trainer import (
     TrainingMetrics, PolicyFactory, SCMRotationManager, 
     StateConverter, CheckpointManager, MetricsCollector
 )
+from .convergence_detector import ConvergenceDetector, ConvergenceConfig
 # Use correct GRPO implementation (group-relative, policy-only)
 from ..acquisition.grpo import (
     GRPOConfig, GRPOUpdate, create_grpo_trainer, collect_grpo_batch,
@@ -106,12 +107,27 @@ class EnrichedGRPOTrainer:
         
         # Initialize modular components
         self.scm_manager = SCMRotationManager(config)
-        self.state_converter = StateConverter(config, self.scm_manager.max_variables)
+        self.state_converter = StateConverter(config)
         self.checkpoint_manager = CheckpointManager(config)
         self.metrics_collector = MetricsCollector()
         
+        # Initialize convergence detection if enabled
+        if config.training.get('early_stopping_enabled', False):
+            convergence_config = ConvergenceConfig(
+                structure_accuracy_threshold=config.training.get(
+                    'convergence_accuracy_threshold', 0.95
+                ),
+                patience=config.training.get('convergence_patience', 10),
+                min_episodes=config.training.get('min_episodes_per_scm', 20),
+                max_episodes_per_scm=config.training.get('max_episodes_per_scm', 100)
+            )
+            self.convergence_detector = ConvergenceDetector(convergence_config)
+            logger.info("Early stopping enabled with convergence detection")
+        else:
+            self.convergence_detector = None
+        
         # Create policy
-        policy_factory = PolicyFactory(config, self.scm_manager.max_variables)
+        policy_factory = PolicyFactory(config)
         self.policy_fn, self.policy_config = policy_factory.create_policy()
         
         # Initialize policy parameters with proper key threading
@@ -205,7 +221,11 @@ class EnrichedGRPOTrainer:
         # For same-state batching, we update every episode (no accumulation across episodes)
         self.update_frequency = 1  # Update every episode with same-state batching
         
-        logger.info(f"Initialized trainer with {self.scm_manager.max_variables} max variables")
+        # Get max variables from config or SCMs
+        max_vars = 10  # default
+        if hasattr(self.config.experiment.scm_generation, 'variable_range'):
+            max_vars = self.config.experiment.scm_generation.variable_range[1]
+        logger.info(f"Initialized trainer with up to {max_vars} variables")
         logger.info(f"GRPO group size: {self.grpo_config.group_size}, update frequency: {self.update_frequency} episodes")
         
         # Enable structure learning metrics tracking
@@ -223,7 +243,13 @@ class EnrichedGRPOTrainer:
         max_history_size = self.config.training.state_config.get('max_history_size', 100)
         num_channels = self.config.training.state_config.get('num_channels', 5)
         
-        return jnp.zeros((max_history_size, self.scm_manager.max_variables, num_channels))
+        # Use a reasonable default for max variables during initialization
+        # The actual size will be determined dynamically based on the SCM
+        max_variables = 10  # Default max for initialization
+        if hasattr(self.config.experiment.scm_generation, 'variable_range'):
+            max_variables = self.config.experiment.scm_generation.variable_range[1]
+        
+        return jnp.zeros((max_history_size, max_variables, num_channels))
     
     def _create_policy_wrapper(self) -> Any:
         """Create policy wrapper for policy-only GRPO compatibility.
@@ -301,6 +327,39 @@ class EnrichedGRPOTrainer:
                 # Update metrics collector (immutable)
                 self.metrics_collector = self.metrics_collector.add_metrics(metrics)
                 
+                # Increment episode count for current SCM (only once per episode)
+                self.scm_manager.increment_episode_count()
+                
+                # Update convergence detector if enabled
+                if self.convergence_detector:
+                    scm_name, _ = self.scm_manager.get_current_scm(episode)
+                    self.convergence_detector.update(scm_name, metrics)
+                    
+                    # Check convergence
+                    converged, reason = self.convergence_detector.check_convergence(scm_name)
+                    
+                    # Check if we should rotate to next SCM
+                    if self.scm_manager.should_rotate(converged):
+                        scm_info = self.scm_manager.get_current_scm_info()
+                        logger.info(
+                            f"Episode {episode}: Rotating from {scm_info['scm_name']} "
+                            f"(trained for {scm_info['episodes_on_current']} episodes). "
+                            f"Reason: {reason}"
+                        )
+                        
+                        # Log convergence summary if available
+                        if self.convergence_detector:
+                            summary = self.convergence_detector.get_scm_summary(scm_name)
+                            logger.info(
+                                f"SCM summary - Best accuracy: {summary['best_structure_accuracy']:.3f}, "
+                                f"Episodes: {summary['episodes_trained']}"
+                            )
+                        
+                        # Advance to next SCM
+                        if not self.scm_manager.advance_to_next_scm():
+                            # We've completed all SCMs in rotation
+                            logger.info("Completed full SCM rotation")
+                
                 # Log to dashboard if enabled
                 if self.metrics_logger:
                     self.metrics_logger.log_episode_metrics(episode, metrics)
@@ -367,6 +426,20 @@ class EnrichedGRPOTrainer:
             result['metrics_summary'] = self.metrics_logger.get_training_summary()
             if metrics_file:
                 result['metrics_export'] = str(metrics_file)
+        
+        # Add convergence summary if available
+        if self.convergence_detector:
+            convergence_summary = self.convergence_detector.get_training_summary()
+            result['convergence_summary'] = convergence_summary
+            
+            # Log key insights
+            logger.info(
+                f"Convergence summary: {convergence_summary['converged_scms']}/{convergence_summary['total_scms']} SCMs converged"
+            )
+            logger.info(
+                f"Training distribution: {convergence_summary['discovery_ratio']:.1%} discovery, "
+                f"{1 - convergence_summary['discovery_ratio']:.1%} exploitation"
+            )
         
         return result
     

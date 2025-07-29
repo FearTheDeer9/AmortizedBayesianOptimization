@@ -373,7 +373,8 @@ class GRPOTrainingManager:
             state_tensor, _ = create_enriched_history_tensor(
                 state=state,
                 max_history_size=max_history,
-                include_temporal_features=include_temporal_features
+                include_temporal_features=include_temporal_features,
+                standardize_values=True  # Use global standardization to prevent collapse
             )
             
             return state_tensor

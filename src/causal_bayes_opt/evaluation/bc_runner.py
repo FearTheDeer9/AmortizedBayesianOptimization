@@ -19,8 +19,13 @@ from ..data_structures.scm import (
 from ..mechanisms.linear import sample_from_linear_scm
 from ..training.bc_model_inference import (
     create_bc_surrogate_inference_fn,
-    create_bc_acquisition_inference_fn
+    create_full_bc_acquisition_fn
 )
+from ..acquisition.state import AcquisitionState
+from ..acquisition import update_state_with_intervention
+from ..avici_integration.parent_set.posterior import create_parent_set_posterior
+from ..interventions.registry import apply_intervention
+from ..interventions.handlers import create_perfect_intervention
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +93,11 @@ def run_bc_experiment(
     
     if acquisition_checkpoint:
         logger.info(f"Creating BC acquisition inference function from {acquisition_checkpoint}")
-        bc_acquisition_fn = create_bc_acquisition_inference_fn(
+        bc_acquisition_fn = create_full_bc_acquisition_fn(
             checkpoint_path=acquisition_checkpoint,
             variables=variables,
-            target_variable=target
+            target_variable=target,
+            value_range=config.intervention_value_range
         )
     
     # Sample observational data
@@ -126,6 +132,59 @@ def run_bc_experiment(
     # Track data for evaluation (simplified approach)
     all_samples = [obs_array]  # Start with observational data
     
+    # Create initial acquisition state if using BC acquisition
+    acquisition_state = None
+    if bc_acquisition_fn is not None:
+        # Create initial posterior with uniform distribution
+        parent_sets = [frozenset()]  # Empty parent set
+        for var in variables:
+            if var != target:
+                parent_sets.append(frozenset([var]))
+        
+        n_sets = len(parent_sets)
+        probabilities = jnp.ones(n_sets) / n_sets
+        
+        initial_posterior = create_parent_set_posterior(
+            target_variable=target,
+            parent_sets=parent_sets,
+            probabilities=probabilities
+        )
+        
+        # Create acquisition state
+        from ..acquisition.trajectory import TrajectoryBuffer
+        from ..data_structures.buffer import create_empty_buffer
+        
+        # TrajectoryBuffer needs an ExperienceBuffer
+        experience_buffer = create_empty_buffer()
+        
+        # Add observational samples to buffer so target variable is known
+        from ..data_structures.sample import create_sample
+        for i in range(min(10, len(observational_data))):
+            obs_sample = observational_data[i]
+            # Convert dict to Sample
+            sample = create_sample(
+                values={var: float(obs_sample.get(var, 0.0)) for var in variables}
+            )
+            experience_buffer.add_observation(sample)
+        
+        buffer = TrajectoryBuffer(experience_buffer=experience_buffer)
+        
+        import pyrsistent as pyr
+        acquisition_state = AcquisitionState(
+            posterior=initial_posterior,
+            buffer=buffer,
+            best_value=initial_value,
+            current_target=target,
+            step=0,
+            metadata=pyr.m(
+                scm_info=pyr.m(
+                    variables=variables,
+                    target=target,
+                    n_variables=len(variables)
+                )
+            )
+        )
+    
     # Run intervention steps
     current_best = initial_value
     
@@ -133,11 +192,36 @@ def run_bc_experiment(
         key, step_key = random.split(key)
         
         # Select intervention
-        if bc_acquisition_fn is not None:
-            # Use BC acquisition
-            intervention_result = bc_acquisition_fn(step_key)
-            selected_var = intervention_result.get('variable')
-            selected_val = intervention_result.get('value', 0.0)
+        if bc_acquisition_fn is not None and acquisition_state is not None:
+            # Use BC acquisition with state
+            intervention_result = bc_acquisition_fn(acquisition_state, step_key)
+            
+            # Handle different return formats
+            if 'variable' in intervention_result:
+                # Simple format
+                selected_var = intervention_result.get('variable')
+                selected_val = intervention_result.get('value', 0.0)
+            elif 'intervention_variables' in intervention_result:
+                # Full format
+                int_vars = intervention_result.get('intervention_variables', frozenset())
+                int_vals = intervention_result.get('intervention_values', ())
+                if int_vars and int_vals:
+                    selected_var = list(int_vars)[0]
+                    selected_val = float(int_vals[0])
+                else:
+                    # Fallback to random
+                    logger.warning("BC acquisition returned empty intervention")
+                    var_idx = random.randint(step_key, (), 0, len(variables))
+                    selected_var = variables[var_idx]
+                    selected_val = 0.0
+            else:
+                logger.warning(f"Unexpected BC acquisition result format: {intervention_result.keys()}")
+                var_idx = random.randint(step_key, (), 0, len(variables))
+                selected_var = variables[var_idx]
+                selected_val = 0.0
+            
+            # Ensure selected_val is a float
+            selected_val = float(selected_val)
         else:
             # Random intervention
             key, var_key, val_key = random.split(step_key, 3)
@@ -152,8 +236,6 @@ def run_bc_experiment(
         # Sample with intervention
         key, int_key = random.split(key)
         # Create intervened SCM
-        from ..interventions.registry import apply_intervention
-        from ..interventions.handlers import create_perfect_intervention
         intervention_spec = create_perfect_intervention(
             targets=frozenset([selected_var]),
             values={selected_var: selected_val}
@@ -184,9 +266,17 @@ def run_bc_experiment(
                 # Combine all collected data
                 all_data = jnp.vstack(all_samples)
                 
+                # Convert to AVICI format [N, d, 3]
+                # For now, use simple format with no intervention indicators
+                n_samples, n_vars = all_data.shape
+                avici_data = jnp.zeros((n_samples, n_vars, 3))
+                avici_data = avici_data.at[:, :, 0].set(all_data)  # Value channel
+                avici_data = avici_data.at[:, :, 1].set(1.0)  # Mask channel (all observed)
+                avici_data = avici_data.at[:, :, 2].set(0.0)  # Intervention channel (none)
+                
                 # Get predictions from BC surrogate
                 try:
-                    posterior = bc_surrogate_fn(all_data, variables, target)
+                    posterior = bc_surrogate_fn(avici_data, variables, target)
                 except Exception as e:
                     logger.error(f"BC surrogate inference failed: {e}")
                     import traceback
@@ -222,6 +312,20 @@ def run_bc_experiment(
                 marginals=marginals if marginals else None,
                 uncertainty=uncertainty
             ))
+        
+        # Update acquisition state if using BC acquisition
+        if acquisition_state is not None:
+            # For BC runner, we'll do a simple state update
+            # The real update_state_with_intervention expects different parameters
+            # so we'll create a new state directly
+            acquisition_state = AcquisitionState(
+                posterior=acquisition_state.posterior,  # Keep same posterior for simplicity
+                buffer=acquisition_state.buffer,
+                best_value=min(acquisition_state.best_value, target_value) if config.scoring_method != 'maximize' else max(acquisition_state.best_value, target_value),
+                current_target=acquisition_state.current_target,
+                step=acquisition_state.step + 1,
+                metadata=acquisition_state.metadata
+            )
         
         # Track history
         learning_history.append({

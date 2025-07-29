@@ -1,0 +1,18 @@
+{
+  "random": {
+    "final_f1": 0.0,
+    "has_marginals": false
+  },
+  "oracle": {
+    "final_f1": 0.0,
+    "has_marginals": false
+  },
+  "grpo": {
+    "final_f1": 0.0,
+    "has_marginals": false
+  },
+  "bc": {
+    "final_f1": 0.0,
+    "has_marginals": false
+  }
+}

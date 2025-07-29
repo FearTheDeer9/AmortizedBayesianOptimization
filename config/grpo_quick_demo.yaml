@@ -1,0 +1,153 @@
+# GRPO Quick Demo Configuration
+# Based on working grpo_enriched_acbo_training.yaml
+
+# Global settings
+seed: 42
+project_name: "causal_bayes_opt"
+
+# Training configuration  
+training:
+  # Quick demo settings
+  n_episodes: 50
+  episode_length: 10
+  learning_rate: 0.0005
+  gamma: 0.99
+  batch_size: 64
+  random_seed: 42
+  
+  # GRPO specific config
+  grpo_config:
+    entropy_coeff: 0.1
+    group_size: 32
+    interventions_per_state: 4
+    clip_ratio: 0.2
+  
+  # Enriched network architecture (variable-agnostic)
+  architecture:
+    type: "enriched"
+    level: "simplified" 
+    hidden_dim: 128
+    num_layers: 3
+    num_heads: 4
+    key_size: 32
+    widening_factor: 2
+    dropout: 0.1
+    policy_intermediate_dim: 64
+    activation: relu
+    use_layer_norm: true
+    
+  # State representation
+  state_config:
+    max_history_size: 100
+    include_temporal_features: true
+    standardize_values: true
+    num_channels: 5
+  
+  # Action space
+  max_intervention_value: 2.0
+  
+  # Reward weights - using same names as working config
+  reward_weights:
+    optimization: 0.8
+    structure: 0.1      # This is 'discovery' in our code
+    parent: 0.0
+    exploration: 0.1    # This is 'efficiency' in our code
+    
+  # Early stopping
+  early_stopping_enabled: true
+  convergence_accuracy_threshold: 0.95
+  convergence_patience: 5
+  min_episodes_per_scm: 5
+  max_episodes_per_scm: 30
+  reward_variance_threshold: 0.05
+  
+  # Structure metrics tracking
+  track_structure_metrics: true
+
+optimization:
+  direction: MINIMIZE
+  target_baseline: 0.0
+
+state_enrichment:
+  standardize_values: true
+  use_global_standardization: true
+  channels: ["values", "interventions", "target", "parent_probs", "recency"]
+
+architecture:
+  hidden_dim: 128
+  num_layers: 3
+  activation: relu
+  use_layer_norm: true
+  num_heads: 4
+  key_size: 32
+  widening_factor: 2
+  dropout: 0.1
+  policy_intermediate_dim: 64
+
+surrogate_integration:
+  enabled: true
+  phase_config:
+    bootstrap_steps: 100
+    transition_steps: 50
+    exploration_noise_start: 0.5
+    exploration_noise_end: 0.1
+    transition_schedule: linear
+  bootstrap_config:
+    structure_encoding_dim: 128
+    use_graph_distance: true
+    use_structural_priors: true
+    noise_schedule: exponential_decay
+    min_noise_factor: 0.1
+
+# Experiment configuration
+experiment:
+  name: "grpo_quick_demo"
+  description: "Quick demonstration of GRPO training"
+  
+  # SCM generation configuration
+  scm_generation:
+    use_variable_factory: true
+    variable_range: [3, 5]
+    structure_types: ["fork", "chain", "collider", "mixed"]
+    rotation_frequency: 50
+    target_selection: "random"
+    edge_density_range: [0.3, 0.7]
+    num_scms: 16
+    
+    # Fallback SCMs
+    fallback_scms:
+      - "fork_3var"
+      - "chain_3var" 
+      - "collider_3var"
+
+# Logging configuration
+logging:
+  level: "INFO"
+  checkpoint_dir: "checkpoints"
+  
+  # WandB configuration
+  wandb:
+    enabled: false  # Disabled for quick demo
+    project: "causal_bayes_opt_quick_demo"
+    entity: null
+    tags: ["quick_demo", "grpo"]
+    group: "demo_training"
+  
+  # Checkpoint configuration
+  checkpointing:
+    enabled: true
+    frequency: 10
+    keep_best: 3
+    metrics_to_track: ["mean_reward", "structure_accuracy", "convergence_rate"]
+
+# Performance optimization
+performance:
+  jit_compilation: true
+  batch_episodes: false
+  profile_performance: false
+
+# Validation configuration
+validation:
+  enabled: false  # Disabled for quick demo
+  frequency: 50
+  n_validation_episodes: 10

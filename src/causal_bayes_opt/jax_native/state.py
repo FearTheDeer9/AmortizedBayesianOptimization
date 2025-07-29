@@ -544,17 +544,37 @@ class TensorBackedBufferInterface:
     def get_all_samples(self) -> List[pyr.PMap]:
         """Get all samples from tensor buffer."""
         # Convert tensor buffer to sample list
-        # This is a simplified implementation - real version would reconstruct samples
-        return []  # Placeholder - would extract from sample_buffer tensor
+        buffer = self._state.sample_buffer
+        samples = []
+        
+        # Extract valid samples from the buffer
+        for i in range(buffer.n_samples):
+            if buffer.valid_mask[i]:
+                # Create sample dict
+                sample_values = {}
+                intervention_targets = set()
+                
+                # Get variable values and intervention info
+                for j, var_name in enumerate(self._state.variable_names):
+                    sample_values[var_name] = float(buffer.values[i, j])
+                    if buffer.interventions[i, j] > 0:
+                        intervention_targets.add(var_name)
+                
+                # Create sample as PMap
+                sample = pyr.m(
+                    values=sample_values,
+                    intervention_targets=intervention_targets,
+                    target_value=float(buffer.targets[i]),
+                    step=i
+                )
+                samples.append(sample)
+        
+        return samples
     
     def get_variable_coverage(self) -> List[str]:
         """Get variable coverage as list of variable names."""
-        # Return all non-target variables
-        target_idx = self._state.config.target_idx
-        return [
-            var_name for i, var_name in enumerate(self._state.variable_names)
-            if i != target_idx
-        ]
+        # Return all variables (enriched history builder handles target filtering)
+        return list(self._state.variable_names)
     
     def get_statistics(self):
         """Get buffer statistics."""

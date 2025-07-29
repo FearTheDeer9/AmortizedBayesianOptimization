@@ -114,10 +114,10 @@ class GRPOEvaluator(BaseEvaluator):
             })
             
             # Initialize state converter
-            self.state_converter = StateConverter(dummy_config, max_variables=10)
+            self.state_converter = StateConverter(dummy_config)
             
             # Create policy function using PolicyFactory
-            policy_factory = PolicyFactory(dummy_config, max_variables=10)
+            policy_factory = PolicyFactory(dummy_config)
             self.policy_fn, _ = policy_factory.create_policy()
             
             # Store surrogate integration flag
@@ -238,7 +238,7 @@ class GRPOEvaluator(BaseEvaluator):
             intervention={},  # No intervention yet
             outcome_value=initial_value,
             marginals=initial_marginals,
-            uncertainty=current_state.uncertainty,
+            uncertainty=getattr(current_state, 'uncertainty', 0.0),  # Default to 0 if not available
             reward=0.0,
             computation_time=0.0
         ))
@@ -325,7 +325,7 @@ class GRPOEvaluator(BaseEvaluator):
                 intervention=intervention_dict,
                 outcome_value=outcome_value,
                 marginals=current_marginals,
-                uncertainty=current_state.uncertainty,
+                uncertainty=getattr(current_state, 'uncertainty', 0.0),  # Default to 0 if not available
                 reward=reward,
                 computation_time=time.time() - step_start
             )

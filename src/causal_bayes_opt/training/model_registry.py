@@ -122,13 +122,16 @@ def _register_default_creators():
             history = state_dict.get('history_tensor', None)
             
             # Create network with config
+            # Extract num_variables if provided in config (for BC compatibility)
+            num_variables = config.get("num_variables", None)
+            
             network = EnhancedPolicyNetwork(
                 hidden_dim=config.get("hidden_dim", 128),
                 num_layers=config.get("num_layers", 3),
                 num_heads=config.get("num_heads", 4),
                 key_size=config.get("key_size", 32),
                 dropout=config.get("dropout", 0.1),
-                num_variables=None  # Dynamic
+                num_variables=num_variables  # Use from config if available
             )
             
             return network(state_tensor, target_idx, history, is_training)

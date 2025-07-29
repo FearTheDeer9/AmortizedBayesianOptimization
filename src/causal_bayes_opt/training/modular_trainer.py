@@ -49,9 +49,8 @@ class TrainingMetrics:
 class PolicyFactory:
     """Factory for creating enriched policy networks."""
     
-    def __init__(self, config: DictConfig, max_variables: int):
+    def __init__(self, config: DictConfig):
         self.config = config
-        self.max_variables = max_variables
         
     def create_policy(self) -> Tuple[Any, Dict[str, Any]]:
         """Create enriched policy network."""
@@ -66,7 +65,8 @@ class PolicyFactory:
                 key_size=self.config.training.architecture.key_size,
                 widening_factor=self.config.training.architecture.widening_factor,
                 dropout=self.config.training.architecture.dropout,
-                policy_intermediate_dim=self.config.training.architecture.get('policy_intermediate_dim', None)
+                policy_intermediate_dim=self.config.training.architecture.get('policy_intermediate_dim', None),
+                use_role_based_projection=self.config.training.architecture.get('use_role_based_projection', True)
             )
             
             return network(
@@ -75,9 +75,13 @@ class PolicyFactory:
                 is_training=is_training
             )
         
+        # Create architecture config with explicit use_role_based_projection
+        arch_config = dict(self.config.training.architecture)
+        if 'use_role_based_projection' not in arch_config:
+            arch_config['use_role_based_projection'] = True
+        
         policy_config = {
-            'architecture': dict(self.config.training.architecture),
-            'num_variables': self.max_variables,
+            'architecture': arch_config,
             'variable_agnostic': True,
             'enriched_architecture': True
         }
@@ -86,12 +90,16 @@ class PolicyFactory:
 
 
 class SCMRotationManager:
-    """Manages SCM rotation during training."""
+    """Manages SCM rotation during training with support for dynamic progression."""
     
     def __init__(self, config: DictConfig):
         self.config = config
         self.scm_rotation = self._create_scm_rotation()
-        self.max_variables = self._determine_max_variables()
+        self.current_scm_index = 0
+        self.episode_count_on_current_scm = 0
+        self.dynamic_progression_enabled = config.get('training', {}).get(
+            'early_stopping_enabled', False
+        )
         
     def _create_scm_rotation(self) -> List[Tuple[str, pyr.PMap]]:
         """Create SCM rotation for training."""
@@ -158,27 +166,71 @@ class SCMRotationManager:
         logger.info(f"Created {len(scms)} fallback SCMs for training")
         return scms
     
-    def _determine_max_variables(self) -> int:
-        """Determine maximum variables across all SCMs."""
-        max_vars = 0
-        for name, scm in self.scm_rotation:
-            variables = get_variables(scm)
-            max_vars = max(max_vars, len(variables))
-        return max_vars
-    
     def get_current_scm(self, episode: int) -> Tuple[str, pyr.PMap]:
-        """Get current SCM based on episode and rotation frequency."""
-        rotation_frequency = self.config.experiment.scm_generation.rotation_frequency
-        scm_idx = (episode // rotation_frequency) % len(self.scm_rotation)
-        return self.scm_rotation[scm_idx]
+        """Get current SCM based on episode and rotation strategy."""
+        if self.dynamic_progression_enabled:
+            # Use dynamic progression - return current SCM based on internal state
+            # NOTE: Episode counting is now handled by increment_episode_count()
+            return self.scm_rotation[self.current_scm_index]
+        else:
+            # Use fixed rotation frequency
+            rotation_frequency = self.config.experiment.scm_generation.rotation_frequency
+            scm_idx = (episode // rotation_frequency) % len(self.scm_rotation)
+            return self.scm_rotation[scm_idx]
+    
+    def increment_episode_count(self) -> None:
+        """Increment the episode count for the current SCM.
+        
+        This should be called once per episode, not every time get_current_scm is called.
+        """
+        if self.dynamic_progression_enabled:
+            self.episode_count_on_current_scm += 1
+    
+    def advance_to_next_scm(self) -> bool:
+        """
+        Advance to the next SCM in rotation.
+        
+        Returns:
+            True if advanced, False if at the end of rotation
+        """
+        self.episode_count_on_current_scm = 0
+        self.current_scm_index = (self.current_scm_index + 1) % len(self.scm_rotation)
+        return self.current_scm_index != 0  # False when we wrap around
+    
+    def should_rotate(self, converged: bool) -> bool:
+        """
+        Check if we should rotate to the next SCM.
+        
+        Args:
+            converged: Whether current SCM has converged
+            
+        Returns:
+            True if we should rotate
+        """
+        if not self.dynamic_progression_enabled:
+            # Fixed rotation - check episode count
+            rotation_frequency = self.config.experiment.scm_generation.rotation_frequency
+            return self.episode_count_on_current_scm >= rotation_frequency
+        else:
+            # Dynamic rotation - rotate if converged
+            return converged
+    
+    def get_current_scm_info(self) -> Dict[str, any]:
+        """Get information about current SCM training."""
+        return {
+            "scm_index": self.current_scm_index,
+            "scm_name": self.scm_rotation[self.current_scm_index][0],
+            "episodes_on_current": self.episode_count_on_current_scm,
+            "total_scms": len(self.scm_rotation),
+            "dynamic_progression": self.dynamic_progression_enabled
+        }
 
 
 class StateConverter:
     """Converts states to enriched representation."""
     
-    def __init__(self, config: DictConfig, max_variables: int):
+    def __init__(self, config: DictConfig):
         self.config = config
-        self.max_variables = max_variables
         self.history_builder = EnrichedHistoryBuilder(
             standardize_values=config.training.state_config.get('standardize_values', True),
             include_temporal_features=config.training.state_config.get('include_temporal_features', True),
@@ -221,7 +273,8 @@ class CheckpointManager:
                        policy_config: Dict[str, Any],
                        episode: int,
                        metrics: Optional[TrainingMetrics] = None,
-                       is_final: bool = False) -> Path:
+                       is_final: bool = False,
+                       surrogate_params: Optional[Any] = None) -> Path:
         """Save training checkpoint."""
         if is_final:
             checkpoint_name = f"enriched_grpo_final"
@@ -239,6 +292,11 @@ class CheckpointManager:
             'is_final': is_final,
             'enriched_architecture': True
         }
+        
+        # Include surrogate params if provided
+        if surrogate_params is not None:
+            checkpoint_data['surrogate_params'] = surrogate_params
+            logger.info("Including surrogate parameters in checkpoint")
         
         if metrics:
             checkpoint_data['metrics'] = {
@@ -258,7 +316,20 @@ class CheckpointManager:
         with open(checkpoint_file, 'wb') as f:
             pickle.dump(checkpoint_data, f)
         
+        # Save policy params separately for Phase 2 integration
+        policy_only_file = checkpoint_path / "policy_params.pkl"
+        policy_only_data = {
+            'policy_params': policy_params,
+            'policy_config': policy_config,
+            'enriched_architecture': True,
+            'episode': episode,
+            'is_final': is_final
+        }
+        with open(policy_only_file, 'wb') as f:
+            pickle.dump(policy_only_data, f)
+        
         logger.info(f"Saved checkpoint: {checkpoint_file}")
+        logger.info(f"Saved policy params: {policy_only_file}")
         return checkpoint_path
 
 

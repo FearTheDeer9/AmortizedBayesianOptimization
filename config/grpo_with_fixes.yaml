@@ -1,0 +1,147 @@
+# GRPO Training Configuration with Collapse Fixes
+# This configuration incorporates the fixes for posterior collapse identified during investigation
+
+defaults:
+  - _self_
+
+# Global settings
+seed: 42
+project_name: "causal_bayes_opt"
+
+# Experiment configuration
+experiment:
+  n_variables: 4
+  name: "grpo_with_fixes"
+  description: "GRPO training with global standardization and adaptive rewards"
+
+# GRPO algorithm configuration
+grpo:
+  # Group sampling settings
+  group_size: 64
+  interventions_per_state: 16  # Same-state batching for efficiency
+  
+  # Loss coefficients - increased entropy for exploration
+  clip_ratio: 0.2
+  entropy_coeff: 0.1  # Increased from 0.01 to prevent collapse
+  kl_penalty_coeff: 0.0
+  
+  # Optimization
+  max_grad_norm: 1.0
+  learning_rate: 0.0003
+  
+  # Sample reuse
+  num_iterations: 4
+  scale_rewards: true
+
+# Training configuration  
+training:
+  # Episodes and learning
+  n_episodes: 300
+  episode_length: 20
+  gamma: 0.99
+  
+  # Network architecture for EnrichedAttentionEncoder
+  encoder:
+    num_layers: 2
+    num_heads: 4  # Matches notebook configuration
+    hidden_dim: 128
+    dropout: 0.1
+    use_residual: true
+    use_layer_norm: true
+  
+  # Policy head configuration
+  policy_head:
+    hidden_dims: [256, 128]
+    activation: "relu"
+    dropout_rate: 0.1
+    use_batch_norm: false  # Faster without batch norm
+  
+  # State enrichment configuration
+  state_enrichment:
+    standardize_values: true
+    use_global_standardization: true  # NEW: Fix for collapse
+    channels:
+      - values
+      - interventions  
+      - target
+      - parent_probs
+      - recency
+  
+  # Bootstrap surrogate configuration
+  bootstrap:
+    enabled: true
+    bootstrap_steps: 100
+    transition_steps: 50
+    exploration_noise_start: 0.5
+    exploration_noise_end: 0.1
+    use_structural_priors: true
+    use_graph_distance: true
+    min_noise_factor: 0.05
+
+# Adaptive reward system configuration
+adaptive_rewards:
+  enabled: true
+  structure_threshold: 0.95  # When to shift focus from discovery to optimization
+  adaptation_rate: 0.1
+  initial_weights:
+    discovery: 0.7
+    optimization: 0.3
+  final_weights:
+    discovery: 0.05
+    optimization: 0.95
+  update_frequency: 10  # Update weights every N episodes
+
+# Experience management
+experience:
+  max_buffer_size: 20000
+  batch_size: 64
+  min_replay_size: 320  # 5 * batch_size
+  prioritized_replay: false
+  memory_limit_mb: 2048
+
+# Checkpointing configuration
+checkpointing:
+  enabled: true
+  checkpoint_frequency: 1000
+  keep_best_only: false
+  save_optimizer_state: true
+  checkpoint_dir: "./checkpoints/grpo_with_fixes"
+  max_checkpoints: 5
+
+# Logging configuration
+logging:
+  level: "INFO"
+  log_frequency: 100
+  log_gradients: false
+  log_weights: false
+  enable_tensorboard: true
+  tensorboard_dir: "./logs/grpo_with_fixes"
+  
+  # Collapse monitoring
+  monitor_embeddings: true
+  embedding_similarity_threshold: 0.95  # Alert if similarity exceeds this
+  
+  wandb:
+    enabled: false
+    project: "causal_bayes_opt_grpo"
+    entity: null
+    tags: ["grpo", "global_standardization", "adaptive_rewards", "bootstrap"]
+
+# Evaluation configuration
+evaluation:
+  frequency: 500  # Evaluate every N steps
+  n_eval_episodes: 10
+  metrics:
+    - mean_reward
+    - structure_accuracy
+    - optimization_performance
+    - embedding_diversity
+    - parent_prob_variance
+
+# Hydra settings
+hydra:
+  run:
+    dir: outputs/grpo_with_fixes/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/grpo_with_fixes/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra:job.num}

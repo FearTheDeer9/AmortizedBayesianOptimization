@@ -56,6 +56,7 @@ from causal_bayes_opt.data_structures import (
 from causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
 from causal_bayes_opt.environments.sampling import sample_with_intervention
 from causal_bayes_opt.avici_integration.parent_set import get_marginal_parent_probabilities
+from causal_bayes_opt.analysis.trajectory_metrics import compute_f1_score_from_marginals
 
 
 def generate_initial_data(scm: pyr.PMap, config: DemoConfig, key: jax.Array) -> Tuple[List[pyr.PMap], ExperienceBuffer]:
@@ -105,6 +106,9 @@ def run_progressive_learning_demo_with_scm(
     variables = sorted(get_variables(scm))
     target = get_target(scm)
     
+    # Get true parents based on SCM structure (needed for F1 score computation)
+    true_parents = _get_true_parents_for_scm(scm, target)
+    
     # Create or use surrogate model and random intervention policy
     key, surrogate_key = random.split(key)
     if pretrained_surrogate is not None:
@@ -120,9 +124,9 @@ def run_progressive_learning_demo_with_scm(
     
     # Create or use intervention policy
     if pretrained_acquisition is not None:
-        # Use pretrained BC acquisition policy
+        # Use pretrained acquisition policy (could be BC, GRPO, or Oracle)
         intervention_fn = pretrained_acquisition
-        print("🎯 Using pretrained BC acquisition policy")
+        print("🎯 Using pretrained acquisition policy")
     else:
         # Create random intervention policy
         intervention_fn = create_random_intervention_policy(variables, target, config.intervention_value_range)
@@ -231,6 +235,13 @@ def run_progressive_learning_demo_with_scm(
         
         # Store step info (only if we have meaningful metrics)
         if len(all_samples) >= 5:
+            # Compute F1 score from marginal probabilities
+            f1_score = compute_f1_score_from_marginals(
+                dict(updated_state.marginal_parent_probs),
+                true_parents,
+                threshold=0.5
+            )
+            
             learning_history.append({
                 'step': step + 1,
                 'intervention': intervention,
@@ -241,7 +252,8 @@ def run_progressive_learning_demo_with_scm(
                 'update_norm': update_norm,
                 'uncertainty': updated_state.uncertainty_bits,
                 'marginals': dict(updated_state.marginal_parent_probs),
-                'data_likelihood': likelihood
+                'data_likelihood': likelihood,
+                'f1_score': f1_score
             })
         else:
             # Minimal logging for early steps
@@ -255,7 +267,8 @@ def run_progressive_learning_demo_with_scm(
                 'update_norm': update_norm,
                 'uncertainty': float('inf'),
                 'marginals': {v: 0.0 for v in variables if v != target},
-                'data_likelihood': 0.0
+                'data_likelihood': 0.0,
+                'f1_score': 0.0  # No meaningful F1 score yet
             })
     
     # Final analysis
@@ -437,6 +450,13 @@ def run_progressive_learning_demo_with_custom_policy(
         
         # Store step info (only if we have meaningful metrics)
         if len(all_samples) >= 5:
+            # Compute F1 score from marginal probabilities
+            f1_score = compute_f1_score_from_marginals(
+                marginal_prob_progress[-1],
+                true_parents,
+                threshold=0.5
+            )
+            
             learning_history.append({
                 'step': step + 1,
                 'intervention': intervention,
@@ -447,7 +467,8 @@ def run_progressive_learning_demo_with_custom_policy(
                 'update_norm': update_norm,
                 'uncertainty': uncertainty_progress[-1],
                 'marginals': marginal_prob_progress[-1],
-                'data_likelihood': data_likelihood_progress[-1]
+                'data_likelihood': data_likelihood_progress[-1],
+                'f1_score': f1_score
             })
         else:
             # Minimal logging for early steps
@@ -461,7 +482,8 @@ def run_progressive_learning_demo_with_custom_policy(
                 'update_norm': update_norm,
                 'uncertainty': float('inf'),
                 'marginals': {v: 0.0 for v in variables if v != target},
-                'data_likelihood': 0.0
+                'data_likelihood': 0.0,
+                'f1_score': 0.0  # No meaningful F1 score yet
             })
     
     # Final analysis (identical to regular demo)
@@ -671,7 +693,8 @@ def run_progressive_learning_demo_with_oracle_interventions(scm: pyr.PMap, confi
                 'update_norm': update_norm,
                 'uncertainty': float('inf'),
                 'marginals': {v: 0.0 for v in variables if v != target},
-                'data_likelihood': 0.0
+                'data_likelihood': 0.0,
+                'f1_score': 0.0  # No meaningful F1 score yet
             })
     
     # Final analysis (identical to regular demo)
@@ -850,6 +873,13 @@ def run_structure_guided_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfi
         
         # Store step info (only if we have meaningful metrics)
         if len(all_samples) >= 5:
+            # Compute F1 score from marginal probabilities
+            f1_score = compute_f1_score_from_marginals(
+                marginal_prob_progress[-1],
+                true_parents,
+                threshold=0.5
+            )
+            
             learning_history.append({
                 'step': step + 1,
                 'intervention': intervention,
@@ -860,7 +890,8 @@ def run_structure_guided_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfi
                 'update_norm': update_norm,
                 'uncertainty': uncertainty_progress[-1],
                 'marginals': marginal_prob_progress[-1],
-                'data_likelihood': data_likelihood_progress[-1]
+                'data_likelihood': data_likelihood_progress[-1],
+                'f1_score': f1_score
             })
         else:
             # Minimal logging for early steps
@@ -874,7 +905,8 @@ def run_structure_guided_learning_demo_with_scm(scm: pyr.PMap, config: DemoConfi
                 'update_norm': update_norm,
                 'uncertainty': float('inf'),
                 'marginals': {v: 0.0 for v in variables if v != target},
-                'data_likelihood': 0.0
+                'data_likelihood': 0.0,
+                'f1_score': 0.0  # No meaningful F1 score yet
             })
     
     # Final analysis
@@ -1087,6 +1119,13 @@ def run_zero_obs_fixed_intervention_test(config: Optional[DemoConfig] = None) ->
             likelihood = compute_data_likelihood_from_posterior(updated_state.posterior, all_samples, target)
             data_likelihood_progress.append(likelihood)
             
+            # Compute F1 score from marginal probabilities
+            f1_score = compute_f1_score_from_marginals(
+                dict(updated_state.marginal_parent_probs),
+                true_parents,
+                threshold=0.5
+            )
+            
             learning_history.append({
                 'step': step + 1,
                 'intervention': intervention,
@@ -1097,7 +1136,8 @@ def run_zero_obs_fixed_intervention_test(config: Optional[DemoConfig] = None) ->
                 'update_norm': update_norm,
                 'uncertainty': updated_state.uncertainty_bits,
                 'marginals': dict(updated_state.marginal_parent_probs),
-                'data_likelihood': likelihood
+                'data_likelihood': likelihood,
+                'f1_score': f1_score
             })
         else:
             uncertainty_progress.append(float('inf'))

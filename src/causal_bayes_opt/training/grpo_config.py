@@ -224,6 +224,7 @@ class ComprehensiveGRPOConfig:
     # Training strategies
     curriculum: CurriculumConfig = field(default_factory=CurriculumConfig)
     adaptive: AdaptiveConfig = field(default_factory=AdaptiveConfig)
+    early_stopping: Optional[Dict[str, any]] = None  # Early stopping configuration
 
     # Infrastructure
     checkpointing: CheckpointingConfig = field(default_factory=CheckpointingConfig)

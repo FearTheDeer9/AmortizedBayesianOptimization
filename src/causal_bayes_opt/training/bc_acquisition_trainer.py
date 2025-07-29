@@ -646,80 +646,57 @@ class BCAcquisitionTrainer:
             
             # Train step
             if self.jax_train_step is not None:
-                # Convert states to arrays for JAX
-                from .acquisition_state_converter import create_batch_tensor_state
+                # Convert states to arrays using enriched architecture
+                from ..acquisition.enriched.state_enrichment import EnrichedHistoryBuilder
                 
-                # Create batched tensor state
-                batch_tensor_dict = create_batch_tensor_state(batch_states)
+                # Create enriched history builder
+                history_builder = EnrichedHistoryBuilder(
+                    standardize_values=True,
+                    include_temporal_features=True,
+                    max_history_size=100,
+                    support_variable_scms=True,
+                    num_channels=5  # Use 5 enriched channels
+                )
                 
-                # Convert to expected format for JAX train_step
-                # The JAX train_step expects: state_tensor, target_variable_idx, history_tensor
                 n_batch = len(batch_states)
                 
-                # Extract state tensor from current_data
-                # current_data shape: [batch, samples, vars, channels]
-                # Dummy state expects feature_dim=10, but we have channels=3
-                # Solution: Take last few samples to create feature vector of size 10
-                n_vars = batch_tensor_dict['current_data'].shape[2]
-                n_channels = batch_tensor_dict['current_data'].shape[3]
-                
-                # Take last 3-4 samples to get ~10 features (3 samples * 3 channels = 9, close to 10)
-                n_samples_needed = min(4, batch_tensor_dict['current_data'].shape[1])
-                recent_data = batch_tensor_dict['current_data'][:, -n_samples_needed:, :, :]
-                # Reshape to [batch, vars, samples*channels]
-                state_tensor = recent_data.transpose(0, 2, 1, 3).reshape(n_batch, n_vars, -1)
-                
-                # Pad or truncate to exactly 10 features to match dummy state
-                if state_tensor.shape[2] < 10:
-                    # Pad with zeros
-                    padding = jnp.zeros((n_batch, n_vars, 10 - state_tensor.shape[2]))
-                    state_tensor = jnp.concatenate([state_tensor, padding], axis=2)
-                elif state_tensor.shape[2] > 10:
-                    # Truncate
-                    state_tensor = state_tensor[:, :, :10]
-                
-                # Extract target variable indices (if available)
+                # Convert each state to enriched format
+                batch_state_tensors = []
+                batch_history_tensors = []
                 target_indices = []
-                for acq_state in batch_states:  # Renamed to avoid shadowing the BCPolicyState parameter
+                
+                for acq_state in batch_states:
+                    # Build enriched history for this state
+                    enriched_history, _ = history_builder.build_enriched_history(acq_state)
+                    
+                    # Extract current state (last timestep)
+                    state_tensor = enriched_history[-1]  # [n_vars, 5]
+                    batch_state_tensors.append(state_tensor)
+                    
+                    # Use last 3 timesteps for history (to match dummy state)
+                    history_tensor = enriched_history[-3:]  # [3, n_vars, 5]
+                    batch_history_tensors.append(history_tensor)
+                    
+                    # Extract target variable index
                     target_idx = 0  # default
-                    if hasattr(acq_state, 'target_variable') or hasattr(acq_state, 'current_target'):
-                        target_var = getattr(acq_state, 'target_variable', getattr(acq_state, 'current_target', None))
-                        if target_var and hasattr(acq_state, 'scm_info') and 'variables' in acq_state.scm_info:
+                    if hasattr(acq_state, 'metadata') and 'scm_info' in acq_state.metadata:
+                        scm_info = acq_state.metadata['scm_info']
+                        variables = list(scm_info.get('variables', []))
+                        target = scm_info.get('target', acq_state.current_target)
+                        if variables and target and target in variables:
+                            target_idx = variables.index(target)
+                    elif hasattr(acq_state, 'current_target'):
+                        target_var = acq_state.current_target
+                        if hasattr(acq_state, 'scm_info') and 'variables' in acq_state.scm_info:
                             variables = list(acq_state.scm_info['variables'])
                             if target_var in variables:
                                 target_idx = variables.index(target_var)
                     target_indices.append(target_idx)
                 
-                target_variable_idx = jnp.array(target_indices)
-                
-                # Use intervention history as history tensor
-                # intervention_history shape: [batch, history_len, vars, features]
-                # But features=3, while dummy state expects feature_dim=10
-                history_tensor = batch_tensor_dict['intervention_history']
-                
-                # Ensure consistent history length of 3 to match dummy state initialization
-                # This prevents Haiku parameter shape mismatches during training
-                expected_history_len = 3
-                current_history_len = history_tensor.shape[1]
-                
-                if current_history_len < expected_history_len:
-                    # Pad with zeros at the beginning (older history)
-                    padding_shape = (n_batch, expected_history_len - current_history_len, n_vars, history_tensor.shape[3])
-                    padding = jnp.zeros(padding_shape)
-                    history_tensor = jnp.concatenate([padding, history_tensor], axis=1)
-                elif current_history_len > expected_history_len:
-                    # Keep only the most recent history
-                    history_tensor = history_tensor[:, -expected_history_len:, :, :]
-                
-                # Pad history features to match dummy state feature_dim=10
-                history_features = history_tensor.shape[3]
-                if history_features < 10:
-                    # Pad with zeros to reach 10 features
-                    history_padding = jnp.zeros((n_batch, expected_history_len, n_vars, 10 - history_features))
-                    history_tensor = jnp.concatenate([history_tensor, history_padding], axis=3)
-                elif history_features > 10:
-                    # Truncate to 10 features
-                    history_tensor = history_tensor[:, :, :, :10]
+                # Stack batches
+                state_tensor = jnp.stack(batch_state_tensors)  # [batch, n_vars, 5]
+                history_tensor = jnp.stack(batch_history_tensors)  # [batch, 3, n_vars, 5]
+                target_variable_idx = jnp.array(target_indices)  # [batch]
                 
                 # Create the expected dictionary format
                 batch_tensor_dict = {
@@ -1381,14 +1358,15 @@ class BCAcquisitionTrainer:
         """Create a dummy acquisition state for parameter initialization."""
         # Use actual number of variables if available, otherwise fall back to default
         n_vars = self._num_variables if self._num_variables is not None else 5
-        feature_dim = 10  # This is a reasonable default
+        # Use enriched architecture's 5 channels instead of 10 generic features
+        num_channels = 5  # EnrichedHistoryBuilder channels
         
-        logger.info(f"Creating dummy state for {n_vars} variables (from data: {self._num_variables is not None})")
+        logger.info(f"Creating dummy state for {n_vars} variables with {num_channels} enriched channels")
         
         dummy_state = {
-            'state_tensor': jnp.zeros((n_vars, feature_dim)),  # [n_vars, feature_dim] - dynamic
+            'state_tensor': jnp.zeros((n_vars, num_channels)),  # [n_vars, num_channels] - enriched channels
             'target_variable_idx': 0,            # Index of target variable
-            'history_tensor': jnp.zeros((3, n_vars, feature_dim)),  # [history_len, n_vars, feature_dim] - dynamic
+            'history_tensor': jnp.zeros((3, n_vars, num_channels)),  # [history_len, n_vars, num_channels] - enriched channels
             'is_training': False
         }
         
@@ -1441,24 +1419,46 @@ class BCAcquisitionTrainer:
             logger.warning("❌ Could not extract number of variables from training data - using default")
     
     def _state_to_arrays(self, state: AcquisitionState) -> Dict[str, jnp.ndarray]:
-        """Convert AcquisitionState to array representation for JAX."""
-        # Import the new converter
-        from .acquisition_state_converter import (
-            convert_acquisition_state_to_tensors,
-            tensor_state_to_dict
+        """Convert AcquisitionState to array representation for JAX using enriched architecture."""
+        # Import the enriched history builder
+        from ..acquisition.enriched.state_enrichment import EnrichedHistoryBuilder
+        
+        # Create enriched history builder
+        history_builder = EnrichedHistoryBuilder(
+            standardize_values=True,
+            include_temporal_features=True,
+            max_history_size=100,
+            support_variable_scms=True,
+            num_channels=5  # Use 5 enriched channels
         )
         
-        # Convert state to tensors
-        tensor_state = convert_acquisition_state_to_tensors(
-            state,
-            max_samples=10,  # Last 10 samples
-            max_history=5,   # Last 5 interventions
-            n_channels=3,    # Standard channels
-            n_features=3     # Intervention features
-        )
+        # Build enriched history from state
+        enriched_history, variable_mask = history_builder.build_enriched_history(state)
         
-        # Convert to dictionary for JAX
-        return tensor_state_to_dict(tensor_state)
+        # Extract current state (last timestep)
+        state_tensor = enriched_history[-1]  # [n_vars, 5]
+        
+        # Extract target variable index
+        variables = []
+        if hasattr(state, 'metadata') and 'scm_info' in state.metadata:
+            scm_info = state.metadata['scm_info']
+            variables = list(scm_info.get('variables', []))
+            target = scm_info.get('target', state.current_target)
+        else:
+            # Fallback
+            target = getattr(state, 'current_target', None)
+        
+        target_idx = 0  # Default
+        if variables and target and target in variables:
+            target_idx = variables.index(target)
+        
+        # Return in expected format for BC training
+        return {
+            'state_tensor': state_tensor,
+            'target_variable_idx': target_idx,
+            'history_tensor': enriched_history,  # Full enriched history
+            'is_training': True
+        }
     
     def save_checkpoint(
         self, 

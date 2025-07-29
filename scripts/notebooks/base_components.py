@@ -496,6 +496,30 @@ class CheckpointManager:
                 with open(checkpoint_file, 'wb') as f:
                     pickle.dump(checkpoint_data, f)
                 logger.info(f"Saved checkpoint data: {checkpoint_file}")
+                
+                # Also save policy_params.pkl for Phase 2 compatibility
+                if 'policy_params' in checkpoint_data and 'policy_config' in checkpoint_data:
+                    policy_file = checkpoint_path / "policy_params.pkl"
+                    
+                    # Ensure architecture config has variable_agnostic flag
+                    policy_config = checkpoint_data['policy_config'].copy()
+                    if 'architecture' not in policy_config:
+                        policy_config['architecture'] = {}
+                    # Default to True for enriched policies
+                    if 'variable_agnostic' not in policy_config['architecture']:
+                        policy_config['architecture']['variable_agnostic'] = True
+                    
+                    policy_data = {
+                        'policy_params': checkpoint_data['policy_params'],
+                        'policy_config': policy_config,
+                        'enriched_architecture': True,
+                        'episode': checkpoint_data.get('training_metrics', {}).get('episodes_completed', 0),
+                        'is_final': True
+                    }
+                    with open(policy_file, 'wb') as f:
+                        pickle.dump(policy_data, f)
+                    logger.info(f"Saved policy params separately: {policy_file}")
+                
             except Exception as e:
                 logger.error(f"Failed to save checkpoint data: {e}")
                 raise CheckpointSaveError(f"Failed to save checkpoint data: {e}")

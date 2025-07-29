@@ -81,6 +81,10 @@ class ExperimentResult:
     @property
     def improvement(self) -> float:
         """Improvement in target value."""
+        # Check if improvement was explicitly calculated (e.g., with optimization direction)
+        if 'improvement' in self.final_metrics:
+            return self.final_metrics['improvement']
+        # Otherwise, use default calculation (assumes maximization)
         return self.final_value - self.initial_value
     
     def get_trajectory(self, metric: str, true_parents: Optional[List[str]] = None) -> List[float]:

@@ -162,18 +162,53 @@ def compute_structural_parent_probabilities(
     # Initialize probabilities
     probs = jnp.zeros(n_vars)
     
+    # Separate variables into ancestors and non-ancestors
+    ancestors_exist = False
+    
     for i, var in enumerate(variables):
         if var != target:  # Target cannot be its own parent
             distance = distances.get(var, float('inf'))
             
-            if distance == float('inf'):
-                # Not connected to target - low but non-zero probability
-                prob = 0.1
+            if distance != float('inf'):
+                # This is an ancestor - higher probability based on proximity
+                ancestors_exist = True
+                prob = 1.0 / (distance + 0.5)  # +0.5 to avoid too high prob for direct parents
             else:
-                # Inverse relationship: closer = higher probability
-                prob = 1.0 / (distance + 1.0)
+                # Not an ancestor - will handle these separately
+                prob = 0.0
             
             probs = probs.at[i].set(prob)
+    
+    # If no ancestors exist, use structural heuristics for diversity
+    if not ancestors_exist:
+        # Build graph structure info
+        children_of = {v: set() for v in variables}
+        parents_of = {v: set() for v in variables}
+        for parent, child in edges:
+            if parent in variables and child in variables:
+                children_of[parent].add(child)
+                parents_of[child].add(parent)
+        
+        for i, var in enumerate(variables):
+            if var != target:
+                # Use graph properties to assign diverse probabilities
+                n_children = len(children_of.get(var, set()))
+                n_parents = len(parents_of.get(var, set()))
+                total_degree = n_children + n_parents
+                
+                # Variables with more connections get slightly higher probability
+                # Add small random-like component based on variable index for diversity
+                base_prob = 0.5 + 0.3 * (total_degree / max(1, n_vars - 1))
+                index_component = 0.2 * jnp.sin(i * jnp.pi / n_vars)
+                prob = base_prob + index_component
+                
+                probs = probs.at[i].set(prob)
+    else:
+        # Ancestors exist - give non-ancestors small probability
+        for i, var in enumerate(variables):
+            if var != target and probs[i] == 0.0:
+                # Non-ancestor gets small probability
+                probs = probs.at[i].set(0.05)
     
     # Set target probability to 0
     if target_idx >= 0:
@@ -202,15 +237,19 @@ def _compute_distances_to_target(
     edges: List[Tuple[str, str]], 
     target: str
 ) -> Dict[str, float]:
-    """Compute shortest path distances to target variable."""
-    # Build adjacency list (both directions for undirected distance)
-    adj = {var: set() for var in variables}
-    for parent, child in edges:
-        if parent in adj and child in adj:
-            adj[parent].add(child)
-            adj[child].add(parent)  # Treat as undirected for distance computation
+    """Compute shortest DIRECTED path distances to target variable.
     
-    # BFS from target
+    Only follows edges in reverse direction (from child to parent) to find ancestors.
+    This ensures we only consider causal ancestors when computing parent probabilities.
+    """
+    # Build DIRECTED adjacency lists
+    parents_of = {var: set() for var in variables}
+    
+    for parent, child in edges:
+        if parent in variables and child in variables:
+            parents_of[child].add(parent)
+    
+    # BFS from target following PARENT links (ancestors only)
     distances = {target: 0.0}
     queue = [(target, 0.0)]
     visited = {target}
@@ -218,11 +257,12 @@ def _compute_distances_to_target(
     while queue:
         current, dist = queue.pop(0)
         
-        for neighbor in adj[current]:
-            if neighbor not in visited:
-                visited.add(neighbor)
-                distances[neighbor] = dist + 1.0
-                queue.append((neighbor, dist + 1.0))
+        # Only follow parent links to find ancestors
+        for parent in parents_of.get(current, set()):
+            if parent not in visited:
+                visited.add(parent)
+                distances[parent] = dist + 1.0
+                queue.append((parent, dist + 1.0))
     
     return distances
 

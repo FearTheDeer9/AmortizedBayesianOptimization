@@ -32,7 +32,10 @@ from omegaconf import DictConfig, OmegaConf
 
 from .unified_runner import UnifiedEvaluationRunner, MethodRegistry
 from .grpo_evaluator import GRPOEvaluator
+from .grpo_evaluator_fixed import GRPOEvaluatorFixed
+from .simplified_grpo_evaluator import SimplifiedGRPOEvaluator
 from .bc_evaluator import BCEvaluator
+from .simplified_bc_evaluator import SimplifiedBCEvaluator
 from .baseline_evaluators import (
     RandomBaselineEvaluator,
     OracleBaselineEvaluator,
@@ -205,48 +208,151 @@ def _register_evaluators(
     
     # Handle checkpoint-based methods
     if checkpoint_path and 'grpo' in methods:
-        evaluator = GRPOEvaluator(checkpoint_path)
+        # Check if this is a simplified trainer checkpoint
+        use_simplified = _is_simplified_checkpoint(checkpoint_path)
+        
+        if use_simplified:
+            evaluator = SimplifiedGRPOEvaluator(checkpoint_path)
+            logger.info(f"Using SIMPLIFIED GRPO evaluator for new checkpoint format")
+        else:
+            # Check if we should use the fixed evaluator
+            use_fixed_evaluator = config.get('use_fixed_grpo_evaluator', True)
+            
+            if use_fixed_evaluator:
+                evaluator = GRPOEvaluatorFixed(checkpoint_path)
+                logger.info(f"Using FIXED GRPO evaluator with proper surrogate integration")
+            else:
+                evaluator = GRPOEvaluator(checkpoint_path)
+                logger.info(f"Using original GRPO evaluator (no surrogate integration)")
+            
         registry.register(evaluator)
         logger.info(f"Registered GRPO evaluator with checkpoint: {checkpoint_path}")
     
     if checkpoint_path and any(m.startswith('bc_') for m in methods):
+        # Check if using simplified checkpoints
+        use_simplified = _is_simplified_checkpoint(checkpoint_path)
+        
         # Handle BC variants
         if 'bc_surrogate' in methods:
-            evaluator = BCEvaluator(
-                surrogate_checkpoint=checkpoint_path,
-                name="BC_Surrogate_Random"
-            )
+            if use_simplified:
+                evaluator = SimplifiedBCEvaluator(
+                    surrogate_checkpoint=checkpoint_path,
+                    name="BC_Surrogate"
+                )
+                logger.info(f"Using SIMPLIFIED BC surrogate evaluator")
+            else:
+                evaluator = BCEvaluator(
+                    surrogate_checkpoint=checkpoint_path,
+                    name="BC_Surrogate_Random"
+                )
             registry.register(evaluator)
         elif 'bc_acquisition' in methods:
-            evaluator = BCEvaluator(
-                acquisition_checkpoint=checkpoint_path,
-                name="BC_Acquisition_Learning"
-            )
+            if use_simplified:
+                evaluator = SimplifiedBCEvaluator(
+                    acquisition_checkpoint=checkpoint_path,
+                    name="BC_Acquisition"
+                )
+                logger.info(f"Using SIMPLIFIED BC acquisition evaluator")
+            else:
+                evaluator = BCEvaluator(
+                    acquisition_checkpoint=checkpoint_path,
+                    name="BC_Acquisition_Learning"
+                )
             registry.register(evaluator)
         elif 'bc_both' in methods:
             # Expect both checkpoints in config
             surrogate_path = config.get('bc_surrogate_checkpoint', checkpoint_path)
             acquisition_path = config.get('bc_acquisition_checkpoint', checkpoint_path)
-            evaluator = BCEvaluator(
-                surrogate_checkpoint=Path(surrogate_path),
-                acquisition_checkpoint=Path(acquisition_path),
-                name="BC_Both"
-            )
+            
+            if use_simplified or (_is_simplified_checkpoint(Path(surrogate_path)) if surrogate_path else False):
+                evaluator = SimplifiedBCEvaluator(
+                    surrogate_checkpoint=Path(surrogate_path) if surrogate_path else None,
+                    acquisition_checkpoint=Path(acquisition_path) if acquisition_path else None,
+                    name="BC_Combined"
+                )
+                logger.info(f"Using SIMPLIFIED BC combined evaluator")
+            else:
+                evaluator = BCEvaluator(
+                    surrogate_checkpoint=Path(surrogate_path),
+                    acquisition_checkpoint=Path(acquisition_path),
+                    name="BC_Both"
+                )
             registry.register(evaluator)
     
     # Special handling for "Trained Policy + Learning" from ACBO comparison
     if "Trained Policy + Learning" in methods:
         if checkpoint_path:
-            evaluator = GRPOEvaluator(checkpoint_path, name="Trained Policy + Learning")
+            use_simplified = _is_simplified_checkpoint(checkpoint_path)
+            
+            if use_simplified:
+                evaluator = SimplifiedGRPOEvaluator(checkpoint_path, name="Trained Policy + Learning")
+                logger.info(f"Using SIMPLIFIED Trained Policy evaluator")
+            else:
+                use_fixed_evaluator = config.get('use_fixed_grpo_evaluator', True)
+                
+                if use_fixed_evaluator:
+                    evaluator = GRPOEvaluatorFixed(checkpoint_path, name="Trained Policy + Learning")
+                    logger.info(f"Using FIXED Trained Policy evaluator with proper surrogate integration")
+                else:
+                    evaluator = GRPOEvaluator(checkpoint_path, name="Trained Policy + Learning")
+                
             registry.register(evaluator)
             logger.info(f"Registered Trained Policy evaluator with checkpoint: {checkpoint_path}")
 
 
+def _is_simplified_checkpoint(checkpoint_path: Path) -> bool:
+    """
+    Detect if a checkpoint is from the simplified trainers.
+    
+    Simplified checkpoints are identified by:
+    - Being a .pkl file (not a directory)
+    - Containing specific keys in the pickle
+    - File naming patterns
+    """
+    import pickle
+    
+    checkpoint_path = Path(checkpoint_path)
+    
+    # If it's a .pkl file, check its contents
+    if checkpoint_path.suffix == '.pkl' and checkpoint_path.is_file():
+        try:
+            with open(checkpoint_path, 'rb') as f:
+                data = pickle.load(f)
+                
+            # Check for simplified trainer markers
+            if 'trainer_type' in data and 'simplified' in data['trainer_type']:
+                return True
+                
+            # Check for specific config structure
+            if 'config' in data and isinstance(data['config'], dict):
+                # Simplified trainers have flat config
+                config = data['config']
+                if 'architecture_level' in config and 'learning_rate' in config:
+                    # Simplified format has these at top level
+                    return True
+                    
+            # Check for model_type (BC simplified format)
+            if 'model_type' in data and data['model_type'] in ['surrogate', 'acquisition']:
+                return True
+                
+        except Exception:
+            # If we can't load it, assume it's not simplified
+            pass
+            
+    # Check file name patterns
+    if 'simplified' in str(checkpoint_path).lower():
+        return True
+        
+    if checkpoint_path.name in ['grpo_final.pkl', 'surrogate_final.pkl', 'acquisition_final.pkl']:
+        # These are typical names from simplified trainers
+        return True
+        
+    return False
+
+
 def _generate_test_scms(n_scms: int, config: Dict[str, Any]) -> List[Any]:
     """Generate test SCMs based on configuration."""
-    from causal_bayes_opt.experiments.scm_generation import (
-        generate_test_scms_variable_structure
-    )
+    from ..experiments.variable_scm_factory import VariableSCMFactory
     
     # Extract SCM generation config
     scm_config = config.get('experiment', {}).get('scm_generation', {})
@@ -256,13 +362,27 @@ def _generate_test_scms(n_scms: int, config: Dict[str, Any]) -> List[Any]:
         variable_range = scm_config.get('variable_range', [3, 6])
         structure_types = scm_config.get('structure_types', ['fork', 'chain', 'collider'])
         
-        scms = generate_test_scms_variable_structure(
-            n_scms=n_scms,
-            min_variables=variable_range[0],
-            max_variables=variable_range[1],
-            structure_types=structure_types,
+        # Generate variable structure SCMs
+        factory = VariableSCMFactory(
+            noise_scale=0.5,
+            coefficient_range=(-2.0, 2.0),
             seed=config.get('seed', 42)
         )
+        
+        scms = []
+        scm_idx = 0
+        while len(scms) < n_scms:
+            for structure_type in structure_types:
+                for n_vars in range(variable_range[0], variable_range[1] + 1):
+                    if len(scms) >= n_scms:
+                        break
+                    scm = factory.create_variable_scm(
+                        num_variables=n_vars,
+                        structure_type=structure_type,
+                        target_variable=None
+                    )
+                    scms.append(scm)
+                    scm_idx += 1
         logger.info(f"Generated {len(scms)} test SCMs with variable structure")
         return scms
     else:

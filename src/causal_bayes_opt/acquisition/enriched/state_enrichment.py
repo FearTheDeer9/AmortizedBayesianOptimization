@@ -274,7 +274,11 @@ class EnrichedHistoryBuilder:
                           values: jnp.ndarray, 
                           all_samples: List[Any], 
                           variable_order: List[str]) -> jnp.ndarray:
-        """Standardize variable values using buffer statistics."""
+        """Standardize variable values using global buffer statistics.
+        
+        Uses global mean/std across all variables to preserve natural
+        scale differences between variables from the SCM structure.
+        """
         if len(all_samples) < 2:
             return values  # Can't standardize with too few samples
         
@@ -285,10 +289,14 @@ class EnrichedHistoryBuilder:
             all_values.append(sample_values)
         
         all_values = jnp.stack(all_values)  # [n_samples, n_vars]
-        means = jnp.mean(all_values, axis=0)
-        stds = jnp.std(all_values, axis=0) + 1e-8  # Avoid division by zero
         
-        standardized = (values - means) / stds
+        # Global standardization: compute statistics across ALL values
+        # This preserves the natural scale differences between variables
+        all_values_flat = all_values.flatten()
+        global_mean = jnp.mean(all_values_flat)
+        global_std = jnp.std(all_values_flat) + 1e-8  # Avoid division by zero
+        
+        standardized = (values - global_mean) / global_std
         return standardized
     
     def _get_marginal_probabilities(self, variable_order: List[str], state) -> jnp.ndarray:
@@ -447,7 +455,8 @@ class EnrichedHistoryBuilder:
 def create_enriched_history_jax(state, 
                                max_history_size: int = 100,
                                include_temporal_features: bool = True,
-                               support_variable_scms: bool = True) -> Tuple[jnp.ndarray, Optional[jnp.ndarray]]:
+                               support_variable_scms: bool = True,
+                               standardize_values: bool = True) -> Tuple[jnp.ndarray, Optional[jnp.ndarray]]:
     """
     JAX-compatible function for creating enriched history with variable masking.
     
@@ -459,6 +468,7 @@ def create_enriched_history_jax(state,
         max_history_size: Maximum history size
         include_temporal_features: Whether to include temporal context
         support_variable_scms: Whether to support variable-count SCMs
+        standardize_values: Whether to standardize values (uses global standardization)
         
     Returns:
         Tuple of (enriched_history, variable_mask) where:
@@ -466,6 +476,7 @@ def create_enriched_history_jax(state,
         - variable_mask: [n_vars] or None
     """
     builder = EnrichedHistoryBuilder(
+        standardize_values=standardize_values,
         max_history_size=max_history_size,
         include_temporal_features=include_temporal_features,
         support_variable_scms=support_variable_scms
@@ -476,7 +487,8 @@ def create_enriched_history_jax(state,
 def create_enriched_history_tensor(state, 
                                   max_history_size: int = 100,
                                   include_temporal_features: bool = True,
-                                  support_variable_scms: bool = True) -> Tuple[jnp.ndarray, Optional[jnp.ndarray]]:
+                                  support_variable_scms: bool = True,
+                                  standardize_values: bool = True) -> Tuple[jnp.ndarray, Optional[jnp.ndarray]]:
     """
     Create enriched history tensor from AcquisitionState with variable masking.
     
@@ -488,6 +500,7 @@ def create_enriched_history_tensor(state,
         max_history_size: Maximum history size for transformer input
         include_temporal_features: Whether to include temporal context channels
         support_variable_scms: Whether to support variable-count SCMs
+        standardize_values: Whether to standardize values (uses global standardization)
         
     Returns:
         Tuple of (enriched_history, variable_mask) where:
@@ -498,7 +511,8 @@ def create_enriched_history_tensor(state,
         state=state,
         max_history_size=max_history_size,
         include_temporal_features=include_temporal_features,
-        support_variable_scms=support_variable_scms
+        support_variable_scms=support_variable_scms,
+        standardize_values=standardize_values
     )
 
 

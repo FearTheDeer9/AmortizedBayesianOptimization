@@ -4,45 +4,45 @@
       "n_runs": 27,
       "n_successful": 27,
       "success_rate": 1.0,
-      "mean_final_value": -0.16444641173196337,
-      "std_final_value": 0.9617718961015341,
-      "mean_improvement": -0.1905419230547354,
-      "std_improvement": 0.9922271722577592,
+      "mean_final_value": -0.39080563249687356,
+      "std_final_value": 0.9213938498954236,
+      "mean_improvement": 0.42172822414862887,
+      "std_improvement": 0.9244352238708389,
       "mean_steps": 21.0,
-      "mean_time": 1.540811370920252
+      "mean_time": 1.5788822085769088
     },
     "Oracle_Baseline": {
       "n_runs": 27,
       "n_successful": 27,
       "success_rate": 1.0,
-      "mean_final_value": -2.1338645860345826,
-      "std_final_value": 1.0584276793271417,
-      "mean_improvement": -2.159960097357355,
-      "std_improvement": 1.074032608722659,
+      "mean_final_value": -2.1386128860111864,
+      "std_final_value": 1.0560819698440687,
+      "mean_improvement": 2.169535477662942,
+      "std_improvement": 1.0719555234907718,
       "mean_steps": 21.0,
-      "mean_time": 8.169993118003562
+      "mean_time": 10.322880621309634
     },
     "Learning_Baseline": {
       "n_runs": 27,
       "n_successful": 27,
       "success_rate": 1.0,
-      "mean_final_value": -0.0796104221932452,
-      "std_final_value": 0.5749908496829245,
-      "mean_improvement": -0.061215499338383474,
-      "std_improvement": 0.5848630372197922,
+      "mean_final_value": -0.24466575248408373,
+      "std_final_value": 0.7126482690775443,
+      "mean_improvement": 0.24901937789076733,
+      "std_improvement": 0.7237514773332,
       "mean_steps": 21.0,
-      "mean_time": 34.666291899151275
+      "mean_time": 41.08437157560278
     },
     "BC_Surrogate_Random": {
       "n_runs": 27,
-      "n_successful": 0,
-      "success_rate": 0.0,
+      "n_successful": 27,
+      "success_rate": 1.0,
       "mean_final_value": 0.0,
       "std_final_value": 0.0,
       "mean_improvement": 0.0,
       "std_improvement": 0.0,
-      "mean_steps": 0.0,
-      "mean_time": 0.0
+      "mean_steps": 21.0,
+      "mean_time": 1.7462778621249728
     },
     "BC_Acquisition_Learning": {
       "n_runs": 27,
@@ -85,5 +85,5 @@
       }
     }
   },
-  "timestamp": "2025-07-25T15:33:49.084680"
+  "timestamp": "2025-07-28T10:23:00.849544"
 }

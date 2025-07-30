@@ -35,6 +35,10 @@ from ..analysis.trajectory_metrics import (
     compute_f1_score_from_marginals,
     compute_shd_from_marginals
 )
+from ..avici_integration.parent_set.posterior import (
+    ParentSetPosterior,
+    get_marginal_parent_probabilities
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +99,9 @@ class UniversalACBOEvaluator:
                  scm: Any,
                  config: Dict[str, Any],
                  surrogate_fn: Optional[SurrogateFn] = None,
+                 surrogate_update_fn: Optional[Callable] = None,
+                 surrogate_params: Optional[Any] = None,
+                 surrogate_opt_state: Optional[Any] = None,
                  seed: int = 42) -> EvaluationResult:
         """
         Run ACBO evaluation loop with provided functions.
@@ -103,12 +110,16 @@ class UniversalACBOEvaluator:
         1. Samples initial observational data
         2. Runs the intervention loop
         3. Computes comprehensive metrics
+        4. Optionally updates surrogate during evaluation (active learning)
         
         Args:
             acquisition_fn: Function that selects interventions
             scm: Structural Causal Model to evaluate on
             config: Evaluation configuration
             surrogate_fn: Optional function for structure prediction
+            surrogate_update_fn: Optional function to update surrogate online
+            surrogate_params: Initial surrogate parameters (for active learning)
+            surrogate_opt_state: Initial optimizer state (for active learning)
             seed: Random seed for reproducibility
             
         Returns:
@@ -136,6 +147,12 @@ class UniversalACBOEvaluator:
             # Initialize buffer and history
             buffer = ExperienceBuffer()
             history = []
+            
+            # Track whether active learning is being used
+            active_learning_enabled = (
+                surrogate_update_fn is not None and 
+                surrogate_params is not None
+            )
             
             # Sample observational data
             obs_samples = sample_from_linear_scm(scm, n_observational, seed=seed)
@@ -196,6 +213,32 @@ class UniversalACBOEvaluator:
                 for sample in intervention_samples:
                     buffer.add_intervention(intervention_obj, sample)
                 
+                # Update surrogate if active learning is enabled
+                if surrogate_update_fn is not None and surrogate_params is not None:
+                    try:
+                        # Get all samples from buffer for update
+                        all_samples = buffer.get_all_samples()
+                        
+                        # Update surrogate with new data
+                        surrogate_params, surrogate_opt_state, update_metrics = surrogate_update_fn(
+                            surrogate_params, 
+                            surrogate_opt_state,
+                            posterior,
+                            all_samples,
+                            var_order,
+                            target_var
+                        )
+                        
+                        # Update the surrogate function closure to use new params
+                        def updated_surrogate_fn(tensor, target):
+                            # This assumes the surrogate uses the updated params
+                            # The actual implementation depends on the surrogate type
+                            return surrogate_fn(tensor, target)
+                        
+                        logger.debug(f"Surrogate updated at step {step}, metrics: {update_metrics}")
+                    except Exception as e:
+                        logger.warning(f"Surrogate update failed at step {step}: {e}")
+                
                 # Compute outcome and reward
                 outcome_value = self._compute_target_mean_from_samples(
                     intervention_samples, target_var
@@ -221,11 +264,17 @@ class UniversalACBOEvaluator:
                 # Extract marginals if posterior available
                 marginals = None
                 entropy = None
-                if posterior and isinstance(posterior, dict):
-                    if 'marginal_parent_probs' in posterior:
-                        marginals = dict(posterior['marginal_parent_probs'])
-                    if 'entropy' in posterior:
-                        entropy = float(posterior['entropy'])
+                if posterior:
+                    if isinstance(posterior, dict):
+                        # Handle dictionary format
+                        if 'marginal_parent_probs' in posterior:
+                            marginals = dict(posterior['marginal_parent_probs'])
+                        if 'entropy' in posterior:
+                            entropy = float(posterior['entropy'])
+                    elif isinstance(posterior, ParentSetPosterior):
+                        # Handle ParentSetPosterior objects
+                        marginals = get_marginal_parent_probabilities(posterior, var_order)
+                        entropy = float(posterior.uncertainty)
                 
                 # Record step metrics
                 history.append(StepMetrics(
@@ -248,6 +297,10 @@ class UniversalACBOEvaluator:
             final_metrics = self._compute_final_metrics(
                 history, initial_value, best_value, true_parents, optimization_direction
             )
+            
+            # Add active learning info
+            final_metrics['active_learning_enabled'] = active_learning_enabled
+            final_metrics['has_surrogate'] = surrogate_fn is not None
             
             # Create SCM info
             scm_info = {
@@ -378,6 +431,13 @@ class UniversalACBOEvaluator:
         else:
             metrics['mean_reward'] = 0.0
             metrics['total_reward'] = 0.0
+        
+        # Compute mean trajectory value
+        trajectory_values = [step.outcome_value for step in history]
+        if trajectory_values:
+            metrics['mean_trajectory_value'] = float(jnp.mean(jnp.array(trajectory_values)))
+        else:
+            metrics['mean_trajectory_value'] = initial_value
         
         return metrics
 

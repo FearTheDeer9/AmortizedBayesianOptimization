@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Tuple
 import numpy as np
 from collections import deque
 
-from .modular_trainer import TrainingMetrics
+from .data_structures import TrainingMetrics
 
 
 @dataclass

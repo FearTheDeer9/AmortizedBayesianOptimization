@@ -116,12 +116,28 @@ def create_bc_acquisition(checkpoint_path: Path,
     Returns:
         Function that maps (tensor, posterior, target) → intervention
     """
-    # Load checkpoint
-    with open(checkpoint_path / 'checkpoint.pkl', 'rb') as f:
+    # Load checkpoint - handle both file path and directory path
+    if checkpoint_path.is_file():
+        checkpoint_file = checkpoint_path
+    else:
+        # Look for checkpoint.pkl in directory
+        checkpoint_file = checkpoint_path / 'checkpoint.pkl'
+        if not checkpoint_file.exists():
+            # Try direct pickle file
+            checkpoint_file = checkpoint_path
+    
+    with open(checkpoint_file, 'rb') as f:
         checkpoint = pickle.load(f)
     
-    policy_params = checkpoint.get('policy_params')
-    config = checkpoint.get('config', {})
+    # Handle new checkpoint format from general_bc_trainer
+    if 'params' in checkpoint:
+        # New format
+        policy_params = checkpoint['params']
+        config = checkpoint.get('config', {})
+    else:
+        # Old format compatibility
+        policy_params = checkpoint.get('policy_params')
+        config = checkpoint.get('config', {})
     
     # Extract hidden dim
     hidden_dim = config.get('hidden_dim', 256)
@@ -216,6 +232,185 @@ def create_random_acquisition(seed: int = 42) -> Callable:
         }
     
     return random_acquisition
+
+
+def create_bc_surrogate(checkpoint_path: Path, 
+                       allow_updates: bool = False,
+                       learning_rate: float = 1e-4) -> Tuple[Callable, Optional[Callable]]:
+    """
+    Create BC-trained surrogate function for structure learning.
+    
+    Args:
+        checkpoint_path: Path to BC surrogate checkpoint
+        allow_updates: Whether to allow online updates during evaluation
+        learning_rate: Learning rate for online updates (if enabled)
+        
+    Returns:
+        Tuple of (predict_fn, update_fn) where update_fn is None if updates disabled
+    """
+    import optax
+    from ..avici_integration.continuous.model import ContinuousParentSetPredictionModel
+    from ..avici_integration.core import samples_to_avici_format
+    from ..avici_integration.parent_set import predict_parent_posterior
+    
+    # Load checkpoint
+    with open(checkpoint_path, 'rb') as f:
+        checkpoint = pickle.load(f)
+    
+    # Extract parameters
+    params = checkpoint.get('params', checkpoint.get('surrogate_params'))
+    config = checkpoint.get('config', {})
+    metadata = checkpoint.get('metadata', {})
+    
+    # Extract model config
+    hidden_dim = config.get('surrogate_hidden_dim', 128)
+    num_layers = config.get('surrogate_layers', 4)
+    num_heads = config.get('surrogate_heads', 8)
+    
+    # Create the model function
+    def model_fn(data: jnp.ndarray, target_variable: int, is_training: bool = False):
+        model = ContinuousParentSetPredictionModel(
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+            num_heads=num_heads,
+            key_size=32,
+            dropout=0.1
+        )
+        return model(data, target_variable, is_training)
+    
+    # Transform it
+    net = hk.transform(model_fn)
+    
+    def bc_surrogate_predict(tensor: jnp.ndarray, target: str) -> Dict[str, Any]:
+        """
+        Predict parent posterior for target variable.
+        
+        Args:
+            tensor: [T, n_vars, 3] tensor in 3-channel format
+            target: Target variable name
+            
+        Returns:
+            Posterior dictionary with parent probabilities
+        """
+        # Convert to AVICI format
+        avici_data = tensor  # Already in correct format
+        
+        # Get variable order from tensor
+        n_vars = tensor.shape[1]
+        variables = [f"var_{i}" for i in range(n_vars)]
+        if target not in variables:
+            # Map target to appropriate index
+            target_idx = n_vars - 1  # Assume target is last
+            variables[target_idx] = target
+        
+        # Need to find target index
+        target_idx = variables.index(target) if target in variables else len(variables) - 1
+        
+        # Apply the model
+        output = net.apply(params, None, avici_data, target_idx, False)
+        
+        # The output should be parent predictions - need to convert to posterior format
+        # For now, create a simple posterior
+        from ..avici_integration.parent_set.posterior import create_parent_set_posterior
+        
+        # Extract parent probabilities from model output
+        # ContinuousParentSetPredictionModel returns a dict with 'parent_probabilities'
+        if isinstance(output, dict) and 'parent_probabilities' in output:
+            parent_probs = output['parent_probabilities']
+        else:
+            # Fallback
+            parent_probs = output
+        
+        # Convert to marginal probabilities
+        marginal_probs = {}
+        for i, var in enumerate(variables):
+            if var != target:
+                marginal_probs[var] = float(parent_probs[i])
+        
+        # Create posterior with single "set" representing marginal probabilities
+        posterior = create_parent_set_posterior(
+            target_variable=target,
+            parent_sets=[frozenset()],  # Empty set as placeholder
+            probabilities=jnp.array([1.0]),
+            metadata={'marginal_parent_probs': marginal_probs}
+        )
+        
+        return posterior
+    
+    if not allow_updates:
+        return bc_surrogate_predict, None
+    
+    # Create update function for online learning
+    optimizer = optax.adam(learning_rate)
+    opt_state = optimizer.init(params)
+    
+    def bc_surrogate_update(params, opt_state, posterior, samples, variables, target):
+        """Update surrogate parameters based on new data."""
+        # This would implement the update logic
+        # For now, return unchanged
+        return params, opt_state, (0.0, 0.0, 0.0, 0.0)
+    
+    return bc_surrogate_predict, bc_surrogate_update
+
+
+def create_learning_surrogate(scm: Any,
+                             learning_rate: float = 1e-3,
+                             scoring_method: str = "bic",
+                             seed: int = 42) -> Tuple[Callable, Callable]:
+    """
+    Create a fresh learnable surrogate that learns from scratch.
+    
+    This is equivalent to the "learning baseline" - no pre-training.
+    
+    Args:
+        scm: The structural causal model (to get variable names)
+        learning_rate: Learning rate for online updates
+        scoring_method: Scoring method for structure learning
+        seed: Random seed
+        
+    Returns:
+        Tuple of (predict_fn, update_fn) for online learning
+    """
+    from ..training.active_learning import create_active_learning_surrogate
+    
+    # Use production active learning implementation
+    return create_active_learning_surrogate(
+        scm=scm,
+        initial_checkpoint=None,  # Start from scratch
+        learning_rate=learning_rate,
+        scoring_method=scoring_method,
+        seed=seed
+    )
+
+
+def create_hybrid_surrogate(scm: Any,
+                           checkpoint_path: Path,
+                           learning_rate: float = 1e-4,
+                           seed: int = 42) -> Tuple[Callable, Callable]:
+    """
+    Create hybrid surrogate that starts with BC weights but continues learning.
+    
+    This combines pre-training benefits with online adaptation.
+    
+    Args:
+        scm: The structural causal model (to get variable names)
+        checkpoint_path: Path to BC surrogate checkpoint
+        learning_rate: Learning rate for online updates
+        seed: Random seed
+        
+    Returns:
+        Tuple of (predict_fn, update_fn) for hybrid approach
+    """
+    from ..training.active_learning import create_active_learning_surrogate
+    
+    # Use production active learning with initial checkpoint
+    return create_active_learning_surrogate(
+        scm=scm,
+        initial_checkpoint=checkpoint_path,
+        learning_rate=learning_rate,
+        scoring_method="bic",  # Default to BIC for hybrid
+        seed=seed
+    )
 
 
 def create_oracle_acquisition(scm_edges: Dict[str, List[str]], 

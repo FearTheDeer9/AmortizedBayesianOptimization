@@ -23,8 +23,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 from omegaconf import DictConfig
 import pyrsistent as pyr
 
-from src.causal_bayes_opt.training.clean_grpo_trainer import create_clean_grpo_trainer
-from src.causal_bayes_opt.training.clean_bc_trainer import create_clean_bc_trainer
+from src.causal_bayes_opt.training.unified_grpo_trainer import create_unified_grpo_trainer
+from src.causal_bayes_opt.training.policy_bc_trainer import PolicyBCTrainer
+from src.causal_bayes_opt.training.surrogate_bc_trainer import SurrogateBCTrainer
 from src.causal_bayes_opt.experiments.benchmark_scms import (
     create_dense_scm,
     create_sparse_scm,
@@ -113,11 +114,22 @@ def train_grpo(config: DictConfig) -> Dict[str, Any]:
         Training results
     """
     logger.info("=" * 60)
-    logger.info("Training GRPO Model")
+    logger.info("Training GRPO Model (Unified Trainer with True GRPO)")
     logger.info("=" * 60)
     
+    # Disable convergence detection for now (incompatible TrainingMetrics structure)
+    config['use_early_stopping'] = False
+    
+    # Map reward weights if needed
+    if 'reward_weights' not in config:
+        config['reward_weights'] = {
+            'optimization': 0.8,
+            'discovery': 0.1,
+            'efficiency': 0.1
+        }
+    
     # Create trainer
-    trainer = create_clean_grpo_trainer(config)
+    trainer = create_unified_grpo_trainer(config)
     
     # Create SCM generator
     scm_generator = create_scm_generator(
@@ -136,12 +148,14 @@ def train_grpo(config: DictConfig) -> Dict[str, Any]:
         if sm.get('f1_score', 0) > 0:
             logger.info(f"Final structure F1: {sm['f1_score']:.3f}")
     
+    logger.info(f"Converged: {results.get('converged', False)}")
+    
     return results
 
 
 def train_bc(config: DictConfig) -> Dict[str, Any]:
     """
-    Train BC model.
+    Train BC policy model on expert demonstrations.
     
     Args:
         config: Training configuration
@@ -150,26 +164,119 @@ def train_bc(config: DictConfig) -> Dict[str, Any]:
         Training results
     """
     logger.info("=" * 60)
-    logger.info("Training BC Model")
+    logger.info("Training BC Policy Model")
     logger.info("=" * 60)
-    logger.info(f"Expert strategy: {config.get('expert_strategy', 'oracle')}")
     
-    # Create trainer
-    trainer = create_clean_bc_trainer(config)
+    demo_path = config.get('demo_path', 'expert_demonstrations/raw/raw_demonstrations')
+    logger.info(f"Loading expert demonstrations from: {demo_path}")
     
-    # Create SCM generator
-    scm_generator = create_scm_generator(
-        config.get('scm_type', 'mixed'),
-        config.get('n_variables_range', [3, 8])
+    # Log max_demos parameter
+    max_demos = config.get('max_demos')
+    if max_demos is not None:
+        logger.info(f"*** Limiting to {max_demos} demonstration files ***")
+    
+    # Create policy BC trainer
+    trainer = PolicyBCTrainer(
+        hidden_dim=config.get('hidden_dim', 256),
+        learning_rate=config.get('learning_rate', 3e-4),
+        batch_size=config.get('batch_size', 32),
+        max_epochs=config.get('max_episodes', 1000),  # Use episodes as epochs
+        early_stopping_patience=10,
+        validation_split=0.2,
+        gradient_clip=1.0,
+        weight_decay=1e-4,
+        seed=config.get('seed', 42)
     )
     
-    # Train
-    results = trainer.train(scm_generator)
+    # Train on demonstrations
+    results = trainer.train(demonstrations_path=demo_path, max_demos=config.get('max_demos'))
     
-    logger.info(f"\nTraining completed in {results['training_time']:.2f}s")
-    logger.info(f"Trained on {results['n_demonstrations']} demonstrations")
-    logger.info(f"Final accuracy: {results['final_metrics']['var_accuracy']:.3f}")
-    logger.info(f"Final value RMSE: {results['final_metrics']['value_rmse']:.3f}")
+    logger.info(f"\nTraining completed in {results['metrics']['training_time']:.2f}s")
+    logger.info(f"Trained for {results['metrics']['epochs_trained']} epochs")
+    logger.info(f"Best validation loss: {results['metrics']['best_val_loss']:.4f}")
+    logger.info(f"Final train loss: {results['metrics']['final_train_loss']:.4f}")
+    
+    # Save checkpoint
+    checkpoint_path = Path(config.get('checkpoint_dir', 'checkpoints')) / 'bc_final'
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    trainer.save_checkpoint(checkpoint_path, results)
+    logger.info(f"Saved BC policy checkpoint to {checkpoint_path}")
+    
+    # Convert results to match expected format
+    results = {
+        'training_time': results['metrics']['training_time'],
+        'final_metrics': {
+            'loss': results['metrics']['final_train_loss'],
+            'val_loss': results['metrics']['best_val_loss']
+        },
+        'all_metrics': results['metrics'],
+        'policy_params': results['params'],
+        'n_demonstrations': results['metadata']['n_train_samples']
+    }
+    
+    return results
+
+
+def train_surrogate(config: DictConfig) -> Dict[str, Any]:
+    """
+    Train BC surrogate model for structure learning.
+    
+    Args:
+        config: Training configuration
+        
+    Returns:
+        Training results
+    """
+    logger.info("=" * 60)
+    logger.info("Training BC Surrogate Model (Structure Learning)")
+    logger.info("=" * 60)
+    
+    demo_path = config.get('demo_path', 'expert_demonstrations/raw/raw_demonstrations')
+    logger.info(f"Loading expert demonstrations from: {demo_path}")
+    
+    # Create surrogate BC trainer
+    trainer = SurrogateBCTrainer(
+        hidden_dim=config.get('surrogate_hidden_dim', 128),
+        num_layers=config.get('surrogate_layers', 4),
+        num_heads=config.get('surrogate_heads', 8),
+        key_size=config.get('architecture', {}).get('key_size', 32),
+        learning_rate=config.get('surrogate_lr', 1e-3),
+        batch_size=config.get('batch_size', 32),
+        max_epochs=config.get('max_episodes', 1000),
+        early_stopping_patience=10,
+        validation_split=0.2,
+        gradient_clip=1.0,
+        dropout=config.get('architecture', {}).get('dropout', 0.1),
+        weight_decay=1e-4,
+        seed=config.get('seed', 42)
+    )
+    
+    # Train on demonstrations
+    results = trainer.train(demonstrations_path=demo_path, max_demos=config.get('max_demos'))
+    
+    logger.info(f"\nTraining completed in {results['metrics']['training_time']:.2f}s")
+    logger.info(f"Trained for {results['metrics']['epochs_trained']} epochs")
+    logger.info(f"Best validation loss: {results['metrics']['best_val_loss']:.4f}")
+    logger.info(f"Final train loss: {results['metrics']['final_train_loss']:.4f}")
+    
+    # Save checkpoint
+    checkpoint_path = Path(config.get('checkpoint_dir', 'checkpoints')) / 'bc_surrogate_final'
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    trainer.save_checkpoint(checkpoint_path, results)
+    logger.info(f"Saved BC surrogate checkpoint to {checkpoint_path}")
+    
+    # Convert results to match expected format
+    results = {
+        'training_time': results['metrics']['training_time'],
+        'final_metrics': {
+            'loss': results['metrics']['final_train_loss'],
+            'val_loss': results['metrics']['best_val_loss']
+        },
+        'all_metrics': results['metrics'],
+        'params': results['params'],
+        'n_demonstrations': results['metadata']['n_train_samples'],
+        'model_type': 'surrogate'
+    }
     
     return results
 
@@ -183,7 +290,7 @@ def main():
         '--method', 
         type=str, 
         required=True,
-        choices=['grpo', 'bc', 'both'],
+        choices=['grpo', 'bc', 'surrogate', 'both'],
         help='Method to train'
     )
     
@@ -205,15 +312,18 @@ def main():
     parser.add_argument('--max_vars', type=int, default=8, help='Maximum variables')
     
     # BC-specific parameters
-    parser.add_argument('--expert', type=str, default='oracle',
-                       choices=['oracle', 'random'],
-                       help='Expert strategy for BC')
-    parser.add_argument('--demo_episodes', type=int, default=100, 
-                       help='Number of demonstration episodes for BC')
+    parser.add_argument('--demo_path', type=str, 
+                       default='expert_demonstrations/raw/raw_demonstrations',
+                       help='Path to expert demonstrations for BC training')
+    parser.add_argument('--max_demos', type=int, default=None,
+                       help='Maximum number of demo files to load (for testing)')
     
     # Surrogate parameters
-    parser.add_argument('--use_surrogate', action='store_true', help='Enable surrogate learning')
+    parser.add_argument('--use_surrogate', action='store_true', help='Enable surrogate learning in GRPO')
     parser.add_argument('--surrogate_lr', type=float, default=1e-3, help='Surrogate learning rate')
+    parser.add_argument('--surrogate_hidden_dim', type=int, default=128, help='Surrogate hidden dimension')
+    parser.add_argument('--surrogate_layers', type=int, default=4, help='Surrogate number of layers')
+    parser.add_argument('--surrogate_heads', type=int, default=8, help='Surrogate number of attention heads')
     
     args = parser.parse_args()
     
@@ -230,11 +340,14 @@ def main():
         'scm_type': args.scm_type,
         'use_surrogate': args.use_surrogate,
         'surrogate_lr': args.surrogate_lr,
+        'surrogate_hidden_dim': args.surrogate_hidden_dim,
+        'surrogate_layers': args.surrogate_layers,
+        'surrogate_heads': args.surrogate_heads,
         'hidden_dim': args.hidden_dim,
         
         # BC-specific
-        'expert_strategy': args.expert,
-        'demonstration_episodes': args.demo_episodes,
+        'demo_path': args.demo_path,
+        'max_demos': args.max_demos,
         
         # Architecture (GRPO)
         'architecture': {
@@ -260,7 +373,11 @@ def main():
     
     if args.method == 'bc' or args.method == 'both':
         bc_results = train_bc(config)
-        logger.info("\n✓ BC training completed")
+        logger.info("\n✓ BC acquisition training completed")
+        
+    if args.method == 'surrogate':
+        surrogate_results = train_surrogate(config)
+        logger.info("\n✓ BC surrogate training completed")
     
     logger.info("\n" + "=" * 60)
     logger.info("Training completed successfully!")

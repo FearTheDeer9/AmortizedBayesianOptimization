@@ -2,12 +2,19 @@
 
 A framework combining AVICI's amortized inference with PARENT_SCALE's causal optimization approach for efficient causal discovery and intervention selection.
 
-## 🎯 Project Status: Phase 1.3 Complete
+## 📚 IMPORTANT: Developer Documentation
 
-✅ **Stable Parent Set Prediction Model** - Successfully implemented and validated  
-✅ **Numerical Stability** - No NaN issues, robust training  
-✅ **Bias-Free Architecture** - Fair competition between parent sets  
-✅ **Target-Aware Design** - Efficient O(k) scaling vs O(d²)  
+**Before contributing or extending this codebase, please read:**
+- [**CANONICAL_PATTERNS.md**](CANONICAL_PATTERNS.md) - ⭐ The authoritative guide to ACBO development patterns
+- [**ACBO_PIPELINE_STATUS_20250129.md**](ACBO_PIPELINE_STATUS_20250129.md) - Current implementation status
+- [**TRAINING_COMMANDS.md**](TRAINING_COMMANDS.md) - Example training and evaluation commands
+
+## 🎯 Project Status: Working End-to-End Pipeline
+
+✅ **GRPO Training** - True GRPO with batch advantages  
+✅ **BC Training** - Separated policy and surrogate trainers  
+✅ **Universal Evaluation** - Consistent evaluation across all methods  
+✅ **Active Learning** - Structure learning during evaluation  
 
 ## 🏗️ Architecture
 

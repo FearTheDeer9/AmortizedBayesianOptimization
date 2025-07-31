@@ -1,0 +1,318 @@
+{
+  "Random": {
+    "method": "Random",
+    "aggregate_metrics": {
+      "mean_improvement": 3.8007668254897,
+      "std_improvement": 3.139173867053668,
+      "mean_final_value": -3.492252993583679,
+      "mean_trajectory_value": 0.04460414834320545,
+      "mean_f1_score": 0.2,
+      "mean_shd": 1.2,
+      "n_scms": 5
+    },
+    "scm_results": {
+      "fork": {
+        "initial_value": 0.05656338483095169,
+        "best_value": -1.61675226688385,
+        "improvement": 1.6733156517148018,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "Z",
+          "X"
+        ],
+        "mean_trajectory_value": 0.8041009902954102,
+        "f1_score": 0.0,
+        "shd": 2
+      },
+      "chain_3": {
+        "initial_value": 0.31860530376434326,
+        "best_value": -4.919479846954346,
+        "improvement": 5.238085150718689,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "X1"
+        ],
+        "mean_trajectory_value": -0.17452505230903625,
+        "f1_score": 0.0,
+        "shd": 1
+      },
+      "chain_5": {
+        "initial_value": 0.9440136551856995,
+        "best_value": -8.35443115234375,
+        "improvement": 9.29844480752945,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "X3"
+        ],
+        "mean_trajectory_value": 0.20629148185253143,
+        "f1_score": 0.0,
+        "shd": 1
+      },
+      "collider": {
+        "initial_value": 0.21133869886398315,
+        "best_value": -1.8562605381011963,
+        "improvement": 2.0675992369651794,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "Y",
+          "X"
+        ],
+        "mean_trajectory_value": -0.58360356092453,
+        "f1_score": 0.0,
+        "shd": 2
+      },
+      "sparse_4vars": {
+        "initial_value": 0.012048116885125637,
+        "best_value": -0.7143411636352539,
+        "improvement": 0.7263892805203795,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [],
+        "mean_trajectory_value": -0.029243117198348045,
+        "f1_score": 1.0,
+        "shd": 0
+      }
+    }
+  },
+  "Oracle": {
+    "method": "Oracle",
+    "aggregate_metrics": {
+      "mean_improvement": 3.4994184015318752,
+      "std_improvement": 1.4781045998254543,
+      "mean_final_value": -3.1909045696258547,
+      "mean_trajectory_value": -2.2322378885000944,
+      "mean_f1_score": 0.2,
+      "mean_shd": 1.2,
+      "n_scms": 5
+    },
+    "scm_results": {
+      "fork": {
+        "initial_value": 0.05656338483095169,
+        "best_value": -4.870522975921631,
+        "improvement": 4.9270863607525826,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "Z",
+          "X"
+        ],
+        "mean_trajectory_value": -3.5697004795074463,
+        "f1_score": 0.0,
+        "shd": 2
+      },
+      "chain_3": {
+        "initial_value": 0.31860530376434326,
+        "best_value": -3.780519485473633,
+        "improvement": 4.099124789237976,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "X1"
+        ],
+        "mean_trajectory_value": -2.7330944538116455,
+        "f1_score": 0.0,
+        "shd": 1
+      },
+      "chain_5": {
+        "initial_value": 0.9440136551856995,
+        "best_value": -3.4566218852996826,
+        "improvement": 4.400635540485382,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "X3"
+        ],
+        "mean_trajectory_value": -2.5803956985473633,
+        "f1_score": 0.0,
+        "shd": 1
+      },
+      "collider": {
+        "initial_value": 0.21133869886398315,
+        "best_value": -3.1325173377990723,
+        "improvement": 3.3438560366630554,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "Y",
+          "X"
+        ],
+        "mean_trajectory_value": -2.248755693435669,
+        "f1_score": 0.0,
+        "shd": 2
+      },
+      "sparse_4vars": {
+        "initial_value": 0.012048116885125637,
+        "best_value": -0.7143411636352539,
+        "improvement": 0.7263892805203795,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [],
+        "mean_trajectory_value": -0.029243117198348045,
+        "f1_score": 1.0,
+        "shd": 0
+      }
+    }
+  },
+  "grpo_policy+bc_surrogate": {
+    "method": "grpo_policy+bc_surrogate",
+    "aggregate_metrics": {
+      "mean_improvement": 1.7219556806609035,
+      "std_improvement": 0.6000985885913672,
+      "mean_final_value": -1.4134418487548828,
+      "mean_trajectory_value": -0.061988511309027675,
+      "mean_f1_score": 0.2,
+      "mean_shd": 1.2,
+      "n_scms": 5
+    },
+    "scm_results": {
+      "fork": {
+        "initial_value": 0.05656338483095169,
+        "best_value": -1.8913459777832031,
+        "improvement": 1.9479093626141548,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "Z",
+          "X"
+        ],
+        "mean_trajectory_value": 0.07466594874858856,
+        "f1_score": 0.0,
+        "shd": 2
+      },
+      "chain_3": {
+        "initial_value": 0.31860530376434326,
+        "best_value": -2.027785062789917,
+        "improvement": 2.3463903665542603,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "X1"
+        ],
+        "mean_trajectory_value": -0.2759408950805664,
+        "f1_score": 0.0,
+        "shd": 1
+      },
+      "chain_5": {
+        "initial_value": 0.9440136551856995,
+        "best_value": -1.2735718488693237,
+        "improvement": 2.217585504055023,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "X3"
+        ],
+        "mean_trajectory_value": 0.027195028960704803,
+        "f1_score": 0.0,
+        "shd": 1
+      },
+      "collider": {
+        "initial_value": 0.21133869886398315,
+        "best_value": -1.1601651906967163,
+        "improvement": 1.3715038895606995,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "Y",
+          "X"
+        ],
+        "mean_trajectory_value": -0.10661952197551727,
+        "f1_score": 0.0,
+        "shd": 2
+      },
+      "sparse_4vars": {
+        "initial_value": 0.012048116885125637,
+        "best_value": -0.7143411636352539,
+        "improvement": 0.7263892805203795,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [],
+        "mean_trajectory_value": -0.029243117198348045,
+        "f1_score": 1.0,
+        "shd": 0
+      }
+    }
+  },
+  "bc_policy+bc_surrogate": {
+    "method": "bc_policy+bc_surrogate",
+    "aggregate_metrics": {
+      "mean_improvement": 2.1288587568327784,
+      "std_improvement": 1.3084481597369721,
+      "mean_final_value": -1.8203449249267578,
+      "mean_trajectory_value": -0.33764449171721933,
+      "mean_f1_score": 0.2,
+      "mean_shd": 1.2,
+      "n_scms": 5
+    },
+    "scm_results": {
+      "fork": {
+        "initial_value": 0.05656338483095169,
+        "best_value": -1.313036322593689,
+        "improvement": 1.3695997074246407,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "Z",
+          "X"
+        ],
+        "mean_trajectory_value": 0.27504676580429077,
+        "f1_score": 0.0,
+        "shd": 2
+      },
+      "chain_3": {
+        "initial_value": 0.31860530376434326,
+        "best_value": -2.035770893096924,
+        "improvement": 2.354376196861267,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "X1"
+        ],
+        "mean_trajectory_value": -0.596193253993988,
+        "f1_score": 0.0,
+        "shd": 1
+      },
+      "chain_5": {
+        "initial_value": 0.9440136551856995,
+        "best_value": -3.5832431316375732,
+        "improvement": 4.527256786823273,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "X3"
+        ],
+        "mean_trajectory_value": -1.0878410339355469,
+        "f1_score": 0.0,
+        "shd": 1
+      },
+      "collider": {
+        "initial_value": 0.21133869886398315,
+        "best_value": -1.4553331136703491,
+        "improvement": 1.6666718125343323,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [
+          "Y",
+          "X"
+        ],
+        "mean_trajectory_value": -0.24999181926250458,
+        "f1_score": 0.0,
+        "shd": 2
+      },
+      "sparse_4vars": {
+        "initial_value": 0.012048116885125637,
+        "best_value": -0.7143411636352539,
+        "improvement": 0.7263892805203795,
+        "regret": 0.0,
+        "n_unique_interventions": 0,
+        "true_parents": [],
+        "mean_trajectory_value": -0.029243117198348045,
+        "f1_score": 1.0,
+        "shd": 0
+      }
+    }
+  }
+}

@@ -24,7 +24,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.causal_bayes_opt.evaluation.universal_evaluator import create_universal_evaluator
 from src.causal_bayes_opt.evaluation.model_interfaces import (
     create_grpo_acquisition, create_bc_acquisition,
-    create_random_acquisition, create_oracle_acquisition
+    create_random_acquisition, create_optimal_oracle_acquisition
 )
 from src.causal_bayes_opt.experiments.benchmark_scms import (
     create_fork_scm, create_chain_scm, create_collider_scm,
@@ -313,7 +313,7 @@ def main():
             if child not in scm_edges:
                 scm_edges[child] = []
             scm_edges[child].append(parent)
-        oracle_fn = create_oracle_acquisition(scm_edges, seed=42)
+        oracle_fn = create_optimal_oracle_acquisition(scm, optimization_direction='MINIMIZE', seed=42)
         run_tracked_evaluation("Oracle", oracle_fn, [(scm_name, scm)], config, tracker)
     
     if args.grpo_checkpoint:

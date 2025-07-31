@@ -344,50 +344,52 @@ def compute_structure_metrics_continuous(
 
 def create_surrogate_fn_wrapper(
     net: hk.Transformed,
-    params: Any
+    params: Any,
+    variables: Optional[List[str]] = None
 ) -> Callable[[jnp.ndarray, str], Dict[str, Any]]:
     """
     Create a surrogate function wrapper for the evaluator.
     
-    This wrapper handles the variable name mapping correctly by inferring
-    variable names from the tensor context and target variable.
+    This wrapper uses explicit variable names instead of inferring them.
     
     Args:
         net: Haiku transformed model
         params: Model parameters
+        variables: Optional list of variable names. If not provided,
+                  will be inferred from tensor at runtime (deprecated).
         
     Returns:
         Function that takes (tensor, target_var) and returns posterior dict
     """
+    # Import here to avoid circular dependency
+    from ..utils.variable_mapping import VariableMapper
+    
     def surrogate_fn(tensor: jnp.ndarray, target_var: str) -> Dict[str, Any]:
         # Get dimensions
         n_vars = tensor.shape[1]
         
-        # Infer variable names based on context
-        if n_vars == 3 and target_var in ['X', 'Y', 'Z']:
-            # Standard 3-variable SCMs (fork, collider, etc.)
-            variables = ['X', 'Y', 'Z']
-        elif target_var.startswith('X') and target_var[1:].isdigit():
-            # Chain or other numbered SCMs
-            variables = [f'X{i}' for i in range(n_vars)]
+        # Use provided variables or fall back to old inference logic (deprecated)
+        if variables is not None:
+            # Use explicit variables (preferred)
+            var_list = variables
         else:
-            # Default to generic names
-            variables = [f'X{i}' for i in range(n_vars)]
-        
-        # Get target index
-        if target_var in variables:
-            target_idx = variables.index(target_var)
-        else:
-            # Handle special cases
-            if target_var == 'Y' and n_vars == 3:
-                target_idx = 1
-                variables = ['X', 'Y', 'Z']
-            elif target_var == 'Z' and n_vars == 3:
-                target_idx = 2
-                variables = ['X', 'Y', 'Z']
+            # DEPRECATED: Infer variable names based on context
+            logger.warning("Variable name inference is deprecated. Please provide explicit variable names.")
+            if n_vars == 3 and target_var in ['X', 'Y', 'Z']:
+                # Standard 3-variable SCMs (fork, collider, etc.)
+                var_list = ['X', 'Y', 'Z']
+            elif target_var.startswith('X') and target_var[1:].isdigit():
+                # Chain or other numbered SCMs
+                var_list = [f'X{i}' for i in range(n_vars)]
             else:
-                # Default to last variable
-                target_idx = n_vars - 1
+                # Default to generic names
+                var_list = [f'X{i}' for i in range(n_vars)]
+        
+        # Create variable mapper
+        mapper = VariableMapper(var_list, target_var)
+        
+        # Get target index from mapper
+        target_idx = mapper.target_idx
         
         # Get prediction (no dropout during inference)
         rng = jax.random.PRNGKey(0)
@@ -398,7 +400,7 @@ def create_surrogate_fn_wrapper(
         
         # Create output dictionary with proper variable names
         marginal_probs = {}
-        for i, var in enumerate(variables):
+        for i, var in enumerate(mapper.variables):
             if i != target_idx:
                 marginal_probs[var] = float(parent_probs[i])
             else:
@@ -413,7 +415,8 @@ def create_surrogate_fn_wrapper(
             'parent_probabilities': parent_probs,
             'entropy': float(entropy),
             'attention_logits': outputs.get('attention_logits'),
-            'model_type': 'continuous'
+            'model_type': 'continuous',
+            'variable_order': mapper.variables  # Include for debugging
         }
     
     return surrogate_fn

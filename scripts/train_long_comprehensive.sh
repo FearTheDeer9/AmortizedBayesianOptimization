@@ -36,7 +36,6 @@ echo "2. Training BC Policy from Oracle demonstrations (2000 episodes)..."
 echo "This trains a policy to mimic the oracle"
 poetry run python scripts/train_acbo_methods.py \
     --method bc \
-    --model_type policy \
     --episodes 2000 \
     --batch_size 128 \
     --learning_rate 5e-5 \
@@ -52,13 +51,13 @@ echo ""
 echo "3. Training BC Surrogate from demonstrations (2000 episodes)..."
 echo "This trains a surrogate for structure learning"
 poetry run python scripts/train_acbo_methods.py \
-    --method bc \
-    --model_type surrogate \
+    --method surrogate \
     --episodes 2000 \
     --batch_size 64 \
     --surrogate_lr 1e-4 \
-    --surrogate_layers 6 \
     --surrogate_hidden_dim 256 \
+    --surrogate_layers 6 \
+    --surrogate_heads 8 \
     --demo_path expert_demonstrations/raw/raw_demonstrations \
     --scm_type mixed \
     --min_vars 3 \

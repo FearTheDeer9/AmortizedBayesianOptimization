@@ -24,7 +24,7 @@ from src.causal_bayes_opt.evaluation.universal_evaluator import (
 from src.causal_bayes_opt.evaluation.model_interfaces import (
     create_grpo_acquisition,
     create_random_acquisition,
-    create_oracle_acquisition,
+    create_optimal_oracle_acquisition,
     create_uniform_exploration_acquisition
 )
 from src.causal_bayes_opt.experiments.benchmark_scms import (
@@ -73,7 +73,7 @@ def demonstrate_universal_evaluation():
     acquisition_functions = {
         'Random': create_random_acquisition(seed=42),
         'Uniform': create_uniform_exploration_acquisition(seed=43),
-        'Oracle': create_oracle_acquisition(scm_edges, seed=44)
+        'Oracle': create_optimal_oracle_acquisition(scm, optimization_direction='MINIMIZE', seed=44)
     }
     
     results = {}

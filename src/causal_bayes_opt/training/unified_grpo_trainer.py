@@ -25,6 +25,7 @@ import pyrsistent as pyr
 
 # Core imports
 from .three_channel_converter import buffer_to_three_channel_tensor
+from .five_channel_converter import buffer_to_five_channel_tensor
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import create_sample, get_values
 from ..acquisition.clean_rewards import compute_clean_reward
@@ -152,8 +153,13 @@ class UnifiedGRPOTrainer:
         self.reward_weights = config.get('reward_weights', {
             'optimization': 0.8,
             'discovery': 0.1,
-            'efficiency': 0.1
+            'efficiency': 0.1,
+            'info_gain': 0.0  # Default to 0, activated when use_surrogate=True
         })
+        
+        # Auto-activate info gain weight when using surrogate
+        if self.use_surrogate and self.reward_weights.get('info_gain', 0) == 0:
+            self.reward_weights['info_gain'] = 0.3
         
         # Convergence config
         self.use_early_stopping = config.get('use_early_stopping', True)
@@ -209,8 +215,13 @@ class UnifiedGRPOTrainer:
         self.reward_weights = kwargs['reward_weights'] or {
             'optimization': 0.8,
             'discovery': 0.1,
-            'efficiency': 0.1
+            'efficiency': 0.1,
+            'info_gain': 0.0  # Default to 0, activated when use_surrogate=True
         }
+        
+        # Auto-activate info gain weight when using surrogate
+        if self.use_surrogate and self.reward_weights.get('info_gain', 0) == 0:
+            self.reward_weights['info_gain'] = 0.3
         
         # Convergence detection
         self.use_early_stopping = kwargs['use_early_stopping']
@@ -238,8 +249,8 @@ class UnifiedGRPOTrainer:
         policy_fn = create_clean_grpo_policy(hidden_dim=self.hidden_dim)
         self.policy_fn = hk.transform(policy_fn)
         
-        # Initialize with dummy data
-        dummy_tensor = jnp.zeros((10, 5, 3))  # [T=10, n_vars=5, channels=3]
+        # Initialize with dummy data - now 5 channels
+        dummy_tensor = jnp.zeros((10, 5, 5))  # [T=10, n_vars=5, channels=5]
         self.rng_key, init_key = random.split(self.rng_key)
         self.policy_params = self.policy_fn.init(init_key, dummy_tensor, 0)
         
@@ -374,8 +385,9 @@ class UnifiedGRPOTrainer:
             
             # Check convergence if enabled
             if self.convergence_detector:
-                # Convert dict metrics to TrainingMetrics object for convergence detector
-                training_metrics = TrainingMetrics(
+                # Create a simple dataclass-like object for convergence detector
+                from types import SimpleNamespace
+                training_metrics = SimpleNamespace(
                     episode=metrics['episode'],
                     mean_reward=metrics['mean_reward'],
                     structure_accuracy=metrics.get('structure_metrics', {}).get('f1_score', 0.0),
@@ -470,17 +482,44 @@ class UnifiedGRPOTrainer:
         for _ in range(self.grpo_config.group_size):
             key, step_key = random.split(key)
             
-            # Convert buffer to tensor
-            tensor, var_order = buffer_to_three_channel_tensor(
-                buffer, target_var, max_history_size=100, standardize=True
-            )
+            # Get posterior before intervention for info gain calculation
+            posterior_before = None
             
-            # Get posterior prediction if surrogate is enabled
-            posterior = None
-            if self.use_surrogate and self.surrogate_net is not None:
-                posterior = self.surrogate_predict_fn(tensor, target_idx, variables)
+            # Convert buffer to 5-channel tensor with surrogate integration
+            if self.use_surrogate and self.surrogate_predict_fn is not None:
+                # Create surrogate function wrapper
+                def surrogate_wrapper(t, tgt):
+                    return self.surrogate_predict_fn(t, target_idx, variables)
+                
+                tensor, var_order, diagnostics = buffer_to_five_channel_tensor(
+                    buffer, target_var, 
+                    surrogate_fn=surrogate_wrapper,
+                    max_history_size=100, 
+                    standardize=True,
+                    validate_signals=True
+                )
+                
+                # Log surrogate diagnostics
+                if diagnostics.get('surrogate_success'):
+                    logger.debug(
+                        f"Surrogate integration successful: "
+                        f"mean_prob={diagnostics.get('surrogate_stats', {}).get('mean_prob', 0):.3f}"
+                    )
+                    
+                # Keep posterior for structure metrics and info gain
+                posterior_before = surrogate_wrapper(tensor[:, :, :3], target_var)
+            else:
+                # No surrogate - convert 3-channel to 5-channel with zeros
+                tensor_3ch, var_order = buffer_to_three_channel_tensor(
+                    buffer, target_var, max_history_size=100, standardize=True
+                )
+                # Pad to 5 channels
+                T, n_vars, _ = tensor_3ch.shape
+                tensor = jnp.zeros((T, n_vars, 5))
+                tensor = tensor.at[:, :, :3].set(tensor_3ch)
+                posterior_before = None
             
-            # Get policy output
+            # Get policy output with 5-channel input
             key, policy_key = random.split(key)
             policy_output = self.policy_fn.apply(
                 self.policy_params, policy_key, tensor, target_idx
@@ -521,11 +560,39 @@ class UnifiedGRPOTrainer:
             # Compute reward
             outcome_sample = intervention_samples[0] if intervention_samples else None
             if outcome_sample:
+                # Get posterior after intervention if using surrogate
+                posterior_after = None
+                if self.use_surrogate and self.surrogate_predict_fn is not None:
+                    # For now, simulate information gain by updating surrogate parameters
+                    # In a full implementation, we would properly add intervention outcomes
+                    # to the buffer and update the surrogate
+                    
+                    # Create a simple update to simulate learning
+                    # This is a placeholder - in production, you'd properly handle
+                    # the intervention samples and update the buffer
+                    
+                    # Update surrogate with current buffer (simulating learning)
+                    self.surrogate_params, self.surrogate_opt_state, update_metrics = \
+                        self.surrogate_update_fn(
+                            self.surrogate_params,
+                            self.surrogate_opt_state,
+                            buffer,
+                            target_var
+                        )
+                    
+                    # Get updated posterior (will show some information gain)
+                    def updated_surrogate_wrapper(t, tgt):
+                        return self.surrogate_predict_fn(t, target_idx, variables)
+                    
+                    # Use the same tensor but with updated parameters
+                    posterior_after = updated_surrogate_wrapper(tensor[:, :, :3], target_var)
+                
                 # Map reward weights to clean reward format
                 clean_weights = {
                     'target': self.reward_weights.get('optimization', 0.8),
                     'diversity': self.reward_weights.get('discovery', 0.1),
-                    'exploration': self.reward_weights.get('efficiency', 0.1)
+                    'exploration': self.reward_weights.get('efficiency', 0.1),
+                    'info_gain': self.reward_weights.get('info_gain', 0.3)  # Add info gain weight
                 }
                 
                 reward_info = compute_clean_reward(
@@ -539,7 +606,9 @@ class UnifiedGRPOTrainer:
                     config={
                         'optimization_direction': self.optimization_direction,
                         'weights': clean_weights
-                    }
+                    },
+                    posterior_before=posterior_before,
+                    posterior_after=posterior_after
                 )
                 reward = reward_info['total']
             else:
@@ -572,8 +641,9 @@ class UnifiedGRPOTrainer:
         
         # Compute structure metrics if surrogate is available
         structure_metrics = {}
-        if self.use_surrogate and true_parents and posterior:
-            metrics = compute_structure_metrics_continuous(posterior, true_parents)
+        if self.use_surrogate and true_parents and posterior_before:
+            # Use the last posterior (after all interventions)
+            metrics = compute_structure_metrics_continuous(posterior_before, true_parents)
             structure_metrics = metrics
         
         return {
@@ -620,7 +690,7 @@ class UnifiedGRPOTrainer:
     def _create_grpo_batch(self, batch_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create GRPO batch in format expected by GRPO loss computation."""
         # Stack tensors
-        states_batch = jnp.stack(batch_data['states'])  # [batch_size, T, n_vars, 3]
+        states_batch = jnp.stack(batch_data['states'])  # [batch_size, T, n_vars, 5]
         
         # Extract action indices and values
         action_var_indices = jnp.array([a['variable'] for a in batch_data['actions']])
@@ -640,7 +710,7 @@ class UnifiedGRPOTrainer:
     
     def _compute_simple_grpo_loss(self, params: Any, batch: Dict[str, Any]) -> Tuple[jnp.ndarray, Dict[str, Any]]:
         """Compute GRPO loss without requiring AcquisitionState objects."""
-        states = batch['states']  # [batch_size, T, n_vars, 3]
+        states = batch['states']  # [batch_size, T, n_vars, 5]
         actions = batch['actions']
         rewards = batch['rewards']
         old_log_probs = batch['old_log_probs']

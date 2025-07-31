@@ -49,7 +49,7 @@ Posterior = Optional[Dict[str, Any]]  # Structure prediction (optional)
 Intervention = Dict[str, Any]  # {'targets': set, 'values': dict}
 
 # Function signatures for models
-SurrogateFn = Callable[[Tensor, str], Posterior]
+SurrogateFn = Callable[[Tensor, str, List[str]], Posterior]  # Added variables parameter
 AcquisitionFn = Callable[[Tensor, Posterior, str, List[str]], Intervention]
 
 
@@ -64,6 +64,8 @@ class StepMetrics:
     time_elapsed: float
     marginals: Optional[Dict[str, float]] = None
     entropy: Optional[float] = None
+    predicted_parents: Optional[List[str]] = None  # Parents predicted by surrogate
+    prediction_confidence: Optional[float] = None  # Average confidence of predictions
 
 
 @dataclass
@@ -182,16 +184,31 @@ class UniversalACBOEvaluator:
                     buffer, target_var, standardize=True
                 )
                 
+                # Log tensor information
+                logger.info(f"\nStep {step} - Tensor Input:")
+                logger.info(f"  Tensor shape: {tensor.shape}")
+                logger.info(f"  Variable order: {var_order}")
+                logger.info(f"  Last timestep values:")
+                last_timestep = tensor[-1]  # [n_vars, 3]
+                for i, var in enumerate(var_order):
+                    value = last_timestep[i, 0]
+                    is_intervened = last_timestep[i, 1]
+                    is_target = last_timestep[i, 2]
+                    logger.info(f"    {var}: value={value:.3f}, intervened={is_intervened:.0f}, is_target={is_target:.0f}")
+                
                 # Get structure prediction (if surrogate provided)
                 posterior = None
                 if surrogate_fn is not None:
                     try:
-                        posterior = surrogate_fn(tensor, target_var)
+                        logger.info(f"\n  Calling surrogate with tensor shape {tensor.shape} and variables {var_order}...")
+                        posterior = surrogate_fn(tensor, target_var, var_order)
+                        logger.info(f"  Surrogate returned: {type(posterior)}")
                     except Exception as e:
                         logger.warning(f"Surrogate prediction failed: {e}")
                 
                 # Get intervention from acquisition function
                 # Pass variable order to help acquisition functions
+                logger.info(f"\n  Calling acquisition function...")
                 intervention = acquisition_fn(tensor, posterior, target_var, var_order)
                 
                 # Validate intervention
@@ -264,6 +281,9 @@ class UniversalACBOEvaluator:
                 # Extract marginals if posterior available
                 marginals = None
                 entropy = None
+                predicted_parents = None
+                prediction_confidence = None
+                
                 if posterior:
                     if isinstance(posterior, dict):
                         # Handle dictionary format
@@ -273,8 +293,51 @@ class UniversalACBOEvaluator:
                             entropy = float(posterior['entropy'])
                     elif isinstance(posterior, ParentSetPosterior):
                         # Handle ParentSetPosterior objects
-                        marginals = get_marginal_parent_probabilities(posterior, var_order)
+                        # Check metadata first (BC surrogate stores marginals there)
+                        if hasattr(posterior, 'metadata') and 'marginal_parent_probs' in posterior.metadata:
+                            raw_marginals = dict(posterior.metadata['marginal_parent_probs'])
+                            
+                            # Map from surrogate variable names to actual SCM variable names
+                            marginals = {}
+                            for var_name, prob in raw_marginals.items():
+                                # First check if the variable name is already in var_order
+                                if var_name in var_order:
+                                    marginals[var_name] = prob
+                                # If surrogate uses zero-indexed names (X0, X1, etc), map to actual names
+                                elif var_name.startswith('X') and var_name[1:].isdigit():
+                                    idx = int(var_name[1:])
+                                    if idx < len(var_order):
+                                        actual_name = var_order[idx]
+                                        marginals[actual_name] = prob
+                            
+                            logger.info(f"Variable mapping: {var_order}")
+                            logger.info(f"Raw marginals: {raw_marginals}")
+                            logger.info(f"Mapped marginals: {marginals}")
+                        else:
+                            marginals = get_marginal_parent_probabilities(posterior, var_order)
                         entropy = float(posterior.uncertainty)
+                
+                # Extract predicted parents and confidence
+                if marginals:
+                    # Log detailed marginals for debugging
+                    logger.info(f"\n  Step {step} - Detailed marginal probabilities:")
+                    logger.info(f"  Method: {self.name}")
+                    for var in sorted(marginals.keys()):
+                        prob = marginals[var]
+                        is_parent = var in true_parents
+                        logger.info(f"    {var}: {prob:.6f} (actual parent: {is_parent})")
+                    
+                    threshold = 0.5
+                    predicted_parents = [var for var, prob in marginals.items() 
+                                       if var != target_var and prob > threshold]
+                    
+                    # Calculate average confidence (distance from 0.5)
+                    confidences = [abs(prob - 0.5) * 2 for var, prob in marginals.items() 
+                                 if var != target_var]
+                    prediction_confidence = float(jnp.mean(jnp.array(confidences))) if confidences else 0.0
+                    
+                    logger.info(f"  Predicted parents (step {step}): {predicted_parents}")
+                    logger.info(f"  Prediction confidence: {prediction_confidence:.3f}")
                 
                 # Record step metrics
                 history.append(StepMetrics(
@@ -285,15 +348,67 @@ class UniversalACBOEvaluator:
                     best_value=best_value,
                     time_elapsed=time.time() - step_start,
                     marginals=marginals,
-                    entropy=entropy
+                    entropy=entropy,
+                    predicted_parents=predicted_parents,
+                    prediction_confidence=prediction_confidence
                 ))
                 
-                logger.debug(
-                    f"Step {step}: intervened on {intervention.get('targets', {})}, "
-                    f"outcome={outcome_value:.3f}, reward={reward_info['total']:.3f}"
+                # Detailed logging for debugging
+                logger.info(
+                    f"\n{'='*60}\n"
+                    f"Step {step} Summary:\n"
+                    f"  Intervention: {list(intervention.get('targets', []))} = "
+                    f"{[intervention['values'][t] for t in intervention.get('targets', [])]}\n"
+                    f"  Outcome value: {outcome_value:.3f}\n"
+                    f"  Best value so far: {best_value:.3f}\n"
+                    f"  Buffer size: {len(buffer._observations) + len(buffer._interventions)}\n"
                 )
+                
+                if marginals:
+                    logger.info("  Surrogate predictions (marginal probabilities):")
+                    for var, prob in sorted(marginals.items()):
+                        is_true_parent = var in true_parents
+                        logger.info(f"    {var}: {prob:.3f} {'✓ (true parent)' if is_true_parent else ''}")
+                    
+                    # Log F1 calculation details
+                    threshold = 0.5
+                    predicted_parents = {var for var, prob in marginals.items() if prob > threshold}
+                    true_positives = len(predicted_parents & true_parents)
+                    false_positives = len(predicted_parents - true_parents)
+                    false_negatives = len(true_parents - predicted_parents)
+                    
+                    logger.info(f"\n  F1 Calculation (threshold={threshold}):")
+                    logger.info(f"    True parents: {sorted(true_parents)}")
+                    logger.info(f"    Predicted parents (prob > {threshold}): {sorted(predicted_parents)}")
+                    logger.info(f"    True positives: {true_positives}")
+                    logger.info(f"    False positives: {false_positives}")
+                    logger.info(f"    False negatives: {false_negatives}")
+                    
+                    if len(predicted_parents) > 0 and len(true_parents) > 0:
+                        precision = true_positives / len(predicted_parents)
+                        recall = true_positives / len(true_parents)
+                        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+                        logger.info(f"    Precision: {precision:.3f}, Recall: {recall:.3f}, F1: {f1:.3f}")
+                    else:
+                        logger.info(f"    F1: 0.0 (no predictions or no true parents)")
+                else:
+                    logger.info("  No surrogate predictions available")
+                
+                logger.info(f"{'='*60}\n")
             
             # Compute final metrics
+            logger.info(f"\n{'='*70}")
+            logger.info("Computing final metrics...")
+            logger.info(f"  Initial value: {initial_value:.3f}")
+            logger.info(f"  Best value: {best_value:.3f}")
+            logger.info(f"  Improvement (best - initial): {initial_value - best_value:.3f}")
+            
+            # Calculate mean trajectory value
+            trajectory_values = [step.outcome_value for step in history]
+            mean_traj = float(jnp.mean(jnp.array(trajectory_values))) if trajectory_values else initial_value
+            logger.info(f"  Mean trajectory value: {mean_traj:.3f}")
+            logger.info(f"  Trajectory: {[f'{v:.2f}' for v in trajectory_values[:10]]}...")
+            
             final_metrics = self._compute_final_metrics(
                 history, initial_value, best_value, true_parents, optimization_direction
             )
@@ -405,12 +520,40 @@ class UniversalACBOEvaluator:
             'optimization_direction': optimization_direction
         }
         
+        # Add prediction history analysis
+        prediction_history = []
+        confidence_history = []
+        for step in history[1:]:  # Skip initial state
+            if step.predicted_parents is not None:
+                prediction_history.append({
+                    'step': step.step,
+                    'predicted': step.predicted_parents,
+                    'confidence': step.prediction_confidence
+                })
+                confidence_history.append(step.prediction_confidence)
+        
+        if prediction_history:
+            metrics['prediction_history'] = prediction_history
+            metrics['mean_prediction_confidence'] = float(jnp.mean(jnp.array(confidence_history)))
+            
+            # Check prediction consistency
+            all_predictions = [tuple(sorted(p['predicted'])) for p in prediction_history]
+            unique_predictions = len(set(all_predictions))
+            metrics['prediction_consistency'] = 1.0 / unique_predictions if unique_predictions > 0 else 1.0
+            logger.info(f"\nPrediction diversity: {unique_predictions} unique predictions across {len(prediction_history)} steps")
+        
         # Structure learning metrics (if marginals available)
         if final_step and final_step.marginals:
             pred_parents = {
                 var for var, prob in final_step.marginals.items() 
                 if prob > 0.5
             }
+            
+            logger.info("\nFinal F1 Score Calculation:")
+            logger.info(f"  Final marginal probabilities:")
+            for var, prob in sorted(final_step.marginals.items()):
+                logger.info(f"    {var}: {prob:.3f}")
+            
             metrics['final_f1'] = compute_f1_score_from_marginals(
                 final_step.marginals, true_parents
             )
@@ -418,7 +561,13 @@ class UniversalACBOEvaluator:
                 final_step.marginals, true_parents
             )
             metrics['predicted_parents'] = list(pred_parents)
+            
+            logger.info(f"  Final F1 score: {metrics['final_f1']:.3f}")
+            logger.info(f"  Final SHD: {metrics['final_shd']}")
+            logger.info(f"  Predicted parents: {sorted(pred_parents)}")
+            logger.info(f"  True parents: {sorted(true_parents)}")
         else:
+            logger.info("\nNo marginal probabilities available - F1 score = 0.0")
             metrics['final_f1'] = 0.0
             metrics['final_shd'] = len(true_parents)  # Worst case
             metrics['predicted_parents'] = []

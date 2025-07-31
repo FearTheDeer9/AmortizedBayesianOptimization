@@ -30,10 +30,10 @@ def create_clean_grpo_policy(hidden_dim: int = 256) -> Callable:
     """
     def policy_fn(tensor_input: jnp.ndarray, target_idx: int = 0) -> Dict[str, jnp.ndarray]:
         """
-        GRPO policy network processing 3-channel tensor input.
+        GRPO policy network processing 5-channel tensor input.
         
         Args:
-            tensor_input: [T, n_vars, 3] tensor in ACBO format
+            tensor_input: [T, n_vars, C] tensor where C can be 3 or 5
             target_idx: Index of target variable to mask
             
         Returns:
@@ -41,10 +41,20 @@ def create_clean_grpo_policy(hidden_dim: int = 256) -> Callable:
             - variable_logits: [n_vars] logits for variable selection
             - value_params: [n_vars, 2] mean and log_std for each variable
         """
-        T, n_vars, _ = tensor_input.shape
+        T, n_vars, n_channels = tensor_input.shape
         
-        # Project to hidden dimension
-        flat_input = tensor_input.reshape(T * n_vars, 3)
+        # Handle both 3 and 5 channel inputs
+        if n_channels == 3:
+            # Legacy 3-channel format - pad with zeros
+            padded = jnp.zeros((T, n_vars, 5))
+            padded = padded.at[:, :, :3].set(tensor_input)
+            tensor_input = padded
+            n_channels = 5
+        elif n_channels != 5:
+            raise ValueError(f"Expected 3 or 5 channels, got {n_channels}")
+        
+        # Project to hidden dimension (now from 5 channels)
+        flat_input = tensor_input.reshape(T * n_vars, 5)
         x = hk.Linear(hidden_dim, name="input_projection")(flat_input)
         x = jax.nn.relu(x)
         

@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/harellidar/Documents/Imperial/Individual_Project/causal_bayes_opt/test_marginals_logging.py", line 7, in <module>
+    from src.causal_bayes_opt.utils.scm_providers import get_test_scms
+ImportError: cannot import name 'get_test_scms' from 'src.causal_bayes_opt.utils.scm_providers' (/Users/harellidar/Documents/Imperial/Individual_Project/causal_bayes_opt/src/causal_bayes_opt/utils/scm_providers.py)

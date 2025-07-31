@@ -28,7 +28,9 @@ def compute_clean_reward(
     intervention: Dict[str, Any],
     outcome: Any,
     target_variable: str,
-    config: Optional[Dict[str, Any]] = None
+    config: Optional[Dict[str, Any]] = None,
+    posterior_before: Optional[Dict[str, Any]] = None,
+    posterior_after: Optional[Dict[str, Any]] = None
 ) -> Dict[str, float]:
     """
     Compute verifiable reward directly from buffer without AcquisitionState.
@@ -37,6 +39,7 @@ def compute_clean_reward(
     1. Target optimization reward (primary objective)
     2. Intervention diversity reward (explore different variables)
     3. Value exploration reward (explore different intervention values)
+    4. Information gain reward (reduce structure uncertainty) - when surrogate available
     
     Args:
         buffer_before: Buffer state before intervention
@@ -44,6 +47,8 @@ def compute_clean_reward(
         outcome: Outcome sample from intervention
         target_variable: Variable being optimized
         config: Optional configuration with weights and parameters
+        posterior_before: Optional posterior before intervention (for info gain)
+        posterior_after: Optional posterior after intervention (for info gain)
         
     Returns:
         Dictionary with reward components and total
@@ -52,11 +57,18 @@ def compute_clean_reward(
         config = {}
     
     # Default weights for different objectives
-    weights = config.get('weights', {
+    default_weights = {
         'target': 1.0,      # Primary objective: optimize target
         'diversity': 0.2,   # Secondary: try different variables
-        'exploration': 0.1  # Tertiary: try different values
-    })
+        'exploration': 0.1, # Tertiary: try different values
+        'info_gain': 0.0    # Information gain (activated when surrogate available)
+    }
+    
+    # Use provided weights or defaults
+    weights = config.get('weights', {})
+    for key, default_val in default_weights.items():
+        if key not in weights:
+            weights[key] = default_val
     
     # 1. Target improvement reward
     target_reward = compute_target_reward(
@@ -70,11 +82,19 @@ def compute_clean_reward(
     # 3. Exploration bonus for trying new intervention values
     exploration_reward = compute_exploration_reward(buffer_before, intervention)
     
+    # 4. Information gain reward (if posteriors provided)
+    info_gain_reward = 0.0
+    if posterior_before is not None and posterior_after is not None:
+        info_gain_reward = compute_information_gain_reward(
+            posterior_before, posterior_after
+        )
+    
     # Weighted combination
     total_reward = (
         weights['target'] * target_reward +
         weights['diversity'] * diversity_reward +
-        weights['exploration'] * exploration_reward
+        weights['exploration'] * exploration_reward +
+        weights['info_gain'] * info_gain_reward
     )
     
     return {
@@ -82,6 +102,7 @@ def compute_clean_reward(
         'target': float(target_reward),
         'diversity': float(diversity_reward),
         'exploration': float(exploration_reward),
+        'info_gain': float(info_gain_reward),
         'weights': weights
     }
 
@@ -281,6 +302,44 @@ def compute_exploration_reward(
     )
     
     return normalized_distance
+
+
+def compute_information_gain_reward(
+    posterior_before: Dict[str, Any],
+    posterior_after: Dict[str, Any]
+) -> float:
+    """
+    Compute information gain as reduction in entropy.
+    
+    Information gain measures how much the intervention reduced our
+    uncertainty about the causal structure.
+    
+    Args:
+        posterior_before: Posterior before intervention (with 'entropy' key)
+        posterior_after: Posterior after intervention (with 'entropy' key)
+        
+    Returns:
+        Information gain reward in [0, 1] range
+    """
+    # Extract entropy values
+    entropy_before = posterior_before.get('entropy', 0.0)
+    entropy_after = posterior_after.get('entropy', 0.0)
+    
+    # Compute raw information gain
+    info_gain = max(0.0, entropy_before - entropy_after)
+    
+    # Normalize to [0, 1] range
+    # Use sigmoid-like function centered at meaningful gain
+    # Gain of 0.1 nats ~ 0.5 reward, gain of 0.5 nats ~ 0.88 reward
+    normalized_gain = float(1.0 / (1.0 + jnp.exp(-4.0 * info_gain)))
+    
+    logger.debug(
+        f"Information gain: entropy_before={entropy_before:.3f}, "
+        f"entropy_after={entropy_after:.3f}, gain={info_gain:.3f}, "
+        f"reward={normalized_gain:.3f}"
+    )
+    
+    return normalized_gain
 
 
 def compute_structure_aware_reward(

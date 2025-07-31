@@ -30,7 +30,7 @@ from src.causal_bayes_opt.mechanisms.linear import (
 )
 from src.causal_bayes_opt.environments.sampling import sample_with_intervention
 from src.causal_bayes_opt.interventions.handlers import create_perfect_intervention
-from src.causal_bayes_opt.evaluation.model_interfaces import create_oracle_acquisition
+from src.causal_bayes_opt.evaluation.model_interfaces import create_optimal_oracle_acquisition
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ def test_oracle_on_scm(scm, scm_name, n_tests=20):
             scm_edges[child] = []
         scm_edges[child].append(parent)
     
-    oracle_fn = create_oracle_acquisition(scm_edges, seed=42)
+    oracle_fn = create_optimal_oracle_acquisition(scm, optimization_direction='MINIMIZE', seed=42)
     
     # Test oracle multiple times
     oracle_vars = []

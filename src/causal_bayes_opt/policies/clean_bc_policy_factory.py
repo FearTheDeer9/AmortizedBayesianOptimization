@@ -41,15 +41,26 @@ def create_clean_bc_policy(hidden_dim: int = 256) -> callable:
         BC policy network for intervention selection.
         
         Args:
-            tensor: Input tensor of shape [T, n_vars, 3] in 3-channel format
+            tensor: Input tensor of shape [T, n_vars, C] where C can be 3 or 5
             target_idx: Index of target variable (to mask from selection)
             
         Returns:
             Dictionary with 'variable_logits' and 'value_params'
         """
+        # Handle both 3 and 5 channel inputs
+        T, n_vars, n_channels = tensor.shape
+        
+        if n_channels == 3:
+            # Legacy 3-channel format - pad with zeros
+            padded = jnp.zeros((T, n_vars, 5))
+            padded = padded.at[:, :, :3].set(tensor)
+            tensor = padded
+            n_channels = 5
+        elif n_channels != 5:
+            raise ValueError(f"Expected 3 or 5 channels, got {n_channels}")
+        
         # Flatten time and variable dimensions
-        T, n_vars, channels = tensor.shape
-        flat_input = tensor.reshape(T * n_vars, channels)
+        flat_input = tensor.reshape(T * n_vars, n_channels)
         
         # Simple MLP encoder
         net = hk.Sequential([

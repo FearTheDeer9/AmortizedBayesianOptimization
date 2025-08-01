@@ -41,21 +41,20 @@ def create_grpo_acquisition(checkpoint_path: Path,
     Returns:
         Function that maps (tensor, posterior, target) → intervention
     """
-    # Load checkpoint
-    with open(checkpoint_path / 'checkpoint.pkl', 'rb') as f:
-        checkpoint = pickle.load(f)
+    from ..utils.checkpoint_utils import load_checkpoint, create_model_from_checkpoint
     
-    policy_params = checkpoint['policy_params']
-    config = checkpoint.get('config', {})
+    # Load checkpoint using unified utilities
+    checkpoint = load_checkpoint(checkpoint_path)
     
-    # Extract architecture config
-    arch_config = config.get('architecture', {})
-    hidden_dim = arch_config.get('hidden_dim', 256)
+    # Verify it's a policy model
+    if checkpoint['model_type'] != 'policy':
+        raise ValueError(f"Expected policy model, got {checkpoint['model_type']}")
     
-    # Use shared policy factory - SAME as training!
-    # This ensures Haiku creates identical module paths
-    policy_fn = create_clean_grpo_policy(hidden_dim=hidden_dim)
-    transformed_fn = hk.transform(policy_fn)
+    # Create model from checkpoint
+    transformed_fn, policy_params = create_model_from_checkpoint(checkpoint)
+    
+    # Extract architecture
+    hidden_dim = checkpoint['architecture']['hidden_dim']
     
     # Verify parameter compatibility
     dummy_tensor = jnp.zeros((10, 5, 3))
@@ -143,35 +142,20 @@ def create_bc_acquisition(checkpoint_path: Path,
     Returns:
         Function that maps (tensor, posterior, target) → intervention
     """
-    # Load checkpoint - handle both file path and directory path
-    if checkpoint_path.is_file():
-        checkpoint_file = checkpoint_path
-    else:
-        # Look for checkpoint.pkl in directory
-        checkpoint_file = checkpoint_path / 'checkpoint.pkl'
-        if not checkpoint_file.exists():
-            # Try direct pickle file
-            checkpoint_file = checkpoint_path
+    from ..utils.checkpoint_utils import load_checkpoint, create_model_from_checkpoint
     
-    with open(checkpoint_file, 'rb') as f:
-        checkpoint = pickle.load(f)
+    # Load checkpoint using unified utilities
+    checkpoint = load_checkpoint(checkpoint_path)
     
-    # Handle new checkpoint format from general_bc_trainer
-    if 'params' in checkpoint:
-        # New format
-        policy_params = checkpoint['params']
-        config = checkpoint.get('config', {})
-    else:
-        # Old format compatibility
-        policy_params = checkpoint.get('policy_params')
-        config = checkpoint.get('config', {})
+    # Verify it's a policy model
+    if checkpoint['model_type'] != 'policy':
+        raise ValueError(f"Expected policy model, got {checkpoint['model_type']}")
     
-    # Extract hidden dim
-    hidden_dim = config.get('hidden_dim', 256)
+    # Create model from checkpoint
+    transformed_fn, policy_params = create_model_from_checkpoint(checkpoint)
     
-    # Use shared BC policy factory - SAME as training!
-    policy_fn = create_clean_bc_policy(hidden_dim=hidden_dim)
-    transformed_fn = hk.transform(policy_fn)
+    # Extract architecture
+    hidden_dim = checkpoint['architecture']['hidden_dim']
     
     # Verify parameter compatibility
     dummy_tensor = jnp.zeros((10, 5, 3))
@@ -300,37 +284,22 @@ def create_bc_surrogate(checkpoint_path: Path,
         Tuple of (predict_fn, update_fn) where update_fn is None if updates disabled
     """
     import optax
+    from ..utils.checkpoint_utils import load_checkpoint, create_model_from_checkpoint
     from ..avici_integration.continuous.model import ContinuousParentSetPredictionModel
     from ..avici_integration.core import samples_to_avici_format
     from ..avici_integration.parent_set import predict_parent_posterior
     
-    # Load checkpoint
-    with open(checkpoint_path, 'rb') as f:
-        checkpoint = pickle.load(f)
+    # Load checkpoint using unified utilities
+    checkpoint = load_checkpoint(checkpoint_path)
     
-    # Extract parameters
-    params = checkpoint.get('params', checkpoint.get('surrogate_params'))
-    config = checkpoint.get('config', {})
+    # Verify it's a surrogate model
+    if checkpoint['model_type'] != 'surrogate':
+        raise ValueError(f"Expected surrogate model, got {checkpoint['model_type']}")
+    
+    # Create model from checkpoint
+    net, params = create_model_from_checkpoint(checkpoint)
+    # Extract metadata
     metadata = checkpoint.get('metadata', {})
-    
-    # Extract model config
-    hidden_dim = config.get('surrogate_hidden_dim', 128)
-    num_layers = config.get('surrogate_layers', 4)
-    num_heads = config.get('surrogate_heads', 8)
-    
-    # Create the model function
-    def model_fn(data: jnp.ndarray, target_variable: int, is_training: bool = False):
-        model = ContinuousParentSetPredictionModel(
-            hidden_dim=hidden_dim,
-            num_layers=num_layers,
-            num_heads=num_heads,
-            key_size=32,
-            dropout=0.1
-        )
-        return model(data, target_variable, is_training)
-    
-    # Transform it
-    net = hk.transform(model_fn)
     
     # Internal predict function with full signature
     def _bc_surrogate_predict_full(tensor: jnp.ndarray, target: str, variables: List[str] = None) -> Dict[str, Any]:
@@ -411,6 +380,10 @@ def create_bc_surrogate(checkpoint_path: Path,
         logger.info(f"  Non-zero probabilities: {len(non_zero_probs)} out of {len(variables)-1}")
         if non_zero_probs:
             logger.info(f"  Range: [{min(non_zero_probs):.3f}, {max(non_zero_probs):.3f}]")
+            logger.info(f"  Mean: {sum(non_zero_probs)/len(non_zero_probs):.3f}")
+            # Check if all values are exactly 0.5 (dummy surrogate indicator)
+            if all(abs(p - 0.5) < 1e-6 for p in non_zero_probs):
+                logger.warning("  WARNING: All probabilities are exactly 0.5 - this suggests the model is not properly trained or loaded!")
         
         # Create posterior with marginal probabilities in metadata
         # This format is expected by the 5-channel converter

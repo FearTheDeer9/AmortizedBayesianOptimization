@@ -2,26 +2,26 @@
   "Random": {
     "method": "Random",
     "aggregate_metrics": {
-      "mean_improvement": 1.7901500947773457,
-      "std_improvement": 1.1733374553580358,
-      "mean_final_value": -1.4015762228518724,
-      "mean_trajectory_value": 0.6342056766152382,
+      "mean_improvement": 2.1024351436644793,
+      "std_improvement": 0.8460489314539686,
+      "mean_final_value": -1.667798237875104,
+      "mean_trajectory_value": 0.6896929889917374,
       "mean_f1_score": 0.0,
       "mean_shd": 1.5,
       "n_scms": 4
     },
     "scm_results": {
       "fork": {
-        "initial_value": 0.05656338483095169,
-        "best_value": -0.6004449725151062,
-        "improvement": 0.6570083573460579,
+        "initial_value": 0.26458996534347534,
+        "best_value": -2.011728525161743,
+        "improvement": 2.2763184905052185,
         "regret": 0.0,
         "n_unique_interventions": 0,
         "true_parents": [
-          "Z",
-          "X"
+          "X",
+          "Z"
         ],
-        "mean_trajectory_value": 0.20116445422172546,
+        "mean_trajectory_value": 0.3560252785682678,
         "f1_score": 0.0,
         "shd": 2
       },
@@ -52,16 +52,16 @@
         "shd": 1
       },
       "collider": {
-        "initial_value": 0.23511314392089844,
-        "best_value": -3.369035482406616,
-        "improvement": 3.6041486263275146,
+        "initial_value": 0.21133869886398315,
+        "best_value": -3.0226399898529053,
+        "improvement": 3.2339786887168884,
         "regret": 0.0,
         "n_unique_interventions": 0,
         "true_parents": [
-          "X",
-          "Y"
+          "Y",
+          "X"
         ],
-        "mean_trajectory_value": -0.12334519624710083,
+        "mean_trajectory_value": -0.056256771087646484,
         "f1_score": 0.0,
         "shd": 2
       }
@@ -70,26 +70,26 @@
   "Oracle": {
     "method": "Oracle",
     "aggregate_metrics": {
-      "mean_improvement": 4.043054210022092,
-      "std_improvement": 0.3954742388230501,
-      "mean_final_value": -3.6544803380966187,
-      "mean_trajectory_value": -2.361360013484955,
+      "mean_improvement": 4.117783263325691,
+      "std_improvement": 0.7475385180980488,
+      "mean_final_value": -3.683146357536316,
+      "mean_trajectory_value": -2.297352582216263,
       "mean_f1_score": 0.0,
       "mean_shd": 1.5,
       "n_scms": 4
     },
     "scm_results": {
       "fork": {
-        "initial_value": 0.05656338483095169,
-        "best_value": -4.6031718254089355,
-        "improvement": 4.659735210239887,
+        "initial_value": 0.26458996534347534,
+        "best_value": -5.041262149810791,
+        "improvement": 5.305852115154266,
         "regret": 0.0,
         "n_unique_interventions": 0,
         "true_parents": [
-          "Z",
-          "X"
+          "X",
+          "Z"
         ],
-        "mean_trajectory_value": -3.1809873580932617,
+        "mean_trajectory_value": -2.9920458793640137,
         "f1_score": 0.0,
         "shd": 2
       },
@@ -120,16 +120,16 @@
         "shd": 1
       },
       "collider": {
-        "initial_value": 0.23511314392089844,
-        "best_value": -3.3801162242889404,
-        "improvement": 3.615229368209839,
+        "initial_value": 0.21133869886398315,
+        "best_value": -3.056689977645874,
+        "improvement": 3.268028676509857,
         "regret": 0.0,
         "n_unique_interventions": 0,
         "true_parents": [
-          "X",
-          "Y"
+          "Y",
+          "X"
         ],
-        "mean_trajectory_value": -1.982529878616333,
+        "mean_trajectory_value": -1.915441632270813,
         "f1_score": 0.0,
         "shd": 2
       }

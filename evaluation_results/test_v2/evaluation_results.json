@@ -1,0 +1,701 @@
+{
+  "Random": {
+    "method": "Random",
+    "surrogate": "dummy",
+    "surrogate_type": "dummy",
+    "scm_results": {
+      "fork": {
+        "improvement": 0.6570083573460579,
+        "final_f1": 0.0,
+        "final_value": 0.2809499204158783,
+        "trajectory": [
+          {
+            "step": 0,
+            "intervention": {},
+            "outcome_value": 0.05656338483095169,
+            "reward": 0.0,
+            "best_value": 0.05656338483095169,
+            "time_elapsed": 0.0,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 1,
+            "intervention": {
+              "targets": [
+                "Z"
+              ],
+              "values": {
+                "Z": 0.6689624786376953
+              }
+            },
+            "outcome_value": -0.6004449725151062,
+            "reward": 0.8834083849733526,
+            "best_value": -0.6004449725151062,
+            "time_elapsed": 0.6827137470245361,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 2,
+            "intervention": {
+              "targets": [
+                "Z"
+              ],
+              "values": {
+                "Z": -1.864290714263916
+              }
+            },
+            "outcome_value": 1.067589521408081,
+            "reward": 0.1704789703800565,
+            "best_value": -0.6004449725151062,
+            "time_elapsed": 0.06890201568603516,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 3,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": 0.4420609474182129
+              }
+            },
+            "outcome_value": 0.2809499204158783,
+            "reward": 0.2992179754234496,
+            "best_value": -0.6004449725151062,
+            "time_elapsed": 0.06699633598327637,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          }
+        ]
+      },
+      "chain_3": {
+        "improvement": 2.0415406227111816,
+        "final_f1": 0.0,
+        "final_value": 2.7982211112976074,
+        "trajectory": [
+          {
+            "step": 0,
+            "intervention": {},
+            "outcome_value": 0.31860530376434326,
+            "reward": 0.0,
+            "best_value": 0.31860530376434326,
+            "time_elapsed": 0.0,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 1,
+            "intervention": {
+              "targets": [
+                "X0"
+              ],
+              "values": {
+                "X0": -0.8531603813171387
+              }
+            },
+            "outcome_value": -1.7229353189468384,
+            "reward": 0.9067536169832403,
+            "best_value": -1.7229353189468384,
+            "time_elapsed": 0.0676732063293457,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 2,
+            "intervention": {
+              "targets": [
+                "X0"
+              ],
+              "values": {
+                "X0": 0.12837600708007812
+              }
+            },
+            "outcome_value": -1.128029704093933,
+            "reward": 0.5956333285286313,
+            "best_value": -1.7229353189468384,
+            "time_elapsed": 0.06574892997741699,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 3,
+            "intervention": {
+              "targets": [
+                "X0"
+              ],
+              "values": {
+                "X0": 1.2294116020202637
+              }
+            },
+            "outcome_value": 2.7982211112976074,
+            "reward": 0.22376572210942544,
+            "best_value": -1.7229353189468384,
+            "time_elapsed": 0.06568694114685059,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          }
+        ]
+      }
+    },
+    "aggregate_metrics": {
+      "mean_improvement": 1.3492744900286198,
+      "std_improvement": 0.6922661326825619,
+      "mean_f1": 0.0,
+      "mean_final_value": 1.5395855158567429
+    }
+  },
+  "Oracle": {
+    "method": "Oracle",
+    "scm_results": {
+      "fork": {
+        "improvement": 4.659735210239887,
+        "final_f1": 0.0,
+        "trajectory": [
+          {
+            "step": 0,
+            "intervention": {},
+            "outcome_value": 0.05656338483095169,
+            "reward": 0.0,
+            "best_value": 0.05656338483095169,
+            "time_elapsed": 0.0,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 1,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": -2.0
+              }
+            },
+            "outcome_value": -3.982799530029297,
+            "reward": 1.0142066652124577,
+            "best_value": -3.982799530029297,
+            "time_elapsed": 0.08191800117492676,
+            "marginals": {
+              "X": 0.5,
+              "Y": 0.0,
+              "Z": 0.5
+            },
+            "entropy": 1.0,
+            "predicted_parents": [],
+            "prediction_confidence": 0.0
+          },
+          {
+            "step": 2,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": -2.0
+              }
+            },
+            "outcome_value": -4.194541931152344,
+            "reward": 0.9471451049759274,
+            "best_value": -4.194541931152344,
+            "time_elapsed": 0.06600284576416016,
+            "marginals": {
+              "X": 0.5,
+              "Y": 0.0,
+              "Z": 0.5
+            },
+            "entropy": 1.0,
+            "predicted_parents": [],
+            "prediction_confidence": 0.0
+          },
+          {
+            "step": 3,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": -2.0
+              }
+            },
+            "outcome_value": -4.6031718254089355,
+            "reward": 0.9501743378177766,
+            "best_value": -4.6031718254089355,
+            "time_elapsed": 0.06649899482727051,
+            "marginals": {
+              "X": 0.5,
+              "Y": 0.0,
+              "Z": 0.5
+            },
+            "entropy": 1.0,
+            "predicted_parents": [],
+            "prediction_confidence": 0.0
+          }
+        ]
+      },
+      "chain_3": {
+        "improvement": 3.7995680570602417,
+        "final_f1": 0.0,
+        "trajectory": [
+          {
+            "step": 0,
+            "intervention": {},
+            "outcome_value": 0.31860530376434326,
+            "reward": 0.0,
+            "best_value": 0.31860530376434326,
+            "time_elapsed": 0.0,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 1,
+            "intervention": {
+              "targets": [
+                "X1"
+              ],
+              "values": {
+                "X1": -2.0
+              }
+            },
+            "outcome_value": -3.422293186187744,
+            "reward": 0.9378625923937017,
+            "best_value": -3.422293186187744,
+            "time_elapsed": 0.06508898735046387,
+            "marginals": {
+              "X0": 0.5,
+              "X1": 0.5,
+              "X2": 0.0
+            },
+            "entropy": 1.0,
+            "predicted_parents": [],
+            "prediction_confidence": 0.0
+          },
+          {
+            "step": 2,
+            "intervention": {
+              "targets": [
+                "X1"
+              ],
+              "values": {
+                "X1": -2.0
+              }
+            },
+            "outcome_value": -3.4809627532958984,
+            "reward": 0.8729544883682614,
+            "best_value": -3.4809627532958984,
+            "time_elapsed": 0.06401395797729492,
+            "marginals": {
+              "X0": 0.5,
+              "X1": 0.5,
+              "X2": 0.0
+            },
+            "entropy": 1.0,
+            "predicted_parents": [],
+            "prediction_confidence": 0.0
+          },
+          {
+            "step": 3,
+            "intervention": {
+              "targets": [
+                "X1"
+              ],
+              "values": {
+                "X1": -2.0
+              }
+            },
+            "outcome_value": -2.8072078227996826,
+            "reward": 0.8192049326435212,
+            "best_value": -3.4809627532958984,
+            "time_elapsed": 0.06478691101074219,
+            "marginals": {
+              "X0": 0.5,
+              "X1": 0.5,
+              "X2": 0.0
+            },
+            "entropy": 1.0,
+            "predicted_parents": [],
+            "prediction_confidence": 0.0
+          }
+        ]
+      }
+    },
+    "aggregate_metrics": {
+      "mean_improvement": 4.2296516336500645,
+      "mean_f1": 0.0
+    }
+  },
+  "bc_policy+bc_surrogate": {
+    "method": "bc_policy+bc_surrogate",
+    "surrogate": "bc_surrogate",
+    "surrogate_type": "bc_static",
+    "scm_results": {},
+    "aggregate_metrics": {}
+  },
+  "bc_policy+dummy": {
+    "method": "bc_policy+dummy",
+    "surrogate": "dummy",
+    "surrogate_type": "dummy",
+    "scm_results": {
+      "fork": {
+        "improvement": 0.8091015294194221,
+        "final_f1": 0.0,
+        "final_value": -0.7525381445884705,
+        "trajectory": [
+          {
+            "step": 0,
+            "intervention": {},
+            "outcome_value": 0.05656338483095169,
+            "reward": 0.0,
+            "best_value": 0.05656338483095169,
+            "time_elapsed": 0.0,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 1,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": -0.08767330646514893
+              }
+            },
+            "outcome_value": -0.15814606845378876,
+            "reward": 0.9186824137514288,
+            "best_value": -0.15814606845378876,
+            "time_elapsed": 0.06721210479736328,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 2,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": -0.08130175620317459
+              }
+            },
+            "outcome_value": -0.3571459650993347,
+            "reward": 0.3588811164810544,
+            "best_value": -0.3571459650993347,
+            "time_elapsed": 0.0684659481048584,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 3,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": -0.07468307018280029
+              }
+            },
+            "outcome_value": -0.7525381445884705,
+            "reward": 0.3783829869762544,
+            "best_value": -0.7525381445884705,
+            "time_elapsed": 0.06705808639526367,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          }
+        ]
+      },
+      "chain_3": {
+        "improvement": 1.8817408084869385,
+        "final_f1": 0.0,
+        "final_value": -0.103458933532238,
+        "trajectory": [
+          {
+            "step": 0,
+            "intervention": {},
+            "outcome_value": 0.31860530376434326,
+            "reward": 0.0,
+            "best_value": 0.31860530376434326,
+            "time_elapsed": 0.0,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 1,
+            "intervention": {
+              "targets": [
+                "X0"
+              ],
+              "values": {
+                "X0": -0.0681612566113472
+              }
+            },
+            "outcome_value": 0.043312858790159225,
+            "reward": 0.7309982950037176,
+            "best_value": 0.043312858790159225,
+            "time_elapsed": 0.06664514541625977,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 2,
+            "intervention": {
+              "targets": [
+                "X0"
+              ],
+              "values": {
+                "X0": -0.06500434130430222
+              }
+            },
+            "outcome_value": -1.5631355047225952,
+            "reward": 0.6632416850044613,
+            "best_value": -1.5631355047225952,
+            "time_elapsed": 0.0673837661743164,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 3,
+            "intervention": {
+              "targets": [
+                "X0"
+              ],
+              "values": {
+                "X0": -0.06022392958402634
+              }
+            },
+            "outcome_value": -0.103458933532238,
+            "reward": 0.6603081287876252,
+            "best_value": -1.5631355047225952,
+            "time_elapsed": 0.06701803207397461,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          }
+        ]
+      }
+    },
+    "aggregate_metrics": {
+      "mean_improvement": 1.3454211689531803,
+      "std_improvement": 0.5363196395337582,
+      "mean_f1": 0.0,
+      "mean_final_value": -0.42799853906035423
+    }
+  },
+  "grpo_policy+bc_surrogate": {
+    "method": "grpo_policy+bc_surrogate",
+    "surrogate": "bc_surrogate",
+    "surrogate_type": "bc_static",
+    "scm_results": {},
+    "aggregate_metrics": {}
+  },
+  "grpo_policy+dummy": {
+    "method": "grpo_policy+dummy",
+    "surrogate": "dummy",
+    "surrogate_type": "dummy",
+    "scm_results": {
+      "fork": {
+        "improvement": 0.8521952703595161,
+        "final_f1": 0.0,
+        "final_value": -0.7956318855285645,
+        "trajectory": [
+          {
+            "step": 0,
+            "intervention": {},
+            "outcome_value": 0.05656338483095169,
+            "reward": 0.0,
+            "best_value": 0.05656338483095169,
+            "time_elapsed": 0.0,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 1,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": -0.1731172800064087
+              }
+            },
+            "outcome_value": -0.3290340006351471,
+            "reward": 0.9312098795717413,
+            "best_value": -0.3290340006351471,
+            "time_elapsed": 0.07005691528320312,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 2,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": -0.15178707242012024
+              }
+            },
+            "outcome_value": -0.49811655282974243,
+            "reward": 0.3871910577728635,
+            "best_value": -0.49811655282974243,
+            "time_elapsed": 0.06863212585449219,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 3,
+            "intervention": {
+              "targets": [
+                "X"
+              ],
+              "values": {
+                "X": -0.09622997790575027
+              }
+            },
+            "outcome_value": -0.7956318855285645,
+            "reward": 0.38716483731423657,
+            "best_value": -0.7956318855285645,
+            "time_elapsed": 0.06890106201171875,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          }
+        ]
+      },
+      "chain_3": {
+        "improvement": 1.164664626121521,
+        "final_f1": 0.0,
+        "final_value": -0.12408449500799179,
+        "trajectory": [
+          {
+            "step": 0,
+            "intervention": {},
+            "outcome_value": 0.31860530376434326,
+            "reward": 0.0,
+            "best_value": 0.31860530376434326,
+            "time_elapsed": 0.0,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 1,
+            "intervention": {
+              "targets": [
+                "X1"
+              ],
+              "values": {
+                "X1": -0.2563152611255646
+              }
+            },
+            "outcome_value": -0.806766152381897,
+            "reward": 0.6885131770914251,
+            "best_value": -0.806766152381897,
+            "time_elapsed": 0.07277703285217285,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 2,
+            "intervention": {
+              "targets": [
+                "X1"
+              ],
+              "values": {
+                "X1": -0.24339747428894043
+              }
+            },
+            "outcome_value": -0.8460593223571777,
+            "reward": 0.5352371340706235,
+            "best_value": -0.8460593223571777,
+            "time_elapsed": 0.07190227508544922,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          },
+          {
+            "step": 3,
+            "intervention": {
+              "targets": [
+                "X1"
+              ],
+              "values": {
+                "X1": -0.21125099062919617
+              }
+            },
+            "outcome_value": -0.12408449500799179,
+            "reward": 0.4307871522441987,
+            "best_value": -0.8460593223571777,
+            "time_elapsed": 0.06808614730834961,
+            "marginals": null,
+            "entropy": null,
+            "predicted_parents": null,
+            "prediction_confidence": null
+          }
+        ]
+      }
+    },
+    "aggregate_metrics": {
+      "mean_improvement": 1.0084299482405186,
+      "std_improvement": 0.15623467788100243,
+      "mean_f1": 0.0,
+      "mean_final_value": -0.4598581902682781
+    }
+  },
+  "random+bc_surrogate": {
+    "method": "random+bc_surrogate",
+    "surrogate": "bc_surrogate",
+    "surrogate_type": "bc_static",
+    "scm_results": {},
+    "aggregate_metrics": {}
+  }
+}

@@ -31,6 +31,7 @@ from ..mechanisms.linear import sample_from_linear_scm
 from ..environments.sampling import sample_with_intervention
 from ..interventions.handlers import create_perfect_intervention
 from ..acquisition.clean_rewards import compute_clean_reward
+from ..utils.update_functions import UpdateFunction, UpdateContext, NoOpUpdate
 from ..analysis.trajectory_metrics import (
     compute_f1_score_from_marginals,
     compute_shd_from_marginals
@@ -101,7 +102,7 @@ class UniversalACBOEvaluator:
                  scm: Any,
                  config: Dict[str, Any],
                  surrogate_fn: Optional[SurrogateFn] = None,
-                 surrogate_update_fn: Optional[Callable] = None,
+                 update_fn: Optional[UpdateFunction] = None,
                  surrogate_params: Optional[Any] = None,
                  surrogate_opt_state: Optional[Any] = None,
                  seed: int = 42) -> EvaluationResult:
@@ -119,7 +120,7 @@ class UniversalACBOEvaluator:
             scm: Structural Causal Model to evaluate on
             config: Evaluation configuration
             surrogate_fn: Optional function for structure prediction
-            surrogate_update_fn: Optional function to update surrogate online
+            update_fn: Optional UpdateFunction instance for active learning
             surrogate_params: Initial surrogate parameters (for active learning)
             surrogate_opt_state: Initial optimizer state (for active learning)
             seed: Random seed for reproducibility
@@ -141,10 +142,16 @@ class UniversalACBOEvaluator:
             target_var = get_target(scm)
             true_parents = set(get_parents(scm, target_var))
             
-            logger.info(
-                f"Evaluating {self.name} on SCM with {len(variables)} variables, "
-                f"target='{target_var}', true_parents={true_parents}"
-            )
+            logger.info(f"\n{'='*70}")
+            logger.info(f"UNIVERSAL EVALUATOR: {self.name}")
+            logger.info(f"  SCM variables: {len(variables)} - {variables}")
+            logger.info(f"  Target: '{target_var}'")
+            logger.info(f"  True parents: {true_parents}")
+            logger.info(f"  Has surrogate: {surrogate_fn is not None}")
+            logger.info(f"  Active learning: {update_fn is not None}")
+            if update_fn is not None:
+                logger.info(f"  UpdateFunction type: {type(update_fn).__name__}")
+            logger.info(f"{'='*70}\n")
             
             # Initialize buffer and history
             buffer = ExperienceBuffer()
@@ -152,7 +159,7 @@ class UniversalACBOEvaluator:
             
             # Track whether active learning is being used
             active_learning_enabled = (
-                surrogate_update_fn is not None and 
+                update_fn is not None and 
                 surrogate_params is not None
             )
             
@@ -180,17 +187,19 @@ class UniversalACBOEvaluator:
                 step_start = time.time()
                 
                 # Convert buffer to tensor
-                tensor, var_order = buffer_to_three_channel_tensor(
+                logger.info(f"\n  [Tensor Conversion - Step {step}]")
+                logger.info(f"    Converting buffer to 3-channel tensor...")
+                tensor, mapper = buffer_to_three_channel_tensor(
                     buffer, target_var, standardize=True
                 )
                 
                 # Log tensor information
-                logger.info(f"\nStep {step} - Tensor Input:")
-                logger.info(f"  Tensor shape: {tensor.shape}")
-                logger.info(f"  Variable order: {var_order}")
+                logger.info(f"    Tensor shape: {tensor.shape}")
+                logger.info(f"    Variable order: {mapper.variables}")
+                logger.info(f"    VariableMapper created successfully")
                 logger.info(f"  Last timestep values:")
                 last_timestep = tensor[-1]  # [n_vars, 3]
-                for i, var in enumerate(var_order):
+                for i, var in enumerate(mapper.variables):
                     value = last_timestep[i, 0]
                     is_intervened = last_timestep[i, 1]
                     is_target = last_timestep[i, 2]
@@ -200,8 +209,8 @@ class UniversalACBOEvaluator:
                 posterior = None
                 if surrogate_fn is not None:
                     try:
-                        logger.info(f"\n  Calling surrogate with tensor shape {tensor.shape} and variables {var_order}...")
-                        posterior = surrogate_fn(tensor, target_var, var_order)
+                        logger.info(f"\n  Calling surrogate with tensor shape {tensor.shape} and variables {mapper.variables}...")
+                        posterior = surrogate_fn(tensor, target_var, mapper.variables)
                         logger.info(f"  Surrogate returned: {type(posterior)}")
                     except Exception as e:
                         logger.warning(f"Surrogate prediction failed: {e}")
@@ -209,7 +218,7 @@ class UniversalACBOEvaluator:
                 # Get intervention from acquisition function
                 # Pass variable order to help acquisition functions
                 logger.info(f"\n  Calling acquisition function...")
-                intervention = acquisition_fn(tensor, posterior, target_var, var_order)
+                intervention = acquisition_fn(tensor, posterior, target_var, mapper.variables)
                 
                 # Validate intervention
                 if not self._validate_intervention(intervention, variables, target_var):
@@ -231,28 +240,39 @@ class UniversalACBOEvaluator:
                     buffer.add_intervention(intervention_obj, sample)
                 
                 # Update surrogate if active learning is enabled
-                if surrogate_update_fn is not None and surrogate_params is not None:
+                if update_fn is not None and surrogate_params is not None:
                     try:
-                        # Get all samples from buffer for update
-                        all_samples = buffer.get_all_samples()
+                        logger.info(f"\n  [Active Learning Update - Step {step}]")
+                        logger.info(f"    UpdateFunction type: {type(update_fn).__name__}")
+                        logger.info(f"    Buffer size: {buffer.size()}")
+                        logger.info(f"    Variables: {mapper.variables}")
                         
-                        # Update surrogate with new data
-                        surrogate_params, surrogate_opt_state, update_metrics = surrogate_update_fn(
-                            surrogate_params, 
-                            surrogate_opt_state,
-                            posterior,
-                            all_samples,
-                            var_order,
-                            target_var
+                        # Create update context
+                        update_context = UpdateContext(
+                            buffer=buffer,
+                            target_variable=target_var,
+                            variables=mapper.variables,
+                            step=step,
+                            metadata={
+                                "posterior": posterior,
+                                "intervention": intervention
+                            }
                         )
                         
-                        # Update the surrogate function closure to use new params
-                        def updated_surrogate_fn(tensor, target):
-                            # This assumes the surrogate uses the updated params
-                            # The actual implementation depends on the surrogate type
-                            return surrogate_fn(tensor, target)
+                        # Perform update
+                        logger.info(f"    Calling update function...")
+                        surrogate_params, surrogate_opt_state, update_metrics = update_fn(
+                            surrogate_params, 
+                            surrogate_opt_state,
+                            update_context
+                        )
                         
-                        logger.debug(f"Surrogate updated at step {step}, metrics: {update_metrics}")
+                        logger.info(f"    Update completed successfully")
+                        logger.info(f"    Metrics: {update_metrics}")
+                        if not update_metrics.get('skipped', True):
+                            logger.info(f"      - Loss: {update_metrics.get('loss', 0.0):.4f}")
+                            logger.info(f"      - Grad norm: {update_metrics.get('grad_norm', 0.0):.4f}")
+                            logger.info(f"      - Update norm: {update_metrics.get('update_norm', 0.0):.4f}")
                     except Exception as e:
                         logger.warning(f"Surrogate update failed at step {step}: {e}")
                 
@@ -299,6 +319,7 @@ class UniversalACBOEvaluator:
                             
                             # Map from surrogate variable names to actual SCM variable names
                             marginals = {}
+                            var_order = mapper.variables  # Get variable order from mapper
                             for var_name, prob in raw_marginals.items():
                                 # First check if the variable name is already in var_order
                                 if var_name in var_order:

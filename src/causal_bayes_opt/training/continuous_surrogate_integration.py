@@ -342,6 +342,66 @@ def compute_structure_metrics_continuous(
     }
 
 
+def create_update_fn_wrapper(net: hk.Transformed, optimizer: optax.GradientTransformation) -> UpdateFn:
+    """
+    Create an update function wrapper for pre-trained surrogate models.
+    
+    Args:
+        net: Haiku transformed network
+        optimizer: Optax optimizer
+        
+    Returns:
+        Update function for the surrogate
+    """
+    def update_fn(current_params: Any, current_opt_state: Any,
+                  buffer: ExperienceBuffer, target_variable: str) -> Tuple[Any, Any, Dict[str, float]]:
+        """Update surrogate parameters using data likelihood loss."""
+        # Convert buffer to tensor
+        tensor, variables = buffer_to_three_channel_tensor(
+            buffer, target_variable, standardize=True
+        )
+        
+        # Skip if not enough data
+        if buffer.size() < 5:
+            return current_params, current_opt_state, {
+                'loss': 0.0,
+                'observations': buffer.size()
+            }
+        
+        # Get variable index
+        target_idx = variables.index(target_variable) if target_variable in variables else 0
+        
+        # Define loss function
+        def loss_fn(params):
+            rng = jax.random.PRNGKey(0)
+            outputs = net.apply(params, rng, tensor, target_idx, True)
+            
+            # Simple data likelihood loss
+            parent_probs = outputs['parent_probabilities']
+            
+            # Use entropy as a proxy for uncertainty
+            safe_probs = jnp.maximum(parent_probs, 1e-10)
+            entropy = -jnp.sum(parent_probs * jnp.log(safe_probs))
+            
+            # Loss encourages confidence (low entropy) over time
+            loss = entropy
+            
+            return loss, {'entropy': entropy}
+        
+        # Compute gradients and update
+        (loss_val, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(current_params)
+        updates, new_opt_state = optimizer.update(grads, current_opt_state)
+        new_params = optax.apply_updates(current_params, updates)
+        
+        return new_params, new_opt_state, {
+            'loss': float(loss_val),
+            'entropy': float(aux['entropy']),
+            'observations': buffer.size()
+        }
+    
+    return update_fn
+
+
 def create_surrogate_fn_wrapper(
     net: hk.Transformed,
     params: Any,
@@ -350,40 +410,37 @@ def create_surrogate_fn_wrapper(
     """
     Create a surrogate function wrapper for the evaluator.
     
-    This wrapper uses explicit variable names instead of inferring them.
+    This wrapper requires explicit variable names to be provided either
+    at initialization or at runtime.
     
     Args:
         net: Haiku transformed model
         params: Model parameters
-        variables: Optional list of variable names. If not provided,
-                  will be inferred from tensor at runtime (deprecated).
+        variables: Optional list of variable names for initialization.
+                  If not provided, must be passed at runtime.
         
     Returns:
-        Function that takes (tensor, target_var) and returns posterior dict
+        Function that takes (tensor, target_var, runtime_variables) and returns posterior dict
     """
     # Import here to avoid circular dependency
     from ..utils.variable_mapping import VariableMapper
     
-    def surrogate_fn(tensor: jnp.ndarray, target_var: str) -> Dict[str, Any]:
+    def surrogate_fn(tensor: jnp.ndarray, target_var: str, runtime_variables: Optional[List[str]] = None) -> Dict[str, Any]:
         # Get dimensions
         n_vars = tensor.shape[1]
         
-        # Use provided variables or fall back to old inference logic (deprecated)
-        if variables is not None:
-            # Use explicit variables (preferred)
+        # Use runtime variables if provided, otherwise use initialization variables
+        if runtime_variables is not None:
+            # Use explicit runtime variables
+            var_list = runtime_variables
+        elif variables is not None:
+            # Use initialization variables
             var_list = variables
         else:
-            # DEPRECATED: Infer variable names based on context
-            logger.warning("Variable name inference is deprecated. Please provide explicit variable names.")
-            if n_vars == 3 and target_var in ['X', 'Y', 'Z']:
-                # Standard 3-variable SCMs (fork, collider, etc.)
-                var_list = ['X', 'Y', 'Z']
-            elif target_var.startswith('X') and target_var[1:].isdigit():
-                # Chain or other numbered SCMs
-                var_list = [f'X{i}' for i in range(n_vars)]
-            else:
-                # Default to generic names
-                var_list = [f'X{i}' for i in range(n_vars)]
+            raise ValueError(
+                "Variable names must be provided explicitly. "
+                "Variable inference is no longer supported."
+            )
         
         # Create variable mapper
         mapper = VariableMapper(var_list, target_var)

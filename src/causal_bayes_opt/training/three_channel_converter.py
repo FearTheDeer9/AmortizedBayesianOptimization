@@ -17,6 +17,7 @@ import logging
 
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import get_values, get_intervention_targets
+from ..utils.variable_mapping import VariableMapper
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ def buffer_to_three_channel_tensor(
     target_variable: str,
     max_history_size: int = 100,
     standardize: bool = True
-) -> Tuple[jnp.ndarray, List[str]]:
+) -> Tuple[jnp.ndarray, VariableMapper]:
     """
     Convert experience buffer directly to 3-channel tensor format.
     
@@ -42,22 +43,29 @@ def buffer_to_three_channel_tensor(
     Returns:
         Tuple of:
         - tensor: [T, n_vars, 3] tensor in standard ACBO format
-        - variable_order: List of variable names in tensor order
+        - mapper: VariableMapper instance for variable name/index conversions
         
     Raises:
         ValueError: If buffer is empty or target not in variables
     """
+    logger.debug(f"[3-Channel Converter] Converting buffer with {buffer.size()} samples")
+    logger.debug(f"[3-Channel Converter] Target variable: {target_variable}")
+    
     # Get all samples from buffer
     all_samples = buffer.get_all_samples()
     if not all_samples:
         raise ValueError("Buffer is empty")
     
-    # Get variable order from buffer coverage
+    # Get variable order from buffer coverage and create mapper
     variable_order = sorted(buffer.get_variable_coverage())
     if target_variable not in variable_order:
         raise ValueError(f"Target '{target_variable}' not in buffer variables: {variable_order}")
     
+    # Create variable mapper
+    mapper = VariableMapper(variable_order, target_variable)
     n_vars = len(variable_order)
+    logger.debug(f"[3-Channel Converter] Created VariableMapper with variables: {mapper.variables}")
+    logger.debug(f"[3-Channel Converter] Target index: {mapper.get_index(target_variable)}")
     
     # Limit to max history size (most recent samples)
     samples = all_samples[-max_history_size:] if len(all_samples) > max_history_size else all_samples
@@ -89,7 +97,8 @@ def buffer_to_three_channel_tensor(
     if standardize and actual_history_size > 1:
         tensor = _standardize_values_channel(tensor, actual_history_size)
     
-    return tensor, variable_order
+    logger.debug(f"[3-Channel Converter] Final tensor shape: {tensor.shape}")
+    return tensor, mapper
 
 
 def _extract_values_vector(sample: Any, variable_order: List[str]) -> jnp.ndarray:

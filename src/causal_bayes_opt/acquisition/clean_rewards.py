@@ -314,19 +314,35 @@ def compute_information_gain_reward(
     Information gain measures how much the intervention reduced our
     uncertainty about the causal structure.
     
+    The reward uses a sigmoid normalization centered at 0.5:
+    - reward = 1 / (1 + exp(-4 * info_gain))
+    - When info_gain = 0: reward = 0.5 (neutral)
+    - When info_gain > 0: reward > 0.5 (positive reward)
+    - When info_gain < 0: reward < 0.5 (negative reward)
+    
+    This design choice allows for:
+    1. Smooth gradients for learning
+    2. Both positive rewards (information gained) and negative (information lost)
+    3. A neutral point at 0.5 when no information is gained
+    
+    Example values:
+    - info_gain = 0.1 nats → reward ≈ 0.60
+    - info_gain = 0.5 nats → reward ≈ 0.88
+    - info_gain = 1.0 nats → reward ≈ 0.98
+    
     Args:
         posterior_before: Posterior before intervention (with 'entropy' key)
         posterior_after: Posterior after intervention (with 'entropy' key)
         
     Returns:
-        Information gain reward in [0, 1] range
+        Information gain reward in [0, 1] range, centered at 0.5
     """
     # Extract entropy values
     entropy_before = posterior_before.get('entropy', 0.0)
     entropy_after = posterior_after.get('entropy', 0.0)
     
-    # Compute raw information gain
-    info_gain = max(0.0, entropy_before - entropy_after)
+    # Compute raw information gain (can be negative if entropy increases)
+    info_gain = entropy_before - entropy_after
     
     # Normalize to [0, 1] range
     # Use sigmoid-like function centered at meaningful gain

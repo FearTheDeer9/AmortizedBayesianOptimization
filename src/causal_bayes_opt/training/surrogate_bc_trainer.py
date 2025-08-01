@@ -398,21 +398,39 @@ class SurrogateBCTrainer:
         return total_loss / n_examples
     
     def save_checkpoint(self, path: Path, results: Dict[str, Any]) -> None:
-        """Save training checkpoint."""
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        """Save training checkpoint using unified format."""
+        from ..utils.checkpoint_utils import save_checkpoint
         
-        checkpoint = {
-            'params': results['params'],
-            'config': results['config'],
-            'metrics': results['metrics'],
-            'metadata': results['metadata']
+        # Extract architecture from config
+        config = results.get('config', {})
+        
+        architecture = {
+            'hidden_dim': config.get('hidden_dim', self.hidden_dim),
+            'num_layers': config.get('num_layers', self.num_layers),
+            'num_heads': config.get('num_heads', self.num_heads),
+            'key_size': config.get('key_size', self.key_size),  # Explicit!
+            'dropout': config.get('dropout', self.dropout)
         }
         
-        with open(path, 'wb') as f:
-            pickle.dump(checkpoint, f)
+        # Training configuration
+        training_config = {
+            'learning_rate': config.get('learning_rate', self.learning_rate),
+            'batch_size': config.get('batch_size', self.batch_size),
+            'max_epochs': config.get('max_epochs', self.max_epochs),
+            'gradient_clip': self.gradient_clip,
+            'weight_decay': self.weight_decay
+        }
         
-        logger.info(f"Saved surrogate checkpoint to {path}")
+        save_checkpoint(
+            path=path,
+            params=results['params'],
+            architecture=architecture,
+            model_type='surrogate',
+            model_subtype='continuous_parent_set',
+            training_config=training_config,
+            metadata=results.get('metadata', {}),
+            metrics=results.get('metrics', {})
+        )
     
     @classmethod
     def load_checkpoint(cls, path: Path) -> Tuple['SurrogateBCTrainer', Dict[str, Any]]:

@@ -17,10 +17,10 @@ import logging
 from pathlib import Path
 import sys
 import json
-import pickle
 from typing import Dict, List, Any, Optional
 import matplotlib.pyplot as plt
 import numpy as np
+import jax.numpy as jnp
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -39,7 +39,9 @@ from src.causal_bayes_opt.experiments.benchmark_scms import (
     create_sparse_scm,
     create_dense_scm
 )
-from src.causal_bayes_opt.data_structures.scm import get_parents, get_target
+from src.causal_bayes_opt.data_structures.scm import get_parents, get_target, get_variables
+from src.causal_bayes_opt.utils.variable_mapping import VariableMapper
+from src.causal_bayes_opt.utils.update_functions import create_update_function
 
 # Configure logging
 logging.basicConfig(
@@ -90,7 +92,8 @@ def evaluate_method(
     scms: List[tuple],
     config: Dict[str, Any],
     surrogate_fn: Optional[callable] = None,
-    surrogate_fn_creator: Optional[callable] = None
+    surrogate_fn_creator: Optional[callable] = None,
+    update_strategy: str = 'none'
 ) -> Dict[str, Any]:
     """
     Evaluate a single method on all test SCMs.
@@ -133,12 +136,24 @@ def evaluate_method(
         if surrogate_fn_creator is not None:
             scm_surrogate_fn = surrogate_fn_creator(scm)
         
+        # Create UpdateFunction based on strategy
+        update_fn = None
+        if update_strategy != 'none' and scm_surrogate_fn is not None:
+            # For now, we'll pass the net as None since we don't have it here
+            # The real implementation would need to get the net from the surrogate
+            update_fn = create_update_function(
+                strategy=update_strategy,
+                net=None,  # This is a limitation - would need to refactor
+                learning_rate=1e-3
+            )
+        
         # Evaluate
         eval_result = evaluator.evaluate(
             acquisition_fn=acquisition_fn,
             scm=scm,
             config=config,
             surrogate_fn=scm_surrogate_fn,
+            update_fn=update_fn,
             seed=config['seed']
         )
         
@@ -499,7 +514,10 @@ def main():
     
     # Surrogate options
     parser.add_argument('--use_active_learning', action='store_true',
-                       help='Use active learning surrogates for all methods')
+                       help='Use active learning surrogates for all methods (deprecated, use --surrogate_update_strategy)')
+    parser.add_argument('--surrogate_update_strategy', type=str, default='none',
+                       choices=['none', 'bic'],
+                       help='Surrogate update strategy for active learning')
     parser.add_argument('--surrogate_checkpoint', type=str, 
                        help='Path to pre-trained surrogate checkpoint')
     
@@ -535,19 +553,25 @@ def main():
         for name, path in args.register_policy:
             logger.info(f"Registering policy '{name}' from {path}")
             try:
-                # Detect model type from checkpoint
+                # Use checkpoint utilities to detect model type
+                from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint
                 checkpoint_path = Path(path)
-                with open(checkpoint_path if checkpoint_path.is_file() else checkpoint_path / 'checkpoint.pkl', 'rb') as f:
-                    checkpoint = pickle.load(f)
+                checkpoint = load_checkpoint(checkpoint_path)
                 
-                metadata = checkpoint.get('metadata', {})
-                model_type = metadata.get('model_type', 'unknown')
+                model_subtype = checkpoint.get('model_subtype', 'unknown')
                 
-                if 'grpo' in path.lower() or model_type == 'grpo':
-                    policy_registry[name] = create_grpo_acquisition(Path(path), seed=args.seed)
+                if model_subtype == 'grpo':
+                    policy_registry[name] = create_grpo_acquisition(checkpoint_path, seed=args.seed)
+                elif model_subtype == 'bc':
+                    policy_registry[name] = create_bc_acquisition(checkpoint_path, seed=args.seed)
                 else:
-                    policy_registry[name] = create_bc_acquisition(Path(path), seed=args.seed)
-                logger.info(f"  Successfully loaded {model_type} policy")
+                    # Fallback to path-based detection
+                    if 'grpo' in path.lower():
+                        policy_registry[name] = create_grpo_acquisition(checkpoint_path, seed=args.seed)
+                    else:
+                        policy_registry[name] = create_bc_acquisition(checkpoint_path, seed=args.seed)
+                
+                logger.info(f"  Successfully loaded {model_subtype} policy")
             except Exception as e:
                 logger.error(f"  Failed to load policy '{name}': {e}")
     
@@ -556,7 +580,32 @@ def main():
         for name, path in args.register_surrogate:
             logger.info(f"Registering surrogate '{name}' from {path}")
             try:
-                if path.lower() == 'active_learning':
+                if path.lower() == 'dummy' or path.lower() == 'none':
+                    # Special case for dummy surrogate (uniform probabilities)
+                    def create_dummy_surrogate():
+                        def dummy_surrogate(tensor, target_var, variables):
+                            # Always use provided variables
+                            if variables is None:
+                                raise ValueError("Variables must be provided to surrogate")
+                            
+                            marginals = {}
+                            for var in variables:
+                                if var != target_var:
+                                    marginals[var] = 0.5  # Uniform probability
+                                else:
+                                    marginals[var] = 0.0
+                            
+                            return {
+                                'marginal_parent_probs': marginals,
+                                'entropy': 1.0,
+                                'model_type': 'dummy',
+                                'variable_order': variables
+                            }
+                        return dummy_surrogate
+                    
+                    surrogate_registry[name] = create_dummy_surrogate()
+                    logger.info("  Registered dummy surrogate (uniform probabilities)")
+                elif path.lower() == 'active_learning':
                     # Special case for pure active learning (no pre-training)
                     surrogate_registry[name] = 'active_learning'
                     logger.info("  Registered active learning surrogate (no pre-training)")
@@ -575,6 +624,12 @@ def main():
                     logger.info("  Registered static BC surrogate")
             except Exception as e:
                 logger.error(f"  Failed to load surrogate '{name}': {e}")
+    
+    # Use active learning flag for backward compatibility, but prefer surrogate_update_strategy
+    update_strategy = args.surrogate_update_strategy
+    if args.use_active_learning and update_strategy == 'none':
+        logger.warning("--use_active_learning is deprecated. Use --surrogate_update_strategy bic instead.")
+        update_strategy = 'bic'
     
     # Create surrogate function based on flag (legacy)
     if args.use_active_learning:
@@ -607,16 +662,15 @@ def main():
         # This will just return uniform probabilities
         def create_dummy_surrogate():
             def dummy_surrogate(tensor, target_var, variables):
-                # Use provided variables or infer from tensor
+                # Always use provided variables
                 if variables is None:
-                    n_vars = tensor.shape[1]
-                    if n_vars == 3 and target_var in ['X', 'Y', 'Z']:
-                        variables = ['X', 'Y', 'Z']
-                    else:
-                        variables = [f'X{i}' for i in range(n_vars)]
+                    raise ValueError("Variables must be provided to surrogate")
+                
+                # Create variable mapper for consistency
+                mapper = VariableMapper(variables, target_var)
                 
                 marginals = {}
-                for var in variables:
+                for var in mapper.variables:
                     if var != target_var:
                         marginals[var] = 0.5  # Uniform probability
                     else:
@@ -625,22 +679,24 @@ def main():
                 return {
                     'marginal_parent_probs': marginals,
                     'entropy': 1.0,
-                    'model_type': 'dummy'
+                    'model_type': 'dummy',
+                    'variable_order': mapper.variables  # Include for debugging
                 }
             return dummy_surrogate
         
         baseline_surrogate_fn = create_dummy_surrogate()
         create_active_surrogate_fn = None
     
-    # 1. Random baseline (always evaluate)
-    logger.info("\n" + "="*60)
-    logger.info("Evaluating Random Baseline")
-    random_fn = create_random_acquisition(seed=args.seed)
-    all_results['Random'] = evaluate_method(
-        'Random', random_fn, test_scms, eval_config, 
-        surrogate_fn=baseline_surrogate_fn,
-        surrogate_fn_creator=create_active_surrogate_fn
-    )
+    # 1. Random baseline (always evaluate) - but skip if it will be evaluated in pairs
+    if not any(pair[0] == 'random' for pair in (args.evaluate_pairs or [])):
+        logger.info("\n" + "="*60)
+        logger.info("Evaluating Random Baseline")
+        random_fn = create_random_acquisition(seed=args.seed)
+        all_results['Random'] = evaluate_method(
+            'Random', random_fn, test_scms, eval_config, 
+            surrogate_fn=baseline_surrogate_fn,
+            surrogate_fn_creator=create_active_surrogate_fn
+        )
     
     # 2. Oracle baseline (always evaluate)
     logger.info("\n" + "="*60)
@@ -680,12 +736,22 @@ def main():
         if create_active_surrogate_fn is not None:
             oracle_surrogate_fn = create_active_surrogate_fn(scm)
         
+        # Create UpdateFunction for oracle
+        oracle_update_fn = None
+        if update_strategy != 'none' and oracle_surrogate_fn is not None:
+            oracle_update_fn = create_update_function(
+                strategy=update_strategy,
+                net=None,  # This is a limitation
+                learning_rate=1e-3
+            )
+        
         # Evaluate with appropriate surrogate
         eval_result = evaluator.evaluate(
             acquisition_fn=oracle_fn,
             scm=scm,
             config=eval_config,
             surrogate_fn=oracle_surrogate_fn,
+            update_fn=oracle_update_fn,
             seed=eval_config['seed']
         )
         
@@ -738,46 +804,39 @@ def main():
             # Try to load surrogate from GRPO checkpoint
             grpo_surrogate_fn = None
             try:
-                # Handle both file and directory paths
-                if grpo_path.is_file():
-                    checkpoint_file = grpo_path
+                from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint, load_surrogate_model
+                
+                # Check if GRPO has an embedded surrogate
+                grpo_surrogate_path = grpo_path / 'surrogate' if grpo_path.is_dir() else grpo_path.parent / 'surrogate'
+                if grpo_surrogate_path.exists():
+                    surrogate_fn, _ = load_surrogate_model(grpo_surrogate_path)
+                    grpo_surrogate_fn = surrogate_fn
+                    logger.info("Loaded surrogate from GRPO checkpoint")
                 else:
-                    checkpoint_file = grpo_path / 'checkpoint.pkl'
-                    
-                with open(checkpoint_file, 'rb') as f:
-                    checkpoint = pickle.load(f)
-                if checkpoint.get('has_surrogate', False):
-                    # Import surrogate wrapper
-                    from src.causal_bayes_opt.training.continuous_surrogate_integration import (
-                        create_continuous_learnable_surrogate,
-                        create_surrogate_fn_wrapper
-                    )
-                    import jax
-                    # Create surrogate from checkpoint
-                    key = jax.random.PRNGKey(42)
-                    net, _, _, _, _ = create_continuous_learnable_surrogate(
-                        n_variables=8,  # Max size
-                        key=key
-                    )
-                    surrogate_params = checkpoint.get('surrogate_params')
-                    if surrogate_params:
-                        grpo_surrogate_fn = create_surrogate_fn_wrapper(net, surrogate_params)
-                        logger.info("Loaded surrogate from GRPO checkpoint")
+                    # Check main checkpoint for embedded surrogate
+                    checkpoint = load_checkpoint(grpo_path)
+                    if checkpoint.get('metadata', {}).get('has_surrogate', False):
+                        logger.warning("GRPO has surrogate but not in new format, using baseline")
+                        grpo_surrogate_fn = baseline_surrogate_fn
+                    else:
+                        grpo_surrogate_fn = baseline_surrogate_fn
             except Exception as e:
                 logger.warning(f"Could not load GRPO surrogate: {e}")
                 grpo_surrogate_fn = baseline_surrogate_fn
             
             # Use active learning if flag is set, otherwise use loaded surrogate
-            if args.use_active_learning:
+            if update_strategy != 'none':
                 all_results['GRPO'] = evaluate_method(
                     'GRPO', grpo_fn, test_scms, eval_config, 
                     surrogate_fn=None,
-                    surrogate_fn_creator=create_active_surrogate_fn
+                    surrogate_fn_creator=create_active_surrogate_fn,
+                    update_strategy=update_strategy
                 )
             else:
                 all_results['GRPO'] = evaluate_method(
                     'GRPO', grpo_fn, test_scms, eval_config, 
-                    surrogate_fn=grpo_surrogate_fn or baseline_surrogate_fn
+                    surrogate_fn=grpo_surrogate_fn or baseline_surrogate_fn,
+                    update_strategy='none'
                 )
         else:
             logger.warning(f"GRPO checkpoint not found: {grpo_path}")
@@ -793,49 +852,34 @@ def main():
             # Try to load surrogate from BC checkpoint
             bc_surrogate_fn = None
             try:
-                # Handle both file and directory paths
-                if bc_path.is_file():
-                    checkpoint_file = bc_path
-                else:
-                    checkpoint_file = bc_path / 'checkpoint.pkl'
+                from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint, load_surrogate_model
                 
-                with open(checkpoint_file, 'rb') as f:
-                    checkpoint = pickle.load(f)
-                if checkpoint.get('has_surrogate', False):
-                    # Import surrogate wrapper if not already imported
-                    try:
-                        from src.causal_bayes_opt.training.continuous_surrogate_integration import (
-                            create_continuous_learnable_surrogate,
-                            create_surrogate_fn_wrapper
-                        )
-                    except ImportError:
-                        pass  # Already imported
-                    import jax
-                    # Create surrogate from checkpoint
-                    key = jax.random.PRNGKey(42)
-                    net, _, _, _, _ = create_continuous_learnable_surrogate(
-                        n_variables=8,  # Max size
-                        key=key
-                    )
-                    surrogate_params = checkpoint.get('surrogate_params')
-                    if surrogate_params:
-                        bc_surrogate_fn = create_surrogate_fn_wrapper(net, surrogate_params)
-                        logger.info("Loaded surrogate from BC checkpoint")
+                # Check if BC has an embedded surrogate (unlikely for policy BC)
+                bc_surrogate_path = bc_path / 'surrogate' if bc_path.is_dir() else bc_path.parent / 'surrogate'
+                if bc_surrogate_path.exists():
+                    surrogate_fn, _ = load_surrogate_model(bc_surrogate_path)
+                    bc_surrogate_fn = surrogate_fn
+                    logger.info("Loaded surrogate from BC checkpoint")
+                else:
+                    # BC policies typically don't have surrogates
+                    bc_surrogate_fn = baseline_surrogate_fn
             except Exception as e:
                 logger.warning(f"Could not load BC surrogate: {e}")
                 bc_surrogate_fn = baseline_surrogate_fn
                 
             # Use active learning if flag is set, otherwise use loaded surrogate
-            if args.use_active_learning:
+            if update_strategy != 'none':
                 all_results['BC'] = evaluate_method(
                     'BC', bc_fn, test_scms, eval_config,
                     surrogate_fn=None,
-                    surrogate_fn_creator=create_active_surrogate_fn
+                    surrogate_fn_creator=create_active_surrogate_fn,
+                    update_strategy=update_strategy
                 )
             else:
                 all_results['BC'] = evaluate_method(
                     'BC', bc_fn, test_scms, eval_config,
-                    surrogate_fn=bc_surrogate_fn or baseline_surrogate_fn
+                    surrogate_fn=bc_surrogate_fn or baseline_surrogate_fn,
+                    update_strategy='none'
                 )
         else:
             logger.warning(f"BC checkpoint not found: {bc_path}")
@@ -943,6 +987,27 @@ def main():
             
             # Handle different surrogate types
             surrogate_entry = surrogate_registry[surrogate_name]
+            
+            # Log which surrogate type is being used
+            if surrogate_entry == 'active_learning':
+                logger.info(f"  Using active learning surrogate (no pre-training)")
+            elif isinstance(surrogate_entry, dict) and surrogate_entry.get('active'):
+                logger.info(f"  Using BC surrogate with active learning")
+            elif callable(surrogate_entry):
+                # Check if it's the dummy surrogate
+                try:
+                    # Create a dummy tensor for testing
+                    dummy_tensor = jnp.ones((10, 3, 3))
+                    test_result = surrogate_entry(dummy_tensor, 'Y', ['X0', 'X1', 'Y'])
+                    if test_result.get('model_type') == 'dummy':
+                        logger.info(f"  Using dummy surrogate (uniform 0.5 probabilities)")
+                    else:
+                        logger.info(f"  Using static BC surrogate")
+                except:
+                    # If test fails, assume it's a BC surrogate
+                    logger.info(f"  Using static BC surrogate")
+            else:
+                logger.info(f"  Using surrogate type: {type(surrogate_entry)}")
             
             if surrogate_entry == 'active_learning':
                 # Pure active learning (no pre-training)

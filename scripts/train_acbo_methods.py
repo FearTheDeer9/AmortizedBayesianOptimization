@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 import sys
 import time
+import pickle
 from typing import Dict, Any
 
 # Add parent directory to path
@@ -122,14 +123,50 @@ def train_grpo(config: DictConfig) -> Dict[str, Any]:
     
     # Map reward weights if needed
     if 'reward_weights' not in config:
-        config['reward_weights'] = {
-            'optimization': 0.8,
-            'discovery': 0.1,
-            'efficiency': 0.1
-        }
+        if config.get('use_surrogate'):
+            # When using surrogate, activate info gain weight
+            config['reward_weights'] = {
+                'optimization': 0.6,
+                'discovery': 0.1,
+                'efficiency': 0.1,
+                'info_gain': 0.2
+            }
+        else:
+            config['reward_weights'] = {
+                'optimization': 0.8,
+                'discovery': 0.1,
+                'efficiency': 0.1
+            }
     
-    # Create trainer
-    trainer = create_unified_grpo_trainer(config)
+    # Load pre-trained surrogate if provided
+    pretrained_surrogate_components = None
+    if config.get('surrogate_checkpoint') and config.get('use_surrogate'):
+        logger.info(f"Loading pre-trained surrogate from: {config['surrogate_checkpoint']}")
+        try:
+            from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint, create_model_from_checkpoint
+            
+            checkpoint_path = Path(config['surrogate_checkpoint'])
+            checkpoint = load_checkpoint(checkpoint_path)
+            
+            # Verify it's a surrogate model
+            if checkpoint['model_type'] != 'surrogate':
+                raise ValueError(f"Expected surrogate model, got {checkpoint['model_type']}")
+            
+            # Create model from checkpoint
+            net, params = create_model_from_checkpoint(checkpoint)
+            pretrained_surrogate_components = {
+                'net': net,
+                'params': params
+            }
+            logger.info("✓ Successfully loaded pre-trained surrogate")
+            logger.info(f"  Architecture: {checkpoint['architecture']}")
+            
+        except Exception as e:
+            logger.error(f"Failed to load surrogate checkpoint: {e}")
+            logger.warning("Will proceed with fresh surrogate training")
+    
+    # Create trainer with optional pre-trained surrogate
+    trainer = create_unified_grpo_trainer(config, pretrained_surrogate=pretrained_surrogate_components)
     
     # Create SCM generator
     scm_generator = create_scm_generator(
@@ -188,8 +225,12 @@ def train_bc(config: DictConfig) -> Dict[str, Any]:
         seed=config.get('seed', 42)
     )
     
-    # Train on demonstrations
-    results = trainer.train(demonstrations_path=demo_path, max_demos=config.get('max_demos'))
+    # Train on demonstrations with 5-channel tensors
+    results = trainer.train(
+        demonstrations_path=demo_path, 
+        max_demos=config.get('max_demos'),
+        max_trajectory_length=100
+    )
     
     logger.info(f"\nTraining completed in {results['metrics']['training_time']:.2f}s")
     logger.info(f"Trained for {results['metrics']['epochs_trained']} epochs")
@@ -290,7 +331,7 @@ def main():
         '--method', 
         type=str, 
         required=True,
-        choices=['grpo', 'bc', 'surrogate', 'both'],
+        choices=['grpo', 'bc', 'surrogate', 'both', 'grpo_with_surrogate'],
         help='Method to train'
     )
     
@@ -320,6 +361,8 @@ def main():
     
     # Surrogate parameters
     parser.add_argument('--use_surrogate', action='store_true', help='Enable surrogate learning in GRPO')
+    parser.add_argument('--surrogate_checkpoint', type=str, default=None,
+                       help='Path to pre-trained surrogate checkpoint to use in GRPO')
     parser.add_argument('--surrogate_lr', type=float, default=1e-3, help='Surrogate learning rate')
     parser.add_argument('--surrogate_hidden_dim', type=int, default=128, help='Surrogate hidden dimension')
     parser.add_argument('--surrogate_layers', type=int, default=4, help='Surrogate number of layers')
@@ -339,6 +382,7 @@ def main():
         'checkpoint_dir': args.checkpoint_dir,
         'scm_type': args.scm_type,
         'use_surrogate': args.use_surrogate,
+        'surrogate_checkpoint': args.surrogate_checkpoint,
         'surrogate_lr': args.surrogate_lr,
         'surrogate_hidden_dim': args.surrogate_hidden_dim,
         'surrogate_layers': args.surrogate_layers,
@@ -367,7 +411,27 @@ def main():
     logger.info(f"  Use surrogate: {args.use_surrogate}")
     
     # Train selected method(s)
-    if args.method == 'grpo' or args.method == 'both':
+    if args.method == 'grpo_with_surrogate':
+        # First train the surrogate
+        logger.info("\n" + "=" * 60)
+        logger.info("STEP 1: Training BC surrogate first...")
+        logger.info("=" * 60)
+        surrogate_results = train_surrogate(config)
+        logger.info("\n✓ BC surrogate training completed")
+        
+        # Then use it for GRPO training
+        logger.info("\n" + "=" * 60)
+        logger.info("STEP 2: Training GRPO with pre-trained surrogate...")
+        logger.info("=" * 60)
+        
+        # Update config to use the just-trained surrogate
+        config['use_surrogate'] = True
+        config['surrogate_checkpoint'] = str(Path(config.get('checkpoint_dir', 'checkpoints')) / 'bc_surrogate_final')
+        
+        grpo_results = train_grpo(config)
+        logger.info("\n✓ GRPO training with surrogate completed")
+        
+    elif args.method == 'grpo' or args.method == 'both':
         grpo_results = train_grpo(config)
         logger.info("\n✓ GRPO training completed")
     

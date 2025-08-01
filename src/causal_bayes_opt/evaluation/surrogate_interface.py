@@ -63,6 +63,17 @@ class SurrogateInterface(ABC):
     def name(self) -> str:
         """Human-readable name for logging."""
         return self.__class__.__name__
+    
+    @property
+    @abstractmethod
+    def surrogate_type(self) -> str:
+        """
+        Type identifier for the surrogate.
+        
+        Returns one of: 'dummy', 'bc_static', 'bc_active', 'pure_active', etc.
+        This is used for clean type checking without hacky try/except blocks.
+        """
+        pass
 
 
 class StaticBCSurrogate(SurrogateInterface):
@@ -85,6 +96,10 @@ class StaticBCSurrogate(SurrogateInterface):
     @property
     def name(self) -> str:
         return "BC_Static"
+    
+    @property
+    def surrogate_type(self) -> str:
+        return "bc_static"
 
 
 class ActiveBCSurrogate(SurrogateInterface):
@@ -125,6 +140,10 @@ class ActiveBCSurrogate(SurrogateInterface):
     @property
     def name(self) -> str:
         return "BC_Active"
+    
+    @property
+    def surrogate_type(self) -> str:
+        return "bc_active"
 
 
 class PureActiveSurrogate(SurrogateInterface):
@@ -161,6 +180,10 @@ class PureActiveSurrogate(SurrogateInterface):
     @property
     def name(self) -> str:
         return "Pure_Active"
+    
+    @property
+    def surrogate_type(self) -> str:
+        return "pure_active"
 
 
 class DummySurrogate(SurrogateInterface):
@@ -185,6 +208,10 @@ class DummySurrogate(SurrogateInterface):
     @property
     def name(self) -> str:
         return "Dummy"
+    
+    @property
+    def surrogate_type(self) -> str:
+        return "dummy"
 
 
 def create_surrogate(surrogate_type: str, **kwargs) -> SurrogateInterface:

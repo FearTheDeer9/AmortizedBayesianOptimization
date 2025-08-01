@@ -1,0 +1,12 @@
+{
+  "Random": {
+    "method": "Random",
+    "surrogate": "dummy",
+    "surrogate_type": "dummy",
+    "scm_results": {
+      "fork": {
+        "improvement": 0.6570083573460579,
+        "final_f1": 0.0,
+        "final_value": 1.067589521408081,
+        "trajectory": [
+          

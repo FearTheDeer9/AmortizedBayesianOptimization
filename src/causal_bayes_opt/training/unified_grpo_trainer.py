@@ -344,6 +344,33 @@ class UnifiedGRPOTrainer:
         
         logger.info(f"Initialized true GRPO with group_size={self.batch_size}, entropy_coeff=0.1")
         
+    def _override_surrogate(self, pretrained_components: Dict[str, Any]):
+        """Override surrogate with pre-trained components."""
+        if 'net' in pretrained_components and 'params' in pretrained_components:
+            self.surrogate_net = pretrained_components['net']
+            self.surrogate_params = pretrained_components['params']
+            
+            # Recreate prediction and update functions with pre-trained model
+            from .continuous_surrogate_integration import create_surrogate_fn_wrapper, create_update_fn_wrapper
+            self.surrogate_predict_fn = create_surrogate_fn_wrapper(
+                self.surrogate_net, 
+                self.surrogate_params
+            )
+            
+            # Create optimizer for the pre-trained model
+            optimizer = optax.adam(learning_rate=self.config.get('surrogate_lr', 1e-3))
+            self.surrogate_opt_state = optimizer.init(self.surrogate_params)
+            
+            # Create update function
+            self.surrogate_update_fn = create_update_fn_wrapper(
+                self.surrogate_net,
+                optimizer
+            )
+            
+            logger.info("Successfully overrode surrogate with pre-trained model")
+        else:
+            logger.warning("Pre-trained components missing 'net' or 'params', using fresh surrogate")
+        
     def train(self, 
               scms: Union[List[Any], Dict[str, Any], Callable[[], Any]],
               eval_scms: Optional[List[Any]] = None) -> Dict[str, Any]:
@@ -360,7 +387,16 @@ class UnifiedGRPOTrainer:
         Returns:
             Training results and metrics
         """
+        logger.info(f"\n{'='*70}")
         logger.info("Starting unified GRPO training with true GRPO algorithm")
+        logger.info(f"  Episodes: {self.max_episodes}")
+        logger.info(f"  Use surrogate: {self.use_surrogate}")
+        logger.info(f"  Reward weights: {self.reward_weights}")
+        if self.use_surrogate:
+            logger.info(f"  Surrogate loaded: {self.surrogate_params is not None}")
+            logger.info(f"  Surrogate predict_fn available: {self.surrogate_predict_fn is not None}")
+            logger.info(f"  Surrogate update_fn available: {self.surrogate_update_fn is not None}")
+        logger.info(f"{'='*70}\n")
         start_time = time.time()
         
         # Convert SCMs to standard format
@@ -487,11 +523,14 @@ class UnifiedGRPOTrainer:
             
             # Convert buffer to 5-channel tensor with surrogate integration
             if self.use_surrogate and self.surrogate_predict_fn is not None:
-                # Create surrogate function wrapper
-                def surrogate_wrapper(t, tgt):
-                    return self.surrogate_predict_fn(t, target_idx, variables)
+                # Create surrogate function wrapper that matches expected signature
+                def surrogate_wrapper(t, tgt, vars=None):
+                    # Use provided vars or fall back to the scm variables
+                    actual_vars = vars if vars is not None else variables
+                    # The surrogate function expects the target variable name, not index
+                    return self.surrogate_predict_fn(t, target_var, actual_vars)
                 
-                tensor, var_order, diagnostics = buffer_to_five_channel_tensor(
+                tensor, mapper, diagnostics = buffer_to_five_channel_tensor(
                     buffer, target_var, 
                     surrogate_fn=surrogate_wrapper,
                     max_history_size=100, 
@@ -507,10 +546,10 @@ class UnifiedGRPOTrainer:
                     )
                     
                 # Keep posterior for structure metrics and info gain
-                posterior_before = surrogate_wrapper(tensor[:, :, :3], target_var)
+                posterior_before = surrogate_wrapper(tensor[:, :, :3], target_var, mapper.variables)
             else:
                 # No surrogate - convert 3-channel to 5-channel with zeros
-                tensor_3ch, var_order = buffer_to_three_channel_tensor(
+                tensor_3ch, mapper = buffer_to_three_channel_tensor(
                     buffer, target_var, max_history_size=100, standardize=True
                 )
                 # Pad to 5 channels
@@ -545,7 +584,7 @@ class UnifiedGRPOTrainer:
             intervention_value = mean + std * random.normal(val_key)
             
             # Create and apply intervention
-            selected_var = variables[selected_var_idx]
+            selected_var = mapper.get_name(int(selected_var_idx))
             intervention = create_perfect_intervention(
                 targets=frozenset([selected_var]),
                 values={selected_var: float(intervention_value)}
@@ -560,32 +599,39 @@ class UnifiedGRPOTrainer:
             # Compute reward
             outcome_sample = intervention_samples[0] if intervention_samples else None
             if outcome_sample:
-                # Get posterior after intervention if using surrogate
+                # Get posterior before and after intervention if using surrogate
+                posterior_before = None
                 posterior_after = None
                 if self.use_surrogate and self.surrogate_predict_fn is not None:
-                    # For now, simulate information gain by updating surrogate parameters
-                    # In a full implementation, we would properly add intervention outcomes
-                    # to the buffer and update the surrogate
+                    # Compute posterior BEFORE intervention
+                    logger.info(f"Computing posterior before intervention, use_surrogate={self.use_surrogate}")
+                    posterior_before = self.surrogate_predict_fn(
+                        tensor[:, :, :3], target_var, var_order
+                    )
+                    logger.info(f"Posterior before: {posterior_before}")
+                    # First, add intervention samples to the actual buffer
+                    # This is necessary for proper information gain calculation
+                    for sample in intervention_samples:
+                        buffer.add_intervention(intervention, sample)
                     
-                    # Create a simple update to simulate learning
-                    # This is a placeholder - in production, you'd properly handle
-                    # the intervention samples and update the buffer
-                    
-                    # Update surrogate with current buffer (simulating learning)
+                    # Update surrogate with the buffer INCLUDING intervention results
                     self.surrogate_params, self.surrogate_opt_state, update_metrics = \
                         self.surrogate_update_fn(
                             self.surrogate_params,
                             self.surrogate_opt_state,
-                            buffer,
+                            buffer,  # Buffer now includes intervention samples
                             target_var
                         )
                     
-                    # Get updated posterior (will show some information gain)
-                    def updated_surrogate_wrapper(t, tgt):
-                        return self.surrogate_predict_fn(t, target_idx, variables)
+                    # Create tensor from updated buffer for posterior_after
+                    tensor_after, mapper_after = buffer_to_three_channel_tensor(
+                        buffer, target_var, max_history_size=100, standardize=True
+                    )
                     
-                    # Use the same tensor but with updated parameters
-                    posterior_after = updated_surrogate_wrapper(tensor[:, :, :3], target_var)
+                    # Compute posterior after intervention with updated surrogate
+                    posterior_after = self.surrogate_predict_fn(
+                        tensor_after[:, :, :3], target_var, mapper_after.get_variables()
+                    )
                 
                 # Map reward weights to clean reward format
                 clean_weights = {
@@ -785,65 +831,117 @@ class UnifiedGRPOTrainer:
         return total_loss, loss_info
     
     def _save_checkpoint(self, is_final: bool = False):
-        """Save training checkpoint."""
+        """Save training checkpoint using unified format."""
+        from ..utils.checkpoint_utils import save_checkpoint as save_unified_checkpoint
+        
         checkpoint_dir = Path(self.checkpoint_dir)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
         name = "unified_grpo_final" if is_final else f"unified_grpo_ep{self.episode_count}"
         checkpoint_path = checkpoint_dir / name
-        checkpoint_path.mkdir(exist_ok=True)
         
-        # Save checkpoint data
-        checkpoint_data = {
-            'policy_params': self.policy_params,
-            'config': self.config if hasattr(self, 'config') else {
-                'learning_rate': self.learning_rate,
-                'architecture_level': self.architecture_level,
-                'optimization_direction': self.optimization_direction
-            },
+        # Save policy checkpoint
+        policy_architecture = {
+            'hidden_dim': self.config.get('architecture', {}).get('hidden_dim', 256),
+            'architecture_level': self.architecture_level
+        }
+        
+        training_config = {
+            'learning_rate': self.learning_rate,
+            'batch_size': self.batch_size,
+            'max_episodes': self.max_episodes,
+            'optimization_direction': self.optimization_direction
+        }
+        
+        metadata = {
+            'trainer_type': 'UnifiedGRPOTrainer',
             'episode': self.episode_count,
             'is_final': is_final,
-            'three_channel_format': True,
-            'training_metrics': self.training_metrics[-10:] if self.training_metrics else [],
-            'has_surrogate': self.use_surrogate,
-            'uses_true_grpo': True  # Flag to indicate this uses true GRPO
+            'uses_true_grpo': True,
+            'has_surrogate': self.use_surrogate
         }
         
-        # Include surrogate parameters if enabled
+        metrics = {
+            'mean_reward': self.training_metrics[-1].mean_reward if self.training_metrics else 0.0,
+            'episode': self.episode_count
+        }
+        
+        save_unified_checkpoint(
+            path=checkpoint_path,
+            params=self.policy_params,
+            architecture=policy_architecture,
+            model_type='policy',
+            model_subtype='grpo',
+            training_config=training_config,
+            metadata=metadata,
+            metrics=metrics
+        )
+        
+        # Save surrogate separately if enabled
         if self.use_surrogate and self.surrogate_params is not None:
-            checkpoint_data['surrogate_params'] = self.surrogate_params
-        
-        with open(checkpoint_path / 'checkpoint.pkl', 'wb') as f:
-            pickle.dump(checkpoint_data, f)
-        
-        logger.info(f"Saved checkpoint to {checkpoint_path}")
+            surrogate_path = checkpoint_path / 'surrogate'
+            
+            # Get surrogate architecture from config
+            surrogate_architecture = {
+                'hidden_dim': self.config.get('surrogate_hidden_dim', 128),
+                'num_layers': self.config.get('surrogate_layers', 4),
+                'num_heads': self.config.get('surrogate_heads', 8),
+                'key_size': self.config.get('surrogate_hidden_dim', 128) // self.config.get('surrogate_heads', 8),
+                'dropout': 0.1
+            }
+            
+            save_unified_checkpoint(
+                path=surrogate_path,
+                params=self.surrogate_params,
+                architecture=surrogate_architecture,
+                model_type='surrogate',
+                model_subtype='continuous_parent_set',
+                metadata={'parent_policy': name}
+            )
+            
+            logger.info(f"Saved surrogate checkpoint to {surrogate_path}")
         
     def save_checkpoint(self, path: Path, results: Dict[str, Any]) -> None:
-        """Save training checkpoint (compatibility method)."""
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        """Save training checkpoint using unified format."""
+        from ..utils.checkpoint_utils import save_checkpoint as save_unified_checkpoint
         
-        checkpoint = {
-            'params': results.get('policy_params', self.policy_params),
-            'config': self.config if hasattr(self, 'config') else {
-                'learning_rate': self.learning_rate,
-                'architecture_level': self.architecture_level
-            },
-            'metrics': results.get('all_metrics', []),
-            'metadata': {
-                'trainer_type': 'UnifiedGRPOTrainer',
-                'uses_true_grpo': True,
-                'converged': results.get('converged', False)
-            }
+        # Extract architecture
+        config = self.config if hasattr(self, 'config') else {}
+        architecture = {
+            'hidden_dim': config.get('architecture', {}).get('hidden_dim', 256),
+            'architecture_level': self.architecture_level
         }
         
-        with open(path, 'wb') as f:
-            pickle.dump(checkpoint, f)
-            
-        logger.info(f"Saved checkpoint to {path}")
+        # Training configuration
+        training_config = {
+            'learning_rate': self.learning_rate,
+            'batch_size': self.batch_size,
+            'max_episodes': self.max_episodes,
+            'optimization_direction': self.optimization_direction
+        }
+        
+        # Metadata
+        metadata = {
+            'trainer_type': 'UnifiedGRPOTrainer',
+            'uses_true_grpo': True,
+            'converged': results.get('converged', False),
+            'has_surrogate': self.use_surrogate
+        }
+        
+        save_unified_checkpoint(
+            path=path,
+            params=results.get('policy_params', self.policy_params),
+            architecture=architecture,
+            model_type='policy',
+            model_subtype='grpo',
+            training_config=training_config,
+            metadata=metadata,
+            metrics=results.get('all_metrics', {})
+        )
 
 
-def create_unified_grpo_trainer(config: Union[DictConfig, Dict[str, Any], None] = None, 
+def create_unified_grpo_trainer(config: Union[DictConfig, Dict[str, Any], None] = None,
+                                pretrained_surrogate: Optional[Dict[str, Any]] = None,
                                 **kwargs) -> UnifiedGRPOTrainer:
     """
     Factory function to create unified GRPO trainer.
@@ -852,12 +950,20 @@ def create_unified_grpo_trainer(config: Union[DictConfig, Dict[str, Any], None] 
     
     Args:
         config: Configuration dictionary or DictConfig
+        pretrained_surrogate: Optional dict with 'net' and 'params' for pre-trained surrogate
         **kwargs: Individual parameters if not using config
         
     Returns:
         Initialized UnifiedGRPOTrainer
     """
     if config is not None:
-        return UnifiedGRPOTrainer(config=config)
+        trainer = UnifiedGRPOTrainer(config=config)
     else:
-        return UnifiedGRPOTrainer(config=None, **kwargs)
+        trainer = UnifiedGRPOTrainer(config=None, **kwargs)
+    
+    # Override with pre-trained surrogate if provided
+    if pretrained_surrogate and trainer.use_surrogate:
+        logger.info("Overriding surrogate with pre-trained model")
+        trainer._override_surrogate(pretrained_surrogate)
+    
+    return trainer

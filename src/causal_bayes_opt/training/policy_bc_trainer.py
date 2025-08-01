@@ -20,11 +20,9 @@ import optax
 import numpy as np
 
 from ..policies.clean_bc_policy_factory import create_clean_bc_policy
-from .data_preprocessing import (
-    PolicyTrainingData,
-    load_demonstrations_from_path,
-    preprocess_demonstration_batch
-)
+from .data_preprocessing import load_demonstrations_from_path
+from .demonstration_to_tensor import create_bc_training_dataset
+from ..utils.variable_mapping import VariableMapper
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +78,7 @@ class PolicyBCTrainer:
         self.optimizer = None
         self.optimizer_state = None
         
-    def train(self, demonstrations_path: str, max_demos: Optional[int] = None) -> Dict[str, Any]:
+    def train(self, demonstrations_path: str, max_demos: Optional[int] = None, max_trajectory_length: int = 100) -> Dict[str, Any]:
         """
         Train policy model on expert demonstrations.
         
@@ -94,54 +92,52 @@ class PolicyBCTrainer:
         start_time = time.time()
         logger.info("Starting policy BC training")
         
-        # Load and preprocess demonstrations
+        # Load demonstrations
         logger.info(f"Loading demonstrations from {demonstrations_path}")
         raw_demos = load_demonstrations_from_path(demonstrations_path, max_files=max_demos)
         
-        # Preprocess to get policy training data
-        logger.info("Preprocessing demonstrations for policy learning")
-        policy_data = []
+        # Flatten demonstrations
+        flat_demos = []
+        for item in raw_demos:
+            if hasattr(item, 'demonstrations'):
+                flat_demos.extend(item.demonstrations)
+            else:
+                flat_demos.append(item)
         
-        # Limit demonstrations if max_demos is small
-        demos_to_process = raw_demos
-        if max_demos is not None and max_demos <= 2:
-            # For small max_demos, process individual demonstrations
-            flat_demos = []
-            for item in raw_demos:
-                if hasattr(item, 'demonstrations'):
-                    flat_demos.extend(item.demonstrations[:max_demos])
-                else:
-                    flat_demos.append(item)
-                if len(flat_demos) >= max_demos:
-                    break
-            demos_to_process = flat_demos[:max_demos]
-            logger.info(f"Limited to {len(demos_to_process)} individual demonstrations")
+        if max_demos and len(flat_demos) > max_demos:
+            flat_demos = flat_demos[:max_demos]
+            logger.info(f"Limited to {max_demos} demonstrations")
         
-        for demo in demos_to_process:
-            preprocessed = preprocess_demonstration_batch([demo])
-            if preprocessed['policy_data']:
-                policy_data.extend(preprocessed['policy_data'])
+        # Convert to 5-channel training data
+        logger.info("Converting demonstrations to 5-channel tensors with structural knowledge...")
+        all_inputs, all_labels, dataset_metadata = create_bc_training_dataset(
+            flat_demos, max_trajectory_length
+        )
         
-        if not policy_data:
-            raise ValueError("No valid policy training data found in demonstrations")
+        if not all_inputs:
+            raise ValueError("No valid training data created from demonstrations")
         
-        logger.info(f"Preprocessed {len(policy_data)} training trajectories")
+        logger.info(f"Created {len(all_inputs)} training examples from "
+                   f"{dataset_metadata['n_demonstrations']} demonstrations")
+        logger.info(f"Using 5-channel tensors with shape {dataset_metadata['tensor_shape']}")
         
-        # Initialize model
-        self._initialize_model(policy_data[0])
+        # Initialize model and variable mapper
+        self._initialize_model(all_inputs[0], dataset_metadata)
         
         # Split data
-        n_val = int(len(policy_data) * self.validation_split)
+        n_val = int(len(all_inputs) * self.validation_split)
         self.key, split_key = random.split(self.key)
-        indices = random.permutation(split_key, len(policy_data))
+        indices = random.permutation(split_key, len(all_inputs))
         
         val_indices = indices[:n_val]
         train_indices = indices[n_val:]
         
-        train_data = [policy_data[i] for i in train_indices]
-        val_data = [policy_data[i] for i in val_indices] if n_val > 0 else []
+        train_inputs = [all_inputs[i] for i in train_indices]
+        train_labels = [all_labels[i] for i in train_indices]
+        val_inputs = [all_inputs[i] for i in val_indices] if n_val > 0 else []
+        val_labels = [all_labels[i] for i in val_indices] if n_val > 0 else []
         
-        logger.info(f"Split data: {len(train_data)} train, {len(val_data)} validation")
+        logger.info(f"Split data: {len(train_inputs)} train, {len(val_inputs)} validation")
         
         # Training loop
         train_losses = []
@@ -154,12 +150,12 @@ class PolicyBCTrainer:
             epoch_start = time.time()
             
             # Train epoch
-            train_loss = self._train_epoch(train_data)
+            train_loss = self._train_epoch(train_inputs, train_labels)
             train_losses.append(train_loss)
             
             # Validation
-            if val_data:
-                val_loss = self._evaluate(val_data)
+            if val_inputs:
+                val_loss = self._evaluate(val_inputs, val_labels)
                 val_losses.append(val_loss)
                 
                 # Early stopping
@@ -203,15 +199,18 @@ class PolicyBCTrainer:
                 "training_time": training_time,
                 "epochs_trained": len(train_losses),
                 "final_train_loss": train_losses[-1] if train_losses else 0.0,
-                "best_val_loss": best_val_loss if val_data else train_losses[-1],
+                "best_val_loss": best_val_loss if val_inputs else train_losses[-1],
                 "train_history": train_losses,
                 "val_history": val_losses
             },
             "metadata": {
                 "trainer_type": "PolicyBCTrainer",
                 "model_type": "acquisition",
-                "n_train_samples": len(train_data),
-                "n_val_samples": len(val_data)
+                "n_train_samples": len(train_inputs),
+                "n_val_samples": len(val_inputs),
+                "n_demonstrations": dataset_metadata['n_demonstrations'],
+                "tensor_channels": 5,
+                "uses_structural_knowledge": True
             }
         }
         
@@ -221,9 +220,14 @@ class PolicyBCTrainer:
         
         return results
     
-    def _initialize_model(self, sample_data: PolicyTrainingData):
+    def _initialize_model(self, sample_tensor: jnp.ndarray, metadata: Dict[str, Any]):
         """Initialize model architecture and optimizer."""
-        logger.info("Initializing policy model")
+        logger.info("Initializing policy model for 5-channel input")
+        logger.info(f"Input tensor shape: {sample_tensor.shape}")
+        
+        # Store initial variable info for model shape, but we'll create mappers per example
+        self.n_vars = len(metadata['variables'])
+        self.target_idx = metadata.get('target_idx', 0)
         
         # Create policy function
         policy_fn = create_clean_bc_policy(hidden_dim=self.hidden_dim)
@@ -231,13 +235,12 @@ class PolicyBCTrainer:
         # Transform with Haiku
         self.net = hk.transform(policy_fn)
         
-        # Initialize parameters with full trajectory states
+        # Initialize parameters with 5-channel tensor
         self.key, init_key = random.split(self.key)
-        # Policy expects full trajectory [T, n_vars, 3]
         self.model_params = self.net.init(
             init_key,
-            sample_data.states,  # Full trajectory [T, n_vars, 3]
-            sample_data.target_idx
+            sample_tensor,  # [T, n_vars, 5]
+            self.target_idx
         )
         
         # Initialize optimizer
@@ -247,85 +250,91 @@ class PolicyBCTrainer:
         )
         self.optimizer_state = self.optimizer.init(self.model_params)
         
-        logger.info("Model initialized successfully")
+        logger.info("Model initialized successfully for 5-channel tensors with structural knowledge")
     
-    def _train_epoch(self, data: List[PolicyTrainingData]) -> float:
+    def _train_epoch(self, inputs: List[jnp.ndarray], labels: List[Dict[str, Any]]) -> float:
         """Train for one epoch."""
         # Shuffle data
         self.key, shuffle_key = random.split(self.key)
-        indices = random.permutation(shuffle_key, len(data))
+        indices = random.permutation(shuffle_key, len(inputs))
         
         total_loss = 0.0
-        n_examples = 0
+        n_batches = 0
         
-        # Process each trajectory
-        for idx in indices:
-            trajectory = data[idx]
+        # Process in batches
+        for i in range(0, len(indices), self.batch_size):
+            batch_indices = indices[i:i + self.batch_size]
+            batch_inputs = [inputs[idx] for idx in batch_indices]
+            batch_labels = [labels[idx] for idx in batch_indices]
+            
             self.key, step_key = random.split(self.key)
-            
-            # Train on this trajectory
-            loss = self._train_trajectory(trajectory, step_key)
+            loss = self._train_batch(batch_inputs, batch_labels, step_key)
             total_loss += loss
-            n_examples += 1
+            n_batches += 1
         
-        return total_loss / n_examples
+        return total_loss / n_batches
     
-    def _train_trajectory(self, trajectory: PolicyTrainingData, rng_key: jax.Array) -> float:
-        """Train on a single trajectory."""
+    def _train_batch(self, batch_inputs: List[jnp.ndarray], 
+                     batch_labels: List[Dict[str, Any]], 
+                     rng_key: jax.Array) -> float:
+        """Train on a batch of examples."""
         def loss_fn(params):
-            trajectory_loss = 0.0
-            n_steps = 0
+            batch_loss = 0.0
             
-            # Process each step in the trajectory
-            for t in range(len(trajectory.intervention_vars)):
-                
-                # Get state history up to time t
-                # Policy expects history [T', n_vars, 3] where T' = t+1
-                state_history = trajectory.states[:t+1]  # [t+1, n_vars, 3]
-                expert_var = int(trajectory.intervention_vars[t])
-                expert_value = trajectory.intervention_values[t]
-                
-                # Forward pass with state history
-                outputs = self.net.apply(params, rng_key, state_history, trajectory.target_idx)
+            for input_tensor, label in zip(batch_inputs, batch_labels):
+                # Forward pass with 5-channel tensor
+                outputs = self.net.apply(params, rng_key, input_tensor, self.target_idx)
                 var_logits = outputs['variable_logits']
                 value_params = outputs['value_params']
                 
-                # Variable selection loss (cross-entropy)
-                var_probs = jax.nn.softmax(var_logits)
-                var_loss = -jnp.log(var_probs[expert_var] + 1e-8)
+                # Extract intervention target
+                target_vars = list(label['targets'])
+                if not target_vars:
+                    continue
+                    
+                target_var_name = target_vars[0]
+                target_value = label['values'][target_var_name]
                 
-                # Value prediction loss (negative log likelihood)
-                mean = value_params[expert_var, 0]
-                log_std = value_params[expert_var, 1]
-                std = jnp.exp(jnp.clip(log_std, -5, 2))
+                # Create variable mapper for this example
+                example_variables = label.get('variables', [])
+                if not example_variables:
+                    logger.warning(f"No variable names in label, skipping")
+                    continue
+                    
+                example_mapper = VariableMapper(
+                    variables=example_variables,
+                    target_variable=label.get('target_variable')
+                )
                 
-                # NLL of expert value under predicted Gaussian
-                value_loss = 0.5 * jnp.log(2 * jnp.pi) + log_std + \
-                            0.5 * ((expert_value - mean) / std) ** 2
+                # Map variable name to index for this example
+                try:
+                    var_idx = example_mapper.get_index(target_var_name)
+                except ValueError:
+                    logger.warning(f"Variable {target_var_name} not in example variables: {example_variables}")
+                    continue
                 
-                # Combined loss (weight value loss less)
-                step_loss = var_loss + 0.5 * value_loss
+                # Variable selection loss
+                var_loss = -jax.nn.log_softmax(var_logits)[var_idx]
                 
-                trajectory_loss += step_loss
-                n_steps += 1
+                # Value prediction loss
+                value_mean = value_params[var_idx, 0]
+                value_log_std = value_params[var_idx, 1]
+                value_std = jnp.exp(jnp.clip(value_log_std, -5, 2))
+                
+                value_loss = 0.5 * jnp.log(2 * jnp.pi) + value_log_std + \
+                            0.5 * ((target_value - value_mean) / value_std) ** 2
+                
+                batch_loss += var_loss + 0.5 * value_loss
             
-            # Average over steps and ensure scalar
-            avg_loss = trajectory_loss / jnp.maximum(n_steps, 1)
-            return jnp.squeeze(avg_loss)  # Ensure scalar output
+            return batch_loss / len(batch_inputs)
         
-        # Compute gradients
+        # Compute gradients and update
         loss_val, grads = jax.value_and_grad(loss_fn)(self.model_params)
         
         # Clip gradients
-        grad_norm = optax.global_norm(grads)
-        grads = jax.lax.cond(
-            grad_norm > self.gradient_clip,
-            lambda g: jax.tree.map(lambda x: x * self.gradient_clip / grad_norm, g),
-            lambda g: g,
-            grads
-        )
+        grads, _ = optax.clip_by_global_norm(self.gradient_clip).update(grads, None)
         
-        # Update parameters
+        # Apply updates
         updates, self.optimizer_state = self.optimizer.update(
             grads, self.optimizer_state, self.model_params
         )
@@ -333,69 +342,91 @@ class PolicyBCTrainer:
         
         return float(loss_val)
     
-    def _evaluate(self, data: List[PolicyTrainingData]) -> float:
+    def _evaluate(self, inputs: List[jnp.ndarray], labels: List[Dict[str, Any]]) -> float:
         """Evaluate on dataset."""
         total_loss = 0.0
-        n_trajectories = len(data)
+        n_examples = 0
         
-        for trajectory in data:
+        for input_tensor, label in zip(inputs, labels):
             self.key, eval_key = random.split(self.key)
             
-            traj_loss = 0.0
-            n_steps = 0
+            # Forward pass
+            outputs = self.net.apply(self.model_params, eval_key, input_tensor, self.target_idx)
+            var_logits = outputs['variable_logits']
+            value_params = outputs['value_params']
             
-            # Evaluate each step
-            for t in range(len(trajectory.intervention_vars)):
+            # Extract target
+            target_vars = list(label['targets'])
+            if not target_vars:
+                continue
                 
-                # Get state history up to time t
-                state_history = trajectory.states[:t+1]
-                expert_var = int(trajectory.intervention_vars[t])
-                expert_value = trajectory.intervention_values[t]
-                
-                # Forward pass with state history
-                outputs = self.net.apply(
-                    self.model_params, eval_key,
-                    state_history, trajectory.target_idx
-                )
-                var_logits = outputs['variable_logits']
-                value_params = outputs['value_params']
-                
-                # Compute losses
-                var_probs = jax.nn.softmax(var_logits)
-                var_loss = -jnp.log(var_probs[expert_var] + 1e-8)
-                
-                mean = value_params[expert_var, 0]
-                log_std = value_params[expert_var, 1]
-                std = jnp.exp(jnp.clip(log_std, -5, 2))
-                
-                value_loss = 0.5 * jnp.log(2 * jnp.pi) + log_std + \
-                            0.5 * ((expert_value - mean) / std) ** 2
-                
-                step_loss = var_loss + 0.5 * value_loss
-                traj_loss += float(jnp.squeeze(step_loss))
-                n_steps += 1
+            target_var_name = target_vars[0]
+            target_value = label['values'][target_var_name]
             
-            if n_steps > 0:
-                total_loss += traj_loss / n_steps
+            # Create variable mapper for this example
+            example_variables = label.get('variables', [])
+            if not example_variables:
+                logger.warning(f"No variable names in label, skipping")
+                continue
+                
+            example_mapper = VariableMapper(
+                variables=example_variables,
+                target_variable=label.get('target_variable')
+            )
+            
+            # Map to index
+            try:
+                var_idx = example_mapper.get_index(target_var_name)
+            except ValueError:
+                logger.warning(f"Variable {target_var_name} not in example variables: {example_variables}")
+                continue
+            
+            # Compute losses
+            var_loss = -jax.nn.log_softmax(var_logits)[var_idx]
+            
+            value_mean = value_params[var_idx, 0]
+            value_log_std = value_params[var_idx, 1]
+            value_std = jnp.exp(jnp.clip(value_log_std, -5, 2))
+            
+            value_loss = 0.5 * jnp.log(2 * jnp.pi) + value_log_std + \
+                        0.5 * ((target_value - value_mean) / value_std) ** 2
+            
+            total_loss += float(var_loss + 0.5 * value_loss)
+            n_examples += 1
         
-        return total_loss / n_trajectories
+        return total_loss / n_examples if n_examples > 0 else 0.0
     
     def save_checkpoint(self, path: Path, results: Dict[str, Any]) -> None:
-        """Save training checkpoint."""
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        """Save training checkpoint using unified format."""
+        from ..utils.checkpoint_utils import save_checkpoint
         
-        checkpoint = {
-            'params': results['params'],
-            'config': results['config'],
-            'metrics': results['metrics'],
-            'metadata': results['metadata']
+        # Extract architecture
+        config = results.get('config', {})
+        
+        architecture = {
+            'hidden_dim': config.get('hidden_dim', self.hidden_dim)
         }
         
-        with open(path, 'wb') as f:
-            pickle.dump(checkpoint, f)
+        # Training configuration
+        training_config = {
+            'learning_rate': config.get('learning_rate', self.learning_rate),
+            'batch_size': config.get('batch_size', self.batch_size),
+            'max_epochs': self.max_epochs,
+            'gradient_clip': self.gradient_clip,
+            'weight_decay': self.weight_decay,
+            'validation_split': self.validation_split
+        }
         
-        logger.info(f"Saved policy checkpoint to {path}")
+        save_checkpoint(
+            path=path,
+            params=results['params'],
+            architecture=architecture,
+            model_type='policy',
+            model_subtype='bc',
+            training_config=training_config,
+            metadata=results.get('metadata', {}),
+            metrics=results.get('metrics', {})
+        )
     
     @classmethod
     def load_checkpoint(cls, path: Path) -> Tuple['PolicyBCTrainer', Dict[str, Any]]:

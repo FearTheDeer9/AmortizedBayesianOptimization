@@ -25,6 +25,7 @@ import logging
 
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import get_values, get_intervention_targets
+from ..utils.variable_mapping import VariableMapper
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def buffer_to_five_channel_tensor(
     max_history_size: int = 100,
     standardize: bool = True,
     validate_signals: bool = True
-) -> Tuple[jnp.ndarray, List[str], Dict[str, Any]]:
+) -> Tuple[jnp.ndarray, VariableMapper, Dict[str, Any]]:
     """
     Convert experience buffer to 5-channel tensor format with surrogate integration.
     
@@ -55,24 +56,32 @@ def buffer_to_five_channel_tensor(
     Returns:
         Tuple of:
         - tensor: [T, n_vars, 5] tensor in enhanced ACBO format
-        - variable_order: List of variable names in tensor order
+        - mapper: VariableMapper instance for variable name/index conversions
         - diagnostics: Dict with validation info and statistics
         
     Raises:
         ValueError: If buffer is empty or target not in variables
     """
+    logger.debug(f"[5-Channel Converter] Converting buffer with {buffer.size()} samples")
+    logger.debug(f"[5-Channel Converter] Target variable: {target_variable}")
+    logger.debug(f"[5-Channel Converter] Has surrogate function: {surrogate_fn is not None}")
+    
     # Get all samples from buffer
     all_samples = buffer.get_all_samples()
     if not all_samples:
         raise ValueError("Buffer is empty")
     
-    # Get variable order from buffer coverage
+    # Get variable order from buffer coverage and create mapper
     variable_order = sorted(buffer.get_variable_coverage())
     if target_variable not in variable_order:
         raise ValueError(f"Target '{target_variable}' not in buffer variables: {variable_order}")
     
+    # Create variable mapper
+    mapper = VariableMapper(variable_order, target_variable)
     n_vars = len(variable_order)
-    target_idx = variable_order.index(target_variable)
+    target_idx = mapper.get_index(target_variable)
+    logger.debug(f"[5-Channel Converter] Created VariableMapper with variables: {mapper.variables}")
+    logger.debug(f"[5-Channel Converter] Target index: {target_idx}")
     
     # First create 3-channel tensor for surrogate prediction
     tensor_3ch = _create_three_channel_tensor(
@@ -84,16 +93,20 @@ def buffer_to_five_channel_tensor(
     posterior = None
     if surrogate_fn is not None:
         try:
-            # Call surrogate with 3-channel tensor
-            posterior = surrogate_fn(tensor_3ch, target_variable)
+            # Call surrogate with 3-channel tensor and variable order
+            logger.debug(f"[5-Channel Converter] Calling surrogate with tensor shape: {tensor_3ch.shape}")
+            posterior = surrogate_fn(tensor_3ch, target_variable, variable_order)
             
             # Extract marginal probabilities
             marginal_probs = _extract_marginal_probs(posterior, variable_order, target_variable)
             
             # Log posterior details
-            logger.debug(f"Posterior type: {type(posterior).__name__}")
+            logger.debug(f"[5-Channel Converter] Posterior type: {type(posterior).__name__}")
             if marginal_probs:
-                logger.debug(f"Extracted marginal probs: {marginal_probs}")
+                logger.debug(f"[5-Channel Converter] Extracted marginal probs for {len(marginal_probs)} variables")
+                logger.debug(f"[5-Channel Converter] Sample marginals: {list(marginal_probs.items())[:3]}...")
+            else:
+                logger.debug(f"[5-Channel Converter] No marginal probs extracted")
             
             if validate_signals:
                 # Validate non-zero signal
@@ -141,7 +154,7 @@ def buffer_to_five_channel_tensor(
             f"nonzero={diagnostics['surrogate_stats']['num_nonzero']}/{n_vars-1}"
         )
     
-    return tensor_5ch, variable_order, diagnostics
+    return tensor_5ch, mapper, diagnostics
 
 
 def _create_three_channel_tensor(
@@ -529,7 +542,7 @@ def convert_three_to_five_channel(
     marginal_probs = None
     if surrogate_fn is not None:
         try:
-            posterior = surrogate_fn(tensor_3ch, target_variable)
+            posterior = surrogate_fn(tensor_3ch, target_variable, variable_order)
             marginal_probs = _extract_marginal_probs(posterior, variable_order, target_variable)
         except Exception as e:
             logger.warning(f"Surrogate prediction failed during conversion: {e}")

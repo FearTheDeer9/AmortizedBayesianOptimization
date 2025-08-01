@@ -432,6 +432,112 @@ PosteriorValidator.log_posterior_summary(
 )
 ```
 
+## Tensor Conversion Patterns
+
+### Online Evaluation: Buffer to 5-Channel Tensor
+
+The `buffer_to_five_channel_tensor` function is designed for **online use during evaluation**, where surrogate predictions are made dynamically based on the current buffer state:
+
+```python
+from src.causal_bayes_opt.training.five_channel_converter import buffer_to_five_channel_tensor
+
+# During evaluation - surrogate makes real-time predictions
+tensor_5ch, var_order, diagnostics = buffer_to_five_channel_tensor(
+    buffer=experience_buffer,
+    target_variable="Y",
+    surrogate_fn=trained_surrogate,  # Actual model making predictions
+    max_history_size=100,
+    standardize=True,
+    validate_signals=True
+)
+
+# The 5 channels are:
+# 0: Values (standardized)
+# 1: Target indicator (1.0 for target variable)
+# 2: Intervention indicator (1.0 if intervened)
+# 3: Marginal parent probabilities (from surrogate)
+# 4: Intervention recency (exponential decay)
+```
+
+Key characteristics:
+- Takes an `ExperienceBuffer` that accumulates samples over time
+- Accepts a `surrogate_fn` that makes predictions based on current data
+- Returns tensor suitable for policy input during evaluation
+
+### Offline Training: Demonstration to 5-Channel Tensor
+
+The `demonstration_to_five_channel_tensor` function is designed for **offline BC training**, where we have complete expert demonstrations with known posteriors:
+
+```python
+from src.causal_bayes_opt.training.demonstration_to_tensor import (
+    demonstration_to_five_channel_tensor,
+    create_bc_training_dataset
+)
+
+# Convert single demonstration to training examples
+input_tensors, intervention_labels, metadata = demonstration_to_five_channel_tensor(
+    demonstration=expert_demo,
+    max_trajectory_length=100
+)
+
+# Or create complete training dataset
+all_inputs, all_labels, dataset_metadata = create_bc_training_dataset(
+    demonstrations=expert_demos,
+    max_trajectory_length=100
+)
+
+# Train BC policy on 5-channel inputs
+for input_tensor, intervention_label in zip(all_inputs, all_labels):
+    # input_tensor: [T, n_vars, 5] - includes structural knowledge
+    # intervention_label: {'targets': frozenset(['X']), 'values': {'X': 1.0}}
+    loss = bc_policy_loss(input_tensor, intervention_label)
+```
+
+Key characteristics:
+- Extracts marginal probabilities from expert's posterior distribution
+- Creates training pairs directly without intermediate abstractions
+- Ensures BC sees the same 5-channel format used during evaluation
+
+### Why Two Patterns?
+
+1. **Online (buffer_to_five_channel_tensor)**:
+   - Dynamic surrogate predictions
+   - Accumulating buffer of samples
+   - Real-time tensor creation
+
+2. **Offline (demonstration_to_five_channel_tensor)**:
+   - Static expert posteriors
+   - Complete trajectories available
+   - Batch tensor creation for training
+
+### Channel Meanings
+
+All 5-channel tensors follow this standard format:
+
+| Channel | Name | Description | Range |
+|---------|------|-------------|-------|
+| 0 | Values | Observed/intervened values (standardized) | ~N(0,1) |
+| 1 | Target | Binary indicator for target variable | {0, 1} |
+| 2 | Intervention | Binary indicator if variable was intervened | {0, 1} |
+| 3 | Parent Probability | Marginal probability of being a parent | [0, 1] |
+| 4 | Recency | Exponential decay since last intervention | [0, 1] |
+
+### Key Insight: Structure-Aware BC Training
+
+The critical improvement is that BC policies can now be trained with the same structural information available during evaluation:
+
+```python
+# Old approach (3-channel only):
+# BC sees: values, target, interventions
+# BC misses: WHY the expert chose certain variables
+
+# New approach (5-channel):
+# BC sees: values, target, interventions, parent_probs, recency
+# BC learns: to use structural knowledge like GRPO does
+```
+
+This eliminates the train-test mismatch where BC was trained without structure information but evaluated with it.
+
 ## Summary
 
 By following these canonical patterns, you ensure:

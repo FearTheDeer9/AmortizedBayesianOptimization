@@ -5,9 +5,10 @@ This module provides the acquisition model using Group Relative Policy Optimizat
 for intelligent intervention selection based on structural uncertainty and optimization progress.
 """
 
-from .state import (
-    AcquisitionState,
-)
+# NOTE: state module was removed - functionality moved to tensor-based implementation
+# from .state import (
+#     AcquisitionState,
+# )
 
 from .services import (
     create_acquisition_state,

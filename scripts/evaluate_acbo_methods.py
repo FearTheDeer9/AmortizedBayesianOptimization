@@ -31,7 +31,9 @@ from src.causal_bayes_opt.evaluation.surrogate_registry import (
 from src.causal_bayes_opt.evaluation.surrogate_interface import (
     DummySurrogate, ActiveLearningSurrogateWrapper
 )
+from src.causal_bayes_opt.evaluation.scm_manager import SCMManager, SCMFilter, create_default_scm_manager
 from src.causal_bayes_opt.utils.update_functions import UpdateContext
+from src.causal_bayes_opt.utils.scm_providers import load_scm_dataset
 from src.causal_bayes_opt.experiments.benchmark_scms import (
     create_fork_scm,
     create_chain_scm,
@@ -189,26 +191,59 @@ def evaluate_method(
     return results
 
 
-def create_test_scm_set(n_scms: int = 10, seed: int = 42) -> List[tuple]:
-    """Create a diverse set of test SCMs."""
+def create_test_scm_set(n_scms: int = 10, seed: int = 42, 
+                       scm_sources: Optional[List[str]] = None,
+                       scm_filter: Optional[SCMFilter] = None) -> List[tuple]:
+    """Create a diverse set of test SCMs using SCM manager."""
+    # Create SCM manager
+    manager = create_default_scm_manager(include_catalog=True)
+    
+    # Add from additional sources if specified
+    if scm_sources:
+        for source in scm_sources:
+            source_path = Path(source)
+            if source_path.exists():
+                if source_path.is_dir():
+                    manager.add_from_directory(source_path)
+                else:
+                    # Load single file
+                    scm_dict = load_scm_dataset(source_path)
+                    for name, scm in scm_dict.items():
+                        manager._scm_sources[name] = {'type': 'loaded', 'scm': scm}
+                        manager._metadata_cache[name] = manager._extract_metadata(
+                            name, scm, [], 'file', source_path
+                        )
+    
+    # Get SCM names (optionally filtered)
+    scm_names = manager.list_scms(scm_filter)
+    
+    # If we don't have enough, add more from toy rotation
+    if len(scm_names) < n_scms:
+        logger.info(f"Only {len(scm_names)} SCMs available, generating more...")
+        manager.add_from_toy_rotation(
+            variable_range=(4, 6),
+            structure_types=["fork", "chain", "collider"],
+            samples_per_config=2,
+            tags=['generated'],
+            seed=seed
+        )
+        scm_names = manager.list_scms(scm_filter)
+    
+    # Select requested number of SCMs
+    if len(scm_names) > n_scms:
+        # Sample deterministically based on seed
+        rng = np.random.RandomState(seed)
+        scm_names = rng.choice(scm_names, size=n_scms, replace=False).tolist()
+    
+    # Load SCMs
     test_scms = []
-    
-    # Add specific benchmark SCMs
-    test_scms.append(('fork', create_fork_scm()))
-    test_scms.append(('chain_3', create_chain_scm(3)))
-    test_scms.append(('chain_5', create_chain_scm(5)))
-    test_scms.append(('collider', create_collider_scm()))
-    
-    # Add more if requested
-    if n_scms > 4:
-        # Create additional dense SCMs with varying sizes
-        for i in range(n_scms - 4):
-            n_vars = 4 + (i % 3)  # Vary between 4-6 variables
-            scm = create_dense_scm(n_vars, edge_prob=0.3, seed=seed + i)
-            test_scms.append((f'dense_{n_vars}_{i}', scm))
+    for name in scm_names:
+        scm = manager.get_scm(name)
+        if scm:
+            test_scms.append((name, scm))
     
     logger.info(f"Created {len(test_scms)} test SCMs")
-    return test_scms[:n_scms]
+    return test_scms
 
 
 def plot_comparison_results(all_results: Dict[str, Dict], output_dir: Path):
@@ -505,6 +540,10 @@ def main():
     
     # Evaluation parameters
     parser.add_argument('--n_scms', type=int, default=10, help='Number of test SCMs')
+    parser.add_argument('--scm_sources', nargs='+', help='Additional SCM sources (files or directories)')
+    parser.add_argument('--scm_min_nodes', type=int, help='Minimum number of nodes in SCMs')
+    parser.add_argument('--scm_max_nodes', type=int, help='Maximum number of nodes in SCMs')
+    parser.add_argument('--scm_tags', nargs='+', help='Required tags for SCMs')
     parser.add_argument('--n_obs', type=int, default=100, help='Initial observations')
     parser.add_argument('--n_interventions', type=int, default=20, help='Number of interventions')
     parser.add_argument('--n_samples', type=int, default=10, help='Samples per intervention')
@@ -570,8 +609,22 @@ def main():
         'seed': args.seed
     }
     
+    # Create SCM filter if specified
+    scm_filter = None
+    if any([args.scm_min_nodes, args.scm_max_nodes, args.scm_tags]):
+        scm_filter = SCMFilter(
+            min_nodes=args.scm_min_nodes,
+            max_nodes=args.scm_max_nodes,
+            required_tags=args.scm_tags or []
+        )
+    
     # Create test SCMs
-    test_scms = create_test_scm_set(args.n_scms, args.seed)
+    test_scms = create_test_scm_set(
+        args.n_scms, 
+        args.seed,
+        scm_sources=args.scm_sources,
+        scm_filter=scm_filter
+    )
     
     # Evaluate all requested pairs
     all_results = {}

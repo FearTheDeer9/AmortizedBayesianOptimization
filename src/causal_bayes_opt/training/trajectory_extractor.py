@@ -23,7 +23,7 @@ from pyrsistent import PRecord, field, PVector
 
 from .pure_data_loader import DemonstrationData, AVICIData, PosteriorStep, InterventionStep
 from ..avici_integration.parent_set.posterior import ParentSetPosterior
-from ..acquisition.state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 from .data_structures import TrainingExample
 
 logger = logging.getLogger(__name__)

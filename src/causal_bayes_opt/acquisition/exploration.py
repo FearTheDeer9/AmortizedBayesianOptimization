@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 from ..data_structures.buffer import ExperienceBuffer
-from .state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 
 
 @dataclass

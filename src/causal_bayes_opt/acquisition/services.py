@@ -19,7 +19,7 @@ import jax.numpy as jnp
 import pyrsistent as pyr
 
 # Local imports
-from .state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import get_values, get_intervention_targets
 from ..avici_integration.parent_set import (

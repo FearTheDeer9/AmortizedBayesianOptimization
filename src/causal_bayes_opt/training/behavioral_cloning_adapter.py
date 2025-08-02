@@ -32,7 +32,7 @@ import pyrsistent as pyr
 # Import existing infrastructure
 from ..avici_integration.core.conversion import samples_to_avici_format
 from ..avici_integration.core.standardization import compute_standardization_params
-from ..acquisition.state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 from ..data_structures.scm import get_variables, get_edges
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import create_sample

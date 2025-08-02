@@ -17,7 +17,10 @@ from dataclasses import dataclass, field
 
 import pyrsistent as pyr
 
-from ..data_structures.scm import SCM, create_scm, get_variables
+from ..data_structures.scm import create_scm, get_variables
+
+# Type alias
+SCM = pyr.PMap
 from ..utils.scm_providers import create_toy_scm_rotation, load_scm_dataset
 from ..experiments.variable_scm_factory import VariableSCMFactory
 

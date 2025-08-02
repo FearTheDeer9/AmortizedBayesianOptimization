@@ -39,7 +39,7 @@ from .behavioral_cloning_adapter import (
 )
 # Import TrainingExample from shared data structures
 from .data_structures import TrainingExample
-from ..acquisition.state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 
 
 class DifficultyLevel(Enum):

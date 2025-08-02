@@ -21,7 +21,7 @@ from ..environments.sampling import sample_with_intervention
 from ..interventions.handlers import create_perfect_intervention
 from .policy import compute_action_log_probability, sample_intervention_from_policy
 from .rewards import compute_verifiable_reward
-from .state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 from .services import create_acquisition_state
 from .trajectory import TrajectoryBuffer
 

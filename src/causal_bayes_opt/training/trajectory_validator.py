@@ -38,7 +38,7 @@ from .behavioral_cloning_adapter import (
     create_acquisition_state,
     extract_avici_samples
 )
-from ..acquisition.state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 from ..avici_integration.parent_set.posterior import ParentSetPosterior
 
 logger = logging.getLogger(__name__)

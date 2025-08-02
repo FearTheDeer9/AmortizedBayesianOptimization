@@ -8,7 +8,7 @@ follow functional programming principles and have no side effects.
 
 from typing import Dict, List, Any
 
-from .state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 
 
 def get_state_uncertainty_bits(state: AcquisitionState) -> float:

@@ -624,19 +624,19 @@ def create_learning_surrogate(scm: Any,
     
     # from ..training.active_learning import create_active_learning_surrogate
     # al_predict_fn, al_update_fn = create_active_learning_surrogate(
-        scm=scm,
-        initial_checkpoint=None,  # Start from scratch
-        learning_rate=learning_rate,
-        scoring_method=scoring_method,
-        seed=seed
-    )
-    
-    # Wrap to match the new SurrogateFn signature
-    def learning_surrogate_predict(tensor: jnp.ndarray, target: str, variables: List[str]) -> Dict[str, Any]:
-        # Active learning already knows the SCM variables, but we pass them for consistency
-        return al_predict_fn(tensor, target)
-    
-    return learning_surrogate_predict, al_update_fn
+    #     scm=scm,
+    #     initial_checkpoint=None,  # Start from scratch
+    #     learning_rate=learning_rate,
+    #     scoring_method=scoring_method,
+    #     seed=seed
+    # )
+    # 
+    # # Wrap to match the new SurrogateFn signature
+    # def learning_surrogate_predict(tensor: jnp.ndarray, target: str, variables: List[str]) -> Dict[str, Any]:
+    #     # Active learning already knows the SCM variables, but we pass them for consistency
+    #     return al_predict_fn(tensor, target)
+    # 
+    # return learning_surrogate_predict, al_update_fn
 
 
 def create_hybrid_surrogate(scm: Any,
@@ -662,19 +662,19 @@ def create_hybrid_surrogate(scm: Any,
     
     # from ..training.active_learning import create_active_learning_surrogate
     # al_predict_fn, al_update_fn = create_active_learning_surrogate(
-        scm=scm,
-        initial_checkpoint=checkpoint_path,
-        learning_rate=learning_rate,
-        scoring_method="bic",  # Default to BIC for hybrid
-        seed=seed
-    )
-    
-    # Wrap to match the new SurrogateFn signature
-    def hybrid_surrogate_predict(tensor: jnp.ndarray, target: str, variables: List[str]) -> Dict[str, Any]:
-        # Active learning already knows the SCM variables, but we pass them for consistency
-        return al_predict_fn(tensor, target)
-    
-    return hybrid_surrogate_predict, al_update_fn
+    #     scm=scm,
+    #     initial_checkpoint=checkpoint_path,
+    #     learning_rate=learning_rate,
+    #     scoring_method="bic",  # Default to BIC for hybrid
+    #     seed=seed
+    # )
+    # 
+    # # Wrap to match the new SurrogateFn signature
+    # def hybrid_surrogate_predict(tensor: jnp.ndarray, target: str, variables: List[str]) -> Dict[str, Any]:
+    #     # Active learning already knows the SCM variables, but we pass them for consistency
+    #     return al_predict_fn(tensor, target)
+    # 
+    # return hybrid_surrogate_predict, al_update_fn
 
 
 def create_bc_active_learning_wrapper(checkpoint_path: Path,

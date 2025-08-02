@@ -52,7 +52,7 @@ from ..acquisition.reward_rubric import (
     create_deployment_rubric,
     create_ablation_rubric,
 )
-from ..acquisition.state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 from ..acquisition.services import create_acquisition_state
 
 # Project imports - data structures

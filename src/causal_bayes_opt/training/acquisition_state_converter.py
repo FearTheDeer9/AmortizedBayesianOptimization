@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as onp
 import pyrsistent as pyr
 
-from ..acquisition.state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 from ..data_structures.sample import get_values, get_intervention_targets
 from ..data_structures.scm import get_variables
 

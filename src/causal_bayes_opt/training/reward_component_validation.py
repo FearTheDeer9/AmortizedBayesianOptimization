@@ -18,7 +18,7 @@ from ..acquisition.rewards import (
     create_default_reward_config,
     RewardComponents
 )
-from ..acquisition.state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 
 logger = logging.getLogger(__name__)
 

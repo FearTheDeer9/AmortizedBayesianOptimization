@@ -12,7 +12,7 @@ import jax.numpy as jnp
 
 # Local imports
 from ..acquisition.trajectory import TrajectoryBuffer, TrajectoryStep
-from ..acquisition.state import AcquisitionState
+from ..jax_native.state import TensorBackedAcquisitionState as AcquisitionState
 
 logger = logging.getLogger(__name__)
 

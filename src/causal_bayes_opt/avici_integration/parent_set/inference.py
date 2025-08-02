@@ -226,7 +226,7 @@ def create_train_step(net, optimizer):
 
 def create_jax_optimized_model(variable_names: List[str], 
                               predict_mechanisms: bool = False,
-                              **config_kwargs) -> JAXUnifiedParentSetModelWrapper:
+                              **config_kwargs):
     """
     Create JAX-optimized parent set model for maximum performance.
     

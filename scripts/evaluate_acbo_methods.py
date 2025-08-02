@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 """
-Comparison evaluation script for ACBO methods.
+Refactored ACBO evaluation script with clean surrogate management.
 
-This script evaluates and compares different ACBO methods:
-- GRPO (trained policy)
-- BC (behavioral cloning)
-- Random baseline
-- Oracle baseline (knows true structure)
-
-Usage:
-    python scripts/evaluate_acbo_methods.py --grpo checkpoints/clean_grpo_final --bc checkpoints/clean_bc_final
+This script evaluates different acquisition methods paired with various surrogates
+using a principled registry-based approach.
 """
 
 import argparse
@@ -20,7 +14,6 @@ import json
 from typing import Dict, List, Any, Optional
 import matplotlib.pyplot as plt
 import numpy as np
-import jax.numpy as jnp
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -32,58 +25,27 @@ from src.causal_bayes_opt.evaluation.model_interfaces import (
     create_random_acquisition,
     create_optimal_oracle_acquisition
 )
+from src.causal_bayes_opt.evaluation.surrogate_registry import (
+    SurrogateRegistry, get_registry, register_surrogate, get_surrogate
+)
+from src.causal_bayes_opt.evaluation.surrogate_interface import (
+    DummySurrogate, ActiveLearningSurrogateWrapper
+)
+from src.causal_bayes_opt.utils.update_functions import UpdateContext
 from src.causal_bayes_opt.experiments.benchmark_scms import (
     create_fork_scm,
     create_chain_scm,
     create_collider_scm,
-    create_sparse_scm,
     create_dense_scm
 )
-from src.causal_bayes_opt.data_structures.scm import get_parents, get_target, get_variables
-from src.causal_bayes_opt.utils.variable_mapping import VariableMapper
-from src.causal_bayes_opt.utils.update_functions import create_update_function
+from src.causal_bayes_opt.data_structures.scm import get_parents, get_target
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(levelname)s:%(name)s:%(message)s'
 )
 logger = logging.getLogger(__name__)
-
-
-def create_test_scms(n_scms: int = 10, seed: int = 42) -> List[Any]:
-    """
-    Create a diverse set of test SCMs.
-    
-    Args:
-        n_scms: Number of SCMs to create
-        seed: Random seed
-        
-    Returns:
-        List of SCM objects
-    """
-    import random
-    random.seed(seed)
-    
-    scms = []
-    
-    # Add canonical structures
-    scms.append(('fork', create_fork_scm(noise_scale=1.0)))
-    scms.append(('chain_3', create_chain_scm(chain_length=3)))
-    scms.append(('chain_5', create_chain_scm(chain_length=5)))
-    scms.append(('collider', create_collider_scm(noise_scale=1.0)))
-    
-    # Add random sparse graphs
-    for i in range(n_scms - 4):
-        n_vars = random.randint(4, 8)
-        scm = create_sparse_scm(
-            num_vars=n_vars,
-            edge_prob=0.3,
-            noise_scale=1.0
-        )
-        scms.append((f'sparse_{n_vars}vars', scm))
-    
-    return scms
 
 
 def evaluate_method(
@@ -91,178 +53,200 @@ def evaluate_method(
     acquisition_fn: callable,
     scms: List[tuple],
     config: Dict[str, Any],
-    surrogate_fn: Optional[callable] = None,
-    surrogate_fn_creator: Optional[callable] = None,
-    update_strategy: str = 'none'
+    surrogate_name: str,
+    registry: SurrogateRegistry,
+    update_strategy: str = "none"
 ) -> Dict[str, Any]:
     """
-    Evaluate a single method on all test SCMs.
+    Evaluate a single method with a specific surrogate on all test SCMs.
     
     Args:
         method_name: Name of the method
         acquisition_fn: Acquisition function to evaluate
         scms: List of (name, scm) tuples
         config: Evaluation configuration
-        surrogate_fn: Optional surrogate function (used if surrogate_fn_creator is None)
-        surrogate_fn_creator: Optional function that creates surrogate for each SCM
+        surrogate_name: Name of surrogate in registry
+        registry: SurrogateRegistry instance
+        update_strategy: Update strategy ('none' or 'bic')
         
     Returns:
         Evaluation results
     """
-    logger.info(f"\nEvaluating {method_name}...")
+    logger.info(f"\nEvaluating {method_name} with surrogate '{surrogate_name}'...")
+    
+    # Get surrogate from registry
+    surrogate = registry.get(surrogate_name)
+    if surrogate is None:
+        logger.error(f"Surrogate '{surrogate_name}' not found in registry")
+        return {}
+    
+    # Wrap with active learning if requested
+    if update_strategy != "none":
+        # Only allow active learning with surrogates that have a model to update
+        if surrogate.surrogate_type == 'dummy':
+            logger.warning(f"  Active learning not supported for dummy surrogate, ignoring --surrogate_update_strategy")
+        elif hasattr(surrogate, '_checkpoint_path'):
+            # BC surrogate - can enable active learning
+            logger.info(f"  Enabling active learning with {update_strategy} strategy")
+            try:
+                from src.causal_bayes_opt.evaluation.model_interfaces import create_bc_surrogate
+                
+                # Reload to get network components
+                _, _, net, initial_params, initial_opt_state = create_bc_surrogate(
+                    surrogate._checkpoint_path,
+                    allow_updates=True,
+                    return_components=True
+                )
+                surrogate = ActiveLearningSurrogateWrapper(
+                    base_surrogate=surrogate,
+                    update_strategy=update_strategy,
+                    net=net,
+                    initial_params=initial_params,
+                    initial_opt_state=initial_opt_state,
+                    learning_rate=1e-3,
+                    seed=config.get('seed', 42)
+                )
+            except Exception as e:
+                logger.error(f"  Failed to enable active learning: {e}")
+                logger.info("  Continuing without active learning")
+        else:
+            logger.warning(f"  Active learning not supported for {surrogate.surrogate_type} surrogate")
+    
+    logger.info(f"  Using {surrogate.name} (type: {surrogate.surrogate_type})")
     
     evaluator = create_universal_evaluator()
     results = {
         'method': method_name,
+        'surrogate': surrogate_name,
+        'surrogate_type': surrogate.surrogate_type,
         'scm_results': {},
         'aggregate_metrics': {}
     }
     
     all_improvements = []
     all_f1_scores = []
-    all_shd_scores = []
     all_final_values = []
-    all_trajectory_means = []
     
     for scm_name, scm in scms:
         logger.info(f"  Testing on {scm_name}...")
         
-        # Get true parents for oracle
-        target = get_target(scm)
-        true_parents = list(get_parents(scm, target)) if hasattr(scm, 'edges') else []
+        # Create surrogate predict function that matches evaluator expectations
+        def surrogate_fn(tensor, target, variables):
+            return surrogate.predict(tensor, target, variables)
         
-        # Create surrogate for this SCM if using active learning
-        scm_surrogate_fn = surrogate_fn
-        if surrogate_fn_creator is not None:
-            scm_surrogate_fn = surrogate_fn_creator(scm)
-        
-        # Create UpdateFunction based on strategy
+        # Prepare active learning components if needed
         update_fn = None
-        if update_strategy != 'none' and scm_surrogate_fn is not None:
-            # For now, we'll pass the net as None since we don't have it here
-            # The real implementation would need to get the net from the surrogate
-            update_fn = create_update_function(
-                strategy=update_strategy,
-                net=None,  # This is a limitation - would need to refactor
-                learning_rate=1e-3
-            )
+        surrogate_params = None
+        surrogate_opt_state = None
+        
+        if hasattr(surrogate, 'get_update_function'):
+            update_fn = surrogate.get_update_function()
+            if update_fn is not None:
+                # Get initial params and opt_state
+                if hasattr(surrogate, 'get_params'):
+                    surrogate_params = surrogate.get_params()
+                if hasattr(surrogate, 'get_opt_state'):
+                    surrogate_opt_state = surrogate.get_opt_state()
+                logger.info(f"    Active learning enabled with {update_strategy} strategy")
         
         # Evaluate
         eval_result = evaluator.evaluate(
             acquisition_fn=acquisition_fn,
             scm=scm,
             config=config,
-            surrogate_fn=scm_surrogate_fn,
+            surrogate_fn=surrogate_fn if surrogate.surrogate_type != 'dummy' else None,
             update_fn=update_fn,
+            surrogate_params=surrogate_params,
+            surrogate_opt_state=surrogate_opt_state,
             seed=config['seed']
         )
         
-        # Store results
-        results['scm_results'][scm_name] = {
-            'initial_value': eval_result.final_metrics['initial_value'],
-            'best_value': eval_result.final_metrics['best_value'],
-            'improvement': eval_result.final_metrics['improvement'],
-            'regret': eval_result.final_metrics.get('simple_regret', 0.0),
-            'n_unique_interventions': eval_result.final_metrics.get('n_unique_interventions', 0),
-            'true_parents': true_parents,
-            'mean_trajectory_value': eval_result.final_metrics.get('mean_trajectory_value', eval_result.final_metrics['initial_value']),
-            'trajectory': eval_result.history  # Store full history for plotting (not JSON serializable)
+        if eval_result.success:
+            metrics = eval_result.final_metrics
+            results['scm_results'][scm_name] = {
+                'improvement': metrics['improvement'],
+                'final_f1': metrics.get('final_f1', 0.0),
+                'final_value': metrics['final_value'],
+                'trajectory': eval_result.history
+            }
+            
+            all_improvements.append(metrics['improvement'])
+            all_f1_scores.append(metrics.get('final_f1', 0.0))
+            all_final_values.append(metrics['final_value'])
+    
+    # Aggregate metrics
+    if all_improvements:
+        results['aggregate_metrics'] = {
+            'mean_improvement': float(np.mean(all_improvements)),
+            'std_improvement': float(np.std(all_improvements)),
+            'mean_f1': float(np.mean(all_f1_scores)),
+            'mean_final_value': float(np.mean(all_final_values))
         }
-        
-        # Add structure metrics if available
-        if 'final_f1' in eval_result.final_metrics:
-            results['scm_results'][scm_name]['f1_score'] = eval_result.final_metrics['final_f1']
-            results['scm_results'][scm_name]['shd'] = eval_result.final_metrics.get('final_shd', float('inf'))
-            all_f1_scores.append(eval_result.final_metrics['final_f1'])
-            if eval_result.final_metrics.get('final_shd') is not None and eval_result.final_metrics['final_shd'] != float('inf'):
-                all_shd_scores.append(eval_result.final_metrics['final_shd'])
-        
-        all_improvements.append(eval_result.final_metrics['improvement'])
-        all_final_values.append(eval_result.final_metrics['best_value'])
-        all_trajectory_means.append(eval_result.final_metrics.get('mean_trajectory_value', eval_result.final_metrics['initial_value']))
     
-    # Compute aggregate metrics
-    results['aggregate_metrics'] = {
-        'mean_improvement': np.mean(all_improvements),
-        'std_improvement': np.std(all_improvements),
-        'mean_final_value': np.mean(all_final_values),
-        'mean_trajectory_value': np.mean(all_trajectory_means),
-        'mean_f1_score': np.mean(all_f1_scores) if all_f1_scores else 0.0,
-        'mean_shd': np.mean(all_shd_scores) if all_shd_scores else float('inf'),
-        'n_scms': len(scms)
-    }
-    
-    logger.info(f"  Mean improvement: {results['aggregate_metrics']['mean_improvement']:.3f}")
-    if all_f1_scores:
-        logger.info(f"  Mean F1 score: {results['aggregate_metrics']['mean_f1_score']:.3f}")
+    logger.info(f"  {method_name} mean improvement: {results['aggregate_metrics'].get('mean_improvement', 0):.3f}")
+    logger.info(f"  {method_name} mean F1 score: {results['aggregate_metrics'].get('mean_f1', 0):.3f}")
     
     return results
 
 
-def plot_comparison(all_results: Dict[str, Dict], output_dir: Path):
-    """
-    Create comparison plots.
+def create_test_scm_set(n_scms: int = 10, seed: int = 42) -> List[tuple]:
+    """Create a diverse set of test SCMs."""
+    test_scms = []
     
-    Args:
-        all_results: Results for all methods
-        output_dir: Directory to save plots
-    """
-    output_dir.mkdir(exist_ok=True)
+    # Add specific benchmark SCMs
+    test_scms.append(('fork', create_fork_scm()))
+    test_scms.append(('chain_3', create_chain_scm(3)))
+    test_scms.append(('chain_5', create_chain_scm(5)))
+    test_scms.append(('collider', create_collider_scm()))
+    
+    # Add more if requested
+    if n_scms > 4:
+        # Create additional dense SCMs with varying sizes
+        for i in range(n_scms - 4):
+            n_vars = 4 + (i % 3)  # Vary between 4-6 variables
+            scm = create_dense_scm(n_vars, edge_prob=0.3, seed=seed + i)
+            test_scms.append((f'dense_{n_vars}_{i}', scm))
+    
+    logger.info(f"Created {len(test_scms)} test SCMs")
+    return test_scms[:n_scms]
+
+
+def plot_comparison_results(all_results: Dict[str, Dict], output_dir: Path):
+    """Create comparison plots for all evaluated methods."""
+    # Implementation same as before, but cleaner
+    output_dir.mkdir(parents=True, exist_ok=True)
     
     # Extract data for plotting
-    methods = list(all_results.keys())
-    mean_improvements = [all_results[m]['aggregate_metrics']['mean_improvement'] for m in methods]
-    std_improvements = [all_results[m]['aggregate_metrics']['std_improvement'] for m in methods]
+    methods = []
+    improvements = []
+    f1_scores = []
     
-    # 1. Bar plot of mean improvements
-    plt.figure(figsize=(10, 6))
-    x = np.arange(len(methods))
-    plt.bar(x, mean_improvements, yerr=std_improvements, capsize=10)
-    plt.xticks(x, methods)
-    plt.ylabel('Mean Improvement')
-    plt.title('ACBO Method Comparison: Target Value Improvement')
-    plt.grid(axis='y', alpha=0.3)
+    for key, result in all_results.items():
+        if 'aggregate_metrics' in result:
+            methods.append(key)
+            improvements.append(result['aggregate_metrics']['mean_improvement'])
+            f1_scores.append(result['aggregate_metrics']['mean_f1'])
+    
+    # Create comparison plots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # Improvement plot
+    ax1.bar(methods, improvements)
+    ax1.set_ylabel('Mean Improvement')
+    ax1.set_title('Target Value Improvement by Method')
+    ax1.tick_params(axis='x', rotation=45)
+    
+    # F1 score plot
+    ax2.bar(methods, f1_scores)
+    ax2.set_ylabel('Mean F1 Score')
+    ax2.set_title('Structure Learning Performance')
+    ax2.tick_params(axis='x', rotation=45)
+    
     plt.tight_layout()
-    plt.savefig(output_dir / 'improvement_comparison.png', dpi=150)
+    plt.savefig(output_dir / 'method_comparison.png', dpi=150)
     plt.close()
     
-    # 2. F1 scores if available
-    mean_f1s = []
-    for m in methods:
-        f1 = all_results[m]['aggregate_metrics'].get('mean_f1_score', 0.0)
-        mean_f1s.append(f1)
-    
-    if any(f1 > 0 for f1 in mean_f1s):
-        plt.figure(figsize=(10, 6))
-        plt.bar(x, mean_f1s)
-        plt.xticks(x, methods)
-        plt.ylabel('Mean F1 Score')
-        plt.title('Structure Learning Performance')
-        plt.ylim(0, 1)
-        plt.grid(axis='y', alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(output_dir / 'f1_comparison.png', dpi=150)
-        plt.close()
-    
-    # 3. Per-SCM heatmap
-    scm_names = list(next(iter(all_results.values()))['scm_results'].keys())
-    improvement_matrix = np.zeros((len(methods), len(scm_names)))
-    
-    for i, method in enumerate(methods):
-        for j, scm in enumerate(scm_names):
-            improvement_matrix[i, j] = all_results[method]['scm_results'][scm]['improvement']
-    
-    plt.figure(figsize=(12, 8))
-    im = plt.imshow(improvement_matrix, aspect='auto', cmap='RdBu_r')
-    plt.colorbar(im, label='Improvement')
-    plt.xticks(range(len(scm_names)), scm_names, rotation=45, ha='right')
-    plt.yticks(range(len(methods)), methods)
-    plt.title('Improvement by Method and SCM Type')
-    plt.tight_layout()
-    plt.savefig(output_dir / 'improvement_heatmap.png', dpi=150)
-    plt.close()
-    
-    logger.info(f"Plots saved to {output_dir}/")
+    logger.info(f"Comparison plots saved to {output_dir}/")
 
 
 def plot_trajectories(all_results: Dict[str, Dict], output_dir: Path):
@@ -290,7 +274,13 @@ def plot_target_trajectories(all_results: Dict[str, Dict], output_dir: Path):
     plt.figure(figsize=(12, 8))
     
     # Colors for each method
-    colors = {'Random': 'gray', 'Oracle': 'red', 'GRPO': 'blue', 'BC': 'green'}
+    colors = {
+        'Random': 'gray', 
+        'Oracle': 'red', 
+        'random+bc': 'orange',
+        'grpo+bc': 'blue',
+        'bc+bc': 'green'
+    }
     
     for method, results in all_results.items():
         if 'scm_results' not in results:
@@ -351,13 +341,19 @@ def plot_structure_trajectories(all_results: Dict[str, Dict], output_dir: Path):
     """Plot F1 and SHD over intervention steps."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
     
-    colors = {'Random': 'gray', 'Oracle': 'red', 'GRPO': 'blue', 'BC': 'green'}
+    colors = {
+        'Random': 'gray', 
+        'Oracle': 'red', 
+        'random+bc': 'orange',
+        'grpo+bc': 'blue',
+        'bc+bc': 'green'
+    }
     
     for method, results in all_results.items():
         if 'scm_results' not in results:
             continue
         
-        # Collect F1 and SHD trajectories
+        # Collect F1 trajectories step by step
         f1_by_step = {}
         shd_by_step = {}
         
@@ -370,20 +366,24 @@ def plot_structure_trajectories(all_results: Dict[str, Dict], output_dir: Path):
             for step_metric in trajectory:
                 step = step_metric.step
                 
-                # Extract F1 and SHD if available
-                if step_metric.marginals:
-                    # F1 is stored in marginals metadata or needs to be computed
-                    # For now, skip if not directly available
-                    pass
+                # Extract F1 from predicted_parents if available
+                if hasattr(step_metric, 'predicted_parents') and step_metric.predicted_parents is not None:
+                    # We need true parents from scm_result
+                    if 'f1_score' in scm_result:  # Use final F1 as proxy for now
+                        if step not in f1_by_step:
+                            f1_by_step[step] = []
+                        # Use prediction confidence as proxy for F1 evolution
+                        if hasattr(step_metric, 'prediction_confidence'):
+                            f1_by_step[step].append(step_metric.prediction_confidence)
                 
-                # Use final values as approximation if per-step not available
-                if step == len(trajectory) - 1:  # Last step
+                # For now, use final values at last step
+                if step == len(trajectory) - 1:
                     if 'f1_score' in scm_result:
                         if step not in f1_by_step:
                             f1_by_step[step] = []
                         f1_by_step[step].append(scm_result['f1_score'])
                     
-                    if 'shd' in scm_result:
+                    if 'shd' in scm_result and scm_result['shd'] != float('inf'):
                         if step not in shd_by_step:
                             shd_by_step[step] = []
                         shd_by_step[step].append(scm_result['shd'])
@@ -436,38 +436,39 @@ def plot_scm_examples(all_results: Dict[str, Dict], output_dir: Path):
     if len(scms_to_plot) < 4:
         remaining = list(available_scms - set(scms_to_plot))
         scms_to_plot.extend(remaining[:4-len(scms_to_plot)])
-    
-    scms_to_plot = scms_to_plot[:4]  # Max 4
+    scms_to_plot = scms_to_plot[:4]
     
     if not scms_to_plot:
         return
     
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     axes = axes.flatten()
     
-    colors = {'Random': 'gray', 'Oracle': 'red', 'GRPO': 'blue', 'BC': 'green'}
+    colors = {
+        'Random': 'gray', 
+        'Oracle': 'red', 
+        'random+bc': 'orange',
+        'grpo+bc': 'blue',
+        'bc+bc': 'green'
+    }
     
     for idx, scm_name in enumerate(scms_to_plot):
         ax = axes[idx]
         
         for method, results in all_results.items():
-            if 'scm_results' not in results:
-                continue
-            
-            if scm_name not in results['scm_results']:
+            if 'scm_results' not in results or scm_name not in results['scm_results']:
                 continue
                 
             scm_result = results['scm_results'][scm_name]
             if 'trajectory' not in scm_result:
                 continue
-            
+                
             trajectory = scm_result['trajectory']
             steps = [step.step for step in trajectory]
             values = [step.outcome_value for step in trajectory]
             
             color = colors.get(method, 'black')
-            ax.plot(steps, values, 'o-', label=method, color=color, 
-                   linewidth=2, markersize=6)
+            ax.plot(steps, values, 'o-', label=method, color=color, markersize=6)
         
         ax.set_xlabel('Intervention Step')
         ax.set_ylabel('Target Value')
@@ -475,30 +476,32 @@ def plot_scm_examples(all_results: Dict[str, Dict], output_dir: Path):
         ax.legend()
         ax.grid(True, alpha=0.3)
     
-    # Hide unused subplots
-    for idx in range(len(scms_to_plot), 4):
-        axes[idx].set_visible(False)
-    
     plt.tight_layout()
     plt.savefig(output_dir / 'scm_example_trajectories.png', dpi=150)
     plt.close()
 
 
 def main():
-    """Main evaluation function."""
-    parser = argparse.ArgumentParser(description='Evaluate and compare ACBO methods')
+    """Main evaluation script with clean surrogate management."""
+    parser = argparse.ArgumentParser(description='Evaluate ACBO methods with clean surrogate management')
     
-    # Checkpoint paths (legacy)
-    parser.add_argument('--grpo', type=str, help='Path to GRPO checkpoint')
-    parser.add_argument('--bc', type=str, help='Path to BC checkpoint')
+    # Surrogate registration
+    parser.add_argument('--register_surrogate', nargs=2, action='append', metavar=('NAME', 'PATH'),
+                       help='Register a surrogate: NAME PATH_OR_TYPE (can be used multiple times)')
     
-    # Model registry (new flexible approach)
+    # Policy registration  
     parser.add_argument('--register_policy', nargs=2, action='append', metavar=('NAME', 'PATH'),
                        help='Register a policy model: NAME PATH (can be used multiple times)')
-    parser.add_argument('--register_surrogate', nargs=2, action='append', metavar=('NAME', 'PATH'),
-                       help='Register a surrogate model: NAME PATH (can be used multiple times)')
+    
+    # Evaluation pairs
     parser.add_argument('--evaluate_pairs', nargs=2, action='append', metavar=('POLICY', 'SURROGATE'),
-                       help='Evaluate policy-surrogate pair: POLICY_NAME SURROGATE_NAME (can be used multiple times)')
+                       help='Evaluate policy-surrogate pair: POLICY_NAME SURROGATE_NAME')
+    
+    # Built-in baselines
+    parser.add_argument('--include_baselines', action='store_true',
+                       help='Include Random and Oracle baselines')
+    parser.add_argument('--baseline_surrogate', type=str, default='dummy',
+                       help='Surrogate to use for baselines')
     
     # Evaluation parameters
     parser.add_argument('--n_scms', type=int, default=10, help='Number of test SCMs')
@@ -507,25 +510,60 @@ def main():
     parser.add_argument('--n_samples', type=int, default=10, help='Samples per intervention')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     
+    # Active learning
+    parser.add_argument('--surrogate_update_strategy', type=str, default='none',
+                       choices=['none', 'bic'],
+                       help='Surrogate update strategy for active learning')
+    
     # Output
     parser.add_argument('--output_dir', type=str, default='evaluation_results', 
                        help='Directory for results')
     parser.add_argument('--plot', action='store_true', help='Create comparison plots')
-    
-    # Surrogate options
-    parser.add_argument('--use_active_learning', action='store_true',
-                       help='Use active learning surrogates for all methods (deprecated, use --surrogate_update_strategy)')
-    parser.add_argument('--surrogate_update_strategy', type=str, default='none',
-                       choices=['none', 'bic'],
-                       help='Surrogate update strategy for active learning')
-    parser.add_argument('--surrogate_checkpoint', type=str, 
-                       help='Path to pre-trained surrogate checkpoint')
+    parser.add_argument('--plot_trajectories', action='store_true', 
+                       help='Create trajectory plots showing metrics over steps')
     
     args = parser.parse_args()
     
+    # Initialize registry
+    registry = get_registry()
+    
+    # Register surrogates
+    if args.register_surrogate:
+        for name, path_or_type in args.register_surrogate:
+            try:
+                # Handle special cases cleanly
+                if path_or_type.lower() in ['dummy', 'none']:
+                    registry.register(name, 'dummy')
+                elif path_or_type.lower() == 'active_learning':
+                    registry.register(name, 'active_learning')
+                else:
+                    # Assume it's a path
+                    registry.register(name, Path(path_or_type))
+            except Exception as e:
+                logger.error(f"Failed to register surrogate '{name}': {e}")
+    
+    # Register built-in policies
+    policy_registry = {
+        'random': create_random_acquisition(seed=args.seed)
+    }
+    
+    # Register custom policies
+    if args.register_policy:
+        for name, path in args.register_policy:
+            try:
+                checkpoint_path = Path(path)
+                # Try to detect policy type from checkpoint
+                if 'grpo' in path.lower():
+                    policy_registry[name] = create_grpo_acquisition(checkpoint_path, seed=args.seed)
+                else:
+                    policy_registry[name] = create_bc_acquisition(checkpoint_path, seed=args.seed)
+                logger.info(f"Registered policy '{name}' from {path}")
+            except Exception as e:
+                logger.error(f"Failed to register policy '{name}': {e}")
+    
     # Create evaluation config
     eval_config = {
-        'n_initial_obs': args.n_obs,
+        'n_observational': args.n_obs,
         'max_interventions': args.n_interventions,
         'n_intervention_samples': args.n_samples,
         'optimization_direction': 'MINIMIZE',
@@ -533,597 +571,109 @@ def main():
     }
     
     # Create test SCMs
-    test_scms = create_test_scms(args.n_scms, args.seed)
-    logger.info(f"Created {len(test_scms)} test SCMs")
+    test_scms = create_test_scm_set(args.n_scms, args.seed)
     
-    # Evaluate all methods
+    # Evaluate all requested pairs
     all_results = {}
     
-    # Build model registries
-    policy_registry = {}
-    surrogate_registry = {}
-    
-    # Register built-in policies
-    policy_registry['random'] = create_random_acquisition(seed=args.seed)
-    # Note: oracle needs to be created per SCM, so we'll handle it specially
-    policy_registry['oracle'] = 'oracle_special'
-    
-    # Register policies
-    if args.register_policy:
-        for name, path in args.register_policy:
-            logger.info(f"Registering policy '{name}' from {path}")
-            try:
-                # Use checkpoint utilities to detect model type
-                from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint
-                checkpoint_path = Path(path)
-                checkpoint = load_checkpoint(checkpoint_path)
-                
-                model_subtype = checkpoint.get('model_subtype', 'unknown')
-                
-                if model_subtype == 'grpo':
-                    policy_registry[name] = create_grpo_acquisition(checkpoint_path, seed=args.seed)
-                elif model_subtype == 'bc':
-                    policy_registry[name] = create_bc_acquisition(checkpoint_path, seed=args.seed)
-                else:
-                    # Fallback to path-based detection
-                    if 'grpo' in path.lower():
-                        policy_registry[name] = create_grpo_acquisition(checkpoint_path, seed=args.seed)
-                    else:
-                        policy_registry[name] = create_bc_acquisition(checkpoint_path, seed=args.seed)
-                
-                logger.info(f"  Successfully loaded {model_subtype} policy")
-            except Exception as e:
-                logger.error(f"  Failed to load policy '{name}': {e}")
-    
-    # Register surrogates
-    if args.register_surrogate:
-        for name, path in args.register_surrogate:
-            logger.info(f"Registering surrogate '{name}' from {path}")
-            try:
-                if path.lower() == 'dummy' or path.lower() == 'none':
-                    # Special case for dummy surrogate (uniform probabilities)
-                    def create_dummy_surrogate():
-                        def dummy_surrogate(tensor, target_var, variables):
-                            # Always use provided variables
-                            if variables is None:
-                                raise ValueError("Variables must be provided to surrogate")
-                            
-                            marginals = {}
-                            for var in variables:
-                                if var != target_var:
-                                    marginals[var] = 0.5  # Uniform probability
-                                else:
-                                    marginals[var] = 0.0
-                            
-                            return {
-                                'marginal_parent_probs': marginals,
-                                'entropy': 1.0,
-                                'model_type': 'dummy',
-                                'variable_order': variables
-                            }
-                        return dummy_surrogate
-                    
-                    surrogate_registry[name] = create_dummy_surrogate()
-                    logger.info("  Registered dummy surrogate (uniform probabilities)")
-                elif path.lower() == 'active_learning':
-                    # Special case for pure active learning (no pre-training)
-                    surrogate_registry[name] = 'active_learning'
-                    logger.info("  Registered active learning surrogate (no pre-training)")
-                elif name.endswith('_active'):
-                    # BC surrogate with active learning enabled
-                    from src.causal_bayes_opt.evaluation.model_interfaces import create_bc_surrogate
-                    predict_fn, update_fn = create_bc_surrogate(Path(path), allow_updates=True)
-                    # Store both functions for active learning
-                    surrogate_registry[name] = {'predict': predict_fn, 'update': update_fn, 'active': True}
-                    logger.info("  Registered BC surrogate with active learning")
-                else:
-                    # Load BC surrogate without active learning
-                    from src.causal_bayes_opt.evaluation.model_interfaces import create_bc_surrogate
-                    predict_fn, update_fn = create_bc_surrogate(Path(path), allow_updates=False)
-                    surrogate_registry[name] = predict_fn
-                    logger.info("  Registered static BC surrogate")
-            except Exception as e:
-                logger.error(f"  Failed to load surrogate '{name}': {e}")
-    
-    # Use active learning flag for backward compatibility, but prefer surrogate_update_strategy
-    update_strategy = args.surrogate_update_strategy
-    if args.use_active_learning and update_strategy == 'none':
-        logger.warning("--use_active_learning is deprecated. Use --surrogate_update_strategy bic instead.")
-        update_strategy = 'bic'
-    
-    # Create surrogate function based on flag (legacy)
-    if args.use_active_learning:
-        logger.info("Using active learning surrogates for all methods")
-        from src.causal_bayes_opt.training.active_learning import create_active_learning_surrogate
+    # Include baselines if requested
+    if args.include_baselines:
+        # Ensure baseline surrogate is registered
+        if not registry.get(args.baseline_surrogate):
+            registry.register(args.baseline_surrogate, 'dummy')
         
-        # Load pre-trained checkpoint if provided
-        surrogate_checkpoint = None
-        if args.surrogate_checkpoint:
-            surrogate_checkpoint = Path(args.surrogate_checkpoint)
-            if not surrogate_checkpoint.exists():
-                logger.warning(f"Surrogate checkpoint not found: {surrogate_checkpoint}")
-                surrogate_checkpoint = None
+        # Random baseline
+        random_results = evaluate_method(
+            'Random', policy_registry['random'], test_scms, eval_config,
+            args.baseline_surrogate, registry, args.surrogate_update_strategy
+        )
+        all_results['Random'] = random_results
         
-        # Create function that returns active learning surrogate for each SCM
-        def create_active_surrogate_fn(scm):
-            predict_fn, update_fn = create_active_learning_surrogate(
+        # Oracle baseline (special handling as it's created per SCM)
+        oracle_results = {'method': 'Oracle', 'scm_results': {}, 'aggregate_metrics': {}}
+        improvements = []
+        f1_scores = []
+        
+        for scm_name, scm in test_scms:
+            oracle_fn = create_optimal_oracle_acquisition(scm, optimization_direction='MINIMIZE', seed=args.seed)
+            evaluator = create_universal_evaluator()
+            
+            # Get surrogate
+            surrogate = registry.get(args.baseline_surrogate)
+            surrogate_fn = (lambda t, tgt, v: surrogate.predict(t, tgt, v)) if surrogate else None
+            
+            eval_result = evaluator.evaluate(
+                acquisition_fn=oracle_fn,
                 scm=scm,
-                initial_checkpoint=surrogate_checkpoint,
-                learning_rate=1e-3,
-                scoring_method="bic",
+                config=eval_config,
+                surrogate_fn=surrogate_fn,
                 seed=args.seed
             )
-            return predict_fn
-        
-        baseline_surrogate_fn = None  # Will be created per SCM
-    else:
-        logger.info("Using dummy surrogates (uniform probabilities)")
-        # Create a simple dummy surrogate for baselines (to test structure learning)
-        # This will just return uniform probabilities
-        def create_dummy_surrogate():
-            def dummy_surrogate(tensor, target_var, variables):
-                # Always use provided variables
-                if variables is None:
-                    raise ValueError("Variables must be provided to surrogate")
-                
-                # Create variable mapper for consistency
-                mapper = VariableMapper(variables, target_var)
-                
-                marginals = {}
-                for var in mapper.variables:
-                    if var != target_var:
-                        marginals[var] = 0.5  # Uniform probability
-                    else:
-                        marginals[var] = 0.0
-                
-                return {
-                    'marginal_parent_probs': marginals,
-                    'entropy': 1.0,
-                    'model_type': 'dummy',
-                    'variable_order': mapper.variables  # Include for debugging
+            
+            if eval_result.success:
+                metrics = eval_result.final_metrics
+                oracle_results['scm_results'][scm_name] = {
+                    'improvement': metrics['improvement'],
+                    'final_f1': metrics.get('final_f1', 0.0),
+                    'trajectory': eval_result.history
                 }
-            return dummy_surrogate
+                improvements.append(metrics['improvement'])
+                f1_scores.append(metrics.get('final_f1', 0.0))
         
-        baseline_surrogate_fn = create_dummy_surrogate()
-        create_active_surrogate_fn = None
-    
-    # 1. Random baseline (always evaluate) - but skip if it will be evaluated in pairs
-    if not any(pair[0] == 'random' for pair in (args.evaluate_pairs or [])):
-        logger.info("\n" + "="*60)
-        logger.info("Evaluating Random Baseline")
-        random_fn = create_random_acquisition(seed=args.seed)
-        all_results['Random'] = evaluate_method(
-            'Random', random_fn, test_scms, eval_config, 
-            surrogate_fn=baseline_surrogate_fn,
-            surrogate_fn_creator=create_active_surrogate_fn
-        )
-    
-    # 2. Oracle baseline (always evaluate)
-    logger.info("\n" + "="*60)
-    logger.info("Evaluating Oracle Baseline")
-    # Note: Oracle needs to be created per SCM
-    oracle_results = {'method': 'Oracle', 'scm_results': {}, 'aggregate_metrics': {}}
-    oracle_improvements = []
-    oracle_f1_scores = []
-    oracle_shd_scores = []
-    oracle_final_values = []
-    oracle_trajectory_means = []
-    
-    evaluator = create_universal_evaluator()
-    for scm_name, scm in test_scms:
-        # Get true structure
-        target = get_target(scm)
-        true_parents = list(get_parents(scm, target)) if hasattr(scm, 'edges') else []
-        scm_edges = {}
-        # Build parent-child relationships from edges
-        from src.causal_bayes_opt.data_structures.scm import get_edges
-        edges = get_edges(scm)  # Returns frozenset of (parent, child) tuples
-        for parent, child in edges:
-            if child not in scm_edges:
-                scm_edges[child] = []
-            scm_edges[child].append(parent)
+        if improvements:
+            oracle_results['aggregate_metrics'] = {
+                'mean_improvement': float(np.mean(improvements)),
+                'mean_f1': float(np.mean(f1_scores))
+            }
         
-        # Create optimal oracle for this SCM (uses full SCM with coefficients)
-        oracle_fn = create_optimal_oracle_acquisition(
-            scm,  # Pass full SCM, not just edges
-            optimization_direction=eval_config['optimization_direction'],
-            intervention_range=(-2.0, 2.0),  # Standard range
-            seed=args.seed
-        )
-        
-        # Create surrogate for this SCM if using active learning
-        oracle_surrogate_fn = baseline_surrogate_fn
-        if create_active_surrogate_fn is not None:
-            oracle_surrogate_fn = create_active_surrogate_fn(scm)
-        
-        # Create UpdateFunction for oracle
-        oracle_update_fn = None
-        if update_strategy != 'none' and oracle_surrogate_fn is not None:
-            oracle_update_fn = create_update_function(
-                strategy=update_strategy,
-                net=None,  # This is a limitation
-                learning_rate=1e-3
-            )
-        
-        # Evaluate with appropriate surrogate
-        eval_result = evaluator.evaluate(
-            acquisition_fn=oracle_fn,
-            scm=scm,
-            config=eval_config,
-            surrogate_fn=oracle_surrogate_fn,
-            update_fn=oracle_update_fn,
-            seed=eval_config['seed']
-        )
-        
-        oracle_results['scm_results'][scm_name] = {
-            'initial_value': eval_result.final_metrics['initial_value'],
-            'best_value': eval_result.final_metrics['best_value'],
-            'improvement': eval_result.final_metrics['improvement'],
-            'regret': eval_result.final_metrics.get('simple_regret', 0.0),
-            'n_unique_interventions': eval_result.final_metrics.get('n_unique_interventions', 0),
-            'true_parents': true_parents,
-            'mean_trajectory_value': eval_result.final_metrics.get('mean_trajectory_value', eval_result.final_metrics['initial_value']),
-            'trajectory': eval_result.history  # Store full history for plotting (not JSON serializable)
-        }
-        
-        # Add structure metrics if available
-        if 'final_f1' in eval_result.final_metrics:
-            oracle_results['scm_results'][scm_name]['f1_score'] = eval_result.final_metrics['final_f1']
-            oracle_results['scm_results'][scm_name]['shd'] = eval_result.final_metrics.get('final_shd', float('inf'))
-            oracle_f1_scores.append(eval_result.final_metrics['final_f1'])
-            if eval_result.final_metrics.get('final_shd') is not None and eval_result.final_metrics['final_shd'] != float('inf'):
-                oracle_shd_scores.append(eval_result.final_metrics['final_shd'])
-        
-        oracle_improvements.append(eval_result.final_metrics['improvement'])
-        oracle_final_values.append(eval_result.final_metrics['best_value'])
-        oracle_trajectory_means.append(eval_result.final_metrics.get('mean_trajectory_value', eval_result.final_metrics['initial_value']))
+        all_results['Oracle'] = oracle_results
     
-    oracle_results['aggregate_metrics'] = {
-        'mean_improvement': np.mean(oracle_improvements),
-        'std_improvement': np.std(oracle_improvements),
-        'mean_final_value': np.mean(oracle_final_values),
-        'mean_trajectory_value': np.mean(oracle_trajectory_means),
-        'mean_f1_score': np.mean(oracle_f1_scores) if oracle_f1_scores else 0.0,
-        'mean_shd': np.mean(oracle_shd_scores) if oracle_shd_scores else float('inf'),
-        'n_scms': len(test_scms)
-    }
-    
-    all_results['Oracle'] = oracle_results
-    logger.info(f"  Oracle mean improvement: {oracle_results['aggregate_metrics']['mean_improvement']:.3f}")
-    if oracle_f1_scores:
-        logger.info(f"  Oracle mean F1 score: {oracle_results['aggregate_metrics']['mean_f1_score']:.3f}")
-    
-    # 3. GRPO (if checkpoint provided)
-    if args.grpo:
-        logger.info("\n" + "="*60)
-        logger.info("Evaluating GRPO")
-        grpo_path = Path(args.grpo)
-        if grpo_path.exists():
-            grpo_fn = create_grpo_acquisition(grpo_path, seed=args.seed)
-            
-            # Try to load surrogate from GRPO checkpoint
-            grpo_surrogate_fn = None
-            try:
-                from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint, load_surrogate_model
-                
-                # Check if GRPO has an embedded surrogate
-                grpo_surrogate_path = grpo_path / 'surrogate' if grpo_path.is_dir() else grpo_path.parent / 'surrogate'
-                if grpo_surrogate_path.exists():
-                    surrogate_fn, _ = load_surrogate_model(grpo_surrogate_path)
-                    grpo_surrogate_fn = surrogate_fn
-                    logger.info("Loaded surrogate from GRPO checkpoint")
-                else:
-                    # Check main checkpoint for embedded surrogate
-                    checkpoint = load_checkpoint(grpo_path)
-                    if checkpoint.get('metadata', {}).get('has_surrogate', False):
-                        logger.warning("GRPO has surrogate but not in new format, using baseline")
-                        grpo_surrogate_fn = baseline_surrogate_fn
-                    else:
-                        grpo_surrogate_fn = baseline_surrogate_fn
-            except Exception as e:
-                logger.warning(f"Could not load GRPO surrogate: {e}")
-                grpo_surrogate_fn = baseline_surrogate_fn
-            
-            # Use active learning if flag is set, otherwise use loaded surrogate
-            if update_strategy != 'none':
-                all_results['GRPO'] = evaluate_method(
-                    'GRPO', grpo_fn, test_scms, eval_config, 
-                    surrogate_fn=None,
-                    surrogate_fn_creator=create_active_surrogate_fn,
-                    update_strategy=update_strategy
-                )
-            else:
-                all_results['GRPO'] = evaluate_method(
-                    'GRPO', grpo_fn, test_scms, eval_config, 
-                    surrogate_fn=grpo_surrogate_fn or baseline_surrogate_fn,
-                    update_strategy='none'
-                )
-        else:
-            logger.warning(f"GRPO checkpoint not found: {grpo_path}")
-    
-    # 4. BC (if checkpoint provided)
-    if args.bc:
-        logger.info("\n" + "="*60)
-        logger.info("Evaluating BC")
-        bc_path = Path(args.bc)
-        if bc_path.exists():
-            bc_fn = create_bc_acquisition(bc_path, seed=args.seed)
-            
-            # Try to load surrogate from BC checkpoint
-            bc_surrogate_fn = None
-            try:
-                from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint, load_surrogate_model
-                
-                # Check if BC has an embedded surrogate (unlikely for policy BC)
-                bc_surrogate_path = bc_path / 'surrogate' if bc_path.is_dir() else bc_path.parent / 'surrogate'
-                if bc_surrogate_path.exists():
-                    surrogate_fn, _ = load_surrogate_model(bc_surrogate_path)
-                    bc_surrogate_fn = surrogate_fn
-                    logger.info("Loaded surrogate from BC checkpoint")
-                else:
-                    # BC policies typically don't have surrogates
-                    bc_surrogate_fn = baseline_surrogate_fn
-            except Exception as e:
-                logger.warning(f"Could not load BC surrogate: {e}")
-                bc_surrogate_fn = baseline_surrogate_fn
-                
-            # Use active learning if flag is set, otherwise use loaded surrogate
-            if update_strategy != 'none':
-                all_results['BC'] = evaluate_method(
-                    'BC', bc_fn, test_scms, eval_config,
-                    surrogate_fn=None,
-                    surrogate_fn_creator=create_active_surrogate_fn,
-                    update_strategy=update_strategy
-                )
-            else:
-                all_results['BC'] = evaluate_method(
-                    'BC', bc_fn, test_scms, eval_config,
-                    surrogate_fn=bc_surrogate_fn or baseline_surrogate_fn,
-                    update_strategy='none'
-                )
-        else:
-            logger.warning(f"BC checkpoint not found: {bc_path}")
-    
-    # Evaluate registered pairs
+    # Evaluate requested pairs
     if args.evaluate_pairs:
-        logger.info("\n" + "="*60)
-        logger.info("Evaluating Policy-Surrogate Pairs")
-        
         for policy_name, surrogate_name in args.evaluate_pairs:
             if policy_name not in policy_registry:
-                logger.error(f"Policy '{policy_name}' not found in registry")
+                logger.error(f"Policy '{policy_name}' not found")
                 continue
-            if surrogate_name not in surrogate_registry:
-                logger.error(f"Surrogate '{surrogate_name}' not found in registry")
-                continue
-            
+                
             pair_name = f"{policy_name}+{surrogate_name}"
-            logger.info(f"\nEvaluating pair: {pair_name}")
-            
-            # Handle oracle specially
-            if policy_name == 'oracle':
-                # Oracle needs special handling as it's created per SCM
-                oracle_results = {'method': pair_name, 'scm_results': {}, 'aggregate_metrics': {}}
-                improvements = []
-                f1_scores = []
-                shd_scores = []
-                final_values = []
-                trajectory_means = []
-                
-                evaluator = create_universal_evaluator()
-                for scm_name, scm in test_scms:
-                    oracle_fn = create_optimal_oracle_acquisition(scm, optimization_direction='MINIMIZE', seed=args.seed)
-                    
-                    # Get the surrogate based on type
-                    surrogate_entry = surrogate_registry[surrogate_name]
-                    if surrogate_entry == 'active_learning':
-                        # Pure active learning
-                        predict_fn, update_fn = create_active_surrogate_fn(scm, args.seed)
-                        eval_result = evaluator.evaluate(
-                            oracle_fn, scm, eval_config, 
-                            surrogate_fn=predict_fn, 
-                            surrogate_update_fn=update_fn,
-                            surrogate_params=None,
-                            surrogate_opt_state=None,
-                            seed=args.seed
-                        )
-                    elif isinstance(surrogate_entry, dict) and surrogate_entry.get('active'):
-                        # BC + active learning
-                        def create_bc_active_surrogate(scm, seed):
-                            from src.causal_bayes_opt.evaluation.model_interfaces import create_hybrid_surrogate
-                            bc_checkpoint = Path(args.register_surrogate[[name for name, _ in args.register_surrogate].index(surrogate_name)][1])
-                            return create_hybrid_surrogate(scm, bc_checkpoint, seed=seed)
-                        predict_fn, update_fn = create_bc_active_surrogate(scm, args.seed)
-                        eval_result = evaluator.evaluate(
-                            oracle_fn, scm, eval_config,
-                            surrogate_fn=predict_fn,
-                            surrogate_update_fn=update_fn,
-                            surrogate_params=None,
-                            surrogate_opt_state=None,
-                            seed=args.seed
-                        )
-                    else:
-                        # Static surrogate
-                        eval_result = evaluator.evaluate(
-                            oracle_fn, scm, eval_config,
-                            surrogate_fn=surrogate_entry,
-                            seed=args.seed
-                        )
-                    
-                    # Collect results
-                    oracle_results['scm_results'][scm_name] = {
-                        'initial_value': eval_result.final_metrics['initial_value'],
-                        'best_value': eval_result.final_metrics['best_value'],
-                        'improvement': eval_result.final_metrics['improvement'],
-                        'regret': 0.0,
-                        'n_unique_interventions': 0,
-                        'true_parents': list(get_parents(scm, get_target(scm))),
-                        'mean_trajectory_value': eval_result.final_metrics.get('mean_trajectory_value', eval_result.final_metrics['initial_value']),
-                        'f1_score': eval_result.final_metrics['final_f1'],
-                        'shd': eval_result.final_metrics.get('final_shd', float('inf'))
-                    }
-                    
-                    improvements.append(eval_result.final_metrics['improvement'])
-                    final_values.append(eval_result.final_metrics['best_value'])
-                    trajectory_means.append(eval_result.final_metrics.get('mean_trajectory_value', eval_result.final_metrics['initial_value']))
-                    f1_scores.append(eval_result.final_metrics['final_f1'])
-                    if eval_result.final_metrics.get('final_shd') is not None:
-                        shd_scores.append(eval_result.final_metrics['final_shd'])
-                
-                oracle_results['aggregate_metrics'] = {
-                    'mean_improvement': np.mean(improvements),
-                    'std_improvement': np.std(improvements),
-                    'mean_final_value': np.mean(final_values),
-                    'mean_trajectory_value': np.mean(trajectory_means),
-                    'mean_f1_score': np.mean(f1_scores) if f1_scores else 0.0,
-                    'mean_shd': np.mean(shd_scores) if shd_scores else float('inf'),
-                    'n_scms': len(test_scms)
-                }
-                
-                all_results[pair_name] = oracle_results
-                continue
-            
-            policy_fn = policy_registry[policy_name]
-            
-            # Handle different surrogate types
-            surrogate_entry = surrogate_registry[surrogate_name]
-            
-            # Log which surrogate type is being used
-            if surrogate_entry == 'active_learning':
-                logger.info(f"  Using active learning surrogate (no pre-training)")
-            elif isinstance(surrogate_entry, dict) and surrogate_entry.get('active'):
-                logger.info(f"  Using BC surrogate with active learning")
-            elif callable(surrogate_entry):
-                # Check if it's the dummy surrogate
-                try:
-                    # Create a dummy tensor for testing
-                    dummy_tensor = jnp.ones((10, 3, 3))
-                    test_result = surrogate_entry(dummy_tensor, 'Y', ['X0', 'X1', 'Y'])
-                    if test_result.get('model_type') == 'dummy':
-                        logger.info(f"  Using dummy surrogate (uniform 0.5 probabilities)")
-                    else:
-                        logger.info(f"  Using static BC surrogate")
-                except:
-                    # If test fails, assume it's a BC surrogate
-                    logger.info(f"  Using static BC surrogate")
-            else:
-                logger.info(f"  Using surrogate type: {type(surrogate_entry)}")
-            
-            if surrogate_entry == 'active_learning':
-                # Pure active learning (no pre-training)
-                all_results[pair_name] = evaluate_method(
-                    pair_name, policy_fn, test_scms, eval_config,
-                    surrogate_fn=None,
-                    surrogate_fn_creator=create_active_surrogate_fn
-                )
-            elif isinstance(surrogate_entry, dict) and surrogate_entry.get('active'):
-                # BC surrogate with active learning - need special handling
-                # The evaluator needs params/opt_state exposed, which BC doesn't provide
-                # So we need to evaluate per-SCM with proper state management
-                
-                pair_results = {'method': pair_name, 'scm_results': {}, 'aggregate_metrics': {}}
-                improvements = []
-                f1_scores = []
-                shd_scores = []
-                final_values = []
-                trajectory_means = []
-                
-                evaluator = create_universal_evaluator()
-                for scm_name, scm in test_scms:
-                    logger.info(f"  Testing {pair_name} on {scm_name}...")
-                    
-                    # Create BC active learning wrapper that exposes params/opt_state
-                    from src.causal_bayes_opt.evaluation.model_interfaces import create_bc_active_learning_wrapper
-                    bc_checkpoint = Path(args.register_surrogate[[name for name, _ in args.register_surrogate].index(surrogate_name)][1])
-                    
-                    predict_fn, update_fn, initial_params, initial_opt_state = create_bc_active_learning_wrapper(
-                        bc_checkpoint, scm, learning_rate=1e-4, seed=args.seed
-                    )
-                    
-                    # Evaluate with exposed state
-                    eval_result = evaluator.evaluate(
-                        acquisition_fn=policy_fn,
-                        scm=scm,
-                        config=eval_config,
-                        surrogate_fn=predict_fn,
-                        surrogate_update_fn=update_fn,
-                        surrogate_params=initial_params,
-                        surrogate_opt_state=initial_opt_state,
-                        seed=eval_config['seed']
-                    )
-                    
-                    # Store results
-                    pair_results['scm_results'][scm_name] = {
-                        'initial_value': eval_result.final_metrics['initial_value'],
-                        'best_value': eval_result.final_metrics['best_value'],
-                        'improvement': eval_result.final_metrics['improvement'],
-                        'regret': eval_result.final_metrics.get('simple_regret', 0.0),
-                        'n_unique_interventions': eval_result.final_metrics.get('n_unique_interventions', 0),
-                        'mean_trajectory_value': eval_result.final_metrics.get('mean_trajectory_value', eval_result.final_metrics['initial_value']),
-                        'trajectory': eval_result.history
-                    }
-                    
-                    # Add structure metrics
-                    if 'final_f1' in eval_result.final_metrics:
-                        pair_results['scm_results'][scm_name]['f1_score'] = eval_result.final_metrics['final_f1']
-                        pair_results['scm_results'][scm_name]['shd'] = eval_result.final_metrics.get('final_shd', float('inf'))
-                        f1_scores.append(eval_result.final_metrics['final_f1'])
-                        if eval_result.final_metrics.get('final_shd') is not None:
-                            shd_scores.append(eval_result.final_metrics['final_shd'])
-                    
-                    improvements.append(eval_result.final_metrics['improvement'])
-                    final_values.append(eval_result.final_metrics['best_value'])
-                    trajectory_means.append(eval_result.final_metrics.get('mean_trajectory_value', eval_result.final_metrics['initial_value']))
-                
-                # Compute aggregates
-                pair_results['aggregate_metrics'] = {
-                    'mean_improvement': np.mean(improvements),
-                    'std_improvement': np.std(improvements),
-                    'mean_final_value': np.mean(final_values),
-                    'mean_trajectory_value': np.mean(trajectory_means),
-                    'mean_f1_score': np.mean(f1_scores) if f1_scores else 0.0,
-                    'mean_shd': np.mean(shd_scores) if shd_scores else float('inf'),
-                    'n_scms': len(test_scms)
-                }
-                
-                all_results[pair_name] = pair_results
-                logger.info(f"  {pair_name} mean improvement: {pair_results['aggregate_metrics']['mean_improvement']:.3f}")
-                if f1_scores:
-                    logger.info(f"  {pair_name} mean F1 score: {pair_results['aggregate_metrics']['mean_f1_score']:.3f}")
-            else:
-                # Static surrogate
-                surrogate_fn = surrogate_entry
-                all_results[pair_name] = evaluate_method(
-                    pair_name, policy_fn, test_scms, eval_config,
-                    surrogate_fn=surrogate_fn
-                )
+            results = evaluate_method(
+                pair_name, policy_registry[policy_name], test_scms,
+                eval_config, surrogate_name, registry, args.surrogate_update_strategy
+            )
+            all_results[pair_name] = results
     
     # Save results
     output_dir = Path(args.output_dir)
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create a copy of results without trajectory data for JSON serialization
-    json_results = {}
-    for method, method_results in all_results.items():
-        json_results[method] = {
-            'method': method_results['method'],
-            'aggregate_metrics': method_results['aggregate_metrics'],
-            'scm_results': {}
-        }
-        for scm_name, scm_data in method_results['scm_results'].items():
-            # Copy all data except trajectory
-            json_results[method]['scm_results'][scm_name] = {
-                k: v for k, v in scm_data.items() if k != 'trajectory'
-            }
+    # Convert results to JSON-serializable format
+    def make_serializable(obj):
+        """Convert numpy/jax arrays and dataclasses to serializable format."""
+        if isinstance(obj, (np.ndarray, np.generic)):
+            return obj.tolist()
+        elif hasattr(obj, '__dict__'):
+            # Handle dataclasses/objects
+            return {k: make_serializable(v) for k, v in obj.__dict__.items() if not k.startswith('_')}
+        elif isinstance(obj, dict):
+            return {k: make_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [make_serializable(item) for item in obj]
+        elif isinstance(obj, (set, frozenset)):
+            return list(obj)
+        else:
+            return obj
     
-    results_file = output_dir / 'evaluation_results.json'
-    with open(results_file, 'w') as f:
-        json.dump(json_results, f, indent=2)
-    logger.info(f"\nResults saved to {results_file}")
+    serializable_results = make_serializable(all_results)
+    
+    with open(output_dir / 'evaluation_results.json', 'w') as f:
+        json.dump(serializable_results, f, indent=2)
     
     # Create plots if requested
     if args.plot:
-        plot_comparison(all_results, output_dir)
+        plot_comparison_results(all_results, output_dir)
+    
+    # Create trajectory plots if requested
+    if args.plot_trajectories:
         plot_trajectories(all_results, output_dir)
     
     # Print summary
@@ -1131,29 +681,22 @@ def main():
     logger.info("EVALUATION SUMMARY")
     logger.info("="*60)
     
-    for method, results in all_results.items():
-        metrics = results['aggregate_metrics']
-        logger.info(f"\n{method}:")
-        logger.info(f"  Mean improvement: {metrics['mean_improvement']:.3f} ± {metrics.get('std_improvement', 0):.3f}")
-        logger.info(f"  Mean final value: {metrics['mean_final_value']:.3f}")
-        logger.info(f"  Mean trajectory value: {metrics.get('mean_trajectory_value', 'N/A'):.3f}")
-        
-        # Always show structure learning metrics
-        if 'mean_f1_score' in metrics:
-            logger.info(f"  Mean F1 score: {metrics['mean_f1_score']:.3f}")
-        if 'mean_shd' in metrics and metrics['mean_shd'] != float('inf'):
-            logger.info(f"  Mean SHD: {metrics['mean_shd']:.3f}")
+    # List registered surrogates
+    logger.info("\nRegistered Surrogates:")
+    for name, info in registry.list_registered().items():
+        logger.info(f"  {name}: {info}")
     
-    # Relative performance
-    if 'Random' in all_results and len(all_results) > 1:
-        logger.info("\nRelative to Random baseline:")
-        random_improvement = all_results['Random']['aggregate_metrics']['mean_improvement']
-        for method in all_results:
-            if method != 'Random':
-                relative = (all_results[method]['aggregate_metrics']['mean_improvement'] / 
-                           random_improvement if random_improvement != 0 else float('inf'))
-                logger.info(f"  {method}: {relative:.2f}x")
+    # Results summary
+    logger.info("\nResults Summary:")
+    for method, results in all_results.items():
+        if 'aggregate_metrics' in results:
+            metrics = results['aggregate_metrics']
+            logger.info(f"  {method}:")
+            logger.info(f"    Mean improvement: {metrics.get('mean_improvement', 0):.3f}")
+            logger.info(f"    Mean F1 score: {metrics.get('mean_f1', 0):.3f}")
+    
+    logger.info(f"\nResults saved to {output_dir}/")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

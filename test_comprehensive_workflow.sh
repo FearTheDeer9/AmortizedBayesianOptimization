@@ -53,7 +53,7 @@ poetry run python scripts/train_acbo_methods.py \
 
 echo ""
 echo "5. Testing evaluation without active learning..."
-poetry run python scripts/evaluate_acbo_methods_v2.py \
+poetry run python scripts/evaluate_acbo_methods.py \
     --register_surrogate bc "$TEST_DIR/bc_surrogate_final/checkpoint.pkl" \
     --register_policy grpo_with_surrogate "$TEST_DIR/unified_grpo_final/checkpoint.pkl" \
     --register_policy grpo_no_surrogate "$TEST_DIR/grpo_no_surrogate_final/checkpoint.pkl" \
@@ -69,7 +69,7 @@ poetry run python scripts/evaluate_acbo_methods_v2.py \
 
 echo ""
 echo "6. Testing evaluation with active learning..."
-poetry run python scripts/evaluate_acbo_methods_v2.py \
+poetry run python scripts/evaluate_acbo_methods.py \
     --register_surrogate bc "$TEST_DIR/bc_surrogate_final/checkpoint.pkl" \
     --register_policy grpo_with_surrogate "$TEST_DIR/unified_grpo_final/checkpoint.pkl" \
     --register_policy grpo_no_surrogate "$TEST_DIR/grpo_no_surrogate_final/checkpoint.pkl" \

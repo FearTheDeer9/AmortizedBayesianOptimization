@@ -82,7 +82,7 @@ echo "1. Evaluating WITHOUT Active Learning"
 echo "=============================================="
 echo ""
 
-poetry run python scripts/evaluate_acbo_methods_v2.py \
+poetry run python scripts/evaluate_acbo_methods.py \
     --register_surrogate bc "$BC_SURROGATE" \
     --register_surrogate dummy dummy \
     --register_policy grpo "$GRPO_POLICY" \
@@ -106,7 +106,7 @@ echo "2. Evaluating WITH Active Learning (BIC)"
 echo "=============================================="
 echo ""
 
-poetry run python scripts/evaluate_acbo_methods_v2.py \
+poetry run python scripts/evaluate_acbo_methods.py \
     --register_surrogate bc "$BC_SURROGATE" \
     --register_surrogate dummy dummy \
     --register_policy grpo "$GRPO_POLICY" \

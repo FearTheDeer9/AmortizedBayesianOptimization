@@ -185,7 +185,7 @@ echo ""
 # 1. Evaluate WITHOUT active learning
 echo "1. Evaluating WITHOUT active learning..."
 echo "-------------------------------------------------------"
-poetry run python scripts/evaluate_acbo_methods_v2.py \
+poetry run python scripts/evaluate_acbo_methods.py \
     --register_surrogate bc "$SCRIPT_DIR/bc_surrogate_final/checkpoint.pkl" \
     --register_policy grpo_with_surrogate "$SCRIPT_DIR/unified_grpo_final/checkpoint.pkl" \
     --register_policy grpo_no_surrogate "$SCRIPT_DIR/grpo_no_surrogate_final/checkpoint.pkl" \
@@ -204,7 +204,7 @@ poetry run python scripts/evaluate_acbo_methods_v2.py \
 echo ""
 echo "2. Evaluating WITH active learning (BIC)..."
 echo "-------------------------------------------------------"
-poetry run python scripts/evaluate_acbo_methods_v2.py \
+poetry run python scripts/evaluate_acbo_methods.py \
     --register_surrogate bc "$SCRIPT_DIR/bc_surrogate_final/checkpoint.pkl" \
     --register_policy grpo_with_surrogate "$SCRIPT_DIR/unified_grpo_final/checkpoint.pkl" \
     --register_policy grpo_no_surrogate "$SCRIPT_DIR/grpo_no_surrogate_final/checkpoint.pkl" \

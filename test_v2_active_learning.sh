@@ -3,11 +3,11 @@
 
 set -e
 
-echo "Testing evaluate_acbo_methods_v2.py with active learning..."
+echo "Testing evaluate_acbo_methods.py with active learning..."
 
 # Test 1: No updates (baseline)
 echo -e "\n=== Test 1: Random policy with dummy surrogate + no updates ==="
-poetry run python scripts/evaluate_acbo_methods_v2.py \
+poetry run python scripts/evaluate_acbo_methods.py \
     --register_surrogate dummy dummy \
     --evaluate_pairs random dummy \
     --surrogate_update_strategy none \
@@ -19,7 +19,7 @@ poetry run python scripts/evaluate_acbo_methods_v2.py \
 BC_CHECKPOINT="checkpoints/bc_surrogate_final/checkpoint.pkl"
 if [ -f "$BC_CHECKPOINT" ]; then
     echo -e "\n=== Test 2: Random policy with BC surrogate + BIC updates ==="
-    poetry run python scripts/evaluate_acbo_methods_v2.py \
+    poetry run python scripts/evaluate_acbo_methods.py \
         --register_surrogate bc "$BC_CHECKPOINT" \
         --evaluate_pairs random bc \
         --surrogate_update_strategy bic \

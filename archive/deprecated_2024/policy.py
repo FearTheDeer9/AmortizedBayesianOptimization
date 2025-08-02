@@ -32,21 +32,8 @@ from .jax_utils import (
     apply_target_mask_jit,
     prepare_samples_for_history_jax
 )
-# JAX-native vectorized components
-from .vectorized_attention import (
-    VectorizedAcquisitionPolicyNetwork,
-    create_vectorized_acquisition_policy
-)
-from .state_tensor_converter import (
-    convert_acquisition_state_to_tensors,
-    apply_target_mask_to_logits,
-    TensorizedAcquisitionState
-)
-from .state_enhanced import (
-    EnhancedAcquisitionState,
-    create_enhanced_acquisition_state,
-    upgrade_acquisition_state_to_enhanced
-)
+# Removed imports of deleted modules - these were experimental
+# and not used in the main pipeline
 from ..interventions.registry import apply_intervention
 from ..data_structures.sample import get_values, get_intervention_targets
 

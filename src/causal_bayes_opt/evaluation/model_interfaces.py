@@ -619,10 +619,11 @@ def create_learning_surrogate(scm: Any,
     Returns:
         Tuple of (predict_fn, update_fn) for online learning
     """
-    from ..training.active_learning import create_active_learning_surrogate
+    # NOTE: This function is deprecated - use ActiveLearningSurrogateWrapper instead
+    raise NotImplementedError("create_learning_surrogate is deprecated. Use ActiveLearningSurrogateWrapper from surrogate_interface.py")
     
-    # Get the active learning functions
-    al_predict_fn, al_update_fn = create_active_learning_surrogate(
+    # from ..training.active_learning import create_active_learning_surrogate
+    # al_predict_fn, al_update_fn = create_active_learning_surrogate(
         scm=scm,
         initial_checkpoint=None,  # Start from scratch
         learning_rate=learning_rate,
@@ -656,10 +657,11 @@ def create_hybrid_surrogate(scm: Any,
     Returns:
         Tuple of (predict_fn, update_fn) for hybrid approach
     """
-    from ..training.active_learning import create_active_learning_surrogate
+    # NOTE: This function is deprecated - use ActiveLearningSurrogateWrapper instead
+    raise NotImplementedError("create_hybrid_surrogate is deprecated. Use ActiveLearningSurrogateWrapper from surrogate_interface.py")
     
-    # Get the active learning functions with initial checkpoint
-    al_predict_fn, al_update_fn = create_active_learning_surrogate(
+    # from ..training.active_learning import create_active_learning_surrogate
+    # al_predict_fn, al_update_fn = create_active_learning_surrogate(
         scm=scm,
         initial_checkpoint=checkpoint_path,
         learning_rate=learning_rate,

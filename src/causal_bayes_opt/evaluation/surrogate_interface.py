@@ -175,10 +175,8 @@ class PureActiveSurrogate(SurrogateInterface):
             learning_rate: Learning rate for updates
             seed: Random seed
         """
-        from ..evaluation.model_interfaces import create_learning_surrogate
-        self._predict_fn, self._update_fn = create_learning_surrogate(
-            scm, learning_rate=learning_rate, seed=seed
-        )
+        # NOTE: LearningSurrogate is deprecated - functionality moved to ActiveLearningSurrogateWrapper
+        raise NotImplementedError("LearningSurrogate is deprecated. Use ActiveLearningSurrogateWrapper instead.")
     
     def predict(self, tensor: jnp.ndarray, target: str, variables: List[str]) -> Dict[str, Any]:
         """Use current learned model."""

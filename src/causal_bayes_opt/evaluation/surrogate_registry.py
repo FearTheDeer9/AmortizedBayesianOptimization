@@ -89,6 +89,8 @@ class SurrogateRegistry:
             # Load BC surrogate
             predict_fn, update_fn = create_bc_surrogate(path, allow_updates=is_active)
             wrapped = wrap_bc_surrogate(predict_fn, update_fn, is_active)
+            # Store checkpoint path for later use
+            wrapped._checkpoint_path = path
             self._surrogates[name] = wrapped
             logger.info(f"  Loaded BC surrogate from {path} (active: {is_active})")
         except Exception as e:
@@ -175,7 +177,9 @@ class SurrogateRegistry:
             BCSurrogateWrapper instance
         """
         predict_fn, update_fn = create_bc_surrogate(checkpoint_path, allow_updates=is_active)
-        return wrap_bc_surrogate(predict_fn, update_fn, is_active)
+        wrapped = wrap_bc_surrogate(predict_fn, update_fn, is_active)
+        wrapped._checkpoint_path = checkpoint_path
+        return wrapped
 
 
 # Global registry instance

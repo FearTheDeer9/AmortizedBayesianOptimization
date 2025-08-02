@@ -88,6 +88,18 @@ def compute_clean_reward(
         info_gain_reward = compute_information_gain_reward(
             posterior_before, posterior_after
         )
+        logger.info(
+            f"[REWARD] Computing info gain reward WITH surrogate: "
+            f"entropy_before={posterior_before.get('entropy', 0):.3f}, "
+            f"entropy_after={posterior_after.get('entropy', 0):.3f}, "
+            f"info_gain_reward={info_gain_reward:.3f}"
+        )
+    else:
+        logger.info(
+            f"[REWARD] No surrogate available - info gain reward = 0.0 "
+            f"(posterior_before={posterior_before is not None}, "
+            f"posterior_after={posterior_after is not None})"
+        )
     
     # Weighted combination
     total_reward = (
@@ -95,6 +107,16 @@ def compute_clean_reward(
         weights['diversity'] * diversity_reward +
         weights['exploration'] * exploration_reward +
         weights['info_gain'] * info_gain_reward
+    )
+    
+    # Log detailed reward breakdown
+    logger.info(
+        f"[REWARD] Reward breakdown:\n"
+        f"  - Target reward: {target_reward:.3f} (weight={weights['target']:.2f})\n"
+        f"  - Diversity reward: {diversity_reward:.3f} (weight={weights['diversity']:.2f})\n" 
+        f"  - Exploration reward: {exploration_reward:.3f} (weight={weights['exploration']:.2f})\n"
+        f"  - Info gain reward: {info_gain_reward:.3f} (weight={weights['info_gain']:.2f})\n"
+        f"  - Total reward: {total_reward:.3f}"
     )
     
     return {

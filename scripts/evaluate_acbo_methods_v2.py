@@ -28,7 +28,10 @@ from src.causal_bayes_opt.evaluation.model_interfaces import (
 from src.causal_bayes_opt.evaluation.surrogate_registry import (
     SurrogateRegistry, get_registry, register_surrogate, get_surrogate
 )
-from src.causal_bayes_opt.evaluation.surrogate_interface import DummySurrogate
+from src.causal_bayes_opt.evaluation.surrogate_interface import (
+    DummySurrogate, ActiveLearningSurrogateWrapper
+)
+from src.causal_bayes_opt.utils.update_functions import UpdateContext
 from src.causal_bayes_opt.experiments.benchmark_scms import (
     create_fork_scm,
     create_chain_scm,
@@ -51,7 +54,8 @@ def evaluate_method(
     scms: List[tuple],
     config: Dict[str, Any],
     surrogate_name: str,
-    registry: SurrogateRegistry
+    registry: SurrogateRegistry,
+    update_strategy: str = "none"
 ) -> Dict[str, Any]:
     """
     Evaluate a single method with a specific surrogate on all test SCMs.
@@ -63,6 +67,7 @@ def evaluate_method(
         config: Evaluation configuration
         surrogate_name: Name of surrogate in registry
         registry: SurrogateRegistry instance
+        update_strategy: Update strategy ('none' or 'bic')
         
     Returns:
         Evaluation results
@@ -74,6 +79,38 @@ def evaluate_method(
     if surrogate is None:
         logger.error(f"Surrogate '{surrogate_name}' not found in registry")
         return {}
+    
+    # Wrap with active learning if requested
+    if update_strategy != "none":
+        # Only allow active learning with surrogates that have a model to update
+        if surrogate.surrogate_type == 'dummy':
+            logger.warning(f"  Active learning not supported for dummy surrogate, ignoring --surrogate_update_strategy")
+        elif hasattr(surrogate, '_checkpoint_path'):
+            # BC surrogate - can enable active learning
+            logger.info(f"  Enabling active learning with {update_strategy} strategy")
+            try:
+                from src.causal_bayes_opt.evaluation.model_interfaces import create_bc_surrogate
+                
+                # Reload to get network components
+                _, _, net, initial_params, initial_opt_state = create_bc_surrogate(
+                    surrogate._checkpoint_path,
+                    allow_updates=True,
+                    return_components=True
+                )
+                surrogate = ActiveLearningSurrogateWrapper(
+                    base_surrogate=surrogate,
+                    update_strategy=update_strategy,
+                    net=net,
+                    initial_params=initial_params,
+                    initial_opt_state=initial_opt_state,
+                    learning_rate=1e-3,
+                    seed=config.get('seed', 42)
+                )
+            except Exception as e:
+                logger.error(f"  Failed to enable active learning: {e}")
+                logger.info("  Continuing without active learning")
+        else:
+            logger.warning(f"  Active learning not supported for {surrogate.surrogate_type} surrogate")
     
     logger.info(f"  Using {surrogate.name} (type: {surrogate.surrogate_type})")
     
@@ -97,12 +134,30 @@ def evaluate_method(
         def surrogate_fn(tensor, target, variables):
             return surrogate.predict(tensor, target, variables)
         
+        # Prepare active learning components if needed
+        update_fn = None
+        surrogate_params = None
+        surrogate_opt_state = None
+        
+        if hasattr(surrogate, 'get_update_function'):
+            update_fn = surrogate.get_update_function()
+            if update_fn is not None:
+                # Get initial params and opt_state
+                if hasattr(surrogate, 'get_params'):
+                    surrogate_params = surrogate.get_params()
+                if hasattr(surrogate, 'get_opt_state'):
+                    surrogate_opt_state = surrogate.get_opt_state()
+                logger.info(f"    Active learning enabled with {update_strategy} strategy")
+        
         # Evaluate
         eval_result = evaluator.evaluate(
             acquisition_fn=acquisition_fn,
             scm=scm,
             config=config,
             surrogate_fn=surrogate_fn if surrogate.surrogate_type != 'dummy' else None,
+            update_fn=update_fn,
+            surrogate_params=surrogate_params,
+            surrogate_opt_state=surrogate_opt_state,
             seed=config['seed']
         )
         
@@ -194,6 +249,238 @@ def plot_comparison_results(all_results: Dict[str, Dict], output_dir: Path):
     logger.info(f"Comparison plots saved to {output_dir}/")
 
 
+def plot_trajectories(all_results: Dict[str, Dict], output_dir: Path):
+    """
+    Create trajectory plots showing metrics over intervention steps.
+    
+    Args:
+        all_results: Results for all methods
+        output_dir: Directory to save plots
+    """
+    # Plot 1: Target value trajectories
+    plot_target_trajectories(all_results, output_dir)
+    
+    # Plot 2: Structure metric trajectories (F1/SHD)
+    plot_structure_trajectories(all_results, output_dir)
+    
+    # Plot 3: Per-SCM examples
+    plot_scm_examples(all_results, output_dir)
+    
+    logger.info(f"Trajectory plots saved to {output_dir}/")
+
+
+def plot_target_trajectories(all_results: Dict[str, Dict], output_dir: Path):
+    """Plot target value over intervention steps for each method."""
+    plt.figure(figsize=(12, 8))
+    
+    # Colors for each method
+    colors = {
+        'Random': 'gray', 
+        'Oracle': 'red', 
+        'random+bc': 'orange',
+        'grpo+bc': 'blue',
+        'bc+bc': 'green'
+    }
+    
+    for method, results in all_results.items():
+        if 'scm_results' not in results:
+            continue
+            
+        # Collect trajectories from all SCMs
+        all_trajectories = []
+        max_steps = 0
+        
+        for scm_name, scm_result in results['scm_results'].items():
+            if 'trajectory' not in scm_result:
+                continue
+                
+            trajectory = scm_result['trajectory']
+            steps = [step.step for step in trajectory]
+            values = [step.outcome_value for step in trajectory]
+            
+            if len(steps) > max_steps:
+                max_steps = len(steps)
+            
+            all_trajectories.append((steps, values))
+        
+        if not all_trajectories:
+            continue
+        
+        # Compute mean trajectory
+        mean_values_by_step = {}
+        for steps, values in all_trajectories:
+            for step, value in zip(steps, values):
+                if step not in mean_values_by_step:
+                    mean_values_by_step[step] = []
+                mean_values_by_step[step].append(value)
+        
+        # Calculate means and stds
+        steps_sorted = sorted(mean_values_by_step.keys())
+        mean_values = [np.mean(mean_values_by_step[s]) for s in steps_sorted]
+        std_values = [np.std(mean_values_by_step[s]) for s in steps_sorted]
+        
+        # Plot mean with confidence band
+        color = colors.get(method, 'black')
+        plt.plot(steps_sorted, mean_values, label=method, color=color, linewidth=2)
+        plt.fill_between(steps_sorted, 
+                        np.array(mean_values) - np.array(std_values),
+                        np.array(mean_values) + np.array(std_values),
+                        alpha=0.2, color=color)
+    
+    plt.xlabel('Intervention Step')
+    plt.ylabel('Target Value')
+    plt.title('Mean Target Value Trajectory Across SCMs')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_dir / 'target_trajectories.png', dpi=150)
+    plt.close()
+
+
+def plot_structure_trajectories(all_results: Dict[str, Dict], output_dir: Path):
+    """Plot F1 and SHD over intervention steps."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    
+    colors = {
+        'Random': 'gray', 
+        'Oracle': 'red', 
+        'random+bc': 'orange',
+        'grpo+bc': 'blue',
+        'bc+bc': 'green'
+    }
+    
+    for method, results in all_results.items():
+        if 'scm_results' not in results:
+            continue
+        
+        # Collect F1 trajectories step by step
+        f1_by_step = {}
+        shd_by_step = {}
+        
+        for scm_name, scm_result in results['scm_results'].items():
+            if 'trajectory' not in scm_result:
+                continue
+                
+            trajectory = scm_result['trajectory']
+            
+            for step_metric in trajectory:
+                step = step_metric.step
+                
+                # Extract F1 from predicted_parents if available
+                if hasattr(step_metric, 'predicted_parents') and step_metric.predicted_parents is not None:
+                    # We need true parents from scm_result
+                    if 'f1_score' in scm_result:  # Use final F1 as proxy for now
+                        if step not in f1_by_step:
+                            f1_by_step[step] = []
+                        # Use prediction confidence as proxy for F1 evolution
+                        if hasattr(step_metric, 'prediction_confidence'):
+                            f1_by_step[step].append(step_metric.prediction_confidence)
+                
+                # For now, use final values at last step
+                if step == len(trajectory) - 1:
+                    if 'f1_score' in scm_result:
+                        if step not in f1_by_step:
+                            f1_by_step[step] = []
+                        f1_by_step[step].append(scm_result['f1_score'])
+                    
+                    if 'shd' in scm_result and scm_result['shd'] != float('inf'):
+                        if step not in shd_by_step:
+                            shd_by_step[step] = []
+                        shd_by_step[step].append(scm_result['shd'])
+        
+        # Plot F1 trajectory
+        if f1_by_step:
+            steps = sorted(f1_by_step.keys())
+            mean_f1 = [np.mean(f1_by_step.get(s, [0])) for s in steps]
+            color = colors.get(method, 'black')
+            ax1.plot(steps, mean_f1, 'o-', label=method, color=color, markersize=8)
+        
+        # Plot SHD trajectory  
+        if shd_by_step:
+            steps = sorted(shd_by_step.keys())
+            mean_shd = [np.mean(shd_by_step.get(s, [0])) for s in steps]
+            color = colors.get(method, 'black')
+            ax2.plot(steps, mean_shd, 'o-', label=method, color=color, markersize=8)
+    
+    ax1.set_xlabel('Intervention Step')
+    ax1.set_ylabel('F1 Score')
+    ax1.set_title('Structure Learning: F1 Score')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    ax1.set_ylim(0, 1)
+    
+    ax2.set_xlabel('Intervention Step')
+    ax2.set_ylabel('Structural Hamming Distance')
+    ax2.set_title('Structure Learning: SHD')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / 'structure_trajectories.png', dpi=150)
+    plt.close()
+
+
+def plot_scm_examples(all_results: Dict[str, Dict], output_dir: Path):
+    """Plot trajectories for individual example SCMs."""
+    # Select up to 4 SCMs to show
+    example_scms = ['fork', 'chain_3', 'chain_5', 'collider']
+    
+    # Check which SCMs are available
+    available_scms = set()
+    for method_results in all_results.values():
+        if 'scm_results' in method_results:
+            available_scms.update(method_results['scm_results'].keys())
+    
+    # Use first 4 available if our examples aren't present
+    scms_to_plot = [scm for scm in example_scms if scm in available_scms]
+    if len(scms_to_plot) < 4:
+        remaining = list(available_scms - set(scms_to_plot))
+        scms_to_plot.extend(remaining[:4-len(scms_to_plot)])
+    scms_to_plot = scms_to_plot[:4]
+    
+    if not scms_to_plot:
+        return
+    
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    axes = axes.flatten()
+    
+    colors = {
+        'Random': 'gray', 
+        'Oracle': 'red', 
+        'random+bc': 'orange',
+        'grpo+bc': 'blue',
+        'bc+bc': 'green'
+    }
+    
+    for idx, scm_name in enumerate(scms_to_plot):
+        ax = axes[idx]
+        
+        for method, results in all_results.items():
+            if 'scm_results' not in results or scm_name not in results['scm_results']:
+                continue
+                
+            scm_result = results['scm_results'][scm_name]
+            if 'trajectory' not in scm_result:
+                continue
+                
+            trajectory = scm_result['trajectory']
+            steps = [step.step for step in trajectory]
+            values = [step.outcome_value for step in trajectory]
+            
+            color = colors.get(method, 'black')
+            ax.plot(steps, values, 'o-', label=method, color=color, markersize=6)
+        
+        ax.set_xlabel('Intervention Step')
+        ax.set_ylabel('Target Value')
+        ax.set_title(f'SCM: {scm_name}')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / 'scm_example_trajectories.png', dpi=150)
+    plt.close()
+
+
 def main():
     """Main evaluation script with clean surrogate management."""
     parser = argparse.ArgumentParser(description='Evaluate ACBO methods with clean surrogate management')
@@ -223,10 +510,17 @@ def main():
     parser.add_argument('--n_samples', type=int, default=10, help='Samples per intervention')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     
+    # Active learning
+    parser.add_argument('--surrogate_update_strategy', type=str, default='none',
+                       choices=['none', 'bic'],
+                       help='Surrogate update strategy for active learning')
+    
     # Output
     parser.add_argument('--output_dir', type=str, default='evaluation_results', 
                        help='Directory for results')
     parser.add_argument('--plot', action='store_true', help='Create comparison plots')
+    parser.add_argument('--plot_trajectories', action='store_true', 
+                       help='Create trajectory plots showing metrics over steps')
     
     args = parser.parse_args()
     
@@ -291,7 +585,7 @@ def main():
         # Random baseline
         random_results = evaluate_method(
             'Random', policy_registry['random'], test_scms, eval_config,
-            args.baseline_surrogate, registry
+            args.baseline_surrogate, registry, args.surrogate_update_strategy
         )
         all_results['Random'] = random_results
         
@@ -344,7 +638,7 @@ def main():
             pair_name = f"{policy_name}+{surrogate_name}"
             results = evaluate_method(
                 pair_name, policy_registry[policy_name], test_scms,
-                eval_config, surrogate_name, registry
+                eval_config, surrogate_name, registry, args.surrogate_update_strategy
             )
             all_results[pair_name] = results
     
@@ -377,6 +671,10 @@ def main():
     # Create plots if requested
     if args.plot:
         plot_comparison_results(all_results, output_dir)
+    
+    # Create trajectory plots if requested
+    if args.plot_trajectories:
+        plot_trajectories(all_results, output_dir)
     
     # Print summary
     logger.info("\n" + "="*60)

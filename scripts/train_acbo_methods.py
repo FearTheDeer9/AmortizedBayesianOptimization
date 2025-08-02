@@ -434,6 +434,15 @@ def main():
     elif args.method == 'grpo' or args.method == 'both':
         grpo_results = train_grpo(config)
         logger.info("\n✓ GRPO training completed")
+        
+        # If training GRPO without surrogate, rename checkpoint for clarity
+        if args.method == 'grpo' and not args.use_surrogate:
+            src_path = Path(args.checkpoint_dir) / 'unified_grpo_final'
+            dst_path = Path(args.checkpoint_dir) / 'grpo_no_surrogate_final'
+            if src_path.exists():
+                import shutil
+                shutil.move(str(src_path), str(dst_path))
+                logger.info(f"Renamed checkpoint to: {dst_path}")
     
     if args.method == 'bc' or args.method == 'both':
         bc_results = train_bc(config)

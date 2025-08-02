@@ -357,7 +357,7 @@ def create_update_fn_wrapper(net: hk.Transformed, optimizer: optax.GradientTrans
                   buffer: ExperienceBuffer, target_variable: str) -> Tuple[Any, Any, Dict[str, float]]:
         """Update surrogate parameters using data likelihood loss."""
         # Convert buffer to tensor
-        tensor, variables = buffer_to_three_channel_tensor(
+        tensor, mapper = buffer_to_three_channel_tensor(
             buffer, target_variable, standardize=True
         )
         
@@ -369,6 +369,7 @@ def create_update_fn_wrapper(net: hk.Transformed, optimizer: optax.GradientTrans
             }
         
         # Get variable index
+        variables = mapper.variables
         target_idx = variables.index(target_variable) if target_variable in variables else 0
         
         # Define loss function

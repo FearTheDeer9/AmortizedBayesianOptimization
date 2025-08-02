@@ -271,7 +271,8 @@ def create_random_acquisition(seed: int = 42) -> Callable:
 
 def create_bc_surrogate(checkpoint_path: Path, 
                        allow_updates: bool = False,
-                       learning_rate: float = 1e-4) -> Tuple[Callable, Optional[Callable]]:
+                       learning_rate: float = 1e-4,
+                       return_components: bool = False) -> Union[Tuple[Callable, Optional[Callable]], Tuple[Callable, Optional[Callable], Any, Any, Any]]:
     """
     Create BC-trained surrogate function for structure learning.
     
@@ -279,9 +280,11 @@ def create_bc_surrogate(checkpoint_path: Path,
         checkpoint_path: Path to BC surrogate checkpoint
         allow_updates: Whether to allow online updates during evaluation
         learning_rate: Learning rate for online updates (if enabled)
+        return_components: If True, also return (net, params, opt_state)
         
     Returns:
         Tuple of (predict_fn, update_fn) where update_fn is None if updates disabled
+        If return_components=True, returns (predict_fn, update_fn, net, params, opt_state)
     """
     import optax
     from ..utils.checkpoint_utils import load_checkpoint, create_model_from_checkpoint
@@ -418,6 +421,8 @@ def create_bc_surrogate(checkpoint_path: Path,
     bc_surrogate_predict.predict_with_variables = bc_surrogate_predict_full
     
     if not allow_updates:
+        if return_components:
+            return bc_surrogate_predict, None, net, params, None
         return bc_surrogate_predict, None
     
     # Create update function for online learning
@@ -591,6 +596,8 @@ def create_bc_surrogate(checkpoint_path: Path,
         
         return new_params, new_opt_state, metrics
     
+    if return_components:
+        return bc_surrogate_predict, bc_surrogate_update, net, params, opt_state
     return bc_surrogate_predict, bc_surrogate_update
 
 

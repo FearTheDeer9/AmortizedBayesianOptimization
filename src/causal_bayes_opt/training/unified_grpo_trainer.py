@@ -604,11 +604,20 @@ class UnifiedGRPOTrainer:
                 posterior_after = None
                 if self.use_surrogate and self.surrogate_predict_fn is not None:
                     # Compute posterior BEFORE intervention
-                    logger.info(f"Computing posterior before intervention, use_surrogate={self.use_surrogate}")
-                    posterior_before = self.surrogate_predict_fn(
-                        tensor[:, :, :3], target_var, var_order
+                    logger.info(
+                        f"[SURROGATE] Computing posterior BEFORE intervention:\n"
+                        f"  - Using pre-trained surrogate: YES\n"
+                        f"  - Target variable: {target_var}\n"
+                        f"  - Buffer size: {buffer.size()}"
                     )
-                    logger.info(f"Posterior before: {posterior_before}")
+                    posterior_before = self.surrogate_predict_fn(
+                        tensor[:, :, :3], target_var, mapper.variables
+                    )
+                    logger.info(
+                        f"[SURROGATE] Posterior before intervention:\n"
+                        f"  - Entropy: {posterior_before.get('entropy', 0):.3f}\n"
+                        f"  - Parent probs: {posterior_before.get('marginal_parent_probs', {})}"
+                    )
                     # First, add intervention samples to the actual buffer
                     # This is necessary for proper information gain calculation
                     for sample in intervention_samples:
@@ -629,8 +638,24 @@ class UnifiedGRPOTrainer:
                     )
                     
                     # Compute posterior after intervention with updated surrogate
+                    logger.info(
+                        f"[SURROGATE] Computing posterior AFTER intervention:\n"
+                        f"  - Surrogate params updated: YES\n"
+                        f"  - New buffer size: {buffer.size()}"
+                    )
                     posterior_after = self.surrogate_predict_fn(
-                        tensor_after[:, :, :3], target_var, mapper_after.get_variables()
+                        tensor_after[:, :, :3], target_var, mapper_after.variables
+                    )
+                    logger.info(
+                        f"[SURROGATE] Posterior after intervention:\n"
+                        f"  - Entropy: {posterior_after.get('entropy', 0):.3f}\n"
+                        f"  - Parent probs: {posterior_after.get('marginal_parent_probs', {})}"
+                    )
+                else:
+                    logger.info(
+                        f"[SURROGATE] No surrogate model available:\n"
+                        f"  - use_surrogate={self.use_surrogate}\n"
+                        f"  - surrogate_predict_fn={self.surrogate_predict_fn is not None}"
                     )
                 
                 # Map reward weights to clean reward format

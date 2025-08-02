@@ -345,7 +345,7 @@ class BICUpdate:
             
             # Get target index
             target_idx = mapper.get_index(context.target_variable)
-            variable_order = mapper.get_variables()
+            variable_order = mapper.variables
             
             # Forward pass
             rng = jax.random.PRNGKey(context.step)

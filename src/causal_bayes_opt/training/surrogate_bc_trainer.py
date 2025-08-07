@@ -20,6 +20,7 @@ import optax
 import numpy as np
 
 from ..avici_integration.continuous.model import ContinuousParentSetPredictionModel
+from ..avici_integration.continuous.configurable_model import ConfigurableContinuousParentSetPredictionModel
 from .data_preprocessing import (
     SurrogateTrainingData,
     load_demonstrations_from_path,
@@ -50,7 +51,9 @@ class SurrogateBCTrainer:
                  gradient_clip: float = 1.0,
                  dropout: float = 0.1,
                  weight_decay: float = 1e-4,
-                 seed: int = 42):
+                 seed: int = 42,
+                 encoder_type: str = "node_feature",
+                 attention_type: str = "pairwise"):
         """
         Initialize surrogate BC trainer.
         
@@ -68,6 +71,8 @@ class SurrogateBCTrainer:
             dropout: Dropout rate
             weight_decay: Weight decay for AdamW
             seed: Random seed
+            encoder_type: Type of encoder to use ("node_feature", "node", "simple", "improved")
+            attention_type: Type of attention to use ("pairwise", "simple", "original")
         """
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -82,6 +87,8 @@ class SurrogateBCTrainer:
         self.dropout = dropout
         self.weight_decay = weight_decay
         self.seed = seed
+        self.encoder_type = encoder_type
+        self.attention_type = attention_type
         
         # Initialize random key
         self.key = random.PRNGKey(seed)
@@ -242,13 +249,26 @@ class SurrogateBCTrainer:
         
         # Define model function
         def surrogate_fn(data: jnp.ndarray, target_variable: int, is_training: bool = False):
-            model = ContinuousParentSetPredictionModel(
-                hidden_dim=self.hidden_dim,
-                num_layers=self.num_layers,
-                num_heads=self.num_heads,
-                key_size=self.key_size,
-                dropout=self.dropout
-            )
+            # Use configurable model if encoder type is specified
+            if self.encoder_type != "node":  # "node" is the original default
+                model = ConfigurableContinuousParentSetPredictionModel(
+                    hidden_dim=self.hidden_dim,
+                    num_layers=self.num_layers,
+                    num_heads=self.num_heads,
+                    key_size=self.key_size,
+                    dropout=self.dropout,
+                    encoder_type=self.encoder_type,
+                    attention_type=self.attention_type
+                )
+            else:
+                # Use original model for backward compatibility
+                model = ContinuousParentSetPredictionModel(
+                    hidden_dim=self.hidden_dim,
+                    num_layers=self.num_layers,
+                    num_heads=self.num_heads,
+                    key_size=self.key_size,
+                    dropout=self.dropout
+                )
             return model(data, target_variable, is_training)
         
         # Transform with Haiku

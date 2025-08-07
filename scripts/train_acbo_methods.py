@@ -289,7 +289,8 @@ def train_surrogate(config: DictConfig) -> Dict[str, Any]:
         gradient_clip=1.0,
         dropout=config.get('architecture', {}).get('dropout', 0.1),
         weight_decay=1e-4,
-        seed=config.get('seed', 42)
+        seed=config.get('seed', 42),
+        encoder_type=config.get('encoder_type', 'node_feature')
     )
     
     # Train on demonstrations
@@ -367,6 +368,9 @@ def main():
     parser.add_argument('--surrogate_hidden_dim', type=int, default=128, help='Surrogate hidden dimension')
     parser.add_argument('--surrogate_layers', type=int, default=4, help='Surrogate number of layers')
     parser.add_argument('--surrogate_heads', type=int, default=8, help='Surrogate number of attention heads')
+    parser.add_argument('--encoder_type', type=str, default='node_feature',
+                       choices=['node_feature', 'node', 'simple', 'improved'],
+                       help='Type of encoder to use for surrogate model')
     
     args = parser.parse_args()
     
@@ -387,6 +391,7 @@ def main():
         'surrogate_hidden_dim': args.surrogate_hidden_dim,
         'surrogate_layers': args.surrogate_layers,
         'surrogate_heads': args.surrogate_heads,
+        'encoder_type': args.encoder_type,
         'hidden_dim': args.hidden_dim,
         
         # BC-specific
@@ -409,6 +414,8 @@ def main():
     logger.info(f"  SCM type: {args.scm_type}")
     logger.info(f"  Variable range: [{args.min_vars}, {args.max_vars}]")
     logger.info(f"  Use surrogate: {args.use_surrogate}")
+    if args.use_surrogate or args.method == 'surrogate' or args.method == 'grpo_with_surrogate':
+        logger.info(f"  Encoder type: {args.encoder_type}")
     
     # Train selected method(s)
     if args.method == 'grpo_with_surrogate':

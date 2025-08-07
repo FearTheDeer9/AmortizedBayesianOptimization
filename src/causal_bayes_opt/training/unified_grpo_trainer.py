@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union, Callable
 import pickle
 
+import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.random as random
@@ -28,6 +29,7 @@ from .three_channel_converter import buffer_to_three_channel_tensor
 from .five_channel_converter import buffer_to_five_channel_tensor
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import create_sample, get_values
+from ..acquisition.better_rewards import compute_better_clean_reward, RunningStats
 from ..acquisition.clean_rewards import compute_clean_reward
 from ..policies.clean_policy_factory import create_clean_grpo_policy
 from ..data_structures.scm import get_variables, get_target, get_parents
@@ -84,7 +86,9 @@ class UnifiedGRPOTrainer:
                  # Other
                  seed: int = 42,
                  use_surrogate: bool = True,
-                 checkpoint_dir: str = "checkpoints"):
+                 checkpoint_dir: str = "checkpoints",
+                 policy_architecture: Optional[str] = None,
+                 **kwargs):
         """
         Initialize unified GRPO trainer.
         
@@ -108,7 +112,9 @@ class UnifiedGRPOTrainer:
                 optimization_direction=optimization_direction,
                 seed=seed,
                 use_surrogate=use_surrogate,
-                checkpoint_dir=checkpoint_dir
+                checkpoint_dir=checkpoint_dir,
+                policy_architecture=policy_architecture,
+                **kwargs
             )
         
         # Initialize components
@@ -169,11 +175,14 @@ class UnifiedGRPOTrainer:
                 structure_accuracy_threshold=conv_config.get('accuracy_threshold', 0.95),
                 patience=conv_config.get('patience', 5),
                 min_episodes=conv_config.get('min_episodes', 5),
-                max_episodes_per_scm=conv_config.get('max_episodes_per_scm', 30)
+                max_episodes_per_scm=conv_config.get('max_episodes_per_scm', 200)
             )
             self.convergence_detector = ConvergenceDetector(self.convergence_config)
         else:
             self.convergence_detector = None
+        
+        # Initialize running stats for reward normalization
+        self.reward_stats = RunningStats(window_size=1000)
             
     def _init_from_params(self, **kwargs):
         """Initialize from individual parameters."""
@@ -188,6 +197,10 @@ class UnifiedGRPOTrainer:
         self.checkpoint_dir = kwargs['checkpoint_dir']
         
         self.rng_key = random.PRNGKey(self.seed)
+        
+        # Store policy architecture if provided
+        if 'policy_architecture' in kwargs:
+            self.policy_architecture = kwargs['policy_architecture']
         
         # Default ranges
         self.n_variables_range = [3, 8]
@@ -225,16 +238,30 @@ class UnifiedGRPOTrainer:
         
         # Convergence detection
         self.use_early_stopping = kwargs['use_early_stopping']
-        if self.use_early_stopping:
-            self.convergence_config = kwargs['convergence_config'] or ConvergenceConfig(
+        
+        # Always set convergence_config for SCM rotation
+        conv_config = kwargs.get('convergence_config')
+        if isinstance(conv_config, dict):
+            # Convert dict to ConvergenceConfig, filtering out 'enabled' if present
+            config_args = {k: v for k, v in conv_config.items() if k != 'enabled'}
+            self.convergence_config = ConvergenceConfig(**config_args)
+        elif conv_config:
+            self.convergence_config = conv_config
+        else:
+            self.convergence_config = ConvergenceConfig(
                 structure_accuracy_threshold=0.95,
                 patience=5,
                 min_episodes=5,
-                max_episodes_per_scm=30
+                max_episodes_per_scm=200
             )
+        
+        if self.use_early_stopping:
             self.convergence_detector = ConvergenceDetector(self.convergence_config)
         else:
             self.convergence_detector = None
+        
+        # Initialize running stats for reward normalization
+        self.reward_stats = RunningStats(window_size=1000)
             
         # Create minimal config for compatibility
         self.config = {
@@ -246,7 +273,19 @@ class UnifiedGRPOTrainer:
         
     def _initialize_policy(self):
         """Initialize policy network using shared factory."""
-        policy_fn = create_clean_grpo_policy(hidden_dim=self.hidden_dim)
+        # Determine policy architecture
+        policy_architecture = "simple"  # default
+        if hasattr(self, 'policy_architecture') and self.policy_architecture is not None:
+            policy_architecture = self.policy_architecture
+        elif self.architecture_level == "attention":
+            policy_architecture = "attention"
+            
+        logger.info(f"Initializing policy with architecture: {policy_architecture}")
+        
+        policy_fn = create_clean_grpo_policy(
+            hidden_dim=self.hidden_dim,
+            architecture=policy_architecture
+        )
         self.policy_fn = hk.transform(policy_fn)
         
         # Initialize with dummy data - now 5 channels
@@ -254,7 +293,7 @@ class UnifiedGRPOTrainer:
         self.rng_key, init_key = random.split(self.rng_key)
         self.policy_params = self.policy_fn.init(init_key, dummy_tensor, 0)
         
-        logger.info(f"Initialized policy with architecture: {self.architecture_level}")
+        logger.info(f"Initialized policy with architecture: {policy_architecture} (level: {self.architecture_level})")
         
     def _initialize_surrogate(self):
         """Initialize surrogate model for structure learning."""
@@ -283,7 +322,8 @@ class UnifiedGRPOTrainer:
             learning_rate=self.config.get('surrogate_lr', 1e-3),
             hidden_dim=self.config.get('surrogate_hidden_dim', 128),
             num_layers=self.config.get('surrogate_layers', 4),
-            num_heads=self.config.get('surrogate_heads', 8)
+            num_heads=self.config.get('surrogate_heads', 8),
+            encoder_type=self.config.get('encoder_type', 'node_feature')
         )
         
         logger.info("Initialized learnable surrogate model")
@@ -405,6 +445,7 @@ class UnifiedGRPOTrainer:
         
         # Training history
         episode_metrics = []
+        embedding_stats = []  # Track embedding statistics
         scm_episodes = {name: 0 for name, _ in scm_rotation}
         current_scm_idx = 0
         
@@ -418,6 +459,12 @@ class UnifiedGRPOTrainer:
             self.rng_key, episode_key = random.split(self.rng_key)
             metrics = self._run_grpo_episode(episode, scm, scm_name, episode_key)
             episode_metrics.append(metrics)
+            
+            # Check for rotation based on max_episodes_per_scm
+            if scm_episodes[scm_name] >= self.convergence_config.max_episodes_per_scm:
+                logger.info(f"SCM {scm_name} reached max episodes ({scm_episodes[scm_name]})")
+                # Rotate to next SCM
+                current_scm_idx = (current_scm_idx + 1) % len(scm_rotation)
             
             # Check convergence if enabled
             if self.convergence_detector:
@@ -439,11 +486,8 @@ class UnifiedGRPOTrainer:
                 self.convergence_detector.update(scm_name, training_metrics)
                 converged, reason = self.convergence_detector.check_convergence(scm_name)
                 
-                if converged or scm_episodes[scm_name] >= self.convergence_config.max_episodes_per_scm:
+                if converged:
                     logger.info(f"SCM {scm_name} converged after {scm_episodes[scm_name]} episodes: {reason}")
-                    
-                    # Rotate to next SCM
-                    current_scm_idx = (current_scm_idx + 1) % len(scm_rotation)
                     
                     # Check if all SCMs have converged
                     all_converged = all(
@@ -462,6 +506,19 @@ class UnifiedGRPOTrainer:
                 mean_reward = sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0
                 logger.info(f"Episode {episode}: mean_reward={mean_reward:.4f}, "
                           f"current_scm={scm_name}")
+                
+                # Track reward trend
+                if episode > 0 and episode % 10 == 0:
+                    early_rewards = [m['mean_reward'] for m in episode_metrics[:min(10, len(episode_metrics))]]
+                    recent_rewards = [m['mean_reward'] for m in episode_metrics[-10:]]
+                    early_avg = sum(early_rewards) / len(early_rewards) if early_rewards else 0
+                    recent_avg = sum(recent_rewards) / len(recent_rewards) if recent_rewards else 0
+                    trend = recent_avg - early_avg
+                    logger.info(
+                        f"[REWARD TREND] Episode {episode}: "
+                        f"Early avg: {early_avg:.3f}, Recent avg: {recent_avg:.3f}, "
+                        f"Trend: {trend:+.3f} ({'↑' if trend > 0 else '↓' if trend < 0 else '→'})"
+                    )
                 
                 # Log GRPO-specific metrics if available
                 if 'grpo_metrics' in metrics:
@@ -486,7 +543,8 @@ class UnifiedGRPOTrainer:
                 self.convergence_detector.scm_states.get(name, None) and 
                 self.convergence_detector.scm_states[name].converged
                 for name, _ in scm_rotation
-            ) if self.convergence_detector else False
+            ) if self.convergence_detector else False,
+            'embedding_stats': embedding_stats
         }
     
     def _run_grpo_episode(self, episode_idx: int, scm: pyr.PMap, scm_name: str, key: jax.random.PRNGKey) -> Dict[str, Any]:
@@ -511,11 +569,12 @@ class UnifiedGRPOTrainer:
             'states': [],
             'actions': [],
             'rewards': [],
-            'old_log_probs': []
+            'old_log_probs': [],
+            'target_idx': None  # Will be set from mapper
         }
         
         # Generate batch of interventions for GRPO
-        for _ in range(self.grpo_config.group_size):
+        for step in range(self.grpo_config.group_size):
             key, step_key = random.split(key)
             
             # Get posterior before intervention for info gain calculation
@@ -558,20 +617,167 @@ class UnifiedGRPOTrainer:
                 tensor = tensor.at[:, :, :3].set(tensor_3ch)
                 posterior_before = None
             
+            # Monitor embedding statistics
+            if episode_idx % 10 == 0 and _ == 0:  # Check first sample every 10 episodes
+                # Analyze tensor values (channel 0 - the actual values)
+                value_channel = tensor[:, :, 0]
+                # Compute statistics across variables and time
+                var_stds = jnp.std(value_channel, axis=0)  # Std per variable across time
+                time_stds = jnp.std(value_channel, axis=1)  # Std per timestep across variables
+                overall_std = jnp.std(value_channel)
+                
+                embedding_stat = {
+                    'episode': episode_idx,
+                    'mean_std': float(jnp.mean(var_stds)),
+                    'max_std': float(jnp.max(var_stds)),
+                    'min_std': float(jnp.min(var_stds)),
+                    'overall_std': float(overall_std),
+                    'mean_time_std': float(jnp.mean(time_stds))
+                }
+                embedding_stats.append(embedding_stat)
+                
+                # Log warning if embeddings are too uniform
+                if overall_std < 0.01:
+                    logger.warning(
+                        f"[EMBEDDING WARNING] Episode {episode_idx}: Very low variance in embeddings! "
+                        f"Overall std: {overall_std:.6f}, Mean var std: {jnp.mean(var_stds):.6f}"
+                    )
+                elif episode_idx % 50 == 0:
+                    logger.info(
+                        f"[EMBEDDING STATS] Episode {episode_idx}: "
+                        f"Overall std: {overall_std:.4f}, "
+                        f"Mean var std: {jnp.mean(var_stds):.4f}, "
+                        f"Range: [{jnp.min(value_channel):.2f}, {jnp.max(value_channel):.2f}]"
+                    )
+            
             # Get policy output with 5-channel input
             key, policy_key = random.split(key)
+            # CRITICAL: Use mapper's target index, not original SCM index!
+            # The mapper sorts variables, so indices change
             policy_output = self.policy_fn.apply(
-                self.policy_params, policy_key, tensor, target_idx
+                self.policy_params, policy_key, tensor, mapper.target_idx
             )
             
             # Sample intervention
             var_logits = policy_output['variable_logits']
             value_params = policy_output['value_params']
             
-            # Sample variable
+            # Sample variable with exploration noise
             key, var_key = random.split(key)
+            
+            # Add exploration noise to enable trying different variables
+            exploration_noise = 0.1  # Reduced noise for better exploitation
+            noisy_logits = var_logits + exploration_noise * random.normal(var_key, var_logits.shape)
+            
+            # Sample from noisy logits
+            selected_var_idx = random.categorical(var_key, noisy_logits)
+            
+            # Compute probabilities from original logits for GRPO loss
             var_probs = jax.nn.softmax(var_logits)
-            selected_var_idx = random.categorical(var_key, var_logits)
+            
+            # DEBUG: Print detailed info about variable selection
+            if self.training_step % 10 == 0 and step == 0:  # First step every 10 training steps
+                logger.info(f"\n[DEBUG] Episode {episode_idx}, Step {step}:")
+                logger.info(f"  SCM: {scm_name}, Target: {target_var}")
+                logger.info(f"  Variable mapping: {mapper.name_to_idx}")
+                logger.info(f"  Target index: {mapper.target_idx}")
+                logger.info(f"  Logits: {var_logits}")
+                logger.info(f"  Probs: {var_probs}")
+                logger.info(f"  Selected idx: {selected_var_idx}")
+                selected_var_name = mapper.get_name(int(selected_var_idx))
+                logger.info(f"  Selected var: {selected_var_name}")
+                if selected_var_name == target_var:
+                    logger.warning(f"  WARNING: Selected target variable!")
+                
+                # Check tensor values
+                current_values = tensor[0, :, 0]  # Most recent values
+                logger.info(f"  Current values:")
+                for var, idx in mapper.name_to_idx.items():
+                    logger.info(f"    {var}: {current_values[idx]:.3f}")
+                
+                # Check if embeddings are distinguishable
+                embeddings_std = float(jnp.std(current_values))
+                logger.info(f"  Embedding std: {embeddings_std:.3f}")
+                
+                # Analyze why this variable was chosen
+                logit_values = [float(var_logits[i]) if float(var_logits[i]) != float('-inf') else -999 for i in range(len(var_logits))]
+                max_other_logit = max(logit_values[i] for i in range(len(logit_values)) if i != int(selected_var_idx))
+                logit_diff = logit_values[int(selected_var_idx)] - max_other_logit
+                logger.info(f"  Logit advantage of selected var: {logit_diff:.3f}")
+                
+                # Check relationship to target
+                if scm_name == 'fork' and target_var == 'Y':
+                    logger.info(f"  Fork SCM: X,Z are parents of Y")
+                elif scm_name == 'chain' and target_var == 'X2':
+                    logger.info(f"  Chain SCM: X0->X1->X2")
+                elif scm_name == 'collider' and target_var == 'Z':
+                    logger.info(f"  Collider SCM: X,Y are parents of Z")
+                
+                # Check if we selected a parent
+                is_parent = selected_var_name in true_parents
+                logger.info(f"  Selected variable is parent: {is_parent}")
+                if not is_parent and len(true_parents) > 0:
+                    logger.warning(f"  WARNING: Selected non-parent {selected_var_name}, true parents are {true_parents}")
+            
+            # Track discrimination metrics if requested
+            if hasattr(self, '_track_discrimination') and self._track_discrimination and step == 0:
+                # Compute logit spread (excluding masked values)
+                valid_logits = var_logits[var_logits != -jnp.inf]
+                logit_spread = float(jnp.std(valid_logits)) if len(valid_logits) > 1 else 0.0
+                
+                # Compute embedding variance
+                embedding_variance = float(jnp.var(tensor[0, :, 0]))  # Variance of current values
+                
+                # Check if selected variable is a direct parent
+                is_direct_parent = mapper.get_name(int(selected_var_idx)) in true_parents
+                
+                # Get logit for each parent vs non-parent
+                parent_logits = []
+                non_parent_logits = []
+                for var_name, var_idx in mapper.name_to_idx.items():
+                    if var_name != target_var:  # Exclude target
+                        logit_val = float(var_logits[var_idx])
+                        if var_name in true_parents:
+                            parent_logits.append(logit_val)
+                        else:
+                            non_parent_logits.append(logit_val)
+                
+                # Compute average logit advantage for parents
+                parent_logit_advantage = 0.0
+                if parent_logits and non_parent_logits:
+                    parent_logit_advantage = np.mean(parent_logits) - np.mean(non_parent_logits)
+                
+                # Store discrimination metric
+                from scripts.test_grpo_with_logged_values import DISCRIMINATION_METRICS
+                DISCRIMINATION_METRICS.append({
+                    'episode': episode_idx,
+                    'scm': scm_name,
+                    'logit_spread': logit_spread,
+                    'embedding_variance': embedding_variance,
+                    'buffer_size': buffer.size(),
+                    'selected_var': mapper.get_name(int(selected_var_idx)),
+                    'target_var': target_var,
+                    'is_direct_parent': is_direct_parent,
+                    'parent_logit_advantage': parent_logit_advantage,
+                    'true_parents': true_parents
+                })
+            
+            # Log exploration behavior and check for uniform logits
+            if self.training_step % 50 == 0:
+                logit_std = float(jnp.std(var_logits[var_logits != -jnp.inf]))
+                logger.debug(
+                    f"Variable selection - logits: {var_logits}, "
+                    f"selected: {selected_var_idx}, "
+                    f"probs: {var_probs}, "
+                    f"logit_std: {logit_std:.4f}"
+                )
+                
+                # Warn if logits are too uniform (excluding masked values)
+                if logit_std < 0.1:
+                    logger.warning(
+                        f"[LOGIT WARNING] Low variance in logits: std={logit_std:.4f}, "
+                        f"may indicate poor discrimination between variables"
+                    )
             
             # Compute log probability for GRPO
             log_prob = jnp.log(var_probs[selected_var_idx] + 1e-8)
@@ -585,6 +791,11 @@ class UnifiedGRPOTrainer:
             
             # Create and apply intervention
             selected_var = mapper.get_name(int(selected_var_idx))
+            
+            # DEBUG: Log intervention details
+            if self.training_step % 10 == 0 and step == 0:
+                logger.info(f"  Intervention: {selected_var} = {intervention_value:.3f}")
+            
             intervention = create_perfect_intervention(
                 targets=frozenset([selected_var]),
                 values={selected_var: float(intervention_value)}
@@ -604,19 +815,15 @@ class UnifiedGRPOTrainer:
                 posterior_after = None
                 if self.use_surrogate and self.surrogate_predict_fn is not None:
                     # Compute posterior BEFORE intervention
-                    logger.info(
-                        f"[SURROGATE] Computing posterior BEFORE intervention:\n"
-                        f"  - Using pre-trained surrogate: YES\n"
-                        f"  - Target variable: {target_var}\n"
-                        f"  - Buffer size: {buffer.size()}"
+                    logger.debug(
+                        f"Computing posterior before intervention - "
+                        f"target: {target_var}, buffer size: {buffer.size()}"
                     )
                     posterior_before = self.surrogate_predict_fn(
                         tensor[:, :, :3], target_var, mapper.variables
                     )
-                    logger.info(
-                        f"[SURROGATE] Posterior before intervention:\n"
-                        f"  - Entropy: {posterior_before.get('entropy', 0):.3f}\n"
-                        f"  - Parent probs: {posterior_before.get('marginal_parent_probs', {})}"
+                    logger.debug(
+                        f"Posterior entropy before: {posterior_before.get('entropy', 0):.3f}"
                     )
                     # First, add intervention samples to the actual buffer
                     # This is necessary for proper information gain calculation
@@ -638,25 +845,18 @@ class UnifiedGRPOTrainer:
                     )
                     
                     # Compute posterior after intervention with updated surrogate
-                    logger.info(
-                        f"[SURROGATE] Computing posterior AFTER intervention:\n"
-                        f"  - Surrogate params updated: YES\n"
-                        f"  - New buffer size: {buffer.size()}"
+                    logger.debug(
+                        f"Computing posterior after intervention - "
+                        f"new buffer size: {buffer.size()}"
                     )
                     posterior_after = self.surrogate_predict_fn(
                         tensor_after[:, :, :3], target_var, mapper_after.variables
                     )
-                    logger.info(
-                        f"[SURROGATE] Posterior after intervention:\n"
-                        f"  - Entropy: {posterior_after.get('entropy', 0):.3f}\n"
-                        f"  - Parent probs: {posterior_after.get('marginal_parent_probs', {})}"
+                    logger.debug(
+                        f"Posterior entropy after: {posterior_after.get('entropy', 0):.3f}"
                     )
                 else:
-                    logger.info(
-                        f"[SURROGATE] No surrogate model available:\n"
-                        f"  - use_surrogate={self.use_surrogate}\n"
-                        f"  - surrogate_predict_fn={self.surrogate_predict_fn is not None}"
-                    )
+                    logger.debug("No surrogate model available for info gain")
                 
                 # Map reward weights to clean reward format
                 clean_weights = {
@@ -666,7 +866,15 @@ class UnifiedGRPOTrainer:
                     'info_gain': self.reward_weights.get('info_gain', 0.3)  # Add info gain weight
                 }
                 
-                reward_info = compute_clean_reward(
+                # Debug logging for reward computation
+                logger.debug(
+                    f"Computing reward for intervention on {selected_var}:"
+                    f"  - Intervention value: {float(intervention_value):.3f}\n"
+                    f"  - Target variable: {target_var}\n"
+                    f"  - Optimization direction: {self.optimization_direction}"
+                )
+                
+                reward_info = compute_better_clean_reward(
                     buffer_before=buffer,
                     intervention={
                         'targets': frozenset([selected_var]),
@@ -676,12 +884,41 @@ class UnifiedGRPOTrainer:
                     target_variable=target_var,
                     config={
                         'optimization_direction': self.optimization_direction,
+                        'reward_type': 'adaptive_sigmoid',  # Use adaptive sigmoid for unknown ranges
+                        'temperature_factor': 2.0,  # Controls sensitivity
                         'weights': clean_weights
                     },
+                    stats=self.reward_stats,  # Pass running stats
                     posterior_before=posterior_before,
                     posterior_after=posterior_after
                 )
+                
+                # Log reward details
+                outcome_values = get_values(outcome_sample)
+                logger.debug(
+                    f"Reward computed -"
+                    f"  - Outcome Y value: {outcome_values.get(target_var, 'N/A')}\n"
+                    f"  - Target reward: {reward_info['target']:.3f}\n"
+                    f"  - Diversity reward: {reward_info['diversity']:.3f}\n"
+                    f"  - Total reward: {reward_info['total']:.3f}"
+                )
+                
                 reward = reward_info['total']
+                
+                # DEBUG: Log target value trend
+                if self.training_step % 10 == 0 and step == 0:
+                    target_val = outcome_values.get(target_var, 0.0)
+                    logger.info(f"  Target value after intervention: {target_val:.3f}")
+                    logger.info(f"  Reward received: {reward:.3f}")
+                    
+                    # Analyze if intervention helped
+                    if self.optimization_direction == "MINIMIZE":
+                        if target_val < 0:
+                            logger.info(f"  ✓ Good intervention (negative target)")
+                        else:
+                            logger.warning(f"  ✗ Bad intervention (positive target)")
+                            # Log which variable was intervened on
+                            logger.warning(f"    Intervened on {selected_var} = {intervention_value:.3f}")
             else:
                 reward = 0.0
             
@@ -693,6 +930,10 @@ class UnifiedGRPOTrainer:
             })
             grpo_batch_data['rewards'].append(reward)
             grpo_batch_data['old_log_probs'].append(float(log_prob))
+            
+            # Store mapper's target index (same for all samples in batch)
+            if grpo_batch_data['target_idx'] is None:
+                grpo_batch_data['target_idx'] = mapper.target_idx
         
         # Convert to arrays
         grpo_batch_data['rewards'] = jnp.array(grpo_batch_data['rewards'])
@@ -700,6 +941,11 @@ class UnifiedGRPOTrainer:
         
         # Create GRPO batch with proper format
         grpo_batch = self._create_grpo_batch(grpo_batch_data)
+        
+        # Add buffer and target info for non-intervention baseline
+        grpo_batch['buffer'] = buffer
+        grpo_batch['target_variable'] = target_var
+        grpo_batch['target_idx'] = grpo_batch_data['target_idx']  # Pass mapper's target index
         
         # Perform GRPO update
         self.policy_params, self.optimizer_state, grpo_metrics = self.grpo_update(
@@ -786,12 +1032,47 @@ class UnifiedGRPOTrainer:
         rewards = batch['rewards']
         old_log_probs = batch['old_log_probs']
         
-        # Compute advantages using group baseline (key GRPO innovation)
-        group_baseline = jnp.mean(rewards)
-        advantages = rewards - group_baseline
+        # Compute advantages using non-intervention baseline
+        # This compares intervention outcomes to not intervening at all
+        buffer = batch.get('buffer')
+        target_variable = batch.get('target_variable')
+        
+        if buffer is not None and target_variable is not None:
+            # Get observational (non-intervened) samples
+            obs_samples = buffer.get_observations()
+            if len(obs_samples) > 0:
+                # Extract target values from observational data
+                obs_target_values = []
+                for sample in obs_samples:
+                    # Values are nested under 'values' key in the sample
+                    if 'values' in sample and target_variable in sample['values']:
+                        obs_target_values.append(float(sample['values'][target_variable]))
+                
+                if len(obs_target_values) > 0:
+                    # Baseline = average target value without interventions
+                    non_intervention_baseline = jnp.mean(jnp.array(obs_target_values))
+                    logger.debug(
+                        f"[BASELINE] Using non-intervention baseline: {non_intervention_baseline:.3f} "
+                        f"(from {len(obs_target_values)} obs samples)"
+                    )
+                else:
+                    # Fallback to mean rewards if no observational data
+                    non_intervention_baseline = jnp.mean(rewards)
+                    logger.debug("[BASELINE] No obs target values, using mean rewards")
+            else:
+                # No observational data, use mean rewards
+                non_intervention_baseline = jnp.mean(rewards)
+        else:
+            # Fallback to original GRPO baseline
+            non_intervention_baseline = jnp.mean(rewards)
+        
+        # Advantages = how much better than not intervening
+        advantages = rewards - non_intervention_baseline
         
         # Normalize advantages for stability
-        advantages = (advantages - jnp.mean(advantages)) / (jnp.std(advantages) + 1e-8)
+        adv_std = jnp.std(advantages)
+        if adv_std > 1e-8:
+            advantages = advantages / adv_std
         
         # Forward pass to get current log probs
         batch_size = states.shape[0]
@@ -802,9 +1083,8 @@ class UnifiedGRPOTrainer:
             # Get policy output for this state
             self.rng_key, policy_key = random.split(self.rng_key)
             
-            # Assume target is last variable (can be improved)
-            n_vars = states[i].shape[1]
-            target_idx = n_vars - 1
+            # Use the target index from the batch (from mapper)
+            target_idx = batch.get('target_idx', states[i].shape[1] - 1)  # Fallback to last var
             
             policy_output = self.policy_fn.apply(
                 params, policy_key, states[i], target_idx
@@ -844,7 +1124,7 @@ class UnifiedGRPOTrainer:
             'policy_loss': policy_loss,
             'entropy_loss': entropy_loss,
             'kl_penalty': 0.0,  # Not using KL penalty
-            'group_baseline': group_baseline,
+            'group_baseline': non_intervention_baseline,  # Now using non-intervention baseline
             'mean_reward': jnp.mean(rewards),
             'reward_std': jnp.std(rewards),
             'mean_advantage': jnp.mean(advantages),
@@ -857,13 +1137,16 @@ class UnifiedGRPOTrainer:
     
     def _save_checkpoint(self, is_final: bool = False):
         """Save training checkpoint using unified format."""
+        logger.info(f"[CHECKPOINT] Starting checkpoint save (is_final={is_final})")
         from ..utils.checkpoint_utils import save_checkpoint as save_unified_checkpoint
         
         checkpoint_dir = Path(self.checkpoint_dir)
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"[CHECKPOINT] Checkpoint directory: {checkpoint_dir}")
         
         name = "unified_grpo_final" if is_final else f"unified_grpo_ep{self.episode_count}"
         checkpoint_path = checkpoint_dir / name
+        logger.info(f"[CHECKPOINT] Saving to: {checkpoint_path}")
         
         # Save policy checkpoint
         policy_architecture = {
@@ -891,16 +1174,21 @@ class UnifiedGRPOTrainer:
             'episode': self.episode_count
         }
         
-        save_unified_checkpoint(
-            path=checkpoint_path,
-            params=self.policy_params,
-            architecture=policy_architecture,
-            model_type='policy',
-            model_subtype='grpo',
-            training_config=training_config,
-            metadata=metadata,
-            metrics=metrics
-        )
+        try:
+            save_unified_checkpoint(
+                path=checkpoint_path,
+                params=self.policy_params,
+                architecture=policy_architecture,
+                model_type='policy',
+                model_subtype='grpo',
+                training_config=training_config,
+                metadata=metadata,
+                metrics=metrics
+            )
+            logger.info(f"[CHECKPOINT] ✓ Policy checkpoint saved successfully")
+        except Exception as e:
+            logger.error(f"[CHECKPOINT] ✗ Failed to save policy checkpoint: {e}")
+            logger.exception("Full traceback:")
         
         # Save surrogate separately if enabled
         if self.use_surrogate and self.surrogate_params is not None:

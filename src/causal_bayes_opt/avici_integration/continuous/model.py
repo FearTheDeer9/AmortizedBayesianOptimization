@@ -83,7 +83,7 @@ class NodeEncoder(hk.Module):
             data: Intervention data [N, d, 3] where:
                   [:, :, 0] = variable values
                   [:, :, 1] = intervention indicators
-                  [:, :, 2] = observation indicators
+                  [:, :, 2] = target indicators (1 for target variable, 0 otherwise)
                   
         Returns:
             Node embeddings [d, hidden_dim]
@@ -102,10 +102,11 @@ class NodeEncoder(hk.Module):
             # var_data shape: [N, 3]
             values = var_data[:, 0]  # [N]
             interventions = var_data[:, 1]  # [N]
-            observations = var_data[:, 2]  # [N]
+            target_indicator = var_data[:, 2]  # [N] - 1 if this is the target variable
             
             # Only use observational data for statistics
-            obs_mask = observations * (1 - interventions)
+            # Note: target_indicator not used in feature computation
+            obs_mask = (1 - interventions)
             masked_values = jnp.where(obs_mask, values, 0.0)
             
             # Compute features

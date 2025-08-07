@@ -86,11 +86,8 @@ class SurrogateRegistry:
         is_active = name.endswith('_active')
         
         try:
-            # Load BC surrogate
-            predict_fn, update_fn = create_bc_surrogate(path, allow_updates=is_active)
-            wrapped = wrap_bc_surrogate(predict_fn, update_fn, is_active)
-            # Store checkpoint path for later use
-            wrapped._checkpoint_path = path
+            # Use the load_bc_surrogate method which handles active learning properly
+            wrapped = self.load_bc_surrogate(path, is_active=is_active)
             self._surrogates[name] = wrapped
             logger.info(f"  Loaded BC surrogate from {path} (active: {is_active})")
         except Exception as e:
@@ -176,8 +173,27 @@ class SurrogateRegistry:
         Returns:
             BCSurrogateWrapper instance
         """
-        predict_fn, update_fn = create_bc_surrogate(checkpoint_path, allow_updates=is_active)
-        wrapped = wrap_bc_surrogate(predict_fn, update_fn, is_active)
+        if is_active:
+            # Get all components for active learning
+            predict_fn, update_fn, net, params, opt_state = create_bc_surrogate(
+                checkpoint_path, 
+                allow_updates=True,
+                return_components=True
+            )
+            # Create wrapper with all components
+            wrapped = BCSurrogateWrapper(
+                predict_fn, update_fn, 
+                name="BC_Active", 
+                is_active=True,
+                net=net,
+                params=params,
+                opt_state=opt_state
+            )
+        else:
+            # Static version - just get functions
+            predict_fn, update_fn = create_bc_surrogate(checkpoint_path, allow_updates=False)
+            wrapped = wrap_bc_surrogate(predict_fn, update_fn, is_active)
+        
         wrapped._checkpoint_path = checkpoint_path
         return wrapped
 

@@ -42,7 +42,7 @@ class ImprovedNodeEncoder(hk.Module):
             data: Intervention data [N, d, 3] where:
                   [:, :, 0] = variable values
                   [:, :, 1] = intervention indicators (1 if intervened)
-                  [:, :, 2] = observation indicators (1 if observed)
+                  [:, :, 2] = target indicators (1 for target variable, 0 otherwise)
                   
         Returns:
             Node embeddings [d, hidden_dim] that preserve relationships
@@ -102,11 +102,12 @@ class ImprovedNodeEncoder(hk.Module):
         
         # Extract intervention indicators
         intervention_mask = data[:, :, 1]  # [N, d], 1 if intervened
-        observation_mask = data[:, :, 2]   # [N, d], 1 if observed
+        target_mask = data[:, :, 2]   # [N, d], 1 if target variable
         
         # Compute informativeness score for each sample
         # A sample is informative if it has many observed (non-intervened) variables
-        n_observed_per_sample = jnp.sum(observation_mask * (1 - intervention_mask), axis=1)  # [N]
+        # Note: target_mask not used here - it just indicates which variable is being predicted
+        n_observed_per_sample = jnp.sum((1 - intervention_mask), axis=1)  # [N]
         informativeness = n_observed_per_sample / d  # Normalize by number of variables
         
         # Convert to attention weights using softmax

@@ -204,7 +204,7 @@ def create_test_scm_set(n_scms: int = 10, seed: int = 42) -> List[tuple]:
         # Create additional dense SCMs with varying sizes
         for i in range(n_scms - 4):
             n_vars = 4 + (i % 3)  # Vary between 4-6 variables
-            scm = create_dense_scm(n_vars, edge_prob=0.3, seed=seed + i)
+            scm = create_dense_scm(n_vars, edge_prob=0.3)
             test_scms.append((f'dense_{n_vars}_{i}', scm))
     
     logger.info(f"Created {len(test_scms)} test SCMs")

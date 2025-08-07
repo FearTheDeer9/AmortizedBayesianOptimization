@@ -31,6 +31,7 @@ import optax
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import get_values
 from ..avici_integration.continuous.model import ContinuousParentSetPredictionModel
+from ..avici_integration.continuous.configurable_model import ConfigurableContinuousParentSetPredictionModel
 from ..avici_integration.continuous.integration import create_continuous_surrogate_model
 from .three_channel_converter import buffer_to_three_channel_tensor
 
@@ -47,7 +48,9 @@ def create_continuous_learnable_surrogate(
     learning_rate: float = 1e-3,
     hidden_dim: int = 128,
     num_layers: int = 4,
-    num_heads: int = 8
+    num_heads: int = 8,
+    encoder_type: str = "node_feature",
+    attention_type: str = "pairwise"
 ) -> Tuple[hk.Transformed, Any, Any, SurrogateFn, UpdateFn]:
     """
     Create a learnable continuous parent set model with update capability.
@@ -59,6 +62,8 @@ def create_continuous_learnable_surrogate(
         hidden_dim: Hidden dimension for the model
         num_layers: Number of transformer layers
         num_heads: Number of attention heads
+        encoder_type: Type of encoder to use ("node_feature", "node", etc.)
+        attention_type: Type of attention to use ("pairwise", "simple", etc.)
         
     Returns:
         Tuple of:
@@ -79,13 +84,26 @@ def create_continuous_learnable_surrogate(
     
     # Create the continuous model function
     def model_fn(data: jnp.ndarray, target_idx: int, is_training: bool = False):
-        model = ContinuousParentSetPredictionModel(
-            hidden_dim=hidden_dim,
-            num_layers=num_layers,
-            num_heads=num_heads,
-            key_size=hidden_dim // num_heads,
-            dropout=0.1 if is_training else 0.0
-        )
+        # Use configurable model if encoder type is specified
+        if encoder_type != "node":  # "node" is the original default
+            model = ConfigurableContinuousParentSetPredictionModel(
+                hidden_dim=hidden_dim,
+                num_layers=num_layers,
+                num_heads=num_heads,
+                key_size=hidden_dim // num_heads,
+                dropout=0.1 if is_training else 0.0,
+                encoder_type=encoder_type,
+                attention_type=attention_type
+            )
+        else:
+            # Use original model for backward compatibility
+            model = ContinuousParentSetPredictionModel(
+                hidden_dim=hidden_dim,
+                num_layers=num_layers,
+                num_heads=num_heads,
+                key_size=hidden_dim // num_heads,
+                dropout=0.1 if is_training else 0.0
+            )
         return model(data, target_idx, is_training)
     
     # Transform to Haiku

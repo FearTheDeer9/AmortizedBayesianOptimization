@@ -45,14 +45,15 @@ class RelationshipAwareEncoder(hk.Module):
         # Step 1: Extract the data components
         values = data[:, :, 0]  # [N, d] - actual values
         interventions = data[:, :, 1]  # [N, d] - intervention indicators
-        observations = data[:, :, 2]  # [N, d] - observation indicators
+        target_indicators = data[:, :, 2]  # [N, d] - target indicators (1 for target variable)
         
         # Step 2: Compute sufficient statistics that preserve relationships
         # These are the key features for causal discovery
         
         # 2a. Correlation matrix (the most important feature!)
         # Only use observational data for correlations
-        obs_mask = observations * (1 - interventions)  # [N, d]
+        # Note: target_indicators not used here - they just mark which variable is being predicted
+        obs_mask = (1 - interventions)  # [N, d]
         masked_values = jnp.where(obs_mask, values, 0.0)
         
         # Center the data

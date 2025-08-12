@@ -377,7 +377,9 @@ class UnifiedGRPOTrainer:
                 mean_advantage=loss_info['mean_advantage'],
                 advantage_std=loss_info['advantage_std'],
                 mean_entropy=loss_info['mean_entropy'],
-                approx_kl=loss_info['approx_kl']
+                approx_kl=loss_info['approx_kl'],
+                mean_ratio=loss_info.get('mean_ratio', 1.0),
+                ratio_std=loss_info.get('ratio_std', 0.0)
             )
         
         self.grpo_update = grpo_update
@@ -1130,7 +1132,9 @@ class UnifiedGRPOTrainer:
             'mean_advantage': jnp.mean(advantages),
             'advantage_std': jnp.std(advantages),
             'mean_entropy': jnp.mean(entropy_values),
-            'approx_kl': approx_kl
+            'approx_kl': approx_kl,
+            'mean_ratio': jnp.mean(ratio),
+            'ratio_std': jnp.std(ratio)
         }
         
         return total_loss, loss_info
@@ -1255,6 +1259,7 @@ class UnifiedGRPOTrainer:
 
 def create_unified_grpo_trainer(config: Union[DictConfig, Dict[str, Any], None] = None,
                                 pretrained_surrogate: Optional[Dict[str, Any]] = None,
+                                use_enhanced: bool = True,
                                 **kwargs) -> UnifiedGRPOTrainer:
     """
     Factory function to create unified GRPO trainer.
@@ -1264,15 +1269,31 @@ def create_unified_grpo_trainer(config: Union[DictConfig, Dict[str, Any], None] 
     Args:
         config: Configuration dictionary or DictConfig
         pretrained_surrogate: Optional dict with 'net' and 'params' for pre-trained surrogate
+        use_enhanced: Whether to use enhanced trainer with GRPO fixes (default: True)
         **kwargs: Individual parameters if not using config
         
     Returns:
-        Initialized UnifiedGRPOTrainer
+        Initialized UnifiedGRPOTrainer or GRPOEnhancedTrainer
     """
-    if config is not None:
-        trainer = UnifiedGRPOTrainer(config=config)
+    # Use enhanced trainer by default (includes all our fixes)
+    if use_enhanced:
+        from .grpo_enhanced_trainer import GRPOEnhancedTrainer
+        
+        # Convert config to kwargs if needed
+        if config is not None:
+            if isinstance(config, DictConfig):
+                config_dict = dict(config)
+            else:
+                config_dict = config
+            trainer = GRPOEnhancedTrainer(**config_dict)
+        else:
+            trainer = GRPOEnhancedTrainer(**kwargs)
     else:
-        trainer = UnifiedGRPOTrainer(config=None, **kwargs)
+        # Original trainer (for backward compatibility)
+        if config is not None:
+            trainer = UnifiedGRPOTrainer(config=config)
+        else:
+            trainer = UnifiedGRPOTrainer(config=None, **kwargs)
     
     # Override with pre-trained surrogate if provided
     if pretrained_surrogate and trainer.use_surrogate:

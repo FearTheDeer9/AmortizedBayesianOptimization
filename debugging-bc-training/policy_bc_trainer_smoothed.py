@@ -1,9 +1,8 @@
 """
-Behavioral Cloning Trainer for Policy (Intervention Selection) Models
+Behavioral Cloning Trainer with Label Smoothing to prevent overconfidence.
 
-This module provides a focused BC trainer specifically for learning intervention
-policies from expert trajectories. It trains models to select which variables
-to intervene on and what values to set.
+This version adds label smoothing to prevent gradient vanishing due to
+overconfident predictions.
 """
 
 import time
@@ -19,12 +18,48 @@ import haiku as hk
 import optax
 import numpy as np
 
-from ..policies.clean_bc_policy_factory import create_clean_bc_policy
-from .data_preprocessing import load_demonstrations_from_path
-from .demonstration_to_tensor import create_bc_training_dataset
-from ..utils.variable_mapping import VariableMapper
+# Import the FIXED variable mapper with numerical sorting
+import sys
+sys.path.append(str(Path(__file__).parent))
+from variable_mapping_fixed import VariableMapper
+
+# Import from parent
+sys.path.append(str(Path(__file__).parent.parent))
+from src.causal_bayes_opt.policies.clean_bc_policy_factory import create_clean_bc_policy
+from src.causal_bayes_opt.training.data_preprocessing import load_demonstrations_from_path
+from demonstration_to_tensor_fixed import create_bc_training_dataset
 
 logger = logging.getLogger(__name__)
+
+
+def smooth_cross_entropy_loss(logits: jnp.ndarray, target_idx: int, smoothing: float = 0.1) -> jnp.ndarray:
+    """
+    Cross-entropy loss with label smoothing to prevent overconfidence.
+    
+    Instead of using hard targets (1.0 for correct class, 0.0 for others),
+    uses soft targets (e.g., 0.9 for correct, 0.025 for others with 5 classes).
+    
+    This prevents the model from becoming overconfident and keeps gradients flowing.
+    
+    Args:
+        logits: Model output logits [n_classes]
+        target_idx: Index of correct class
+        smoothing: Label smoothing parameter (0 = no smoothing, 0.1 = typical)
+        
+    Returns:
+        Smoothed cross-entropy loss
+    """
+    n_classes = logits.shape[-1]
+    
+    # Create soft targets
+    targets = jnp.ones(n_classes) * smoothing / (n_classes - 1)
+    targets = targets.at[target_idx].set(1.0 - smoothing)
+    
+    # Compute cross-entropy with soft targets
+    log_probs = jax.nn.log_softmax(logits)
+    loss = -jnp.sum(targets * log_probs)
+    
+    return loss
 
 
 def robust_value_loss(predicted_mean: jnp.ndarray, 
@@ -70,15 +105,19 @@ def robust_value_loss(predicted_mean: jnp.ndarray,
     # Combine all terms
     value_loss = 0.5 * jnp.log(2 * jnp.pi) + log_std + mse_term + std_regularization
     
+    # Add safety check to prevent inf
+    value_loss = jnp.where(
+        jnp.isfinite(value_loss),
+        value_loss,
+        100.0  # Cap at large but finite value
+    )
+    
     return value_loss
 
 
 class PolicyBCTrainer:
     """
-    Behavioral cloning trainer for policy models (intervention selection).
-    
-    This trainer focuses on learning to select interventions from expert
-    trajectories, mimicking expert exploration behavior.
+    Behavioral cloning trainer with label smoothing to prevent overconfidence.
     """
     
     def __init__(self,
@@ -90,9 +129,10 @@ class PolicyBCTrainer:
                  validation_split: float = 0.2,
                  gradient_clip: float = 1.0,
                  weight_decay: float = 1e-4,
+                 label_smoothing: float = 0.1,  # NEW: Label smoothing parameter
                  seed: int = 42):
         """
-        Initialize policy BC trainer.
+        Initialize policy BC trainer with label smoothing.
         
         Args:
             hidden_dim: Hidden dimension for policy network
@@ -103,6 +143,7 @@ class PolicyBCTrainer:
             validation_split: Fraction of data for validation
             gradient_clip: Gradient clipping value
             weight_decay: Weight decay for AdamW
+            label_smoothing: Label smoothing parameter (0.0 = no smoothing, 0.1 = typical)
             seed: Random seed
         """
         self.hidden_dim = hidden_dim
@@ -113,6 +154,7 @@ class PolicyBCTrainer:
         self.validation_split = validation_split
         self.gradient_clip = gradient_clip
         self.weight_decay = weight_decay
+        self.label_smoothing = label_smoothing  # Store smoothing parameter
         self.seed = seed
         
         # Initialize random key
@@ -123,6 +165,8 @@ class PolicyBCTrainer:
         self.model_params = None
         self.optimizer = None
         self.optimizer_state = None
+        
+        logger.info(f"Initialized PolicyBCTrainer with label_smoothing={label_smoothing}")
         
     def train(self, demonstrations_path: str, max_demos: Optional[int] = None, max_trajectory_length: int = 100) -> Dict[str, Any]:
         """
@@ -136,7 +180,7 @@ class PolicyBCTrainer:
             Training results including parameters and metrics
         """
         start_time = time.time()
-        logger.info("Starting policy BC training")
+        logger.info(f"Starting policy BC training with label smoothing={self.label_smoothing}")
         
         # Load demonstrations
         logger.info(f"Loading demonstrations from {demonstrations_path}")
@@ -154,8 +198,8 @@ class PolicyBCTrainer:
             flat_demos = flat_demos[:max_demos]
             logger.info(f"Limited to {max_demos} demonstrations")
         
-        # Convert to 5-channel training data
-        logger.info("Converting demonstrations to 5-channel tensors with structural knowledge...")
+        # Convert to 5-channel training data with NUMERICAL SORTING
+        logger.info("Converting demonstrations to 5-channel tensors with numerical sorting...")
         all_inputs, all_labels, dataset_metadata = create_bc_training_dataset(
             flat_demos, max_trajectory_length
         )
@@ -239,7 +283,8 @@ class PolicyBCTrainer:
             "config": {
                 "hidden_dim": self.hidden_dim,
                 "learning_rate": self.learning_rate,
-                "batch_size": self.batch_size
+                "batch_size": self.batch_size,
+                "label_smoothing": self.label_smoothing
             },
             "metrics": {
                 "training_time": training_time,
@@ -256,7 +301,9 @@ class PolicyBCTrainer:
                 "n_val_samples": len(val_inputs),
                 "n_demonstrations": dataset_metadata['n_demonstrations'],
                 "tensor_channels": 5,
-                "uses_structural_knowledge": True
+                "uses_structural_knowledge": True,
+                "uses_numerical_sorting": True,
+                "uses_label_smoothing": True
             }
         }
         
@@ -268,7 +315,7 @@ class PolicyBCTrainer:
     
     def _initialize_model(self, sample_tensor: jnp.ndarray, metadata: Dict[str, Any]):
         """Initialize model architecture and optimizer."""
-        logger.info("Initializing policy model for 5-channel input")
+        logger.info("Initializing policy model for 5-channel input with numerical sorting")
         logger.info(f"Input tensor shape: {sample_tensor.shape}")
         
         # Store initial variable info for model shape, but we'll create mappers per example
@@ -296,7 +343,7 @@ class PolicyBCTrainer:
         )
         self.optimizer_state = self.optimizer.init(self.model_params)
         
-        logger.info("Model initialized successfully for 5-channel tensors with structural knowledge")
+        logger.info("Model initialized successfully for 5-channel tensors with label smoothing")
     
     def _train_epoch(self, inputs: List[jnp.ndarray], labels: List[Dict[str, Any]]) -> float:
         """Train for one epoch."""
@@ -315,6 +362,7 @@ class PolicyBCTrainer:
             
             self.key, step_key = random.split(self.key)
             loss = self._train_batch(batch_inputs, batch_labels, step_key)
+            
             total_loss += loss
             n_batches += 1
         
@@ -323,9 +371,10 @@ class PolicyBCTrainer:
     def _train_batch(self, batch_inputs: List[jnp.ndarray], 
                      batch_labels: List[Dict[str, Any]], 
                      rng_key: jax.Array) -> float:
-        """Train on a batch of examples."""
+        """Train on a batch of examples with label smoothing."""
         def loss_fn(params):
             batch_loss = 0.0
+            valid_examples = 0
             
             for input_tensor, label in zip(batch_inputs, batch_labels):
                 # Forward pass with 5-channel tensor
@@ -334,19 +383,23 @@ class PolicyBCTrainer:
                 value_params = outputs['value_params']
                 
                 # Extract intervention target
-                target_vars = list(label['targets'])
+                target_vars = list(label.get('targets', []))
                 if not target_vars:
                     continue
                     
                 target_var_name = target_vars[0]
-                target_value = label['values'][target_var_name]
+                target_value = label['values'].get(target_var_name, None)
                 
-                # Create variable mapper for this example
+                if target_value is None:
+                    continue
+                
+                # Create variable mapper with NUMERICAL SORTING for this example
                 example_variables = label.get('variables', [])
                 if not example_variables:
                     logger.warning(f"No variable names in label, skipping")
                     continue
                     
+                # Use the FIXED VariableMapper with numerical sorting
                 example_mapper = VariableMapper(
                     variables=example_variables,
                     target_variable=label.get('target_variable')
@@ -359,8 +412,8 @@ class PolicyBCTrainer:
                     logger.warning(f"Variable {target_var_name} not in example variables: {example_variables}")
                     continue
                 
-                # Variable selection loss
-                var_loss = -jax.nn.log_softmax(var_logits)[var_idx]
+                # Variable selection loss WITH LABEL SMOOTHING
+                var_loss = smooth_cross_entropy_loss(var_logits, var_idx, self.label_smoothing)
                 
                 # Value prediction loss using robust formulation
                 value_mean = value_params[var_idx, 0]
@@ -369,9 +422,24 @@ class PolicyBCTrainer:
                 # Use robust loss to prevent explosion
                 value_loss = robust_value_loss(value_mean, value_log_std, target_value)
                 
-                batch_loss += var_loss + 0.5 * value_loss
+                # Combine losses
+                example_loss = var_loss + 0.5 * value_loss
+                
+                # Only add if finite
+                example_loss = jnp.where(
+                    jnp.isfinite(example_loss),
+                    example_loss,
+                    10.0  # Use large but finite penalty for bad examples
+                )
+                
+                batch_loss += example_loss
+                valid_examples += 1
             
-            return batch_loss / len(batch_inputs)
+            # Average over valid examples
+            if valid_examples > 0:
+                return batch_loss / valid_examples
+            else:
+                return 0.0
         
         # Compute gradients and update
         loss_val, grads = jax.value_and_grad(loss_fn)(self.model_params)
@@ -401,19 +469,23 @@ class PolicyBCTrainer:
             value_params = outputs['value_params']
             
             # Extract target
-            target_vars = list(label['targets'])
+            target_vars = list(label.get('targets', []))
             if not target_vars:
                 continue
                 
             target_var_name = target_vars[0]
-            target_value = label['values'][target_var_name]
+            target_value = label['values'].get(target_var_name, None)
             
-            # Create variable mapper for this example
+            if target_value is None:
+                continue
+            
+            # Create variable mapper with NUMERICAL SORTING for this example
             example_variables = label.get('variables', [])
             if not example_variables:
                 logger.warning(f"No variable names in label, skipping")
                 continue
                 
+            # Use the FIXED VariableMapper with numerical sorting
             example_mapper = VariableMapper(
                 variables=example_variables,
                 target_variable=label.get('target_variable')
@@ -426,8 +498,8 @@ class PolicyBCTrainer:
                 logger.warning(f"Variable {target_var_name} not in example variables: {example_variables}")
                 continue
             
-            # Compute losses
-            var_loss = -jax.nn.log_softmax(var_logits)[var_idx]
+            # Compute losses with label smoothing
+            var_loss = smooth_cross_entropy_loss(var_logits, var_idx, self.label_smoothing)
             
             value_mean = value_params[var_idx, 0]
             value_log_std = value_params[var_idx, 1]
@@ -435,14 +507,17 @@ class PolicyBCTrainer:
             # Use robust loss to prevent explosion
             value_loss = robust_value_loss(value_mean, value_log_std, target_value)
             
-            total_loss += float(var_loss + 0.5 * value_loss)
-            n_examples += 1
+            # Combine with safety check
+            example_loss = var_loss + 0.5 * value_loss
+            if jnp.isfinite(example_loss):
+                total_loss += float(example_loss)
+                n_examples += 1
         
         return total_loss / n_examples if n_examples > 0 else 0.0
     
     def save_checkpoint(self, path: Path, results: Dict[str, Any]) -> None:
         """Save training checkpoint using unified format."""
-        from ..utils.checkpoint_utils import save_checkpoint
+        from src.causal_bayes_opt.utils.checkpoint_utils import save_checkpoint
         
         # Extract architecture
         config = results.get('config', {})
@@ -458,7 +533,8 @@ class PolicyBCTrainer:
             'max_epochs': self.max_epochs,
             'gradient_clip': self.gradient_clip,
             'weight_decay': self.weight_decay,
-            'validation_split': self.validation_split
+            'validation_split': self.validation_split,
+            'label_smoothing': self.label_smoothing
         }
         
         save_checkpoint(
@@ -471,22 +547,3 @@ class PolicyBCTrainer:
             metadata=results.get('metadata', {}),
             metrics=results.get('metrics', {})
         )
-    
-    @classmethod
-    def load_checkpoint(cls, path: Path) -> Tuple['PolicyBCTrainer', Dict[str, Any]]:
-        """Load trainer from checkpoint."""
-        with open(path, 'rb') as f:
-            checkpoint = pickle.load(f)
-        
-        # Create trainer with saved config
-        config = checkpoint['config']
-        trainer = cls(
-            hidden_dim=config['hidden_dim'],
-            learning_rate=config['learning_rate'],
-            batch_size=config['batch_size']
-        )
-        
-        # Set loaded parameters
-        trainer.model_params = checkpoint['params']
-        
-        return trainer, checkpoint

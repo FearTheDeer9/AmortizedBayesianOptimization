@@ -88,6 +88,9 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
         # Initialize parent class
         super().__init__(**kwargs)
         
+        # Override the grpo_update function to include more debugging info
+        self._create_enhanced_grpo_update()
+        
         # Track reward components for analysis
         self.reward_history = []
         self.gradient_history = []
@@ -99,6 +102,64 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
             'structure_discovery': [],
             'total': []
         }
+    
+    def _create_enhanced_grpo_update(self):
+        """Create enhanced GRPO update function with more debugging info."""
+        from ..acquisition.grpo import GRPOUpdate
+        from types import SimpleNamespace
+        import jax
+        import optax
+        
+        def enhanced_grpo_update(params, opt_state, batch):
+            """Enhanced GRPO update with extra debugging."""
+            # Compute loss and gradients with our enhanced loss function
+            def loss_fn(p):
+                return self._compute_simple_grpo_loss(p, batch)
+            
+            (loss_value, loss_info), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
+            
+            # Apply updates
+            updates, new_opt_state = self.optimizer.update(grads, opt_state, params)
+            new_params = optax.apply_updates(params, updates)
+            
+            # Compute gradient norm
+            grad_norm = optax.global_norm(grads)
+            
+            # Create enhanced metrics with all debugging info from loss_info
+            enhanced_metrics = SimpleNamespace(
+                # Standard fields
+                policy_loss=loss_info['policy_loss'],
+                entropy_loss=loss_info['entropy_loss'],
+                kl_penalty=loss_info['kl_penalty'],
+                total_loss=loss_value,
+                grad_norm=grad_norm,
+                group_baseline=loss_info['group_baseline'],
+                mean_reward=loss_info['mean_reward'],
+                reward_std=loss_info['reward_std'],
+                mean_advantage=loss_info['mean_advantage'],
+                advantage_std=loss_info['advantage_std'],
+                mean_entropy=loss_info['mean_entropy'],
+                approx_kl=loss_info['approx_kl'],
+                # Enhanced debugging fields
+                mean_ratio=loss_info.get('mean_ratio', 1.0),
+                ratio_std=loss_info.get('ratio_std', 0.0),
+                mean_log_prob_change=loss_info.get('mean_log_prob_change', 0.0),
+                surr1_mean=loss_info.get('surr1_mean', 0.0),
+                surr2_mean=loss_info.get('surr2_mean', 0.0),
+                surr_min_mean=loss_info.get('surr_min_mean', 0.0),
+                clip_fraction=loss_info.get('clip_fraction', 0.0),
+                positive_advantages=loss_info.get('positive_advantages', 0),
+                negative_advantages=loss_info.get('negative_advantages', 0),
+                # Diagnostic fields
+                loss_terms_sum=loss_info.get('loss_terms_sum', 0.0),
+                loss_terms_mean=loss_info.get('loss_terms_mean', 0.0),
+                log_prob_variance=loss_info.get('log_prob_variance', 0.0),
+                unique_log_probs=loss_info.get('unique_log_probs', 0)
+            )
+            
+            return new_params, new_opt_state, enhanced_metrics
+        
+        self.grpo_update = enhanced_grpo_update
         
     def _run_grpo_episode(self, episode_idx: int, scm: Any, scm_name: str, key: jax.random.PRNGKey) -> Dict[str, Any]:
         """
@@ -114,10 +175,10 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
         target_idx = variables.index(target_var)
         true_parents = list(get_parents(scm, target_var)) if hasattr(scm, 'edges') else []
         
-        # Log initial state for first episode
-        if episode_idx == 0:
+        # Log initial state for first episode or every 10th
+        if episode_idx == 0 or episode_idx % 10 == 0:
             logger.info(
-                f"\n[INITIAL STATE] Starting enhanced GRPO training:\n"
+                f"\n[EPISODE STATE] Episode {episode_idx}:\n"
                 f"  SCM: {scm_name} (target: {target_var})\n"
                 f"  True parents of {target_var}: {true_parents}\n"
                 f"  Group size: {self.group_size}\n"
@@ -203,15 +264,19 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
                 var_probs = jax.nn.softmax(var_logits)
                 selected_var_idx = jax.random.categorical(var_key, var_logits)
                 
-                # Compute log probability
-                log_prob = jnp.log(var_probs[selected_var_idx] + 1e-8)
-                
                 # Sample value
                 key, val_key = jax.random.split(key)
                 mean = value_params[selected_var_idx, 0]
                 log_std = value_params[selected_var_idx, 1]
                 std = jnp.exp(log_std)
-                intervention_value = mean + std * jax.random.normal(val_key)
+                z = jax.random.normal(val_key)
+                intervention_value = mean + std * z
+                
+                # Compute COMPLETE log probability: log P(var) + log P(value | var)
+                log_prob_var = jnp.log(var_probs[selected_var_idx] + 1e-8)
+                # Log probability of the sampled value under the Gaussian distribution
+                log_prob_value = -0.5 * ((intervention_value - mean) / std) ** 2 - log_std - 0.5 * jnp.log(2 * jnp.pi)
+                log_prob = log_prob_var + log_prob_value
                 
                 # Create and apply intervention
                 selected_var = mapper.get_name(int(selected_var_idx))
@@ -222,13 +287,23 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
                 
                 # Log intervention decision every 10 episodes
                 if episode_idx % 10 == 0 and episode_step == 0 and group_idx == 0:
+                    # Calculate entropy of variable selection
+                    var_entropy = -jnp.sum(var_probs * jnp.log(var_probs + 1e-8))
+                    max_entropy = jnp.log(len(var_probs))  # Maximum entropy (uniform)
+                    
                     logger.info(f"\n[INTERVENTION DECISION] Episode {episode_idx}:")
                     logger.info(f"  Variable logits: {var_logits}")
                     logger.info(f"  Variable probs: {var_probs}")
+                    logger.info(f"  Variable entropy: {var_entropy:.3f} (max/uniform: {max_entropy:.3f})")
                     logger.info(f"  Selected: {selected_var} (idx={selected_var_idx})")
                     logger.info(f"  Value: {intervention_value:.3f}")
                     logger.info(f"  Value params - mean: {mean:.3f}, std: {jnp.exp(log_std):.3f}")
                     logger.info(f"  True parents of {target_var}: {true_parents}")
+                    
+                # Store var probs for first sample in group for diagnostic
+                if group_idx == 0:
+                    group_data['first_var_probs'] = var_probs
+                    group_data['first_var_entropy'] = -jnp.sum(var_probs * jnp.log(var_probs + 1e-8))
                 
                 # Sample outcome
                 key, outcome_key = jax.random.split(key)
@@ -265,6 +340,13 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
                         if episode_idx % 20 == 0 and group_idx == 0:
                             logger.info(f"[ENHANCED] Target {target_var} = {target_value:.3f} after intervention on {intervention.get('targets', 'unknown')}")
                     
+                    # Get surrogate posteriors if available (for structure discovery)
+                    surrogate_posterior_before = None
+                    surrogate_posterior_after = None
+                    
+                    # TODO: If surrogate model provides posteriors, extract them here
+                    # For now, we pass None but the infrastructure is ready
+                    
                     reward_comp = compute_grpo_reward(
                         scm=scm,
                         intervention=intervention,
@@ -276,7 +358,10 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
                             'optimization_direction': self.optimization_direction
                         },
                         group_outcomes=list(zip(group_data['interventions'], 
-                                               group_data['outcomes']))
+                                               group_data['outcomes'])),
+                        reward_type=self.reward_config.get('reward_type', 'squared'),  # Default to squared
+                        surrogate_posterior_before=surrogate_posterior_before,
+                        surrogate_posterior_after=surrogate_posterior_after
                     )
                     reward_components.append(reward_comp)
                     self.reward_history.append(reward_comp)
@@ -343,6 +428,18 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
                 reward_max = float(jnp.max(rewards_array))
                 reward_range = reward_max - reward_min
                 
+                # Diagnostic analysis
+                unique_rewards = set(group_rewards)
+                reward_variance = float(jnp.var(rewards_array))
+                
+                # Check for symmetric pattern in advantages
+                sorted_advantages = sorted(advantages)
+                is_symmetric = False
+                if len(advantages) == 4:
+                    # Check if advantages come in pairs that sum to ~0
+                    is_symmetric = (abs(sorted_advantages[0] + sorted_advantages[3]) < 0.01 and 
+                                  abs(sorted_advantages[1] + sorted_advantages[2]) < 0.01)
+                
                 logger.info(
                     f"\n[GROUP STATS] Episode {episode_idx}, Step {episode_step}:\n"
                     f"  Group rewards: {[f'{r:.3f}' for r in group_rewards]}\n"
@@ -351,6 +448,23 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
                     f"  Group std: {jnp.std(rewards_array):.3f}\n"
                     f"  Advantages: {[f'{a:.3f}' for a in advantages]}\n"
                     f"  Positive advantages: {sum(1 for a in advantages if a > 0)}/{len(advantages)}"
+                )
+                
+                # Add policy entropy info if available
+                entropy_info = ""
+                if 'first_var_entropy' in group_data:
+                    max_entropy = jnp.log(len(group_data['first_var_probs']))
+                    entropy_ratio = group_data['first_var_entropy'] / max_entropy
+                    entropy_info = f"\n  Variable selection entropy: {group_data['first_var_entropy']:.3f} (max: {max_entropy:.3f}, ratio: {entropy_ratio:.3f})"
+                
+                logger.info(
+                    f"\n[DIAGNOSTIC] Reward/Advantage Analysis:\n"
+                    f"  Unique rewards: {len(unique_rewards)} values: {sorted(list(unique_rewards))}\n"
+                    f"  Reward variance: {reward_variance:.6f}\n"
+                    f"  Advantages symmetric: {is_symmetric}\n"
+                    f"  Old log probs: {[f'{lp:.3f}' for lp in group_data['old_log_probs']]}\n"
+                    f"  Log prob std: {jnp.std(jnp.array(group_data['old_log_probs'])):.6f}"
+                    f"{entropy_info}"
                 )
                 
                 # Log which interventions got positive advantages
@@ -376,7 +490,8 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
         grpo_batch = self._create_grpo_batch_from_groups(grpo_groups)
         
         # Log batch statistics before update
-        if episode_idx % 5 == 0:  # Changed from 10 to 5 to match GRPO UPDATE frequency
+        # Log detailed info for first 20 episodes, then every 5
+        if episode_idx < 20 or episode_idx % 5 == 0:
             batch_advantages = grpo_batch['advantages']
             batch_rewards = grpo_batch['rewards']
             logger.info(
@@ -390,15 +505,35 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
         # Store old params for tracking changes
         old_params = self.policy_params
         
-        # Update policy with GRPO using parent's update function
-        self.policy_params, self.optimizer_state, grpo_metrics = self.grpo_update(
-            self.policy_params,
-            self.optimizer_state,
-            grpo_batch
-        )
+        # Add detailed logging info to batch for debugging
+        grpo_batch['debug_info'] = {
+            'episode': episode_idx,
+            'rewards_range': [float(jnp.min(grpo_batch['rewards'])), float(jnp.max(grpo_batch['rewards']))],
+            'advantages_range': [float(jnp.min(grpo_batch['advantages'])), float(jnp.max(grpo_batch['advantages']))],
+            'old_log_probs_range': [float(jnp.min(grpo_batch['old_log_probs'])), float(jnp.max(grpo_batch['old_log_probs']))]
+        }
         
-        # Log gradient and loss information after update
-        if episode_idx % 5 == 0:  # Log every 5 episodes
+        # Run multiple epochs on the same batch (GRPO/PPO style)
+        ppo_epochs = self.grpo_config.ppo_epochs if hasattr(self.grpo_config, 'ppo_epochs') else 4
+        
+        for epoch in range(ppo_epochs):
+            # Update policy with GRPO using parent's update function
+            self.policy_params, self.optimizer_state, grpo_metrics = self.grpo_update(
+                self.policy_params,
+                self.optimizer_state,
+                grpo_batch
+            )
+            
+            # Log first epoch and last epoch
+            if epoch == 0 or epoch == ppo_epochs - 1:
+                ratio_str = f"{grpo_metrics.mean_ratio:.3f}" if hasattr(grpo_metrics, 'mean_ratio') else "N/A"
+                logger.info(f"\n[EPOCH {epoch}] Episode {episode_idx}: "
+                          f"loss={grpo_metrics.policy_loss:.6f}, "
+                          f"ratio={ratio_str}")
+        
+        # Log gradient and loss information after every update for debugging
+        # Log detailed info for first 20 episodes, then every 5
+        if episode_idx < 20 or episode_idx % 5 == 0:
             logger.info(
                 f"\n[GRPO UPDATE] Episode {episode_idx}:\n"
                 f"  Policy loss: {grpo_metrics.policy_loss:.6f}\n"
@@ -414,6 +549,30 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
                 f"  Mean entropy: {grpo_metrics.mean_entropy:.3f}\n"
                 f"  Approx KL: {grpo_metrics.approx_kl:.6f}"
             )
+            
+            # Additional debugging info if available
+            if hasattr(grpo_metrics, 'mean_ratio'):
+                logger.info(
+                    f"\n[LOSS COMPONENTS] Episode {episode_idx}:\n"
+                    f"  Mean ratio: {grpo_metrics.mean_ratio:.6f} (std: {grpo_metrics.ratio_std:.6f})\n"
+                    f"  Mean log prob change: {grpo_metrics.mean_log_prob_change:.6f}\n"
+                    f"  Surr1 mean: {grpo_metrics.surr1_mean:.6f}\n"
+                    f"  Surr2 mean: {grpo_metrics.surr2_mean:.6f}\n"
+                    f"  Surr min mean: {grpo_metrics.surr_min_mean:.6f}\n"
+                    f"  Clip fraction: {grpo_metrics.clip_fraction:.3f}\n"
+                    f"  Positive advantages: {grpo_metrics.positive_advantages}/{len(grpo_batch['advantages'])}\n"
+                    f"  Negative advantages: {grpo_metrics.negative_advantages}/{len(grpo_batch['advantages'])}"
+                )
+                
+                # Additional diagnostic info
+                if hasattr(grpo_metrics, 'loss_terms_sum'):
+                    logger.info(
+                        f"\n[LOSS DIAGNOSTIC] Episode {episode_idx}:\n"
+                        f"  Loss terms sum: {grpo_metrics.loss_terms_sum:.6f}\n"
+                        f"  Loss terms mean: {grpo_metrics.loss_terms_mean:.6f}\n"
+                        f"  Log prob variance: {grpo_metrics.log_prob_variance:.6f}\n"
+                        f"  Unique log probs: {grpo_metrics.unique_log_probs}"
+                    )
         
         # Track gradient norm and parameter changes
         if hasattr(grpo_metrics, 'grad_norm'):
@@ -549,6 +708,9 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
         new_log_probs = []
         entropy_values = []
         
+        # Track individual log probs for debugging
+        log_prob_changes = []
+        
         for i in range(batch_size):
             # Get policy output for this state
             self.rng_key, policy_key = jax.random.split(self.rng_key)
@@ -560,27 +722,60 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
                 params, policy_key, states[i], target_idx
             )
             
-            # Compute log prob for selected action
+            # Compute COMPLETE log prob for selected action
             var_probs = jax.nn.softmax(policy_output['variable_logits'])
             selected_var = actions[i]['variable']
-            log_prob = jnp.log(var_probs[selected_var] + 1e-8)
+            log_prob_var = jnp.log(var_probs[selected_var] + 1e-8)
+            
+            # Get value distribution parameters
+            value_params = policy_output['value_params']
+            mean = value_params[selected_var, 0]
+            log_std = value_params[selected_var, 1]
+            std = jnp.exp(log_std)
+            
+            # Compute log prob of the actual value under the Gaussian
+            actual_value = actions[i]['value']
+            log_prob_value = -0.5 * ((actual_value - mean) / std) ** 2 - log_std - 0.5 * jnp.log(2 * jnp.pi)
+            
+            # Complete log probability
+            log_prob = log_prob_var + log_prob_value
             new_log_probs.append(log_prob)
+            
+            # Track change from old log prob
+            log_prob_changes.append(log_prob - old_log_probs[i])
             
             # Compute entropy
             entropy = -jnp.sum(var_probs * jnp.log(var_probs + 1e-8))
             entropy_values.append(entropy)
         
         new_log_probs = jnp.array(new_log_probs)
+        old_log_probs = jnp.array(old_log_probs)
         entropy_values = jnp.array(entropy_values)
         
         # Compute ratio for PPO-style clipping
-        ratio = jnp.exp(new_log_probs - old_log_probs)
+        log_ratio = new_log_probs - old_log_probs
+        ratio = jnp.exp(log_ratio)
+        
+        # Debug log ratios - removed since we can't log inside JIT
         
         # Clipped surrogate objective with pre-computed advantages
         surr1 = ratio * advantages
         surr2 = jnp.clip(ratio, 1.0 - self.grpo_config.clip_ratio, 
                         1.0 + self.grpo_config.clip_ratio) * advantages
-        policy_loss = -jnp.mean(jnp.minimum(surr1, surr2))
+        
+        # Track which surrogate is used
+        surr_min = jnp.minimum(surr1, surr2)
+        
+        # Track individual loss terms for diagnostic
+        loss_terms = -surr_min  # Individual contributions to loss
+        
+        policy_loss = -jnp.mean(surr_min)
+        
+        # Track how many samples are clipped
+        clipped_mask = jnp.abs(ratio - 1.0) > self.grpo_config.clip_ratio
+        clip_fraction = jnp.mean(clipped_mask)
+        
+        # Debug computations removed - can't log inside JIT
         
         # Entropy loss
         entropy_loss = -self.grpo_config.entropy_coeff * jnp.mean(entropy_values)
@@ -602,7 +797,21 @@ class GRPOEnhancedTrainer(UnifiedGRPOTrainer):
             'advantage_std': jnp.std(advantages),
             'mean_entropy': jnp.mean(entropy_values),
             'approx_kl': approx_kl,
-            'clip_fraction': jnp.mean(jnp.abs(ratio - 1.0) > self.grpo_config.clip_ratio)
+            'clip_fraction': clip_fraction,
+            # Additional debugging info
+            'mean_ratio': jnp.mean(ratio),
+            'ratio_std': jnp.std(ratio),
+            'mean_log_prob_change': jnp.mean(jnp.array(log_prob_changes)),
+            'surr1_mean': jnp.mean(surr1),
+            'surr2_mean': jnp.mean(surr2),
+            'surr_min_mean': jnp.mean(surr_min),
+            'positive_advantages': jnp.sum(advantages > 0),
+            'negative_advantages': jnp.sum(advantages < 0),
+            # Diagnostic info
+            'loss_terms_sum': jnp.sum(loss_terms),
+            'loss_terms_mean': jnp.mean(loss_terms),
+            'log_prob_variance': jnp.var(new_log_probs),
+            'unique_log_probs': jnp.unique(new_log_probs).shape[0]
         }
         
         return total_loss, loss_info

@@ -43,6 +43,9 @@ class GRPOConfig:
     max_grad_norm: float = 1.0
     learning_rate: float = 3e-4
     
+    # PPO/GRPO epochs - number of gradient updates per batch
+    ppo_epochs: int = 4  # Standard for GRPO implementations
+    
     # Open-r1 enhancements
     num_iterations: int = 4  # Sample reuse iterations
     scale_rewards: bool = True  # Configurable advantage scaling
@@ -68,6 +71,10 @@ class GRPOUpdate:
     # Policy diagnostics
     mean_entropy: float
     approx_kl: float
+    
+    # Ratio diagnostics (for debugging ratio = 1.0 issue)
+    mean_ratio: float = 1.0
+    ratio_std: float = 0.0
 
 
 def create_grpo_trainer(

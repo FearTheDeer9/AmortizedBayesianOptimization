@@ -34,6 +34,76 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def debug_x4_prediction(target_var_name, var_idx, var_logits, value_params, 
+                        input_tensor, example_mapper, outputs):
+    """Debug why X4 is never predicted correctly."""
+    # Trigger on X4 variable name, not index 4 (which might be X2!)
+    if target_var_name == 'X4':
+        import pdb
+        print("\n" + "="*60)
+        print("DEBUGGING X4 PREDICTION FAILURE")
+        print("="*60)
+        
+        # Variable mapping info
+        print(f"Target variable name: {target_var_name}")
+        print(f"Target variable index: {var_idx}")
+        print(f"All variables: {example_mapper.variables}")
+        # Try different attribute names for the mapper
+        if hasattr(example_mapper, 'name_to_idx'):
+            print(f"Variable to index mapping: {example_mapper.name_to_idx}")
+        elif hasattr(example_mapper, '_name_to_idx'):
+            print(f"Variable to index mapping: {example_mapper._name_to_idx}")
+        else:
+            print(f"Variable to index mapping: {dict(zip(example_mapper.variables, range(len(example_mapper.variables))))}")
+        
+        # Model predictions
+        print(f"\nRaw logits shape: {var_logits.shape}")
+        print(f"Raw logits: {var_logits}")
+        probs = jax.nn.softmax(var_logits)
+        print(f"Probabilities: {probs}")
+        print(f"Predicted index: {jnp.argmax(var_logits)}")
+        print(f"Probability for X4 (idx {var_idx}): {probs[var_idx]:.6f}")
+        
+        # Rank of X4 in predictions
+        sorted_indices = jnp.argsort(var_logits)[::-1]
+        x4_rank = jnp.where(sorted_indices == var_idx)[0]
+        if len(x4_rank) > 0:
+            print(f"X4 rank in predictions: {x4_rank[0] + 1} out of {len(var_logits)}")
+        else:
+            print(f"X4 index {var_idx} not found in logits of size {len(var_logits)}")
+        
+        # Top predictions
+        print(f"\nTop 3 predictions:")
+        for i in range(min(3, len(sorted_indices))):
+            idx = sorted_indices[i]
+            var_name = example_mapper.variables[idx] if idx < len(example_mapper.variables) else f"idx_{idx}"
+            print(f"  {i+1}. {var_name} (idx {idx}): logit={var_logits[idx]:.4f}, prob={probs[idx]:.4f}")
+        
+        # Input tensor info
+        print(f"\nInput tensor shape: {input_tensor.shape}")
+        print(f"Target channel ([:5, :, 2]):\n{input_tensor[:5, :, 2]}")  # First 5 timesteps
+        
+        # Value parameters for X4
+        if var_idx < value_params.shape[0]:
+            print(f"\nValue params for X4: mean={value_params[var_idx, 0]:.4f}, log_std={value_params[var_idx, 1]:.4f}")
+        
+        # Embeddings if available
+        if 'embeddings' in outputs:
+            embeddings = outputs['embeddings']
+            print(f"\nEmbeddings shape: {embeddings.shape}")
+            if var_idx < len(embeddings):
+                print(f"X4 embedding norm: {jnp.linalg.norm(embeddings[var_idx]):.4f}")
+                # Check if X4 embedding is different from others
+                distances = [float(jnp.linalg.norm(embeddings[var_idx] - embeddings[i])) 
+                           for i in range(len(embeddings)) if i != var_idx]
+                if distances:
+                    print(f"Avg distance from X4 to other embeddings: {np.mean(distances):.4f}")
+                    print(f"Min distance: {min(distances):.4f}, Max distance: {max(distances):.4f}")
+        
+        print("="*60)
+        pdb.set_trace()  # Break here for interactive debugging
+
+
 class FixedEnhancedBCTrainer(PolicyBCTrainer):
     """
     Fixed enhanced BC trainer with numerical stability.
@@ -95,6 +165,10 @@ class FixedEnhancedBCTrainer(PolicyBCTrainer):
                 except ValueError:
                     logger.warning(f"Variable {target_var_name} not in example variables: {example_variables}")
                     continue
+                
+                # Debug X4 predictions during training
+                debug_x4_prediction(target_var_name, var_idx, var_logits, value_params,
+                                  input_tensor, example_mapper, outputs)
                 
                 # Variable selection loss with numerical stability
                 log_probs = jax.nn.log_softmax(var_logits)
@@ -187,6 +261,10 @@ class FixedEnhancedBCTrainer(PolicyBCTrainer):
                 var_idx = example_mapper.get_index(target_var_name)
             except ValueError:
                 continue
+            
+            # Debug X4 predictions during evaluation
+            debug_x4_prediction(target_var_name, var_idx, var_logits, value_params,
+                              input_tensor, example_mapper, outputs)
             
             # Compute losses with numerical stability
             log_probs = jax.nn.log_softmax(var_logits)

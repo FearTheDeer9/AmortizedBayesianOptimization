@@ -1,9 +1,7 @@
 """
-Behavioral Cloning Trainer for Policy (Intervention Selection) Models
+Behavioral Cloning Trainer for Policy (Intervention Selection) Models - FIXED VERSION
 
-This module provides a focused BC trainer specifically for learning intervention
-policies from expert trajectories. It trains models to select which variables
-to intervene on and what values to set.
+This version uses numerical sorting for variable mapping to match the data preparation.
 """
 
 import time
@@ -19,10 +17,16 @@ import haiku as hk
 import optax
 import numpy as np
 
-from ..policies.clean_bc_policy_factory import create_clean_bc_policy
-from .data_preprocessing import load_demonstrations_from_path
-from .demonstration_to_tensor import create_bc_training_dataset
-from ..utils.variable_mapping import VariableMapper
+# Import the FIXED variable mapper with numerical sorting
+import sys
+sys.path.append(str(Path(__file__).parent))
+from variable_mapping_fixed import VariableMapper
+
+# Import from parent
+sys.path.append(str(Path(__file__).parent.parent))
+from src.causal_bayes_opt.policies.clean_bc_policy_factory import create_clean_bc_policy
+from src.causal_bayes_opt.training.data_preprocessing import load_demonstrations_from_path
+from demonstration_to_tensor_fixed import create_bc_training_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +73,13 @@ def robust_value_loss(predicted_mean: jnp.ndarray,
     
     # Combine all terms
     value_loss = 0.5 * jnp.log(2 * jnp.pi) + log_std + mse_term + std_regularization
+    
+    # Add safety check to prevent inf
+    value_loss = jnp.where(
+        jnp.isfinite(value_loss),
+        value_loss,
+        100.0  # Cap at large but finite value
+    )
     
     return value_loss
 
@@ -136,7 +147,7 @@ class PolicyBCTrainer:
             Training results including parameters and metrics
         """
         start_time = time.time()
-        logger.info("Starting policy BC training")
+        logger.info("Starting policy BC training with FIXED variable mapping")
         
         # Load demonstrations
         logger.info(f"Loading demonstrations from {demonstrations_path}")
@@ -154,8 +165,8 @@ class PolicyBCTrainer:
             flat_demos = flat_demos[:max_demos]
             logger.info(f"Limited to {max_demos} demonstrations")
         
-        # Convert to 5-channel training data
-        logger.info("Converting demonstrations to 5-channel tensors with structural knowledge...")
+        # Convert to 5-channel training data with NUMERICAL SORTING
+        logger.info("Converting demonstrations to 5-channel tensors with numerical sorting...")
         all_inputs, all_labels, dataset_metadata = create_bc_training_dataset(
             flat_demos, max_trajectory_length
         )
@@ -256,7 +267,8 @@ class PolicyBCTrainer:
                 "n_val_samples": len(val_inputs),
                 "n_demonstrations": dataset_metadata['n_demonstrations'],
                 "tensor_channels": 5,
-                "uses_structural_knowledge": True
+                "uses_structural_knowledge": True,
+                "uses_numerical_sorting": True  # Key flag
             }
         }
         
@@ -268,7 +280,7 @@ class PolicyBCTrainer:
     
     def _initialize_model(self, sample_tensor: jnp.ndarray, metadata: Dict[str, Any]):
         """Initialize model architecture and optimizer."""
-        logger.info("Initializing policy model for 5-channel input")
+        logger.info("Initializing policy model for 5-channel input with numerical sorting")
         logger.info(f"Input tensor shape: {sample_tensor.shape}")
         
         # Store initial variable info for model shape, but we'll create mappers per example
@@ -296,7 +308,7 @@ class PolicyBCTrainer:
         )
         self.optimizer_state = self.optimizer.init(self.model_params)
         
-        logger.info("Model initialized successfully for 5-channel tensors with structural knowledge")
+        logger.info("Model initialized successfully for 5-channel tensors with numerical sorting")
     
     def _train_epoch(self, inputs: List[jnp.ndarray], labels: List[Dict[str, Any]]) -> float:
         """Train for one epoch."""
@@ -306,6 +318,7 @@ class PolicyBCTrainer:
         
         total_loss = 0.0
         n_batches = 0
+        inf_count = 0
         
         # Process in batches
         for i in range(0, len(indices), self.batch_size):
@@ -315,8 +328,19 @@ class PolicyBCTrainer:
             
             self.key, step_key = random.split(self.key)
             loss = self._train_batch(batch_inputs, batch_labels, step_key)
+            
+            # Check for inf/nan
+            if not jnp.isfinite(loss):
+                inf_count += 1
+                logger.debug(f"Batch {i//self.batch_size} produced inf/nan loss")
+                # Use a large but finite loss for training stability
+                loss = 100.0
+            
             total_loss += loss
             n_batches += 1
+        
+        if inf_count > 0:
+            logger.warning(f"Epoch had {inf_count}/{n_batches} batches with inf/nan loss")
         
         return total_loss / n_batches
     
@@ -326,6 +350,7 @@ class PolicyBCTrainer:
         """Train on a batch of examples."""
         def loss_fn(params):
             batch_loss = 0.0
+            valid_examples = 0
             
             for input_tensor, label in zip(batch_inputs, batch_labels):
                 # Forward pass with 5-channel tensor
@@ -334,19 +359,23 @@ class PolicyBCTrainer:
                 value_params = outputs['value_params']
                 
                 # Extract intervention target
-                target_vars = list(label['targets'])
+                target_vars = list(label.get('targets', []))
                 if not target_vars:
                     continue
                     
                 target_var_name = target_vars[0]
-                target_value = label['values'][target_var_name]
+                target_value = label['values'].get(target_var_name, None)
                 
-                # Create variable mapper for this example
+                if target_value is None:
+                    continue
+                
+                # Create variable mapper with NUMERICAL SORTING for this example
                 example_variables = label.get('variables', [])
                 if not example_variables:
                     logger.warning(f"No variable names in label, skipping")
                     continue
                     
+                # Use the FIXED VariableMapper with numerical sorting
                 example_mapper = VariableMapper(
                     variables=example_variables,
                     target_variable=label.get('target_variable')
@@ -369,9 +398,24 @@ class PolicyBCTrainer:
                 # Use robust loss to prevent explosion
                 value_loss = robust_value_loss(value_mean, value_log_std, target_value)
                 
-                batch_loss += var_loss + 0.5 * value_loss
+                # Combine losses with safety check
+                example_loss = var_loss + 0.5 * value_loss
+                
+                # Only add if finite
+                example_loss = jnp.where(
+                    jnp.isfinite(example_loss),
+                    example_loss,
+                    10.0  # Use large but finite penalty for bad examples
+                )
+                
+                batch_loss += example_loss
+                valid_examples += 1
             
-            return batch_loss / len(batch_inputs)
+            # Average over valid examples
+            if valid_examples > 0:
+                return batch_loss / valid_examples
+            else:
+                return 0.0
         
         # Compute gradients and update
         loss_val, grads = jax.value_and_grad(loss_fn)(self.model_params)
@@ -401,19 +445,23 @@ class PolicyBCTrainer:
             value_params = outputs['value_params']
             
             # Extract target
-            target_vars = list(label['targets'])
+            target_vars = list(label.get('targets', []))
             if not target_vars:
                 continue
                 
             target_var_name = target_vars[0]
-            target_value = label['values'][target_var_name]
+            target_value = label['values'].get(target_var_name, None)
             
-            # Create variable mapper for this example
+            if target_value is None:
+                continue
+            
+            # Create variable mapper with NUMERICAL SORTING for this example
             example_variables = label.get('variables', [])
             if not example_variables:
                 logger.warning(f"No variable names in label, skipping")
                 continue
                 
+            # Use the FIXED VariableMapper with numerical sorting
             example_mapper = VariableMapper(
                 variables=example_variables,
                 target_variable=label.get('target_variable')
@@ -435,14 +483,17 @@ class PolicyBCTrainer:
             # Use robust loss to prevent explosion
             value_loss = robust_value_loss(value_mean, value_log_std, target_value)
             
-            total_loss += float(var_loss + 0.5 * value_loss)
-            n_examples += 1
+            # Combine with safety check
+            example_loss = var_loss + 0.5 * value_loss
+            if jnp.isfinite(example_loss):
+                total_loss += float(example_loss)
+                n_examples += 1
         
         return total_loss / n_examples if n_examples > 0 else 0.0
     
     def save_checkpoint(self, path: Path, results: Dict[str, Any]) -> None:
         """Save training checkpoint using unified format."""
-        from ..utils.checkpoint_utils import save_checkpoint
+        from src.causal_bayes_opt.utils.checkpoint_utils import save_checkpoint
         
         # Extract architecture
         config = results.get('config', {})

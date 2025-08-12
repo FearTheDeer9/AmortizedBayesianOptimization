@@ -1,0 +1,74 @@
+[
+  {
+    "config": {
+      "learning_rate": 0.0003,
+      "hidden_dim": 128,
+      "gradient_clip": 1.0,
+      "batch_size": 32,
+      "use_permutation": true
+    },
+    "success": true,
+    "training_time": 32.58024024963379,
+    "final_train_loss": 2.68718558549881,
+    "best_val_loss": 1.056928914785385,
+    "best_val_accuracy": 0.6,
+    "final_val_accuracy": 0.6,
+    "gradient_issue": "UNKNOWN",
+    "gradient_norm_mean": 0.0,
+    "learning_signal": 0.0
+  },
+  {
+    "config": {
+      "learning_rate": 0.0003,
+      "hidden_dim": 128,
+      "gradient_clip": 1.0,
+      "batch_size": 32,
+      "use_permutation": false
+    },
+    "success": true,
+    "training_time": 24.991000175476074,
+    "final_train_loss": 2.68718558549881,
+    "best_val_loss": 1.056928914785385,
+    "best_val_accuracy": 0.6,
+    "final_val_accuracy": 0.6,
+    "gradient_issue": "NORMAL",
+    "gradient_norm_mean": 2.8549254685640335,
+    "learning_signal": 1.4765517711639404
+  },
+  {
+    "config": {
+      "learning_rate": 0.0003,
+      "hidden_dim": 128,
+      "gradient_clip": null,
+      "batch_size": 32,
+      "use_permutation": true
+    },
+    "success": true,
+    "training_time": 24.620924949645996,
+    "final_train_loss": 2.68718558549881,
+    "best_val_loss": 1.056928914785385,
+    "best_val_accuracy": 0.6,
+    "final_val_accuracy": 0.6,
+    "gradient_issue": "UNKNOWN",
+    "gradient_norm_mean": 0.0,
+    "learning_signal": 0.0
+  },
+  {
+    "config": {
+      "learning_rate": 0.0003,
+      "hidden_dim": 128,
+      "gradient_clip": null,
+      "batch_size": 32,
+      "use_permutation": false
+    },
+    "success": true,
+    "training_time": 25.57471013069153,
+    "final_train_loss": 2.68718558549881,
+    "best_val_loss": 1.056928914785385,
+    "best_val_accuracy": 0.6,
+    "final_val_accuracy": 0.6,
+    "gradient_issue": "NORMAL",
+    "gradient_norm_mean": 2.8549254685640335,
+    "learning_signal": 1.4765517711639404
+  }
+]

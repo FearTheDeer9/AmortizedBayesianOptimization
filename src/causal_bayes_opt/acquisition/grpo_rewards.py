@@ -47,7 +47,10 @@ def compute_grpo_reward(
     target_variable: str,
     buffer_before: Any,
     config: Optional[Dict[str, Any]] = None,
-    group_outcomes: Optional[List[Tuple[Dict, Any]]] = None
+    group_outcomes: Optional[List[Tuple[Dict, Any]]] = None,
+    reward_type: str = "squared",  # Default to squared (best from our tests)
+    surrogate_posterior_before: Optional[Any] = None,  # For structure discovery
+    surrogate_posterior_after: Optional[Any] = None  # For structure discovery
 ) -> GRPORewardComponents:
     """
     Compute GRPO reward with proper credit assignment and ground truth information.
@@ -97,7 +100,7 @@ def compute_grpo_reward(
     # 2. Target Improvement Reward
     # Get baseline from buffer
     baseline_value = _compute_baseline_value(
-        buffer_before, target_variable, group_outcomes
+        buffer_before, target_variable, group_outcomes, intervention
     )
     
     if optimization_direction == 'MINIMIZE':
@@ -105,60 +108,186 @@ def compute_grpo_reward(
     else:
         improvement = target_value - baseline_value
     
-    # Continuous improvement reward with better gradient
+    # Initialize relative_improvement for metadata
     if baseline_value != 0:
         relative_improvement = improvement / abs(baseline_value)
     else:
         relative_improvement = improvement
     
-    # Use tanh for smoother gradients across the range
-    target_improvement_reward = float(0.5 + 0.5 * jnp.tanh(2.0 * relative_improvement))
-    improved_beyond_threshold = improvement > improvement_threshold
+    # Choose reward computation based on reward_type
+    if reward_type == "continuous":
+        # Continuous improvement ratio - provides unique values
+        if abs(baseline_value) > 1e-6:
+            improvement_ratio = improvement / abs(baseline_value)
+        else:
+            improvement_ratio = improvement
+        # Map to [0, 1] range but keep continuous
+        target_improvement_reward = float(0.5 + 0.5 * jnp.tanh(improvement_ratio))
+        improved_beyond_threshold = improvement > improvement_threshold
+        
+    elif reward_type == "scaled_binary":
+        # Binary base with continuous component to break symmetry
+        binary_reward = 1.0 if improvement > improvement_threshold else 0.0
+        # Add small continuous component
+        continuous_component = 0.1 * jnp.tanh(improvement / (abs(baseline_value) + 1e-6))
+        target_improvement_reward = float(binary_reward + continuous_component)
+        improved_beyond_threshold = improvement > improvement_threshold
+        
+    elif reward_type == "direct_value":
+        # Direct optimization - no thresholding
+        if optimization_direction == 'MINIMIZE':
+            # For minimization, lower values get higher rewards
+            target_improvement_reward = float(1.0 / (1.0 + jnp.exp(0.1 * target_value)))
+        else:
+            # For maximization, higher values get higher rewards
+            target_improvement_reward = float(1.0 / (1.0 + jnp.exp(-0.1 * target_value)))
+        improved_beyond_threshold = improvement > 0  # Any improvement counts
+        
+    elif reward_type == "linear":
+        # Linear reward based on improvement magnitude
+        # Normalize by baseline to make it scale-invariant
+        if abs(baseline_value) > 1e-6:
+            normalized_improvement = improvement / abs(baseline_value)
+        else:
+            normalized_improvement = improvement
+        # Clip to reasonable range and scale to [0, 1]
+        target_improvement_reward = float(jnp.clip(0.5 + 0.5 * normalized_improvement, 0.0, 1.0))
+        improved_beyond_threshold = improvement > improvement_threshold
+        
+    elif reward_type == "squared":
+        # Squared reward - stronger signal for larger improvements
+        if abs(baseline_value) > 1e-6:
+            normalized_improvement = improvement / abs(baseline_value)
+        else:
+            normalized_improvement = improvement
+        # Square positive improvements, negative squared for negative
+        if normalized_improvement > 0:
+            squared_signal = jnp.minimum(normalized_improvement ** 2, 1.0)
+        else:
+            squared_signal = -jnp.minimum((-normalized_improvement) ** 2, 1.0)
+        target_improvement_reward = float(0.5 + 0.5 * squared_signal)
+        improved_beyond_threshold = improvement > improvement_threshold
+        
+    elif reward_type == "log_scale":
+        # Logarithmic scaling - diminishing returns for large improvements
+        if improvement > 0:
+            # Log(1 + improvement) for positive improvements
+            log_improvement = jnp.log1p(improvement / (abs(baseline_value) + 1e-6))
+            target_improvement_reward = float(jnp.clip(0.5 + 0.2 * log_improvement, 0.5, 1.0))
+        else:
+            # Negative log for negative improvements
+            log_improvement = -jnp.log1p(-improvement / (abs(baseline_value) + 1e-6))
+            target_improvement_reward = float(jnp.clip(0.5 + 0.2 * log_improvement, 0.0, 0.5))
+        improved_beyond_threshold = improvement > improvement_threshold
+        
+    elif reward_type == "target_based":
+        # Reward based purely on target value relative to goal
+        # Assumes we want to minimize to 0
+        if optimization_direction == 'MINIMIZE':
+            # Distance from 0 (ideal minimum)
+            distance_from_goal = abs(target_value)
+            target_improvement_reward = float(jnp.exp(-0.5 * distance_from_goal))
+        else:
+            # For maximization, use distance from baseline as proxy
+            if target_value > baseline_value:
+                target_improvement_reward = float(0.5 + 0.5 * jnp.tanh(0.5 * (target_value - baseline_value)))
+            else:
+                target_improvement_reward = float(0.5 - 0.5 * jnp.tanh(0.5 * (baseline_value - target_value)))
+        improved_beyond_threshold = improvement > improvement_threshold
+        
+    elif reward_type == "rank_based":
+        # Rank-based reward using group outcomes
+        if group_outcomes and len(group_outcomes) > 1:
+            # Get all target values from the group
+            group_values = []
+            for _, outcome in group_outcomes:
+                values = get_values(outcome)
+                if target_variable in values:
+                    group_values.append(float(values[target_variable]))
+            
+            if len(group_values) > 1:
+                # Rank current value among group
+                if optimization_direction == 'MINIMIZE':
+                    # Lower is better
+                    better_count = sum(1 for v in group_values if v > target_value)
+                else:
+                    # Higher is better
+                    better_count = sum(1 for v in group_values if v < target_value)
+                
+                # Convert rank to reward
+                rank_ratio = better_count / (len(group_values) - 1)
+                target_improvement_reward = float(rank_ratio)
+            else:
+                # Fallback to improvement-based
+                target_improvement_reward = float(0.5 + 0.5 * jnp.tanh(improvement))
+        else:
+            # No group context, use improvement
+            target_improvement_reward = float(0.5 + 0.5 * jnp.tanh(improvement))
+        improved_beyond_threshold = improvement > improvement_threshold
+        
+    else:  # Default "binary"
+        # Original binary approach - already computed relative_improvement above
+        # Use tanh for smoother gradients across the range
+        target_improvement_reward = float(0.5 + 0.5 * jnp.tanh(2.0 * relative_improvement))
+        improved_beyond_threshold = improvement > improvement_threshold
     
-    # 3. Value Optimization Reward
-    # How close is the intervention value to optimal for this variable?
-    debug_value = relative_improvement > 0.5  # Debug high-reward cases
-    value_optimization_reward = _compute_value_optimization_reward(
-        scm, intervention, intervened_vars, optimization_direction, debug=debug_value
-    )
+    # 3. Structure Discovery Reward (from surrogate if available)
+    structure_discovery_reward = 0.0
+    if surrogate_posterior_before is not None and surrogate_posterior_after is not None:
+        try:
+            # Import the original structure discovery computation
+            from ..acquisition.rewards import _compute_structure_discovery_reward
+            structure_discovery_reward = float(_compute_structure_discovery_reward(
+                surrogate_posterior_before, 
+                surrogate_posterior_after
+            ))
+        except Exception as e:
+            logger.debug(f"Could not compute structure discovery reward: {e}")
+            structure_discovery_reward = 0.0
     
-    # 4. Structure Discovery Reward
-    # Simplified: reward interventions on high-uncertainty variables
-    structure_discovery_reward = _compute_structure_discovery_reward(
-        intervened_vars, true_parents, buffer_before
-    )
+    # 4. Simplified Credit Assignment
+    # Variable selection reward - based on choosing correct parent
+    variable_selection_reward = parent_intervention_reward
     
-    # 5. Credit Assignment
-    # Separate rewards for variable vs value selection
-    if correct_parent:
-        # Good variable choice
-        variable_selection_reward = parent_intervention_reward + 0.5 * structure_discovery_reward
-    else:
-        # Bad variable choice, but might still learn structure
-        variable_selection_reward = 0.2 * structure_discovery_reward
+    # Value selection reward - based on actual outcome improvement
+    value_selection_reward = target_improvement_reward
     
-    if improved_beyond_threshold:
-        # Good value choice
-        value_selection_reward = target_improvement_reward + value_optimization_reward
-    else:
-        # Bad value choice
-        value_selection_reward = 0.1 * value_optimization_reward
-    
-    # 6. Total Reward Composition
+    # 5. Total Reward Composition
     # Weight components based on configuration
-    weights = config.get('reward_weights', {
-        'variable_selection': 0.5,
-        'value_selection': 0.5,
-        'parent_bonus': 0.3,
-        'improvement_bonus': 0.2
-    })
+    default_weights = {
+        'variable_selection': 0.3,
+        'value_selection': 0.7,
+        'parent_bonus': 0.2,
+        'improvement_bonus': 0.3,
+        'structure_discovery': 0.0  # Activated when surrogate is available
+    }
+    
+    weights = config.get('reward_weights', default_weights)
+    
+    # Auto-activate structure discovery weight if surrogate posteriors provided
+    if surrogate_posterior_before is not None and 'structure_discovery' not in weights:
+        weights['structure_discovery'] = 0.3
     
     total_reward = (
         weights['variable_selection'] * variable_selection_reward +
         weights['value_selection'] * value_selection_reward +
-        weights['parent_bonus'] * float(correct_parent) +
-        weights['improvement_bonus'] * float(improved_beyond_threshold)
+        weights.get('parent_bonus', 0.2) * float(correct_parent) +
+        weights.get('improvement_bonus', 0.3) * float(improved_beyond_threshold) +
+        weights.get('structure_discovery', 0.0) * structure_discovery_reward
     )
+    
+    # Debug logging for reward components
+    if logger.isEnabledFor(logging.DEBUG) and np.random.random() < 0.01:  # Log 1% of rewards
+        logger.debug(
+            f"\n[REWARD DEBUG] Target: {target_variable}, Intervened: {intervened_vars}\n"
+            f"  Parent intervention: {parent_intervention_reward:.3f} (correct_parent={correct_parent})\n"
+            f"  Target improvement: {target_improvement_reward:.3f} (improved={improved_beyond_threshold})\n"
+            f"  Structure discovery: {structure_discovery_reward:.3f} (surrogate={'yes' if surrogate_posterior_before else 'no'})\n"
+            f"  Variable selection: {variable_selection_reward:.3f}\n"
+            f"  Value selection: {value_selection_reward:.3f}\n"
+            f"  Total: {total_reward:.3f}\n"
+            f"  Improvement: {improvement:.3f} (baseline={baseline_value:.3f}, target={target_value:.3f})"
+        )
     
     # Create metadata
     metadata = {
@@ -175,8 +304,8 @@ def compute_grpo_reward(
     return GRPORewardComponents(
         target_improvement=target_improvement_reward,
         parent_intervention=parent_intervention_reward,
-        value_optimization=value_optimization_reward,
-        structure_discovery=structure_discovery_reward,
+        value_optimization=0.0,  # Deprecated, kept for compatibility
+        structure_discovery=structure_discovery_reward,  # Now includes surrogate info when available
         improved_beyond_threshold=improved_beyond_threshold,
         correct_parent=correct_parent,
         total_reward=total_reward,
@@ -227,17 +356,22 @@ def compute_group_advantages(
 def _compute_baseline_value(
     buffer: Any,
     target_variable: str,
-    group_outcomes: Optional[List[Tuple[Dict, Any]]] = None
+    group_outcomes: Optional[List[Tuple[Dict, Any]]] = None,
+    current_intervention: Optional[Dict] = None
 ) -> float:
     """
     Compute baseline value for reward calculation.
     
-    Uses group outcomes if available (GRPO), otherwise uses buffer mean.
+    For GRPO: Uses mean of OTHER interventions in the group (excluding current).
+    Fallback: Uses buffer mean of recent observations.
     """
-    if group_outcomes and len(group_outcomes) > 0:
-        # Use mean of group outcomes as baseline (GRPO approach)
+    if group_outcomes and len(group_outcomes) > 1:
+        # Use mean of OTHER group outcomes as baseline (true GRPO approach)
         group_values = []
-        for _, outcome in group_outcomes:
+        for intervention, outcome in group_outcomes:
+            # Skip the current intervention to avoid self-comparison
+            if current_intervention and intervention == current_intervention:
+                continue
             values = get_values(outcome)
             if target_variable in values:
                 group_values.append(float(values[target_variable]))
@@ -248,10 +382,10 @@ def _compute_baseline_value(
     # Fallback to buffer mean
     if buffer is not None:
         buffer_values = []
-        # Get recent samples from buffer
-        recent_samples = buffer.get_observations()[-20:]  # Last 20 observations
+        # Get recent samples from buffer (both obs and interventions)
+        all_samples = buffer.get_observations()[-10:] + buffer.get_interventions()[-10:]
         
-        for sample in recent_samples:
+        for sample in all_samples:
             values = get_values(sample)
             if target_variable in values:
                 buffer_values.append(float(values[target_variable]))

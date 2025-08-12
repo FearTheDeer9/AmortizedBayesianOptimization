@@ -138,6 +138,30 @@ def train_grpo(config: DictConfig) -> Dict[str, Any]:
                 'efficiency': 0.1
             }
     
+    # Add GRPO-specific configuration
+    config['group_size'] = 8  # Group-based sampling for GRPO
+    config['use_grpo_rewards'] = True  # Use our improved reward system
+    
+    # Add GRPO reward configuration with squared rewards (best from our tests)
+    config['grpo_reward_config'] = {
+        'reward_type': 'squared',  # Best balance of performance and understanding
+        'reward_weights': {
+            'variable_selection': 0.3,
+            'value_selection': 0.7,
+            'parent_bonus': 0.2,
+            'improvement_bonus': 0.1,
+            'structure_discovery': 0.3 if config.get('use_surrogate') else 0.0
+        },
+        'improvement_threshold': 0.1
+    }
+    
+    # Add GRPO training configuration
+    config['grpo_config'] = {
+        'ppo_epochs': 4,  # Epoch-based training (our fix)
+        'clip_ratio': 0.2,
+        'entropy_coeff': 0.01
+    }
+    
     # Load pre-trained surrogate if provided
     pretrained_surrogate_components = None
     if config.get('surrogate_checkpoint') and config.get('use_surrogate'):

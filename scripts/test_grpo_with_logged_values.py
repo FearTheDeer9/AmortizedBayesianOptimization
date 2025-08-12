@@ -14,6 +14,11 @@ from collections import defaultdict
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+# Silence JAX debug output
+logging.getLogger('jax').setLevel(logging.WARNING)
+# Enable DEBUG for our specific modules
+logging.getLogger('src.causal_bayes_opt.training.grpo_enhanced_trainer').setLevel(logging.DEBUG)
+logging.getLogger('src.causal_bayes_opt.acquisition.grpo_rewards').setLevel(logging.DEBUG)
 
 from src.causal_bayes_opt.training.unified_grpo_trainer import UnifiedGRPOTrainer
 from src.causal_bayes_opt.training.grpo_enhanced_trainer import GRPOEnhancedTrainer
@@ -178,7 +183,7 @@ def test_and_plot():
         # Default config - increased episodes for single SCM
         config = {
             'learning_rate': 3e-4,
-            'n_episodes': 100,  # More episodes for single SCM
+            'n_episodes': 200,  # Full run
             'episode_length': 10,
             'batch_size': 16,
             'use_early_stopping': False,
@@ -193,15 +198,15 @@ def test_and_plot():
             'seed': 42,
             'convergence_config': {
                 'patience': 1000,
-                'min_episodes': 100,
-                'max_episodes_per_scm': 100  # Allow all episodes on single SCM
+                'min_episodes': 200,
+                'max_episodes_per_scm': 200  # Allow all episodes on single SCM
             },
             'grpo_reward_config': {
                 'reward_weights': {
-                    'variable_selection': 0.3,  # Reduced since this is mostly solved
-                    'value_selection': 0.7,     # Increased to emphasize value learning
-                    'parent_bonus': 0.3,
-                    'improvement_bonus': 0.3    # Increased to reward improvements more
+                    'variable_selection': 0.3,  # Reward for choosing parent
+                    'value_selection': 0.7,     # Reward for improving outcome
+                    'parent_bonus': 0.2,        # Binary bonus for parent selection
+                    'improvement_bonus': 0.3    # Binary bonus for improvement
                 },
                 'improvement_threshold': 0.05   # Lowered threshold for easier improvement detection
             }
@@ -260,21 +265,15 @@ def test_and_plot():
             config_target_values = TARGET_VALUES.copy()
         
         # Group target values by SCM
+        # Since we're only using chain SCM, simplify this
         scm_values = {'fork': [], 'chain': [], 'collider': []}
-        current_scm = 'fork'
-        scm_counter = {'fork': 0, 'chain': 0, 'collider': 0}
         
-        for i, tv in enumerate(config_target_values):
-            # Determine which SCM based on target variable
-            if tv['target_var'] == 'Y':
-                current_scm = 'fork'
-            elif tv['target_var'] == 'X2':
-                current_scm = 'chain'
-            elif tv['target_var'] == 'Z':
-                current_scm = 'collider'
-            
-            scm_values[current_scm].append(tv['value'])
-            scm_counter[current_scm] += 1
+        for tv in config_target_values:
+            # All values should be for chain SCM (target X2)
+            if tv['target_var'] == 'X2':
+                scm_values['chain'].append(tv['value'])
+            else:
+                logger.warning(f"Unexpected target variable: {tv['target_var']}")
         
         # Calculate improvements
         improvements = {}

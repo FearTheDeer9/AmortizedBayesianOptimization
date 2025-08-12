@@ -364,10 +364,31 @@ def main():
         Path(args.checkpoint) if args.checkpoint else None
     )
     
+    # Convert numpy types to Python types for JSON serialization
+    def convert_to_json_serializable(obj):
+        """Convert numpy types to Python types."""
+        import numpy as np
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, dict):
+            return {key: convert_to_json_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_to_json_serializable(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return tuple(convert_to_json_serializable(item) for item in obj)
+        return obj
+    
     # Save report as JSON
     report_file = output_dir / 'analysis_report.json'
+    report_serializable = convert_to_json_serializable(report)
     with open(report_file, 'w') as f:
-        json.dump(report, f, indent=2)
+        json.dump(report_serializable, f, indent=2)
     print(f"Saved analysis report to {report_file}")
     
     # Print summary

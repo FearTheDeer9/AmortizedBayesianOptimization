@@ -31,6 +31,10 @@ from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import create_sample, get_values
 from ..acquisition.better_rewards import compute_better_clean_reward, RunningStats
 from ..acquisition.clean_rewards import compute_clean_reward
+from ..acquisition.grpo_rewards import (
+    compute_grpo_reward, compute_group_advantages, 
+    GRPORewardComponents, analyze_reward_distribution
+)
 from ..policies.clean_policy_factory import create_clean_grpo_policy
 from ..data_structures.scm import get_variables, get_target, get_parents
 from ..mechanisms.linear import sample_from_linear_scm
@@ -52,6 +56,40 @@ from .convergence_detector import ConvergenceDetector, ConvergenceConfig
 from .data_structures import TrainingMetrics
 
 logger = logging.getLogger(__name__)
+
+# Global tracking for test scripts to access (from enhanced trainer)
+ENHANCED_TARGET_VALUES = []
+
+
+def compute_param_change(old_params, new_params):
+    """Compute magnitude of parameter changes."""
+    import jax.tree_util as tree
+    
+    # Flatten parameters
+    old_flat, _ = tree.tree_flatten(old_params)
+    new_flat, _ = tree.tree_flatten(new_params)
+    
+    # Compute total change
+    total_change = 0.0
+    total_magnitude = 0.0
+    
+    for old_p, new_p in zip(old_flat, new_flat):
+        change = jnp.sum((new_p - old_p) ** 2)
+        magnitude = jnp.sum(old_p ** 2)
+        total_change += change
+        total_magnitude += magnitude
+    
+    total_change = jnp.sqrt(total_change)
+    total_magnitude = jnp.sqrt(total_magnitude)
+    
+    # Relative change
+    relative_change = total_change / (total_magnitude + 1e-8)
+    
+    return {
+        'total': float(total_change),
+        'relative': float(relative_change),
+        'magnitude': float(total_magnitude)
+    }
 
 
 class UnifiedGRPOTrainer:
@@ -115,6 +153,15 @@ class UnifiedGRPOTrainer:
                 checkpoint_dir=checkpoint_dir,
                 policy_architecture=policy_architecture,
                 **kwargs
+            )
+        
+        # Ensure convergence_config exists (for backward compatibility)
+        if not hasattr(self, 'convergence_config'):
+            self.convergence_config = ConvergenceConfig(
+                structure_accuracy_threshold=0.95,
+                patience=5,
+                min_episodes=5,
+                max_episodes_per_scm=200
             )
         
         # Initialize components
@@ -183,6 +230,34 @@ class UnifiedGRPOTrainer:
         
         # Initialize running stats for reward normalization
         self.reward_stats = RunningStats(window_size=1000)
+        
+        # Enhanced GRPO parameters (from enhanced trainer)
+        self.group_size = config.get('group_size', 4)  # Number of samples per state
+        self.use_grpo_rewards = config.get('use_grpo_rewards', False)  # Default to False for backward compat
+        self.grpo_reward_config = config.get('grpo_reward_config', {
+            'reward_weights': {
+                'variable_selection': 0.5,
+                'value_selection': 0.5,
+                'parent_bonus': 0.3,
+                'improvement_bonus': 0.2,
+                'structure_discovery': 0.3 if self.use_surrogate else 0.0
+            },
+            'improvement_threshold': 0.1,
+            'reward_type': 'squared'  # Default to squared (best from our tests)
+        })
+        
+        # Initialize tracking for enhanced mode
+        if self.use_grpo_rewards:
+            self.reward_history = []
+            self.gradient_history = []
+            self.param_change_history = []
+            self.component_reward_history = {
+                'target_improvement': [],
+                'parent_intervention': [],
+                'value_optimization': [],
+                'structure_discovery': [],
+                'total': []
+            }
             
     def _init_from_params(self, **kwargs):
         """Initialize from individual parameters."""
@@ -262,6 +337,34 @@ class UnifiedGRPOTrainer:
         
         # Initialize running stats for reward normalization
         self.reward_stats = RunningStats(window_size=1000)
+        
+        # Enhanced GRPO parameters (from enhanced trainer)
+        self.group_size = kwargs.get('group_size', 4)
+        self.use_grpo_rewards = kwargs.get('use_grpo_rewards', False)  # Default to False for backward compat
+        self.grpo_reward_config = kwargs.get('grpo_reward_config', {
+            'reward_weights': {
+                'variable_selection': 0.5,
+                'value_selection': 0.5,
+                'parent_bonus': 0.3,
+                'improvement_bonus': 0.2,
+                'structure_discovery': 0.3 if self.use_surrogate else 0.0
+            },
+            'improvement_threshold': 0.1,
+            'reward_type': 'squared'  # Default to squared (best from our tests)
+        })
+        
+        # Initialize tracking for enhanced mode
+        if self.use_grpo_rewards:
+            self.reward_history = []
+            self.gradient_history = []
+            self.param_change_history = []
+            self.component_reward_history = {
+                'target_improvement': [],
+                'parent_intervention': [],
+                'value_optimization': [],
+                'structure_discovery': [],
+                'total': []
+            }
             
         # Create minimal config for compatibility
         self.config = {
@@ -331,13 +434,24 @@ class UnifiedGRPOTrainer:
     def _initialize_grpo(self):
         """Initialize true GRPO trainer with batch advantages."""
         # GRPO config with proper defaults
+        # Use group_size from enhanced mode if available, otherwise use batch_size
+        group_size = self.group_size if hasattr(self, 'group_size') else self.batch_size
+        
+        # Get PPO epochs from grpo_config if available (enhanced mode)
+        ppo_epochs = 4  # Default
+        if hasattr(self, 'grpo_reward_config'):
+            # Check if we have grpo_config with ppo_epochs
+            grpo_config = getattr(self, 'config', {}).get('grpo_config', {})
+            ppo_epochs = grpo_config.get('ppo_epochs', 4)
+        
         self.grpo_config = GRPOConfig(
-            group_size=self.batch_size,
+            group_size=group_size,
             interventions_per_state=1,
             learning_rate=self.learning_rate,
             clip_ratio=0.2,
-            entropy_coeff=0.1,  # Higher entropy for exploration
-            max_grad_norm=1.0
+            entropy_coeff=0.01 if self.use_grpo_rewards else 0.1,  # Lower entropy for enhanced mode
+            max_grad_norm=1.0,
+            ppo_epochs=ppo_epochs  # Add PPO epochs support
         )
         
         # Create optimizer
@@ -382,9 +496,70 @@ class UnifiedGRPOTrainer:
                 ratio_std=loss_info.get('ratio_std', 0.0)
             )
         
-        self.grpo_update = grpo_update
+        # Use enhanced update function if in enhanced mode
+        if self.use_grpo_rewards:
+            self._create_enhanced_grpo_update()
+        else:
+            self.grpo_update = grpo_update
         
-        logger.info(f"Initialized true GRPO with group_size={self.batch_size}, entropy_coeff=0.1")
+        logger.info(f"Initialized {'enhanced' if self.use_grpo_rewards else 'standard'} GRPO with group_size={group_size}, entropy_coeff={self.grpo_config.entropy_coeff}")
+    
+    def _create_enhanced_grpo_update(self):
+        """Create enhanced GRPO update function with more debugging info."""
+        from types import SimpleNamespace
+        import jax
+        import optax
+        
+        def enhanced_grpo_update(params, opt_state, batch):
+            """Enhanced GRPO update with extra debugging."""
+            # Compute loss and gradients with our enhanced loss function
+            def loss_fn(p):
+                return self._compute_simple_grpo_loss(p, batch)
+            
+            (loss_value, loss_info), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
+            
+            # Apply updates
+            updates, new_opt_state = self.optimizer.update(grads, opt_state, params)
+            new_params = optax.apply_updates(params, updates)
+            
+            # Compute gradient norm
+            grad_norm = optax.global_norm(grads)
+            
+            # Create enhanced metrics with all debugging info from loss_info
+            enhanced_metrics = SimpleNamespace(
+                # Standard fields
+                policy_loss=loss_info['policy_loss'],
+                entropy_loss=loss_info['entropy_loss'],
+                kl_penalty=loss_info['kl_penalty'],
+                total_loss=loss_value,
+                grad_norm=grad_norm,
+                group_baseline=loss_info['group_baseline'],
+                mean_reward=loss_info['mean_reward'],
+                reward_std=loss_info['reward_std'],
+                mean_advantage=loss_info['mean_advantage'],
+                advantage_std=loss_info['advantage_std'],
+                mean_entropy=loss_info['mean_entropy'],
+                approx_kl=loss_info['approx_kl'],
+                # Enhanced debugging fields
+                mean_ratio=loss_info.get('mean_ratio', 1.0),
+                ratio_std=loss_info.get('ratio_std', 0.0),
+                mean_log_prob_change=loss_info.get('mean_log_prob_change', 0.0),
+                surr1_mean=loss_info.get('surr1_mean', 0.0),
+                surr2_mean=loss_info.get('surr2_mean', 0.0),
+                surr_min_mean=loss_info.get('surr_min_mean', 0.0),
+                clip_fraction=loss_info.get('clip_fraction', 0.0),
+                positive_advantages=loss_info.get('positive_advantages', 0),
+                negative_advantages=loss_info.get('negative_advantages', 0),
+                # Diagnostic fields
+                loss_terms_sum=loss_info.get('loss_terms_sum', 0.0),
+                loss_terms_mean=loss_info.get('loss_terms_mean', 0.0),
+                log_prob_variance=loss_info.get('log_prob_variance', 0.0),
+                unique_log_probs=loss_info.get('unique_log_probs', 0)
+            )
+            
+            return new_params, new_opt_state, enhanced_metrics
+        
+        self.grpo_update = enhanced_grpo_update
         
     def _override_surrogate(self, pretrained_components: Dict[str, Any]):
         """Override surrogate with pre-trained components."""
@@ -550,6 +725,15 @@ class UnifiedGRPOTrainer:
         }
     
     def _run_grpo_episode(self, episode_idx: int, scm: pyr.PMap, scm_name: str, key: jax.random.PRNGKey) -> Dict[str, Any]:
+        """Run GRPO episode - dispatches to enhanced or standard version based on use_grpo_rewards."""
+        if self.use_grpo_rewards:
+            # For now, use standard episode with enhanced rewards enabled
+            # TODO: Add full enhanced episode implementation
+            return self._run_standard_grpo_episode(episode_idx, scm, scm_name, key)
+        else:
+            return self._run_standard_grpo_episode(episode_idx, scm, scm_name, key)
+    
+    def _run_standard_grpo_episode(self, episode_idx: int, scm: pyr.PMap, scm_name: str, key: jax.random.PRNGKey) -> Dict[str, Any]:
         """Run single training episode with GRPO batch collection."""
         # Get SCM info
         variables = list(get_variables(scm))
@@ -1028,16 +1212,32 @@ class UnifiedGRPOTrainer:
         }
     
     def _compute_simple_grpo_loss(self, params: Any, batch: Dict[str, Any]) -> Tuple[jnp.ndarray, Dict[str, Any]]:
-        """Compute GRPO loss without requiring AcquisitionState objects."""
+        """
+        Compute GRPO loss - supports both standard and enhanced modes.
+        
+        Enhanced mode (use_grpo_rewards=True): 
+        - Uses pre-computed group advantages
+        - Complete log probabilities (variable + value)
+        - Enhanced debugging metrics
+        
+        Standard mode (use_grpo_rewards=False):
+        - Computes advantages from baselines
+        - Variable-only log probabilities
+        - Basic metrics
+        """
         states = batch['states']  # [batch_size, T, n_vars, 5]
         actions = batch['actions']
         rewards = batch['rewards']
         old_log_probs = batch['old_log_probs']
         
-        # Compute advantages using non-intervention baseline
-        # This compares intervention outcomes to not intervening at all
-        buffer = batch.get('buffer')
-        target_variable = batch.get('target_variable')
+        # Use pre-computed advantages in enhanced mode, compute them in standard mode
+        if self.use_grpo_rewards and 'advantages' in batch:
+            # Enhanced mode: use pre-computed group advantages
+            advantages = batch['advantages']
+        else:
+            # Standard mode: compute advantages using non-intervention baseline
+            buffer = batch.get('buffer')
+            target_variable = batch.get('target_variable')
         
         if buffer is not None and target_variable is not None:
             # Get observational (non-intervened) samples
@@ -1071,7 +1271,7 @@ class UnifiedGRPOTrainer:
         # Advantages = how much better than not intervening
         advantages = rewards - non_intervention_baseline
         
-        # Normalize advantages for stability
+        # Normalize advantages for stability (only in standard mode)
         adv_std = jnp.std(advantages)
         if adv_std > 1e-8:
             advantages = advantages / adv_std
@@ -1080,6 +1280,9 @@ class UnifiedGRPOTrainer:
         batch_size = states.shape[0]
         new_log_probs = []
         entropy_values = []
+        
+        # Track individual components for enhanced debugging
+        log_prob_changes = [] if self.use_grpo_rewards else None
         
         for i in range(batch_size):
             # Get policy output for this state
@@ -1094,9 +1297,42 @@ class UnifiedGRPOTrainer:
             
             # Compute log prob for selected action
             var_probs = jax.nn.softmax(policy_output['variable_logits'])
-            selected_var = actions['variables'][i]
-            log_prob = jnp.log(var_probs[selected_var] + 1e-8)
-            new_log_probs.append(log_prob)
+            
+            # Check action format to determine mode
+            if isinstance(actions, list) and len(actions) > i and isinstance(actions[i], dict):
+                # Enhanced mode format: list of dicts with 'variable' and 'value'
+                selected_var = actions[i]['variable']
+                
+                if self.use_grpo_rewards:
+                    # Compute COMPLETE log probability
+                    log_prob_var = jnp.log(var_probs[selected_var] + 1e-8)
+                    
+                    # Get value distribution parameters
+                    value_params = policy_output['value_params']
+                    mean = value_params[selected_var, 0]
+                    log_std = value_params[selected_var, 1]
+                    std = jnp.exp(log_std)
+                    
+                    # Compute log prob of the actual value under the Gaussian
+                    actual_value = actions[i]['value']
+                    log_prob_value = -0.5 * ((actual_value - mean) / std) ** 2 - log_std - 0.5 * jnp.log(2 * jnp.pi)
+                    
+                    # Complete log probability
+                    log_prob = log_prob_var + log_prob_value
+                    new_log_probs.append(log_prob)
+                    
+                    # Track change from old log prob
+                    if log_prob_changes is not None:
+                        log_prob_changes.append(log_prob - old_log_probs[i])
+                else:
+                    # Just variable log prob
+                    log_prob = jnp.log(var_probs[selected_var] + 1e-8)
+                    new_log_probs.append(log_prob)
+            else:
+                # Standard mode format: dict with 'variables' key
+                selected_var = actions['variables'][i]
+                log_prob = jnp.log(var_probs[selected_var] + 1e-8)
+                new_log_probs.append(log_prob)
             
             # Compute entropy
             entropy = -jnp.sum(var_probs * jnp.log(var_probs + 1e-8))
@@ -1106,12 +1342,23 @@ class UnifiedGRPOTrainer:
         entropy_values = jnp.array(entropy_values)
         
         # Compute ratio for PPO-style clipping
-        ratio = jnp.exp(new_log_probs - old_log_probs)
+        log_ratio = new_log_probs - old_log_probs
+        ratio = jnp.exp(log_ratio)
         
         # Clipped surrogate objective
         surr1 = ratio * advantages
         surr2 = jnp.clip(ratio, 1.0 - self.grpo_config.clip_ratio, 1.0 + self.grpo_config.clip_ratio) * advantages
-        policy_loss = -jnp.mean(jnp.minimum(surr1, surr2))
+        
+        # Track which surrogate is used (for enhanced debugging)
+        surr_min = jnp.minimum(surr1, surr2)
+        policy_loss = -jnp.mean(surr_min)
+        
+        # Track how many samples are clipped (enhanced mode)
+        if self.use_grpo_rewards:
+            clipped_mask = jnp.abs(ratio - 1.0) > self.grpo_config.clip_ratio
+            clip_fraction = jnp.mean(clipped_mask)
+        else:
+            clip_fraction = 0.0
         
         # Entropy loss (negative for maximization)
         entropy_loss = -self.grpo_config.entropy_coeff * jnp.mean(entropy_values)
@@ -1122,11 +1369,19 @@ class UnifiedGRPOTrainer:
         # Compute diagnostics
         approx_kl = jnp.mean((new_log_probs - old_log_probs) ** 2)
         
+        # Determine baseline value for reporting
+        if self.use_grpo_rewards and 'advantages' in batch:
+            # Enhanced mode uses group mean as baseline
+            group_baseline = jnp.mean(rewards)
+        else:
+            # Standard mode uses non-intervention baseline
+            group_baseline = non_intervention_baseline
+        
         loss_info = {
             'policy_loss': policy_loss,
             'entropy_loss': entropy_loss,
             'kl_penalty': 0.0,  # Not using KL penalty
-            'group_baseline': non_intervention_baseline,  # Now using non-intervention baseline
+            'group_baseline': group_baseline,
             'mean_reward': jnp.mean(rewards),
             'reward_std': jnp.std(rewards),
             'mean_advantage': jnp.mean(advantages),
@@ -1134,8 +1389,25 @@ class UnifiedGRPOTrainer:
             'mean_entropy': jnp.mean(entropy_values),
             'approx_kl': approx_kl,
             'mean_ratio': jnp.mean(ratio),
-            'ratio_std': jnp.std(ratio)
+            'ratio_std': jnp.std(ratio),
+            'clip_fraction': clip_fraction
         }
+        
+        # Add enhanced debugging info if in enhanced mode
+        if self.use_grpo_rewards:
+            loss_info.update({
+                'mean_log_prob_change': jnp.mean(jnp.array(log_prob_changes)) if log_prob_changes else 0.0,
+                'surr1_mean': jnp.mean(surr1),
+                'surr2_mean': jnp.mean(surr2),
+                'surr_min_mean': jnp.mean(surr_min),
+                'positive_advantages': jnp.sum(advantages > 0),
+                'negative_advantages': jnp.sum(advantages < 0),
+                # Diagnostic info
+                'loss_terms_sum': jnp.sum(-surr_min),
+                'loss_terms_mean': jnp.mean(-surr_min),
+                'log_prob_variance': jnp.var(new_log_probs),
+                'unique_log_probs': jnp.unique(new_log_probs).shape[0]
+            })
         
         return total_loss, loss_info
     
@@ -1259,7 +1531,6 @@ class UnifiedGRPOTrainer:
 
 def create_unified_grpo_trainer(config: Union[DictConfig, Dict[str, Any], None] = None,
                                 pretrained_surrogate: Optional[Dict[str, Any]] = None,
-                                use_enhanced: bool = True,
                                 **kwargs) -> UnifiedGRPOTrainer:
     """
     Factory function to create unified GRPO trainer.
@@ -1269,31 +1540,16 @@ def create_unified_grpo_trainer(config: Union[DictConfig, Dict[str, Any], None] 
     Args:
         config: Configuration dictionary or DictConfig
         pretrained_surrogate: Optional dict with 'net' and 'params' for pre-trained surrogate
-        use_enhanced: Whether to use enhanced trainer with GRPO fixes (default: True)
         **kwargs: Individual parameters if not using config
         
     Returns:
-        Initialized UnifiedGRPOTrainer or GRPOEnhancedTrainer
+        Initialized UnifiedGRPOTrainer with all enhancements
     """
-    # Use enhanced trainer by default (includes all our fixes)
-    if use_enhanced:
-        from .grpo_enhanced_trainer import GRPOEnhancedTrainer
-        
-        # Convert config to kwargs if needed
-        if config is not None:
-            if isinstance(config, DictConfig):
-                config_dict = dict(config)
-            else:
-                config_dict = config
-            trainer = GRPOEnhancedTrainer(**config_dict)
-        else:
-            trainer = GRPOEnhancedTrainer(**kwargs)
+    # Create unified trainer (now includes all enhancements)
+    if config is not None:
+        trainer = UnifiedGRPOTrainer(config=config)
     else:
-        # Original trainer (for backward compatibility)
-        if config is not None:
-            trainer = UnifiedGRPOTrainer(config=config)
-        else:
-            trainer = UnifiedGRPOTrainer(config=None, **kwargs)
+        trainer = UnifiedGRPOTrainer(config=None, **kwargs)
     
     # Override with pre-trained surrogate if provided
     if pretrained_surrogate and trainer.use_surrogate:

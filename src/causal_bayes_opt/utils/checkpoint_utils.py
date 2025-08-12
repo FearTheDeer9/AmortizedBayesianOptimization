@@ -167,18 +167,35 @@ def create_model_from_checkpoint(checkpoint: Dict[str, Any]) -> Tuple[hk.Transfo
     # Surrogate models
     elif model_type == 'surrogate':
         if model_subtype == 'continuous_parent_set':
-            from ..avici_integration.continuous.model import ContinuousParentSetPredictionModel
-            
-            # Recreate model with exact architecture
-            def surrogate_fn(data: jnp.ndarray, target_variable: int, is_training: bool = False):
-                model = ContinuousParentSetPredictionModel(
-                    hidden_dim=architecture['hidden_dim'],
-                    num_layers=architecture['num_layers'],
-                    num_heads=architecture['num_heads'],
-                    key_size=architecture['key_size'],  # Explicit!
-                    dropout=architecture.get('dropout', 0.1) if is_training else 0.0
-                )
-                return model(data, target_variable, is_training)
+            # Check if we have encoder_type in architecture (new format)
+            if 'encoder_type' in architecture:
+                from ..avici_integration.continuous.configurable_model import ConfigurableContinuousParentSetPredictionModel
+                
+                # Recreate model with configurable architecture
+                def surrogate_fn(data: jnp.ndarray, target_variable: int, is_training: bool = False):
+                    model = ConfigurableContinuousParentSetPredictionModel(
+                        hidden_dim=architecture['hidden_dim'],
+                        num_layers=architecture['num_layers'],
+                        num_heads=architecture['num_heads'],
+                        key_size=architecture['key_size'],  # Explicit!
+                        dropout=architecture.get('dropout', 0.1) if is_training else 0.0,
+                        encoder_type=architecture['encoder_type'],
+                        attention_type=architecture.get('attention_type', 'pairwise')
+                    )
+                    return model(data, target_variable, is_training)
+            else:
+                # Fallback to original model for backward compatibility
+                from ..avici_integration.continuous.model import ContinuousParentSetPredictionModel
+                
+                def surrogate_fn(data: jnp.ndarray, target_variable: int, is_training: bool = False):
+                    model = ContinuousParentSetPredictionModel(
+                        hidden_dim=architecture['hidden_dim'],
+                        num_layers=architecture['num_layers'],
+                        num_heads=architecture['num_heads'],
+                        key_size=architecture['key_size'],  # Explicit!
+                        dropout=architecture.get('dropout', 0.1) if is_training else 0.0
+                    )
+                    return model(data, target_variable, is_training)
             
             net = hk.transform(surrogate_fn)
             

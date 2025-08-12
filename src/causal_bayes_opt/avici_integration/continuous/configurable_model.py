@@ -133,16 +133,12 @@ class ConfigurableContinuousParentSetPredictionModel(hk.Module):
                 node_embeddings
             )
         
-        # Mask target variable (cannot be its own parent)
-        mask = jnp.ones(d)
-        masked_logits = jnp.where(
-            jnp.arange(d) == target_variable,
-            -1e9,  # Large negative value for target variable
-            parent_logits
-        )
+        # Convert to probabilities using sigmoid (NOT softmax!)
+        # Each variable independently has a probability of being a parent
+        parent_probs = jax.nn.sigmoid(parent_logits)  # [d]
         
-        # Convert to probabilities using masked softmax
-        parent_probs = jax.nn.softmax(masked_logits)  # [d]
+        # Mask target variable (cannot be its own parent)
+        parent_probs = parent_probs.at[target_variable].set(0.0)
         
         return {
             'node_embeddings': node_embeddings,

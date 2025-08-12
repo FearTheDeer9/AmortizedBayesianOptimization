@@ -429,7 +429,9 @@ class SurrogateBCTrainer:
             'num_layers': config.get('num_layers', self.num_layers),
             'num_heads': config.get('num_heads', self.num_heads),
             'key_size': config.get('key_size', self.key_size),  # Explicit!
-            'dropout': config.get('dropout', self.dropout)
+            'dropout': config.get('dropout', self.dropout),
+            'encoder_type': self.encoder_type,  # Critical for correct model loading!
+            'attention_type': self.attention_type
         }
         
         # Training configuration

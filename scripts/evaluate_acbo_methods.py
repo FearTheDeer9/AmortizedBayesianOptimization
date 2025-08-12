@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """
+DEPRECATED: Use evaluate_acbo_methods_v2.py instead.
+
+This script is maintained for backward compatibility only.
+The v2 script provides the same functionality with a cleaner architecture
+using a registry-based approach for surrogates and policies.
+
+Original description:
 Comparison evaluation script for ACBO methods.
 
 This script evaluates and compares different ACBO methods:

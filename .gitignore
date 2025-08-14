@@ -64,3 +64,13 @@ outputs/
 .hypothesis/
 experiment_results/
 experiment_plots/
+
+# Archive directories (debug/test scripts)
+scripts/archive/
+debugging-bc-training/
+**/deprecated/
+**/test_*.py
+**/debug_*.py
+**/analyze_*.py
+**/check_*.py
+**/quick_*.py

@@ -27,6 +27,32 @@ from ..utils.variable_mapping import VariableMapper
 logger = logging.getLogger(__name__)
 
 
+def smooth_cross_entropy_loss(logits: jnp.ndarray, target_idx: int, smoothing: float = 0.1) -> jnp.ndarray:
+    """
+    Cross-entropy loss with label smoothing to prevent overconfidence.
+    
+    Args:
+        logits: Unnormalized log probabilities [n_classes]
+        target_idx: Index of the target class
+        smoothing: Label smoothing parameter (0 = no smoothing)
+        
+    Returns:
+        Smoothed cross-entropy loss
+    """
+    n_classes = logits.shape[-1]
+    
+    # Create smoothed target distribution
+    # Instead of one-hot, we use (1-smoothing) for target and smoothing/(n-1) for others
+    targets = jnp.ones(n_classes) * smoothing / (n_classes - 1)
+    targets = targets.at[target_idx].set(1.0 - smoothing)
+    
+    # Compute cross-entropy with smoothed targets
+    log_probs = jax.nn.log_softmax(logits)
+    loss = -jnp.sum(targets * log_probs)
+    
+    return loss
+
+
 def robust_value_loss(predicted_mean: jnp.ndarray, 
                      predicted_log_std: jnp.ndarray, 
                      target_value: float) -> jnp.ndarray:
@@ -83,6 +109,7 @@ class PolicyBCTrainer:
     
     def __init__(self,
                  hidden_dim: int = 256,
+                 architecture: str = "alternating_attention",
                  learning_rate: float = 3e-4,
                  batch_size: int = 32,
                  max_epochs: int = 1000,
@@ -90,12 +117,17 @@ class PolicyBCTrainer:
                  validation_split: float = 0.2,
                  gradient_clip: float = 1.0,
                  weight_decay: float = 1e-4,
-                 seed: int = 42):
+                 seed: int = 42,
+                 use_permutation: bool = False,
+                 label_smoothing: float = 0.0,
+                 permutation_seed: int = 42):
         """
         Initialize policy BC trainer.
         
         Args:
             hidden_dim: Hidden dimension for policy network
+            architecture: Architecture type - "simple", "attention", or "alternating_attention"
+                         Default is "alternating_attention" which handles permutation symmetries best
             learning_rate: Learning rate for optimizer
             batch_size: Batch size for training
             max_epochs: Maximum number of training epochs
@@ -104,8 +136,12 @@ class PolicyBCTrainer:
             gradient_clip: Gradient clipping value
             weight_decay: Weight decay for AdamW
             seed: Random seed
+            use_permutation: Whether to use variable permutation to prevent shortcuts
+            label_smoothing: Label smoothing parameter (0 = no smoothing)
+            permutation_seed: Seed for permutation generation
         """
         self.hidden_dim = hidden_dim
+        self.architecture = architecture
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.max_epochs = max_epochs
@@ -114,9 +150,17 @@ class PolicyBCTrainer:
         self.gradient_clip = gradient_clip
         self.weight_decay = weight_decay
         self.seed = seed
+        self.use_permutation = use_permutation
+        self.label_smoothing = label_smoothing
+        self.permutation_seed = permutation_seed
         
         # Initialize random key
         self.key = random.PRNGKey(seed)
+        
+        if use_permutation:
+            logger.info(f"Using variable permutation with seed {permutation_seed}")
+        if label_smoothing > 0:
+            logger.info(f"Using label smoothing with alpha={label_smoothing}")
         
         # Model components (initialized during training)
         self.net = None
@@ -155,10 +199,40 @@ class PolicyBCTrainer:
             logger.info(f"Limited to {max_demos} demonstrations")
         
         # Convert to 5-channel training data
-        logger.info("Converting demonstrations to 5-channel tensors with structural knowledge...")
-        all_inputs, all_labels, dataset_metadata = create_bc_training_dataset(
-            flat_demos, max_trajectory_length
-        )
+        if self.use_permutation:
+            logger.info("Converting demonstrations to 5-channel tensors with variable permutation...")
+            # Import the permuted version from debugging directory
+            import sys
+            import os
+            from pathlib import Path
+            
+            # Get the path to debugging-bc-training relative to the repo root
+            repo_root = Path(__file__).parent.parent.parent.parent
+            debug_path = repo_root / "debugging-bc-training"
+            
+            if debug_path.exists():
+                sys.path.insert(0, str(debug_path))
+                from demonstration_to_tensor_permuted import create_bc_training_dataset_permuted
+            else:
+                # Fallback: try to find it relative to current working directory
+                debug_path = Path.cwd() / "debugging-bc-training"
+                if debug_path.exists():
+                    sys.path.insert(0, str(debug_path))
+                    from demonstration_to_tensor_permuted import create_bc_training_dataset_permuted
+                else:
+                    raise ImportError(f"Cannot find debugging-bc-training directory. Looked in {repo_root / 'debugging-bc-training'} and {debug_path}")
+            
+            all_inputs, all_labels, dataset_metadata = create_bc_training_dataset_permuted(
+                flat_demos, 
+                max_trajectory_length,
+                use_permutation=True,
+                base_seed=self.permutation_seed
+            )
+        else:
+            logger.info("Converting demonstrations to 5-channel tensors with structural knowledge...")
+            all_inputs, all_labels, dataset_metadata = create_bc_training_dataset(
+                flat_demos, max_trajectory_length
+            )
         
         if not all_inputs:
             raise ValueError("No valid training data created from demonstrations")
@@ -273,10 +347,42 @@ class PolicyBCTrainer:
         
         # Store initial variable info for model shape, but we'll create mappers per example
         self.n_vars = len(metadata['variables'])
-        self.target_idx = metadata.get('target_idx', 0)
+        self.original_target_idx = metadata.get('target_idx', 0)
         
-        # Create policy function
-        policy_fn = create_clean_bc_policy(hidden_dim=self.hidden_dim)
+        # If using permutation, we need to get the PERMUTED position of the target variable
+        if self.use_permutation:
+            # Create a mapper to find where the target variable ends up after permutation
+            from pathlib import Path
+            import sys
+            debug_path = Path(__file__).parent.parent.parent.parent / "debugging-bc-training"
+            if debug_path.exists():
+                sys.path.insert(0, str(debug_path))
+                from permuted_variable_mapper import PermutedVariableMapper
+                
+                mapper = PermutedVariableMapper(
+                    metadata['variables'], 
+                    seed=self.permutation_seed
+                )
+                # Get the permuted position of the target variable
+                target_var = metadata.get('target_variable')
+                if target_var:
+                    self.target_idx = mapper.to_permuted_index(target_var)
+                    logger.info(f"Using permutation: target variable {target_var} moved from index {self.original_target_idx} to {self.target_idx}")
+                else:
+                    self.target_idx = self.original_target_idx
+                    logger.warning("No target_variable in metadata, using original index")
+            else:
+                logger.warning(f"Could not find debugging-bc-training for permutation mapper, using original index")
+                self.target_idx = self.original_target_idx
+        else:
+            self.target_idx = self.original_target_idx
+        
+        # Create policy function with specified architecture
+        logger.info(f"Using architecture: {self.architecture}")
+        policy_fn = create_clean_bc_policy(
+            hidden_dim=self.hidden_dim,
+            architecture=self.architecture
+        )
         
         # Transform with Haiku
         self.net = hk.transform(policy_fn)
@@ -326,9 +432,11 @@ class PolicyBCTrainer:
         """Train on a batch of examples."""
         def loss_fn(params):
             batch_loss = 0.0
+            valid_examples = 0
             
             for input_tensor, label in zip(batch_inputs, batch_labels):
                 # Forward pass with 5-channel tensor
+                # Use the permuted target index for masking when permutation is enabled
                 outputs = self.net.apply(params, rng_key, input_tensor, self.target_idx)
                 var_logits = outputs['variable_logits']
                 value_params = outputs['value_params']
@@ -341,26 +449,40 @@ class PolicyBCTrainer:
                 target_var_name = target_vars[0]
                 target_value = label['values'][target_var_name]
                 
-                # Create variable mapper for this example
-                example_variables = label.get('variables', [])
-                if not example_variables:
-                    logger.warning(f"No variable names in label, skipping")
-                    continue
+                # Get target index - either permuted or standard
+                if self.use_permutation and 'permuted_target_idx' in label:
+                    # Use pre-computed permuted index
+                    var_idx = label['permuted_target_idx']
+                    if var_idx is None:
+                        logger.warning(f"Permuted index is None for target {target_var_name}")
+                        continue
+                    if not (0 <= var_idx < var_logits.shape[0]):
+                        logger.warning(f"Invalid permuted index {var_idx} for n_vars={var_logits.shape[0]}")
+                        continue
+                else:
+                    # Standard mapping
+                    example_variables = label.get('variables', [])
+                    if not example_variables:
+                        logger.warning(f"No variable names in label, skipping")
+                        continue
+                        
+                    example_mapper = VariableMapper(
+                        variables=example_variables,
+                        target_variable=label.get('target_variable')
+                    )
                     
-                example_mapper = VariableMapper(
-                    variables=example_variables,
-                    target_variable=label.get('target_variable')
-                )
+                    # Map variable name to index for this example
+                    try:
+                        var_idx = example_mapper.get_index(target_var_name)
+                    except ValueError:
+                        logger.warning(f"Variable {target_var_name} not in example variables: {example_variables}")
+                        continue
                 
-                # Map variable name to index for this example
-                try:
-                    var_idx = example_mapper.get_index(target_var_name)
-                except ValueError:
-                    logger.warning(f"Variable {target_var_name} not in example variables: {example_variables}")
-                    continue
-                
-                # Variable selection loss
-                var_loss = -jax.nn.log_softmax(var_logits)[var_idx]
+                # Variable selection loss with optional label smoothing
+                if self.label_smoothing > 0:
+                    var_loss = smooth_cross_entropy_loss(var_logits, var_idx, self.label_smoothing)
+                else:
+                    var_loss = -jax.nn.log_softmax(var_logits)[var_idx]
                 
                 # Value prediction loss using robust formulation
                 value_mean = value_params[var_idx, 0]
@@ -369,9 +491,23 @@ class PolicyBCTrainer:
                 # Use robust loss to prevent explosion
                 value_loss = robust_value_loss(value_mean, value_log_std, target_value)
                 
-                batch_loss += var_loss + 0.5 * value_loss
+                total_loss = var_loss + 0.5 * value_loss
+                
+                # Use jnp.where to handle inf/nan in a JAX-compatible way
+                total_loss = jnp.where(
+                    jnp.isfinite(total_loss),
+                    total_loss,
+                    0.0  # Replace inf/nan with 0
+                )
+                
+                batch_loss += total_loss
+                valid_examples += 1
             
-            return batch_loss / len(batch_inputs)
+            if valid_examples == 0:
+                logger.warning(f"No valid examples in batch of size {len(batch_inputs)}")
+                return 0.0
+            
+            return batch_loss / valid_examples
         
         # Compute gradients and update
         loss_val, grads = jax.value_and_grad(loss_fn)(self.model_params)
@@ -408,22 +544,34 @@ class PolicyBCTrainer:
             target_var_name = target_vars[0]
             target_value = label['values'][target_var_name]
             
-            # Create variable mapper for this example
-            example_variables = label.get('variables', [])
-            if not example_variables:
-                logger.warning(f"No variable names in label, skipping")
-                continue
+            # Get target index - either permuted or standard
+            if self.use_permutation and 'permuted_target_idx' in label:
+                var_idx = label['permuted_target_idx']
+                if var_idx is None:
+                    logger.warning(f"Permuted index is None for target {target_var_name} in evaluation")
+                    continue
+            else:
+                # Standard mapping
+                example_variables = label.get('variables', [])
+                if not example_variables:
+                    logger.warning(f"No variable names in label, skipping")
+                    continue
+                    
+                example_mapper = VariableMapper(
+                    variables=example_variables,
+                    target_variable=label.get('target_variable')
+                )
                 
-            example_mapper = VariableMapper(
-                variables=example_variables,
-                target_variable=label.get('target_variable')
-            )
+                # Map to index
+                try:
+                    var_idx = example_mapper.get_index(target_var_name)
+                except ValueError:
+                    logger.warning(f"Variable {target_var_name} not in example variables")
+                    continue
             
-            # Map to index
-            try:
-                var_idx = example_mapper.get_index(target_var_name)
-            except ValueError:
-                logger.warning(f"Variable {target_var_name} not in example variables: {example_variables}")
+            # Validate index bounds
+            if not (0 <= var_idx < var_logits.shape[0]):
+                logger.warning(f"Invalid index {var_idx} for n_vars={var_logits.shape[0]} in evaluation")
                 continue
             
             # Compute losses
@@ -435,8 +583,14 @@ class PolicyBCTrainer:
             # Use robust loss to prevent explosion
             value_loss = robust_value_loss(value_mean, value_log_std, target_value)
             
-            total_loss += float(var_loss + 0.5 * value_loss)
-            n_examples += 1
+            example_loss = var_loss + 0.5 * value_loss
+            
+            # Only add finite losses
+            if jnp.isfinite(example_loss):
+                total_loss += float(example_loss)
+                n_examples += 1
+            else:
+                logger.debug(f"Skipping non-finite loss in evaluation: {example_loss}")
         
         return total_loss / n_examples if n_examples > 0 else 0.0
     
@@ -448,7 +602,8 @@ class PolicyBCTrainer:
         config = results.get('config', {})
         
         architecture = {
-            'hidden_dim': config.get('hidden_dim', self.hidden_dim)
+            'hidden_dim': config.get('hidden_dim', self.hidden_dim),
+            'architecture_type': self.architecture
         }
         
         # Training configuration

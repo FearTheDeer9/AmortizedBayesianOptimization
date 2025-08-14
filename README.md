@@ -2,12 +2,32 @@
 
 A framework combining AVICI's amortized inference with PARENT_SCALE's causal optimization approach for efficient causal discovery and intervention selection.
 
-## 📚 IMPORTANT: Developer Documentation
+## 🚀 Getting Started
 
-**Before contributing or extending this codebase, please read:**
-- [**CANONICAL_PATTERNS.md**](CANONICAL_PATTERNS.md) - ⭐ The authoritative guide to ACBO development patterns
+### Quick Start
+```bash
+# 1. Train a surrogate model for structure learning
+python scripts/main/train.py --method surrogate --episodes 100 --max_demos 50
+
+# 2. Train a BC policy from expert demonstrations  
+python scripts/main/train.py --method bc --episodes 100 --max_demos 50
+
+# 3. Evaluate trained models
+python scripts/main/evaluate.py --include_baselines --n_scms 10
+```
+
+### Complete Pipeline
+```bash
+# Run the complete training and evaluation pipeline
+bash scripts/examples/complete_pipeline.sh
+```
+
+## 📚 Documentation
+
+- [**docs/USAGE_GUIDE.md**](docs/USAGE_GUIDE.md) - 📖 Complete usage guide with examples
+- [**CANONICAL_PATTERNS.md**](CANONICAL_PATTERNS.md) - ⭐ Development patterns and best practices
+- [**TRAINING_COMMANDS.md**](TRAINING_COMMANDS.md) - Example training commands
 - [**ACBO_PIPELINE_STATUS_20250129.md**](ACBO_PIPELINE_STATUS_20250129.md) - Current implementation status
-- [**TRAINING_COMMANDS.md**](TRAINING_COMMANDS.md) - Example training and evaluation commands
 
 ## 🎯 Project Status: Working End-to-End Pipeline
 
@@ -30,24 +50,52 @@ Surrogate Model → Acquisition Model → SCM Environment → Surrogate Model
 - **Target-Aware Architecture**: Uses [N, d, 3] input format (values, interventions, target indicators)
 - **Numerically Stable**: Robust against NaN/Inf issues during training
 
+## 🛠️ Main Scripts
+
+### Training (`scripts/main/train.py`)
+Train surrogate and policy models:
+- `--method surrogate`: Train structure learning model
+- `--method bc`: Train BC policy from demonstrations
+- `--method grpo`: Train GRPO policy with RL
+- `--method grpo_with_surrogate`: Train surrogate + GRPO sequentially
+
+### Evaluation (`scripts/main/evaluate.py`)
+Evaluate trained models with comprehensive metrics:
+- Supports multiple policy-surrogate pairs
+- Includes baselines (Random, Oracle)
+- Generates plots and trajectories
+- Supports active learning evaluation
+
+### Example Scripts (`scripts/examples/`)
+Ready-to-use automation scripts:
+- `train_surrogate.sh` - Train structure learning model
+- `train_bc_policy.sh` - Train BC policy
+- `train_grpo.sh` - Train GRPO policy
+- `evaluate_comprehensive.sh` - Full evaluation
+- `complete_pipeline.sh` - End-to-end workflow
+
 ## 📁 Project Structure
 
 ```
 causal_bayes_opt/
+├── scripts/                        # Main scripts and examples
+│   ├── main/                       # Primary training/evaluation scripts
+│   │   ├── train.py                # Universal training script
+│   │   └── evaluate.py             # Universal evaluation script
+│   ├── examples/                   # Example automation scripts
+│   └── utils/                      # Utility scripts
 ├── src/causal_bayes_opt/           # Core implementation
 │   ├── avici_integration/          # AVICI adaptation layer
-│   │   ├── parent_set_model.py     # Main parent set prediction model
-│   │   ├── conversion.py           # Data format conversion
-│   │   └── target_model.py         # Target-aware model utilities
-│   ├── data_structures/            # Core data structures
-│   │   ├── scm.py                  # Structural Causal Model representation
-│   │   └── sample.py               # Sample data structures
-│   ├── mechanisms/                 # Mechanism implementations
-│   │   └── linear.py               # Linear mechanisms
-│   └── experiments/                # Experimental utilities
-│       └── test_scms.py            # Test SCM factory functions
-├── tests/                          # Tests and examples
-│   ├── examples/                   # Working examples
+│   │   ├── continuous/             # Continuous variable models
+│   │   └── parent_set/             # Parent set prediction
+│   ├── training/                   # Training implementations
+│   │   ├── unified_grpo_trainer.py # GRPO trainer
+│   │   ├── policy_bc_trainer.py    # BC policy trainer
+│   │   └── surrogate_bc_trainer.py # BC surrogate trainer
+│   ├── evaluation/                 # Evaluation framework
+│   │   ├── universal_evaluator.py  # Universal evaluation loop
+│   │   └── surrogate_registry.py   # Surrogate management
+│   └── data_structures/            # Core data structures
 │   ├── validation/                 # Validation scripts
 │   └── test_integration/           # Integration tests
 ├── memory-bank/                    # Architecture decisions and planning

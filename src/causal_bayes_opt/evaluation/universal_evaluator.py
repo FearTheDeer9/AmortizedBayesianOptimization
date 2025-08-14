@@ -165,8 +165,11 @@ class UniversalACBOEvaluator:
             
             # Sample observational data
             obs_samples = sample_from_linear_scm(scm, n_observational, seed=seed)
+            # For initial observations, use uniform posterior
+            from ..training.five_channel_converter import create_uniform_posterior
+            uniform_posterior = create_uniform_posterior(variables, target_var)
             for sample in obs_samples:
-                buffer.add_observation(sample)
+                buffer.add_observation(sample, posterior=uniform_posterior)
             
             # Compute initial metrics
             initial_value = self._compute_target_mean(buffer, target_var)
@@ -210,7 +213,15 @@ class UniversalACBOEvaluator:
                 if surrogate_fn is not None:
                     try:
                         logger.info(f"\n  Calling surrogate with tensor shape {tensor.shape} and variables {mapper.variables}...")
-                        posterior = surrogate_fn(tensor, target_var, mapper.variables)
+                        # Check if surrogate_fn accepts params_override (for active learning)
+                        import inspect
+                        sig = inspect.signature(surrogate_fn)
+                        if 'params_override' in sig.parameters and surrogate_params is not None:
+                            # Pass updated params if available
+                            posterior = surrogate_fn(tensor, target_var, mapper.variables, params_override=surrogate_params)
+                        else:
+                            # Standard call
+                            posterior = surrogate_fn(tensor, target_var, mapper.variables)
                         logger.info(f"  Surrogate returned: {type(posterior)}")
                     except Exception as e:
                         logger.warning(f"Surrogate prediction failed: {e}")
@@ -235,9 +246,9 @@ class UniversalACBOEvaluator:
                     scm, intervention_obj, n_intervention_samples, seed=seed + step
                 )
                 
-                # Add to buffer
+                # Add to buffer with the posterior that led to this intervention
                 for sample in intervention_samples:
-                    buffer.add_intervention(intervention_obj, sample)
+                    buffer.add_intervention(intervention_obj, sample, posterior=posterior)
                 
                 # Update surrogate if active learning is enabled
                 if update_fn is not None and surrogate_params is not None:
@@ -335,7 +346,7 @@ class UniversalACBOEvaluator:
                             logger.info(f"Raw marginals: {raw_marginals}")
                             logger.info(f"Mapped marginals: {marginals}")
                         else:
-                            marginals = get_marginal_parent_probabilities(posterior, var_order)
+                            marginals = get_marginal_parent_probabilities(posterior, mapper.variables)
                         entropy = float(posterior.uncertainty)
                 
                 # Extract predicted parents and confidence

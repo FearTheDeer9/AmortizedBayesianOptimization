@@ -354,47 +354,51 @@ class ActiveLearningSurrogateWrapper(SurrogateInterface):
         """
         Make predictions using current parameters.
         
-        For BIC strategy with a network, uses the network with current params.
+        For BIC strategy with a network, uses the network with current params
+        but returns the SAME format as the base surrogate would.
         Otherwise, delegates to base surrogate.
         """
         if self.update_strategy == "bic" and self.net is not None and self.params is not None:
             # Use network with current params
             import jax.random as random
+            from ..avici_integration.parent_set.posterior import ParentSetPosterior
+            from pyrsistent import pmap
+            
             key = random.PRNGKey(self.seed)
             
             # Find target index
             target_idx = variables.index(target) if target in variables else 0
             
-            # Forward pass
+            # Forward pass with updated params
             outputs = self.net.apply(self.params, key, tensor, target_idx, False)
             
-            # Convert to expected format
-            if isinstance(outputs, dict) and 'marginal_parent_probs' in outputs:
-                return outputs
+            # Extract parent probabilities from network output
+            if isinstance(outputs, dict) and 'parent_probabilities' in outputs:
+                parent_probs = outputs['parent_probabilities']
             else:
-                # Extract marginals from parent set predictions if available
-                from ..avici_integration.parent_set.posterior import (
-                    create_parent_set_posterior, get_marginal_parent_probabilities
-                )
-                
-                if 'parent_sets' in outputs and 'parent_set_probs' in outputs:
-                    posterior = create_parent_set_posterior(
-                        target_variable=target,
-                        parent_sets=outputs['parent_sets'],
-                        probabilities=outputs['parent_set_probs'],
-                        metadata={'source': 'active_learning'}
-                    )
-                    
-                    marginals = get_marginal_parent_probabilities(posterior, variables)
-                    return {
-                        'marginal_parent_probs': marginals,
-                        'entropy': float(posterior.uncertainty),
-                        'model_type': 'active_bic',
-                        'posterior': posterior
-                    }
+                parent_probs = outputs
+            
+            # Create marginal probabilities dict (same format as base surrogate)
+            marginal_probs = {}
+            for i, var in enumerate(variables):
+                if i < len(parent_probs):
+                    prob_value = float(parent_probs[i])
+                    marginal_probs[var] = prob_value
                 else:
-                    # Fallback to base surrogate
-                    return self.base_surrogate.predict(tensor, target, variables)
+                    marginal_probs[var] = 0.0
+            
+            # Create ParentSetPosterior with marginals in metadata (same as base surrogate)
+            # Use create_parent_set_posterior function to match base surrogate exactly
+            from ..avici_integration.parent_set.posterior import create_parent_set_posterior
+            posterior = create_parent_set_posterior(
+                target_variable=target,
+                parent_sets=[frozenset()],  # Empty set as placeholder
+                probabilities=jnp.array([1.0]),
+                metadata={'marginal_parent_probs': marginal_probs}
+            )
+            
+            # Return the posterior object (same format as base surrogate)
+            return posterior
         else:
             # Delegate to base surrogate
             return self.base_surrogate.predict(tensor, target, variables)

@@ -20,7 +20,6 @@ import optax
 import numpy as np
 
 from ..avici_integration.continuous.model import ContinuousParentSetPredictionModel
-from ..avici_integration.continuous.configurable_model import ConfigurableContinuousParentSetPredictionModel
 from .data_preprocessing import (
     SurrogateTrainingData,
     load_demonstrations_from_path,
@@ -249,26 +248,15 @@ class SurrogateBCTrainer:
         
         # Define model function
         def surrogate_fn(data: jnp.ndarray, target_variable: int, is_training: bool = False):
-            # Use configurable model if encoder type is specified
-            if self.encoder_type != "node":  # "node" is the original default
-                model = ConfigurableContinuousParentSetPredictionModel(
-                    hidden_dim=self.hidden_dim,
-                    num_layers=self.num_layers,
-                    num_heads=self.num_heads,
-                    key_size=self.key_size,
-                    dropout=self.dropout,
-                    encoder_type=self.encoder_type,
-                    attention_type=self.attention_type
-                )
-            else:
-                # Use original model for backward compatibility
-                model = ContinuousParentSetPredictionModel(
-                    hidden_dim=self.hidden_dim,
-                    num_layers=self.num_layers,
-                    num_heads=self.num_heads,
-                    key_size=self.key_size,
-                    dropout=self.dropout
-                )
+            # Always use the ContinuousParentSetPredictionModel which now supports encoder_type
+            model = ContinuousParentSetPredictionModel(
+                hidden_dim=self.hidden_dim,
+                num_layers=self.num_layers,
+                num_heads=self.num_heads,
+                key_size=self.key_size,
+                dropout=self.dropout,
+                encoder_type=self.encoder_type
+            )
             return model(data, target_variable, is_training)
         
         # Transform with Haiku
@@ -290,10 +278,41 @@ class SurrogateBCTrainer:
         )
         self.optimizer_state = self.optimizer.init(self.model_params)
         
+        # Check initial model predictions
         logger.info("Model initialized successfully")
+        logger.info("Checking initial model predictions...")
+        test_output = self.net.apply(
+            self.model_params,
+            init_key,
+            sample_data.state_tensor,
+            sample_data.target_idx,
+            False  # is_training=False
+        )
+        initial_probs = test_output['parent_probabilities']
+        initial_logits = test_output.get('attention_logits', jnp.zeros_like(initial_probs))
+        
+        # Log statistics
+        non_target_mask = jnp.ones(len(sample_data.variables))
+        non_target_mask = non_target_mask.at[sample_data.target_idx].set(0.0)
+        non_target_probs = initial_probs[non_target_mask == 1.0]
+        non_target_logits = initial_logits[non_target_mask == 1.0]
+        
+        logger.info(f"Initial prediction statistics:")
+        logger.info(f"  Probability mean: {float(jnp.mean(non_target_probs)):.4f}")
+        logger.info(f"  Probability std: {float(jnp.std(non_target_probs)):.4f}")
+        logger.info(f"  Probability range: {float(jnp.max(non_target_probs) - jnp.min(non_target_probs)):.4f}")
+        logger.info(f"  Logit mean: {float(jnp.mean(non_target_logits)):.4f}")
+        logger.info(f"  Logit std: {float(jnp.std(non_target_logits)):.4f}")
+        logger.info(f"  Logit range: {float(jnp.max(non_target_logits) - jnp.min(non_target_logits)):.4f}")
     
     def _train_epoch(self, data: List[SurrogateTrainingData]) -> float:
         """Train for one epoch."""
+        # Import debug utilities
+        import os
+        DEBUG_TRAINING = os.environ.get('DEBUG_BC_TRAINING', '0') == '1'
+        if DEBUG_TRAINING:
+            from .debug_training_predictions import log_prediction_analysis, summarize_batch_predictions
+        
         # Shuffle data
         self.key, shuffle_key = random.split(self.key)
         indices = random.permutation(shuffle_key, len(data))
@@ -301,10 +320,55 @@ class SurrogateBCTrainer:
         total_loss = 0.0
         n_batches = 0
         
+        # Get current epoch (approximation based on call count)
+        if not hasattr(self, '_epoch_count'):
+            self._epoch_count = 0
+        self._epoch_count += 1
+        epoch = self._epoch_count
+        
         # Process in batches
-        for i in range(0, len(indices), self.batch_size):
+        for batch_idx, i in enumerate(range(0, len(indices), self.batch_size)):
             batch_indices = indices[i:i + self.batch_size]
             batch = [data[idx] for idx in batch_indices]
+            
+            # Debug analysis before training (first batch only)
+            if DEBUG_TRAINING and (batch_idx == 0 or (epoch == 1 and batch_idx < 3)):
+                batch_analyses = []
+                for example_idx, example in enumerate(batch[:3]):  # Only first 3 examples
+                    self.key, debug_key = random.split(self.key)
+                    output = self.net.apply(
+                        self.model_params, debug_key,
+                        example.state_tensor,
+                        example.target_idx,
+                        False  # is_training=False for analysis
+                    )
+                    pred_probs = output['parent_probabilities']
+                    attention_logits = output.get('attention_logits', None)
+                    
+                    # Get true probabilities
+                    true_probs = jnp.zeros(len(example.variables))
+                    for j, var in enumerate(example.variables):
+                        if var in example.marginal_parent_probs:
+                            true_probs = true_probs.at[j].set(
+                                example.marginal_parent_probs[var]
+                            )
+                    
+                    # Log prediction analysis
+                    analysis = log_prediction_analysis(
+                        pred_probs=pred_probs,
+                        true_probs=true_probs,
+                        variables=example.variables,
+                        target_idx=example.target_idx,
+                        epoch=epoch,
+                        batch_idx=batch_idx,
+                        example_idx=example_idx,
+                        attention_logits=attention_logits
+                    )
+                    batch_analyses.append(analysis)
+                
+                # Summarize batch
+                if batch_analyses:
+                    summarize_batch_predictions(batch_analyses, epoch, batch_idx)
             
             # Compute batch loss
             self.key, step_key = random.split(self.key)
@@ -319,6 +383,7 @@ class SurrogateBCTrainer:
         """Train on a single batch."""
         def loss_fn(params):
             batch_loss = 0.0
+            batch_logit_penalty = 0.0
             
             for example in batch:
                 # Forward pass
@@ -329,6 +394,7 @@ class SurrogateBCTrainer:
                     True  # is_training
                 )
                 pred_probs = output['parent_probabilities']
+                attention_logits = output.get('attention_logits', None)
                 
                 # Get true probabilities
                 true_probs = jnp.zeros(len(example.variables))
@@ -342,7 +408,7 @@ class SurrogateBCTrainer:
                 mask = jnp.ones(len(example.variables))
                 mask = mask.at[example.target_idx].set(0.0)
                 
-                # Binary cross-entropy loss
+                # Binary cross-entropy loss (NO WEIGHTING - matches original repo)
                 eps = 1e-7
                 bce = -(
                     true_probs * jnp.log(pred_probs + eps) +
@@ -351,8 +417,18 @@ class SurrogateBCTrainer:
                 
                 # Masked loss
                 masked_bce = bce * mask
-                example_loss = jnp.sum(masked_bce) / jnp.sum(mask)
+                bce_loss = jnp.sum(masked_bce) / jnp.sum(mask)
                 
+                # L2 regularization on logits to prevent extremes
+                if attention_logits is not None:
+                    # Only regularize non-target logits
+                    masked_logits = attention_logits * mask
+                    logit_penalty = 0.001 * jnp.mean(jnp.square(masked_logits))
+                    batch_logit_penalty += logit_penalty
+                else:
+                    logit_penalty = 0.0
+                
+                example_loss = bce_loss + logit_penalty
                 batch_loss += example_loss
             
             return batch_loss / len(batch)

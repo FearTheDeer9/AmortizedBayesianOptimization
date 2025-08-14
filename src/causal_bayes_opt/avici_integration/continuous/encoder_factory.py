@@ -55,7 +55,7 @@ def create_encoder(encoder_type: str,
         return NodeFeatureEncoder(
             hidden_dim=hidden_dim,
             num_layers=num_layers,
-            dropout=dropout
+            dropout_rate=dropout
         )
     
     elif encoder_type == "simple":
@@ -116,9 +116,7 @@ def create_attention_layer(attention_type: str,
         return ParentAttentionLayer(
             hidden_dim=hidden_dim,
             num_heads=num_heads,
-            key_size=key_size,
-            use_pairwise_features=True,
-            dropout=dropout
+            key_size=key_size
         )
     
     elif attention_type == "simple":

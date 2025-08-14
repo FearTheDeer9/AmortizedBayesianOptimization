@@ -23,7 +23,7 @@ import haiku as hk
 logger = logging.getLogger(__name__)
 
 
-def create_clean_bc_policy(hidden_dim: int = 256) -> callable:
+def create_clean_bc_policy(hidden_dim: int = 256, architecture: str = "alternating_attention") -> callable:
     """
     Create BC policy function with consistent module paths.
     
@@ -32,70 +32,32 @@ def create_clean_bc_policy(hidden_dim: int = 256) -> callable:
     
     Args:
         hidden_dim: Hidden dimension for policy network
+        architecture: Architecture type - "simple", "attention", or "alternating_attention"
+                     Default is "alternating_attention" for BC as it handles permutation symmetries better
         
     Returns:
         Policy function ready for hk.transform
     """
-    def bc_policy_fn(tensor: jnp.ndarray, target_idx: int) -> Dict[str, jnp.ndarray]:
-        """
-        BC policy network for intervention selection.
-        
-        Args:
-            tensor: Input tensor of shape [T, n_vars, C] where C can be 3 or 5
-            target_idx: Index of target variable (to mask from selection)
-            
-        Returns:
-            Dictionary with 'variable_logits' and 'value_params'
-        """
-        # Handle both 3 and 5 channel inputs
-        T, n_vars, n_channels = tensor.shape
-        
-        if n_channels == 3:
-            # Legacy 3-channel format - pad with zeros
-            padded = jnp.zeros((T, n_vars, 5))
-            padded = padded.at[:, :, :3].set(tensor)
-            tensor = padded
-            n_channels = 5
-        elif n_channels != 5:
-            raise ValueError(f"Expected 3 or 5 channels, got {n_channels}")
-        
-        # Flatten time and variable dimensions
-        flat_input = tensor.reshape(T * n_vars, n_channels)
-        
-        # Simple MLP encoder
-        net = hk.Sequential([
-            hk.Linear(hidden_dim),
-            jax.nn.relu,
-            hk.Linear(hidden_dim),
-            jax.nn.relu,
-            hk.Linear(hidden_dim // 2)
-        ])
-        
-        # Encode all timesteps
-        encoded = net(flat_input)  # [T * n_vars, hidden_dim // 2]
-        
-        # Aggregate across time (mean pooling)
-        encoded = encoded.reshape(T, n_vars, hidden_dim // 2)
-        aggregated = jnp.mean(encoded, axis=0)  # [n_vars, hidden_dim // 2]
-        
-        # Variable selection head
-        var_head = hk.Linear(1)
-        var_logits = var_head(aggregated).squeeze(-1)  # [n_vars]
-        
-        # Mask target variable (set to -inf)
-        mask = jnp.arange(n_vars) == target_idx
-        var_logits = jnp.where(mask, -jnp.inf, var_logits)
-        
-        # Value prediction head (mean and log_std for each variable)
-        value_head = hk.Linear(2)  # mean and log_std
-        value_params = value_head(aggregated)  # [n_vars, 2]
-        
-        return {
-            'variable_logits': var_logits,
-            'value_params': value_params
-        }
+    # Import from clean_policy_factory to reuse existing implementations
+    import sys
+    from pathlib import Path
+    # Add parent to path to import from clean_policy_factory
+    sys.path.insert(0, str(Path(__file__).parent))
+    from clean_policy_factory import (
+        create_simple_policy,
+        create_attention_policy, 
+        create_alternating_attention_policy
+    )
     
-    return bc_policy_fn
+    # Select architecture - reuse the same implementations as GRPO
+    if architecture == "alternating_attention":
+        return create_alternating_attention_policy(hidden_dim)
+    elif architecture == "attention":
+        return create_attention_policy(hidden_dim)
+    elif architecture == "simple":
+        return create_simple_policy(hidden_dim)
+    else:
+        raise ValueError(f"Unknown architecture: {architecture}")
 
 
 def create_bc_loss_fn(policy_fn: hk.Transformed) -> callable:

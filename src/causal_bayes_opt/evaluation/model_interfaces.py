@@ -85,7 +85,8 @@ def create_grpo_acquisition(checkpoint_path: Path,
         # Convert to 5-channel format if we have posterior
         if posterior is not None:
             # Create surrogate function that returns the posterior
-            surrogate_fn = lambda t, tgt: posterior
+            # Note: convert_three_to_five_channel expects (tensor, vars, target) but only uses the posterior
+            surrogate_fn = lambda t, v, tgt: posterior
             tensor_5ch, diagnostics = convert_three_to_five_channel(
                 tensor, variables, target, surrogate_fn
             )
@@ -98,6 +99,8 @@ def create_grpo_acquisition(checkpoint_path: Path,
                 )
             
             # Use 5-channel tensor
+            logger.info(f"BC using 5-channel tensor: shape={tensor_5ch.shape}, had_surrogate={diagnostics.get('had_surrogate')}")
+            logger.info(f"Channel 3 (parent probs) sample: {tensor_5ch[0, :, 3] if tensor_5ch.shape[2] > 3 else 'N/A'}")
             input_tensor = tensor_5ch
         else:
             # No posterior - use 3-channel tensor
@@ -187,7 +190,8 @@ def create_bc_acquisition(checkpoint_path: Path,
         # Convert to 5-channel format if we have posterior
         if posterior is not None:
             # Create surrogate function that returns the posterior
-            surrogate_fn = lambda t, tgt: posterior
+            # Note: convert_three_to_five_channel expects (tensor, vars, target) but only uses the posterior
+            surrogate_fn = lambda t, v, tgt: posterior
             tensor_5ch, diagnostics = convert_three_to_five_channel(
                 tensor, variables, target, surrogate_fn
             )
@@ -200,6 +204,8 @@ def create_bc_acquisition(checkpoint_path: Path,
                 )
             
             # Use 5-channel tensor
+            logger.info(f"BC using 5-channel tensor: shape={tensor_5ch.shape}, had_surrogate={diagnostics.get('had_surrogate')}")
+            logger.info(f"Channel 3 (parent probs) sample: {tensor_5ch[0, :, 3] if tensor_5ch.shape[2] > 3 else 'N/A'}")
             input_tensor = tensor_5ch
         else:
             # No posterior - use 3-channel tensor padded to 5
@@ -333,8 +339,10 @@ def create_bc_surrogate(checkpoint_path: Path,
         # Need to find target index
         target_idx = variables.index(target) if target in variables else len(variables) - 1
         
-        # Apply the model
-        output = net.apply(params, None, avici_data, target_idx, False)
+        # Apply the model (need a random key even for inference)
+        import jax.random as random
+        rng_key = random.PRNGKey(0)  # Deterministic key for evaluation
+        output = net.apply(params, rng_key, avici_data, target_idx, False)
         
         # The output should be parent predictions - need to convert to posterior format
         from ..avici_integration.parent_set.posterior import create_parent_set_posterior

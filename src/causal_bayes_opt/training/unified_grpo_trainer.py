@@ -26,7 +26,11 @@ import pyrsistent as pyr
 
 # Core imports
 from .three_channel_converter import buffer_to_three_channel_tensor
-from .five_channel_converter import buffer_to_five_channel_tensor
+from .five_channel_converter import (
+    buffer_to_five_channel_tensor,
+    buffer_to_five_channel_tensor_with_posteriors,
+    create_uniform_posterior
+)
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import create_sample, get_values
 from ..acquisition.better_rewards import compute_better_clean_reward, RunningStats
@@ -174,6 +178,11 @@ class UnifiedGRPOTrainer:
         self.episode_count = 0
         self.training_step = 0
         
+        # Track target values for performance monitoring
+        self.target_value_history = []
+        self.best_target_values = {}  # Best value per SCM
+        self.initial_target_values = {}  # Initial value per SCM
+        
     def _init_from_config(self, config: Dict[str, Any]):
         """Initialize from config dictionary."""
         self.config = config
@@ -196,6 +205,9 @@ class UnifiedGRPOTrainer:
         self.key_size = arch_config.get('key_size', 32)
         self.dropout = arch_config.get('dropout', 0.1)
         self.architecture_level = arch_config.get('level', 'simplified')
+        
+        # Policy architecture override (from command line)
+        self.policy_architecture = config.get('policy_architecture', None)
         
         # Training config
         self.learning_rate = config.get('learning_rate', 3e-4)
@@ -266,6 +278,7 @@ class UnifiedGRPOTrainer:
         self.episode_length = kwargs['episode_length']
         self.batch_size = kwargs['batch_size']
         self.architecture_level = kwargs['architecture_level']
+        self.policy_architecture = kwargs.get('policy_architecture', None)
         self.optimization_direction = kwargs['optimization_direction']
         self.seed = kwargs['seed']
         self.use_surrogate = kwargs['use_surrogate']
@@ -376,12 +389,14 @@ class UnifiedGRPOTrainer:
         
     def _initialize_policy(self):
         """Initialize policy network using shared factory."""
-        # Determine policy architecture
-        policy_architecture = "simple"  # default
+        # Determine policy architecture - default to alternating_attention for best performance
+        policy_architecture = "alternating_attention"  # Changed default from "simple"
         if hasattr(self, 'policy_architecture') and self.policy_architecture is not None:
             policy_architecture = self.policy_architecture
         elif self.architecture_level == "attention":
             policy_architecture = "attention"
+        elif self.architecture_level == "simplified" or self.architecture_level == "simple":
+            policy_architecture = "simple"  # Only use simple if explicitly requested
             
         logger.info(f"Initializing policy with architecture: {policy_architecture}")
         
@@ -599,6 +614,7 @@ class UnifiedGRPOTrainer:
                 - List of SCMs to rotate through
                 - Dict mapping names to SCMs
                 - Callable that generates SCMs on demand
+                - SCMCurriculumFactory for curriculum learning
             eval_scms: Optional separate evaluation set
             
         Returns:
@@ -616,32 +632,61 @@ class UnifiedGRPOTrainer:
         logger.info(f"{'='*70}\n")
         start_time = time.time()
         
-        # Convert SCMs to standard format
-        scm_rotation = self._prepare_scms(scms)
-        logger.info(f"Starting training with {len(scm_rotation)} SCMs")
+        # Check if using curriculum factory
+        from .curriculum_factory import SCMCurriculumFactory
+        is_curriculum = isinstance(scms, SCMCurriculumFactory)
+        
+        # Convert SCMs to standard format or use curriculum
+        if is_curriculum:
+            logger.info("Using curriculum learning factory")
+            curriculum_factory = scms
+            scm_rotation = None  # Not used in curriculum mode
+            scm_episodes = {}
+        else:
+            scm_rotation = self._prepare_scms(scms)
+            logger.info(f"Starting training with {len(scm_rotation)} SCMs")
+            scm_episodes = {name: 0 for name, _ in scm_rotation}
+            current_scm_idx = 0
         
         # Training history
         episode_metrics = []
         embedding_stats = []  # Track embedding statistics
-        scm_episodes = {name: 0 for name, _ in scm_rotation}
-        current_scm_idx = 0
+        curriculum_info = []  # Track curriculum progression
         
         # Main training loop
         for episode in range(self.max_episodes):
             # Get current SCM
-            scm_name, scm = scm_rotation[current_scm_idx]
-            scm_episodes[scm_name] += 1
+            if is_curriculum:
+                # Get performance metrics from last episode
+                perf_metrics = episode_metrics[-1] if episode_metrics else None
+                
+                # Get next SCM from curriculum
+                scm, curr_metadata = curriculum_factory.get_next_scm(perf_metrics)
+                scm_name = f"level_{curr_metadata['curriculum_level']}_{curr_metadata['curriculum_stage']}"
+                
+                # Track curriculum info
+                curriculum_info.append(curr_metadata)
+                
+                # Log curriculum progress
+                if episode % 10 == 0:
+                    logger.info(f"Curriculum: Level {curr_metadata['curriculum_level']} "
+                              f"({curr_metadata['curriculum_stage']}), "
+                              f"Episodes at level: {curr_metadata['episodes_at_level']}")
+            else:
+                # Original rotation logic
+                scm_name, scm = scm_rotation[current_scm_idx]
+                scm_episodes[scm_name] += 1
+                
+                # Check for rotation based on max_episodes_per_scm
+                if scm_episodes[scm_name] >= self.convergence_config.max_episodes_per_scm:
+                    logger.info(f"SCM {scm_name} reached max episodes ({scm_episodes[scm_name]})")
+                    # Rotate to next SCM
+                    current_scm_idx = (current_scm_idx + 1) % len(scm_rotation)
             
             # Run episode with GRPO batch collection
             self.rng_key, episode_key = random.split(self.rng_key)
             metrics = self._run_grpo_episode(episode, scm, scm_name, episode_key)
             episode_metrics.append(metrics)
-            
-            # Check for rotation based on max_episodes_per_scm
-            if scm_episodes[scm_name] >= self.convergence_config.max_episodes_per_scm:
-                logger.info(f"SCM {scm_name} reached max episodes ({scm_episodes[scm_name]})")
-                # Rotate to next SCM
-                current_scm_idx = (current_scm_idx + 1) % len(scm_rotation)
             
             # Check convergence if enabled
             if self.convergence_detector:
@@ -684,6 +729,13 @@ class UnifiedGRPOTrainer:
                 logger.info(f"Episode {episode}: mean_reward={mean_reward:.4f}, "
                           f"current_scm={scm_name}")
                 
+                # Report target value improvement
+                if scm_name in self.best_target_values:
+                    improvement = self.best_target_values[scm_name] - self.initial_target_values[scm_name]
+                    logger.info(f"  Target value - Initial: {self.initial_target_values[scm_name]:.3f}, "
+                               f"Best: {self.best_target_values[scm_name]:.3f}, "
+                               f"Improvement: {improvement:.3f}")
+                
                 # Track reward trend
                 if episode > 0 and episode % 10 == 0:
                     early_rewards = [m['mean_reward'] for m in episode_metrics[:min(10, len(episode_metrics))]]
@@ -706,23 +758,112 @@ class UnifiedGRPOTrainer:
         # Save final checkpoint
         self._save_checkpoint(is_final=True)
         
+        # Log final target value summary
+        if self.target_value_history:
+            logger.info("\n" + "="*70)
+            logger.info("TARGET VALUE IMPROVEMENT SUMMARY")
+            logger.info("="*70)
+            
+            # Calculate overall statistics
+            total_improvements = []
+            for scm_name in self.best_target_values:
+                if scm_name in self.initial_target_values:
+                    improvement = self.best_target_values[scm_name] - self.initial_target_values[scm_name]
+                    total_improvements.append(improvement)
+                    logger.info(f"\n{scm_name}:")
+                    logger.info(f"  Initial target value: {self.initial_target_values[scm_name]:.4f}")
+                    logger.info(f"  Best target value:    {self.best_target_values[scm_name]:.4f}")
+                    # Handle division by zero for percentage calculation
+                    if abs(self.initial_target_values[scm_name]) > 1e-6:
+                        pct_improvement = abs(improvement/self.initial_target_values[scm_name]*100)
+                        logger.info(f"  Improvement:          {improvement:.4f} ({pct_improvement:.1f}%)")
+                    else:
+                        logger.info(f"  Improvement:          {improvement:.4f} (from zero baseline)")
+            
+            if total_improvements:
+                avg_improvement = sum(total_improvements) / len(total_improvements)
+                logger.info(f"\nOverall Statistics:")
+                logger.info(f"  Average improvement: {avg_improvement:.4f}")
+                logger.info(f"  Best improvement:    {min(total_improvements):.4f}")  # Min because we minimize
+                logger.info(f"  Worst improvement:   {max(total_improvements):.4f}")
+                
+                # Track how many SCMs showed improvement
+                improved_count = sum(1 for imp in total_improvements if imp < 0)
+                logger.info(f"  SCMs improved:       {improved_count}/{len(total_improvements)} ({improved_count/len(total_improvements)*100:.1f}%)")
+            
+            # Plot target value progression over episodes
+            if len(self.target_value_history) > 10:
+                episodes = [entry['episode'] for entry in self.target_value_history]
+                values = [entry['target_value'] for entry in self.target_value_history]
+                
+                # Group by episode and average
+                from collections import defaultdict
+                episode_values = defaultdict(list)
+                for ep, val in zip(episodes, values):
+                    episode_values[ep].append(val)
+                
+                # Calculate running average
+                sorted_episodes = sorted(episode_values.keys())
+                running_avg = []
+                window = []
+                window_size = 10
+                
+                for ep in sorted_episodes:
+                    window.extend(episode_values[ep])
+                    if len(window) > window_size * 8:  # 8 samples per episode (group_size)
+                        window = window[-window_size * 8:]
+                    running_avg.append(sum(window) / len(window))
+                
+                # Log trend
+                if len(running_avg) > 1:
+                    trend = "improving" if running_avg[-1] < running_avg[0] else "worsening"
+                    logger.info(f"\nTarget Value Trend: {trend}")
+                    logger.info(f"  Start avg: {running_avg[0]:.4f}")
+                    logger.info(f"  End avg:   {running_avg[-1]:.4f}")
+                    logger.info(f"  Change:    {running_avg[-1] - running_avg[0]:.4f}")
+            
+            logger.info("="*70 + "\n")
+        
         # Prepare results
         training_time = time.time() - start_time
         final_metrics = episode_metrics[-1] if episode_metrics else {}
         
-        return {
+        # Add target value metrics to final metrics
+        if self.target_value_history:
+            final_metrics['target_value_metrics'] = {
+                'best_values': self.best_target_values,
+                'initial_values': self.initial_target_values,
+                'improvements': {
+                    scm: self.best_target_values[scm] - self.initial_target_values[scm]
+                    for scm in self.best_target_values 
+                    if scm in self.initial_target_values
+                },
+                'history_length': len(self.target_value_history)
+            }
+        
+        results = {
             'training_time': training_time,
             'final_metrics': final_metrics,
             'all_metrics': episode_metrics,
             'policy_params': self.policy_params,
-            'episodes_per_scm': scm_episodes,
-            'converged': all(
+            'embedding_stats': embedding_stats,
+            'target_value_history': self.target_value_history
+        }
+        
+        # Add curriculum-specific results
+        if is_curriculum:
+            results['curriculum_info'] = curriculum_info
+            results['curriculum_summary'] = curriculum_factory.get_summary()
+            results['final_level'] = curriculum_info[-1]['curriculum_level'] if curriculum_info else 1
+        else:
+            results['episodes_per_scm'] = scm_episodes
+            results['converged'] = all(
                 self.convergence_detector.scm_states.get(name, None) and 
                 self.convergence_detector.scm_states[name].converged
                 for name, _ in scm_rotation
-            ) if self.convergence_detector else False,
-            'embedding_stats': embedding_stats
-        }
+            ) if self.convergence_detector and scm_rotation else False
+            
+        return results
     
     def _run_grpo_episode(self, episode_idx: int, scm: pyr.PMap, scm_name: str, key: jax.random.PRNGKey) -> Dict[str, Any]:
         """Run GRPO episode - dispatches to enhanced or standard version based on use_grpo_rewards."""
@@ -747,8 +888,26 @@ class UnifiedGRPOTrainer:
         
         # Sample observational data
         obs_samples = sample_from_linear_scm(scm, self.obs_per_episode, seed=int(obs_key[0]))
+        
+        # Compute initial posterior if we have a surrogate, otherwise use uniform
+        initial_posterior = None
+        if self.use_surrogate and self.surrogate_predict_fn is not None:
+            # Create initial tensor from observations to get posterior
+            temp_buffer = ExperienceBuffer()
+            for sample in obs_samples:
+                temp_buffer.add_observation(sample)
+            initial_tensor, initial_mapper = buffer_to_three_channel_tensor(
+                temp_buffer, target_var, max_history_size=100, standardize=True
+            )
+            initial_posterior = self.surrogate_predict_fn(initial_tensor, target_var, initial_mapper.variables)
+        else:
+            # No surrogate - use uniform posterior
+            from ..training.five_channel_converter import create_uniform_posterior
+            initial_posterior = create_uniform_posterior(variables, target_var)
+        
+        # Add observations with the computed posterior
         for sample in obs_samples:
-            buffer.add_observation(sample)
+            buffer.add_observation(sample, posterior=initial_posterior)
         
         # Collect GRPO batch
         grpo_batch_data = {
@@ -766,32 +925,28 @@ class UnifiedGRPOTrainer:
             # Get posterior before intervention for info gain calculation
             posterior_before = None
             
-            # Convert buffer to 5-channel tensor with surrogate integration
+            # Convert buffer to 5-channel tensor using stored posteriors
             if self.use_surrogate and self.surrogate_predict_fn is not None:
-                # Create surrogate function wrapper that matches expected signature
-                def surrogate_wrapper(t, tgt, vars=None):
-                    # Use provided vars or fall back to the scm variables
-                    actual_vars = vars if vars is not None else variables
-                    # The surrogate function expects the target variable name, not index
-                    return self.surrogate_predict_fn(t, target_var, actual_vars)
-                
-                tensor, mapper, diagnostics = buffer_to_five_channel_tensor(
+                # Use the new function that uses stored posteriors
+                from ..training.five_channel_converter import buffer_to_five_channel_tensor_with_posteriors
+                tensor, mapper, diagnostics = buffer_to_five_channel_tensor_with_posteriors(
                     buffer, target_var, 
-                    surrogate_fn=surrogate_wrapper,
                     max_history_size=100, 
                     standardize=True,
-                    validate_signals=True
+                    use_uniform_for_missing=True
                 )
                 
                 # Log surrogate diagnostics
-                if diagnostics.get('surrogate_success'):
-                    logger.debug(
-                        f"Surrogate integration successful: "
-                        f"mean_prob={diagnostics.get('surrogate_stats', {}).get('mean_prob', 0):.3f}"
-                    )
-                    
-                # Keep posterior for structure metrics and info gain
-                posterior_before = surrogate_wrapper(tensor[:, :, :3], target_var, mapper.variables)
+                logger.debug(
+                    f"Tensor conversion with stored posteriors: "
+                    f"n_samples={diagnostics['n_samples']}, "
+                    f"n_with_posteriors={diagnostics['n_with_posteriors']}"
+                )
+                
+                # Compute current posterior for this step
+                # (This will be stored with the intervention samples)
+                tensor_3ch = tensor[:, :, :3]  # Extract first 3 channels for surrogate
+                posterior_before = self.surrogate_predict_fn(tensor_3ch, target_var, mapper.variables)
             else:
                 # No surrogate - convert 3-channel to 5-channel with zeros
                 tensor_3ch, mapper = buffer_to_three_channel_tensor(
@@ -1011,10 +1166,16 @@ class UnifiedGRPOTrainer:
                     logger.debug(
                         f"Posterior entropy before: {posterior_before.get('entropy', 0):.3f}"
                     )
-                    # First, add intervention samples to the actual buffer
-                    # This is necessary for proper information gain calculation
-                    for sample in intervention_samples:
-                        buffer.add_intervention(intervention, sample)
+                else:
+                    # No surrogate - use uniform posterior (0.5 probability for each potential parent)
+                    from ..training.five_channel_converter import create_uniform_posterior
+                    posterior_before = create_uniform_posterior(mapper.variables, target_var, probability=0.5)
+                
+                # Always add intervention samples to buffer with appropriate posterior
+                for sample in intervention_samples:
+                    buffer.add_intervention(intervention, sample, posterior=posterior_before)
+                
+                if self.use_surrogate and self.surrogate_predict_fn is not None:
                     
                     # Update surrogate with the buffer INCLUDING intervention results
                     self.surrogate_params, self.surrogate_opt_state, update_metrics = \
@@ -1091,10 +1252,42 @@ class UnifiedGRPOTrainer:
                 
                 reward = reward_info['total']
                 
+                # Track target value
+                target_val = outcome_values.get(target_var, 0.0)
+                
+                # Store initial value for this SCM if first time
+                scm_name = scm.name if hasattr(scm, 'name') else f"scm_{id(scm)}"
+                if scm_name not in self.initial_target_values:
+                    # Get initial value before any interventions
+                    initial_samples = sample_from_linear_scm(scm, n_samples=100, seed=self.seed)
+                    initial_values = [s.get(target_var, 0.0) for s in initial_samples]
+                    self.initial_target_values[scm_name] = float(np.mean(initial_values))
+                    self.best_target_values[scm_name] = self.initial_target_values[scm_name]
+                
+                # Update best value
+                if self.optimization_direction == "MINIMIZE":
+                    if target_val < self.best_target_values[scm_name]:
+                        self.best_target_values[scm_name] = target_val
+                else:
+                    if target_val > self.best_target_values[scm_name]:
+                        self.best_target_values[scm_name] = target_val
+                
+                # Store in history
+                self.target_value_history.append({
+                    'episode': self.episode_count,
+                    'step': step,
+                    'scm': scm_name,
+                    'target_value': target_val,
+                    'best_so_far': self.best_target_values[scm_name],
+                    'initial': self.initial_target_values[scm_name],
+                    'improvement': self.best_target_values[scm_name] - self.initial_target_values[scm_name]
+                })
+                
                 # DEBUG: Log target value trend
                 if self.training_step % 10 == 0 and step == 0:
-                    target_val = outcome_values.get(target_var, 0.0)
                     logger.info(f"  Target value after intervention: {target_val:.3f}")
+                    logger.info(f"  Best target so far: {self.best_target_values[scm_name]:.3f}")
+                    logger.info(f"  Improvement from initial: {self.best_target_values[scm_name] - self.initial_target_values[scm_name]:.3f}")
                     logger.info(f"  Reward received: {reward:.3f}")
                     
                     # Analyze if intervention helped

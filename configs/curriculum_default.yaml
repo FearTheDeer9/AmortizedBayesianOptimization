@@ -1,0 +1,158 @@
+# Default Curriculum Configuration for SCM Learning
+# 15 levels progressing from simple structures to complex random graphs
+
+curriculum:
+  mode: progressive  # Options: progressive, fixed, adaptive
+  
+  stages:
+    # ============ FOUNDATIONAL STAGES (3-5 nodes) ============
+    - level: 1
+      name: simple_structures
+      n_vars: [3, 3]
+      graph_types: [chain, fork, collider]
+      edge_prob: 0.3
+      episodes: 30
+      f1_threshold: 0.9
+      noise_scale: 1.0
+      coeff_range: [-2.0, 2.0]
+      
+    - level: 2
+      name: basic_4node
+      n_vars: [4, 4]
+      graph_types: [diamond, chain, fork]
+      edge_prob: 0.3
+      episodes: 40
+      f1_threshold: 0.85
+      noise_scale: 1.0
+      
+    - level: 3
+      name: mixed_small
+      n_vars: [4, 5]
+      graph_types: [mixed_simple]
+      edge_prob: 0.35
+      episodes: 50
+      f1_threshold: 0.85
+      
+    # ============ INTERMEDIATE STAGES (6-9 nodes) ============
+    - level: 4
+      name: medium_structured
+      n_vars: [6, 6]
+      graph_types: [butterfly, layered]
+      edge_prob: 0.3
+      episodes: 60
+      f1_threshold: 0.8
+      
+    - level: 5
+      name: medium_mixed
+      n_vars: [6, 7]
+      graph_types: [sparse_random]
+      edge_prob: 0.35
+      episodes: 70
+      f1_threshold: 0.8
+      
+    - level: 6
+      name: larger_structured
+      n_vars: [8, 9]
+      graph_types: [hierarchical, bipartite]
+      edge_prob: 0.25
+      episodes: 80
+      f1_threshold: 0.75
+      
+    # ============ COMPLEX STAGES WITH RANDOM GRAPHS (10-15 nodes) ============
+    - level: 7
+      name: erdos_renyi_small
+      n_vars: [10, 12]
+      graph_types: [erdos_renyi]
+      edge_prob: 0.2  # p = 2*ln(n)/n for connectivity
+      episodes: 100
+      f1_threshold: 0.7
+      
+    - level: 8
+      name: small_world_intro
+      n_vars: [10, 12]
+      graph_types: [small_world]
+      rewiring_prob: 0.1  # Watts-Strogatz parameter
+      k_neighbors: 4      # Initial neighbors in ring
+      episodes: 100
+      f1_threshold: 0.7
+      
+    - level: 9
+      name: mixed_complex
+      n_vars: [12, 15]
+      graph_types: [erdos_renyi, small_world, scale_free]
+      edge_prob: 0.15
+      rewiring_prob: 0.1
+      m_parameter: 2  # Edges per new node for scale-free
+      episodes: 120
+      f1_threshold: 0.65
+      
+    # ============ ADVANCED STAGES (16-25 nodes) ============
+    - level: 10
+      name: large_erdos_renyi
+      n_vars: [16, 20]
+      graph_types: [erdos_renyi]
+      edge_prob: 0.1
+      episodes: 150
+      f1_threshold: 0.6
+      
+    - level: 11
+      name: large_small_world
+      n_vars: [16, 20]
+      graph_types: [small_world]
+      rewiring_prob: 0.15
+      k_neighbors: 6
+      episodes: 150
+      f1_threshold: 0.6
+      
+    - level: 12
+      name: scale_free_networks
+      n_vars: [18, 22]
+      graph_types: [scale_free]
+      m_parameter: 2  # Barabási-Albert parameter
+      episodes: 150
+      f1_threshold: 0.55
+      
+    # ============ EXPERT STAGES (25+ nodes) ============
+    - level: 13
+      name: very_large_sparse
+      n_vars: [25, 30]
+      graph_types: [erdos_renyi]
+      edge_prob: 0.05  # Very sparse for large graphs
+      episodes: 200
+      f1_threshold: 0.5
+      
+    - level: 14
+      name: very_large_mixed
+      n_vars: [25, 35]
+      graph_types: [erdos_renyi, small_world, scale_free]
+      edge_prob: 0.05
+      rewiring_prob: 0.2
+      m_parameter: 3
+      episodes: 200
+      f1_threshold: 0.5
+      
+    - level: 15
+      name: extreme_complexity
+      n_vars: [35, 50]
+      graph_types: [all]  # Any graph type
+      edge_prob: 0.03    # Ultra-sparse for huge graphs
+      episodes: 250
+      f1_threshold: 0.45
+      
+  # Progression parameters
+  progression:
+    min_episodes_per_stage: 20  # Minimum before considering advancement
+    convergence_window: 10      # Episodes to check for convergence
+    patience: 5                  # Consecutive threshold hits for advancement
+    
+  # Graph generation parameters
+  graph_params:
+    seed_offset: 1000           # Add to episode number for graph seeds
+    coefficient_range: [-3.0, 3.0]
+    noise_scale_range: [0.5, 2.0]
+    
+  # Performance tracking
+  tracking:
+    metrics_window: 10          # Window for rolling metrics
+    log_frequency: 10           # Log progress every N episodes
+    save_checkpoints: true      # Save when advancing stages

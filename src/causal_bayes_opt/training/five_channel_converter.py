@@ -30,6 +30,127 @@ from ..utils.variable_mapping import VariableMapper
 logger = logging.getLogger(__name__)
 
 
+def create_uniform_posterior(variables: List[str], target_variable: str, 
+                            probability: float = 0.5) -> Dict[str, Any]:
+    """
+    Create a uniform posterior for initial observations.
+    
+    Args:
+        variables: List of all variables
+        target_variable: Target variable name
+        probability: Uniform probability to assign (default 0.5)
+        
+    Returns:
+        Posterior dict with uniform marginal probabilities
+    """
+    marginal_probs = {}
+    for var in variables:
+        if var != target_variable:
+            marginal_probs[var] = probability
+        else:
+            marginal_probs[var] = 0.0  # Target can't be its own parent
+    
+    return {
+        'marginal_parent_probs': marginal_probs,
+        'entropy': 1.0,  # Maximum entropy for uniform distribution
+        'is_uniform': True
+    }
+
+
+def buffer_to_five_channel_tensor_with_posteriors(
+    buffer: ExperienceBuffer,
+    target_variable: str,
+    max_history_size: int = 100,
+    standardize: bool = True,
+    use_uniform_for_missing: bool = True
+) -> Tuple[jnp.ndarray, VariableMapper, Dict[str, Any]]:
+    """
+    Convert experience buffer to 5-channel tensor using stored posteriors.
+    
+    This version uses posteriors stored in the buffer for each timestep,
+    ensuring temporal consistency and preventing information leakage.
+    
+    Args:
+        buffer: Experience buffer with samples and posteriors
+        target_variable: Name of target variable
+        max_history_size: Maximum number of historical samples to include
+        standardize: Whether to standardize values
+        use_uniform_for_missing: Use uniform posterior for samples without posteriors
+        
+    Returns:
+        Tuple of (tensor, mapper, diagnostics)
+    """
+    logger.debug(f"[5-Channel Converter] Converting buffer with stored posteriors")
+    
+    # Get samples with their posteriors
+    samples_with_posteriors = buffer.get_all_samples_with_posteriors()
+    if not samples_with_posteriors:
+        raise ValueError("Buffer is empty")
+    
+    # Get variable order
+    variable_order = sorted(buffer.get_variable_coverage())
+    if target_variable not in variable_order:
+        raise ValueError(f"Target '{target_variable}' not in buffer variables")
+    
+    # Create mapper
+    mapper = VariableMapper(variable_order, target_variable)
+    n_vars = len(variable_order)
+    
+    # Limit to recent history
+    if len(samples_with_posteriors) > max_history_size:
+        samples_with_posteriors = samples_with_posteriors[-max_history_size:]
+    actual_size = len(samples_with_posteriors)
+    
+    # Initialize tensor
+    tensor = jnp.zeros((max_history_size, n_vars, 5))
+    
+    # Fill tensor with samples and their historical posteriors
+    for t, (sample, posterior) in enumerate(samples_with_posteriors):
+        tensor_idx = max_history_size - actual_size + t
+        
+        # Channels 0-2: Values, Target, Intervention (same as before)
+        values = _extract_values_vector(sample, variable_order)
+        target_mask = jnp.array([1.0 if var == target_variable else 0.0 for var in variable_order])
+        intervention_mask = _extract_intervention_mask(sample, variable_order)
+        
+        tensor = tensor.at[tensor_idx, :, 0].set(values)
+        tensor = tensor.at[tensor_idx, :, 1].set(target_mask)
+        tensor = tensor.at[tensor_idx, :, 2].set(intervention_mask)
+        
+        # Channel 3: Marginal parent probabilities from stored posterior
+        if posterior is not None:
+            marginal_probs = _extract_marginal_probs(posterior, variable_order, target_variable)
+            if marginal_probs:
+                prob_vector = jnp.array([marginal_probs.get(var, 0.0) for var in variable_order])
+                tensor = tensor.at[tensor_idx, :, 3].set(prob_vector)
+        elif use_uniform_for_missing:
+            # Use uniform posterior for missing
+            uniform_post = create_uniform_posterior(variable_order, target_variable)
+            marginal_probs = uniform_post['marginal_parent_probs']
+            prob_vector = jnp.array([marginal_probs.get(var, 0.0) for var in variable_order])
+            tensor = tensor.at[tensor_idx, :, 3].set(prob_vector)
+    
+    # Channel 4: Intervention recency (compute from samples)
+    recency_matrix = _compute_intervention_recency_matrix(
+        [s for s, _ in samples_with_posteriors], variable_order, max_history_size
+    )
+    tensor = tensor.at[:, :, 4].set(recency_matrix)
+    
+    # Standardize values channel
+    if standardize and actual_size > 1:
+        tensor = _standardize_values(tensor, actual_size)
+    
+    # Diagnostics
+    diagnostics = {
+        'n_samples': len(samples_with_posteriors),
+        'n_with_posteriors': sum(1 for _, p in samples_with_posteriors if p is not None),
+        'actual_history_size': actual_size,
+        'used_uniform_fill': use_uniform_for_missing
+    }
+    
+    return tensor, mapper, diagnostics
+
+
 def buffer_to_five_channel_tensor(
     buffer: ExperienceBuffer,
     target_variable: str,
@@ -414,6 +535,12 @@ def _compute_intervention_recency_matrix(
             recency_matrix = recency_matrix.at[tensor_idx, i].set(normalized_recency)
     
     return recency_matrix
+
+
+def _extract_intervention_mask(sample: Any, variable_order: List[str]) -> jnp.ndarray:
+    """Extract intervention indicators from sample."""
+    intervention_targets = get_intervention_targets(sample)
+    return jnp.array([1.0 if var in intervention_targets else 0.0 for var in variable_order])
 
 
 def _extract_values_vector(sample: Any, variable_order: List[str]) -> jnp.ndarray:

@@ -431,6 +431,13 @@ def get_scm_characteristics(scm: pyr.PMap) -> Dict[str, Any]:
     return characteristics
 
 
+# Import advanced graph generators from benchmark_graphs
+from .benchmark_graphs import (
+    create_erdos_renyi_scm,
+    create_scale_free_scm,
+    create_small_world_scm
+)
+
 # Export functions for easy import
 __all__ = [
     'create_scm_suite',
@@ -442,5 +449,9 @@ __all__ = [
     'create_dense_scm',
     'create_sparse_scm',
     'create_mixed_coeff_scm',
-    'get_scm_characteristics'
+    'get_scm_characteristics',
+    # Advanced graph types
+    'create_erdos_renyi_scm',
+    'create_scale_free_scm',
+    'create_small_world_scm'
 ]

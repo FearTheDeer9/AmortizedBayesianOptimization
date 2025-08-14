@@ -433,10 +433,6 @@ def main():
                        choices=['simple', 'attention', 'alternating_attention'],
                        help='Policy architecture to use (default: alternating_attention for BC, alternating_attention for GRPO)')
     
-    # Debug flag for architecture diagnostics
-    parser.add_argument('--debug_architecture', action='store_true',
-                       help='Enable detailed architecture debugging')
-    
     # Surrogate parameters
     parser.add_argument('--use_surrogate', action='store_true', help='Enable surrogate learning in GRPO')
     parser.add_argument('--surrogate_checkpoint', type=str, default=None,

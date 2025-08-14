@@ -1,235 +1,164 @@
 """
-Node Feature Encoder for BC Surrogate Model.
+Node Feature Encoder - Creates individual node representations without inter-node attention.
 
-This encoder computes per-variable features WITHOUT inter-node attention,
-which is crucial for preventing embedding collapse and maintaining prediction diversity.
-
-Key Design Principles:
-- No information mixing between nodes during encoding
-- Each variable gets its own feature representation
-- Features computed from the variable's own data only
-- Maintains node identity throughout encoding
+This encoder focuses on creating good per-variable representations from the data,
+leaving relationship modeling to the ParentAttentionLayer.
 """
 
 import jax
 import jax.numpy as jnp
 import haiku as hk
-from typing import List, Optional
+from typing import Optional
 
 
 class NodeFeatureEncoder(hk.Module):
     """
-    Encoder that computes per-variable features without cross-variable attention.
+    Encoder that creates node embeddings from individual variable features.
     
-    This encoder addresses the uniformity issue by:
-    1. Computing features independently for each variable
-    2. Avoiding shared projections that lead to collapse
-    3. Preserving variable-specific information
-    4. Not mixing information between nodes during encoding
+    Key principles:
+    - No inter-node attention (avoid uniformity)
+    - Rich per-variable features
+    - Maintain diversity through independent processing
+    - Let ParentAttentionLayer handle relationships
     """
     
     def __init__(self,
                  hidden_dim: int = 128,
                  num_layers: int = 2,
-                 dropout: float = 0.1,
-                 name: str = "NodeFeatureEncoder"):
+                 dropout_rate: float = 0.1,
+                 name: Optional[str] = None):
         super().__init__(name=name)
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
-        self.dropout = dropout
-        self.w_init = hk.initializers.VarianceScaling(2.0, "fan_in", "uniform")
-    
-    def __call__(self, 
+        self.dropout_rate = dropout_rate
+        
+    def __call__(self,
                  data: jnp.ndarray,
-                 is_training: bool = False) -> jnp.ndarray:
+                 is_training: bool = True) -> jnp.ndarray:
         """
-        Encode intervention data into node representations.
+        Encode intervention data into variable embeddings.
         
         Args:
-            data: Intervention data [N, d, 3] where:
-                  [:, :, 0] = variable values
-                  [:, :, 1] = intervention indicators
-                  [:, :, 2] = target indicators (1 for target variable, 0 otherwise)
-            is_training: Whether in training mode (for dropout)
-                  
+            data: [N, d, 3] tensor (values, target_indicator, intervention_indicator)
+            is_training: Whether in training mode
+            
         Returns:
-            Node embeddings [d, hidden_dim] - one per variable
-        """
-        N, d, channels = data.shape
-        assert channels == 3, f"Expected 3 channels, got {channels}"
-        
-        # Process each variable independently to avoid collapse
-        def encode_single_variable(var_data):
-            """
-            Encode a single variable's data into features.
-            
-            Args:
-                var_data: Single variable data [N, 3]
-                
-            Returns:
-                Variable embedding [hidden_dim]
-            """
-            # Extract channels
-            values = var_data[:, 0]  # [N]
-            interventions = var_data[:, 1]  # [N]
-            target_indicator = var_data[:, 2]  # [N] - 1 if this is the target variable
-            
-            # Compute observational statistics (excluding interventions)
-            # Note: target_indicator not used in feature computation
-            obs_mask = (1 - interventions)
-            n_obs = jnp.sum(obs_mask) + 1e-8  # Avoid division by zero
-            
-            # Masked statistics for observational data
-            masked_values = jnp.where(obs_mask, values, 0.0)
-            obs_mean = jnp.sum(masked_values) / n_obs
-            obs_var = jnp.sum(masked_values**2 * obs_mask) / n_obs - obs_mean**2
-            obs_std = jnp.sqrt(jnp.maximum(obs_var, 0.0))
-            
-            # Intervention statistics
-            n_interventions = jnp.sum(interventions)
-            intervention_rate = n_interventions / N
-            
-            # Value range statistics (from all data)
-            value_min = jnp.min(values)
-            value_max = jnp.max(values)
-            value_range = value_max - value_min
-            
-            # Additional raw moments
-            raw_mean = jnp.mean(values)  # Including interventions
-            raw_std = jnp.std(values)
-            
-            # Higher-order statistics
-            centered_values = values - raw_mean
-            raw_skewness = jnp.mean(centered_values**3) / (raw_std**3 + 1e-8)
-            raw_kurtosis = jnp.mean(centered_values**4) / (raw_std**4 + 1e-8) - 3.0
-            
-            # Percentiles for better distribution characterization
-            percentile_25 = jnp.percentile(values, 25)
-            percentile_50 = jnp.percentile(values, 50)  # median
-            percentile_75 = jnp.percentile(values, 75)
-            percentile_5 = jnp.percentile(values, 5)   # lower tail
-            percentile_95 = jnp.percentile(values, 95)  # upper tail
-            
-            # Value dynamics (temporal patterns)
-            if N > 1:
-                value_diffs = values[1:] - values[:-1]
-                mean_change = jnp.mean(value_diffs)
-                volatility = jnp.std(value_diffs)
-            else:
-                mean_change = 0.0
-                volatility = 0.0
-            
-            # Create feature vector with all statistics
-            features = jnp.array([
-                obs_mean,
-                obs_std,
-                intervention_rate,
-                value_min,
-                value_max,
-                value_range,
-                raw_mean,
-                raw_std,
-                raw_skewness,
-                raw_kurtosis,
-                n_interventions / 10.0,  # Normalized intervention count
-                n_obs / N,  # Observation rate
-                percentile_5,
-                percentile_25,
-                percentile_50,
-                percentile_75,
-                percentile_95,
-                mean_change,
-                volatility,
-            ])
-            
-            # Project to hidden dimension
-            # Use variable-specific MLP (no shared weights across variables)
-            x = hk.Linear(self.hidden_dim, w_init=self.w_init, name="initial_projection")(features)
-            x = jax.nn.gelu(x)
-            
-            # Apply dropout if training
-            if is_training and self.dropout > 0:
-                x = hk.dropout(hk.next_rng_key(), self.dropout, x)
-            
-            # Additional layers for more expressive features
-            for i in range(self.num_layers - 1):
-                residual = x
-                x = hk.Linear(self.hidden_dim, w_init=self.w_init, name=f"layer_{i}")(x)
-                x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True, name=f"ln_{i}")(x)
-                x = jax.nn.gelu(x)
-                if is_training and self.dropout > 0:
-                    x = hk.dropout(hk.next_rng_key(), self.dropout, x)
-                # Residual connection
-                x = x + residual
-            
-            # Final projection
-            x = hk.Linear(self.hidden_dim, w_init=self.w_init, name="final_projection")(x)
-            
-            return x
-        
-        # Apply encoding to each variable independently using vmap
-        # This ensures true variable-agnostic processing without information mixing
-        data_transposed = jnp.transpose(data, (1, 0, 2))  # [d, N, 3]
-        
-        # Use vmap to apply the same encoding function to all variables
-        # This shares parameters across variables but processes them independently
-        node_embeddings = jax.vmap(encode_single_variable)(data_transposed)  # [d, hidden_dim]
-        
-        return node_embeddings
-
-
-class SimpleNodeFeatureEncoder(hk.Module):
-    """
-    Simplified version of NodeFeatureEncoder for testing and comparison.
-    
-    This version uses shared parameters but still avoids cross-variable attention.
-    """
-    
-    def __init__(self,
-                 hidden_dim: int = 128,
-                 name: str = "SimpleNodeFeatureEncoder"):
-        super().__init__(name=name)
-        self.hidden_dim = hidden_dim
-        self.w_init = hk.initializers.VarianceScaling(2.0, "fan_in", "uniform")
-    
-    def __call__(self, 
-                 data: jnp.ndarray,
-                 is_training: bool = False) -> jnp.ndarray:
-        """
-        Simple encoding that still maintains variable separation.
+            embeddings: [d, hidden_dim]
         """
         N, d, channels = data.shape
         
-        # Compute features for all variables at once
+        # Extract channels
         values = data[:, :, 0]  # [N, d]
-        interventions = data[:, :, 1]  # [N, d]
-        target_indicators = data[:, :, 2]  # [N, d]
+        target_indicators = data[:, :, 1]  # [N, d]
+        intervention_indicators = data[:, :, 2]  # [N, d]
         
-        # Observational mask (when not intervened)
-        # Note: target_indicators not used in feature computation
-        obs_mask = (1 - interventions)  # [N, d]
+        # Compute per-variable features
+        features_list = []
         
-        # Per-variable statistics (computed along N axis)
-        obs_means = jnp.sum(values * obs_mask, axis=0) / (jnp.sum(obs_mask, axis=0) + 1e-8)  # [d]
-        intervention_rates = jnp.mean(interventions, axis=0)  # [d]
-        value_ranges = jnp.ptp(values, axis=0)  # [d] - peak to peak
+        # 1. Basic statistics
+        features_list.append(jnp.mean(values, axis=0))  # [d]
+        features_list.append(jnp.std(values, axis=0))   # [d]
+        features_list.append(jnp.min(values, axis=0))   # [d]
+        features_list.append(jnp.max(values, axis=0))   # [d]
         
-        # Stack features
-        features = jnp.stack([
-            obs_means,
-            intervention_rates,
-            value_ranges,
-            jnp.mean(values, axis=0),  # Raw means
-            jnp.std(values, axis=0),   # Raw stds
-        ], axis=1)  # [d, 5]
+        # 2. Quantiles
+        features_list.append(jnp.percentile(values, 25, axis=0))  # [d]
+        features_list.append(jnp.percentile(values, 50, axis=0))  # [d] median
+        features_list.append(jnp.percentile(values, 75, axis=0))  # [d]
         
-        # Pad to hidden dimension
-        padding = self.hidden_dim - features.shape[1]
-        if padding > 0:
-            features = jnp.pad(features, ((0, 0), (0, padding)))
+        # 3. Higher moments
+        centered = values - jnp.mean(values, axis=0, keepdims=True)
+        features_list.append(jnp.mean(centered**3, axis=0) / (jnp.std(values, axis=0)**3 + 1e-8))  # Skewness
+        features_list.append(jnp.mean(centered**4, axis=0) / (jnp.std(values, axis=0)**4 + 1e-8) - 3)  # Kurtosis
         
-        # Simple linear projection (shared across variables)
-        embeddings = hk.Linear(self.hidden_dim, w_init=self.w_init)(features)  # [d, hidden_dim]
-        embeddings = jax.nn.gelu(embeddings)
+        # 4. Intervention information
+        features_list.append(jnp.mean(intervention_indicators, axis=0))  # Intervention rate
+        features_list.append(jnp.sum(intervention_indicators, axis=0))   # Total interventions
+        
+        # 5. Value dynamics (useful for time series aspects)
+        value_diffs = values[1:] - values[:-1]
+        features_list.append(jnp.mean(value_diffs, axis=0))  # Mean change
+        features_list.append(jnp.std(value_diffs, axis=0))   # Volatility
+        
+        # 6. Extreme value statistics
+        features_list.append(jnp.percentile(values, 5, axis=0))   # Lower tail
+        features_list.append(jnp.percentile(values, 95, axis=0))  # Upper tail
+        
+        # Stack all features
+        features = jnp.stack(features_list, axis=1)  # [d, num_features]
+        
+        # Handle NaN values
+        features = jnp.nan_to_num(features, 0.0)
+        
+        # Add positional encoding to break symmetry
+        # This helps distinguish variables even if they have similar statistics
+        position_encoding = self.get_position_encoding(d, features.shape[1])
+        features = features + 0.1 * position_encoding  # Small contribution
+        
+        # Project to hidden dimension through MLP
+        embeddings = features
+        
+        for layer_idx in range(self.num_layers):
+            # Layer with residual connection
+            layer = hk.Linear(
+                self.hidden_dim if layer_idx == 0 else self.hidden_dim,
+                w_init=hk.initializers.VarianceScaling(2.0, "fan_in", "uniform"),
+                name=f"layer_{layer_idx}"
+            )
+            
+            if layer_idx == 0:
+                embeddings = layer(embeddings)
+            else:
+                # Residual connection for deeper layers
+                residual = embeddings
+                embeddings = layer(embeddings)
+                embeddings = embeddings + residual
+            
+            # Activation
+            embeddings = jax.nn.gelu(embeddings)
+            
+            # Layer normalization
+            embeddings = hk.LayerNorm(
+                axis=-1,
+                create_scale=True,
+                create_offset=True,
+                name=f"ln_{layer_idx}"
+            )(embeddings)
+            
+            # Dropout
+            if is_training and self.dropout_rate > 0:
+                embeddings = hk.dropout(hk.next_rng_key(), self.dropout_rate, embeddings)
+        
+        # Final projection if needed
+        if embeddings.shape[-1] != self.hidden_dim:
+            final_proj = hk.Linear(
+                self.hidden_dim,
+                w_init=hk.initializers.VarianceScaling(1.0, "fan_avg", "uniform"),
+                name="final_projection"
+            )
+            embeddings = final_proj(embeddings)
         
         return embeddings
+    
+    def get_position_encoding(self, n_positions: int, dim: int) -> jnp.ndarray:
+        """
+        Create sinusoidal position encodings to break symmetry.
+        
+        Args:
+            n_positions: Number of positions (variables)
+            dim: Dimension of encoding
+            
+        Returns:
+            position_encoding: [n_positions, dim]
+        """
+        positions = jnp.arange(n_positions)[:, None]
+        dimensions = jnp.arange(dim)[None, :]
+        
+        # Sinusoidal encoding
+        angles = positions / jnp.power(10000, 2 * (dimensions // 2) / dim)
+        
+        encoding = jnp.zeros((n_positions, dim))
+        encoding = encoding.at[:, 0::2].set(jnp.sin(angles[:, 0::2]))
+        encoding = encoding.at[:, 1::2].set(jnp.cos(angles[:, 1::2]))
+        
+        return encoding

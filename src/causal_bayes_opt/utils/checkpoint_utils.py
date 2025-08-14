@@ -151,14 +151,25 @@ def create_model_from_checkpoint(checkpoint: Dict[str, Any]) -> Tuple[hk.Transfo
     if model_type == 'policy':
         hidden_dim = architecture['hidden_dim']
         
+        # Extract architecture type - handle both old and new checkpoint formats
+        if 'architecture_type' in architecture:
+            arch_type = architecture['architecture_type']
+        elif 'architecture_level' in architecture:
+            # Map old simplified level to alternating_attention
+            arch_type = 'alternating_attention' if architecture['architecture_level'] == 'simplified' else 'simple'
+        else:
+            # Default to alternating_attention for BC, simple for GRPO
+            arch_type = 'alternating_attention' if model_subtype == 'bc' else 'simple'
+            logger.warning(f"No architecture type found in checkpoint, using default: {arch_type}")
+        
         if model_subtype == 'bc':
             from ..policies.clean_bc_policy_factory import create_clean_bc_policy
-            policy_fn = create_clean_bc_policy(hidden_dim=hidden_dim)
+            policy_fn = create_clean_bc_policy(hidden_dim=hidden_dim, architecture=arch_type)
             net = hk.transform(policy_fn)
             
         elif model_subtype == 'grpo':
             from ..policies.clean_policy_factory import create_clean_grpo_policy
-            policy_fn = create_clean_grpo_policy(hidden_dim=hidden_dim)
+            policy_fn = create_clean_grpo_policy(hidden_dim=hidden_dim, architecture=arch_type)
             net = hk.transform(policy_fn)
             
         else:
@@ -167,24 +178,28 @@ def create_model_from_checkpoint(checkpoint: Dict[str, Any]) -> Tuple[hk.Transfo
     # Surrogate models
     elif model_type == 'surrogate':
         if model_subtype == 'continuous_parent_set':
-            # Check if we have encoder_type in architecture (new format)
-            if 'encoder_type' in architecture:
+            # Check if params indicate ConfigurableContinuousParentSetPredictionModel
+            # by looking at the parameter keys
+            param_keys = list(params.keys()) if params else []
+            uses_configurable = any('ConfigurableContinuousParentSetPredictionModel' in k for k in param_keys)
+            
+            if uses_configurable:
+                # Use ConfigurableContinuousParentSetPredictionModel for compatibility
                 from ..avici_integration.continuous.configurable_model import ConfigurableContinuousParentSetPredictionModel
                 
-                # Recreate model with configurable architecture
                 def surrogate_fn(data: jnp.ndarray, target_variable: int, is_training: bool = False):
                     model = ConfigurableContinuousParentSetPredictionModel(
                         hidden_dim=architecture['hidden_dim'],
                         num_layers=architecture['num_layers'],
                         num_heads=architecture['num_heads'],
-                        key_size=architecture['key_size'],  # Explicit!
-                        dropout=architecture.get('dropout', 0.1) if is_training else 0.0,
-                        encoder_type=architecture['encoder_type'],
+                        key_size=architecture['key_size'],
+                        dropout=architecture.get('dropout', 0.1),  # Model handles is_training internally
+                        encoder_type=architecture.get('encoder_type', 'node_feature'),
                         attention_type=architecture.get('attention_type', 'pairwise')
                     )
                     return model(data, target_variable, is_training)
             else:
-                # Fallback to original model for backward compatibility
+                # Use standard ContinuousParentSetPredictionModel
                 from ..avici_integration.continuous.model import ContinuousParentSetPredictionModel
                 
                 def surrogate_fn(data: jnp.ndarray, target_variable: int, is_training: bool = False):
@@ -192,8 +207,9 @@ def create_model_from_checkpoint(checkpoint: Dict[str, Any]) -> Tuple[hk.Transfo
                         hidden_dim=architecture['hidden_dim'],
                         num_layers=architecture['num_layers'],
                         num_heads=architecture['num_heads'],
-                        key_size=architecture['key_size'],  # Explicit!
-                        dropout=architecture.get('dropout', 0.1) if is_training else 0.0
+                        key_size=architecture['key_size'],
+                        dropout=architecture.get('dropout', 0.1),  # Model handles is_training internally
+                        encoder_type=architecture.get('encoder_type', 'node_feature')
                     )
                     return model(data, target_variable, is_training)
             

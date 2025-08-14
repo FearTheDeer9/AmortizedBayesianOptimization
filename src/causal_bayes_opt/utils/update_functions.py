@@ -289,6 +289,15 @@ class BICUpdate:
     
     This update function uses Bayesian Information Criterion (BIC) scoring
     to update surrogate model parameters based on observed data.
+    
+    WARNING: This update strategy is incompatible with BC surrogate models that
+    only output marginal parent probabilities. The BIC update requires models
+    that output parent set predictions (parent_set_logits and parent_sets).
+    When used with BC surrogates, the loss will be 0.0 and updates will only
+    apply L2 regularization, causing performance degradation over time.
+    
+    For BC surrogates that output marginal probabilities, consider alternative
+    update strategies or use the model without active learning.
     """
     
     def __init__(

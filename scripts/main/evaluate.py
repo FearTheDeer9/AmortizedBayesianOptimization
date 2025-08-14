@@ -14,7 +14,6 @@ import json
 from typing import Dict, List, Any, Optional
 import matplotlib.pyplot as plt
 import numpy as np
-import jax.numpy as jnp
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -56,8 +55,7 @@ def evaluate_method(
     config: Dict[str, Any],
     surrogate_name: str,
     registry: SurrogateRegistry,
-    update_strategy: str = "none",
-    debug: bool = False
+    update_strategy: str = "none"
 ) -> Dict[str, Any]:
     """
     Evaluate a single method with a specific surrogate on all test SCMs.
@@ -75,8 +73,6 @@ def evaluate_method(
         Evaluation results
     """
     logger.info(f"\nEvaluating {method_name} with surrogate '{surrogate_name}'...")
-    logger.info(f"  DEBUG: acquisition_fn type = {type(acquisition_fn)}")
-    logger.info(f"  DEBUG: acquisition_fn = {acquisition_fn}")
     
     # Get surrogate from registry
     surrogate = registry.get(surrogate_name)
@@ -134,143 +130,9 @@ def evaluate_method(
     for scm_name, scm in scms:
         logger.info(f"  Testing on {scm_name}...")
         
-        # Store reference to current params if active learning is enabled
-        current_params = [None]  # Use list to allow mutation in closure
-        current_net = [None]
-        
-        # Extract network and params from wrapper surrogate if available
-        if hasattr(surrogate, 'net'):
-            # ActiveLearningSurrogateWrapper stores as 'net' not '_net'
-            current_net[0] = surrogate.net
-            logger.info(f"    Found network in ActiveLearningSurrogateWrapper")
-        elif hasattr(surrogate, '_net'):
-            current_net[0] = surrogate._net
-            logger.info(f"    Found network in surrogate wrapper")
-        
-        if hasattr(surrogate, 'params'):
-            # ActiveLearningSurrogateWrapper stores as 'params' not '_params'
-            current_params[0] = surrogate.params
-            logger.info(f"    Found initial params in ActiveLearningSurrogateWrapper")
-        elif hasattr(surrogate, '_params'):
-            current_params[0] = surrogate._params
-            logger.info(f"    Found initial params in surrogate wrapper")
-        
         # Create surrogate predict function that matches evaluator expectations
-        def surrogate_fn(tensor, target, variables, params_override=None):
-            if debug:
-                print(f"\n{'='*60}")
-                print(f"DEBUG: SURROGATE CALL (method={method_name}, scm={scm_name})")
-                print(f"{'='*60}")
-                print(f"  Input tensor shape: {tensor.shape}")
-                print(f"  Target: {target}")
-                print(f"  Variables: {variables}")
-                print(f"  Active learning enabled: {hasattr(surrogate, 'update_strategy') and surrogate.update_strategy != 'none'}")
-                print(f"  Using updated params: {params_override is not None}")
-            
-            # If params_override provided and surrogate supports it, update the wrapper's params
-            if params_override is not None and hasattr(surrogate, 'set_params'):
-                surrogate.set_params(params_override)
-            
-            # Always delegate to the surrogate (which may be wrapped for active learning)
-            # The ActiveLearningSurrogateWrapper will handle predictions with its internal params
-            result = surrogate.predict(tensor, target, variables)
-            
-            if debug:
-                print(f"\n  Output type: {type(result)}")
-                if hasattr(result, 'metadata') and 'marginal_parent_probs' in result.metadata:
-                    probs = result.metadata['marginal_parent_probs']
-                    print(f"  Predicted parent probabilities:")
-                    true_parents = get_parents(scm, target)
-                    for var in variables:
-                        if var != target:
-                            prob = probs.get(var, 0.0)
-                            is_parent = var in true_parents
-                            marker = "✓" if is_parent else "✗"
-                            print(f"    {var}: {prob:.3f} {marker}")
-            
-            return result
-        
-        # Wrap acquisition function for debugging if needed
-        if debug:
-            original_acquisition = acquisition_fn
-            intervention_count = [0]  # Track intervention number
-            
-            def debug_acquisition(tensor, posterior, target, variables):
-                intervention_count[0] += 1
-                print(f"\n{'='*80}")
-                print(f"DEBUG: ACQUISITION CALL #{intervention_count[0]} (method={method_name}, scm={scm_name})")
-                print(f"{'='*80}")
-                print(f"  Input tensor shape: {tensor.shape}")
-                print(f"  Tensor channels: {tensor.shape[2] if len(tensor.shape) > 2 else 'N/A'}")
-                print(f"  Target: {target}")
-                print(f"  Variables: {variables}")
-                print(f"  Has posterior: {posterior is not None}")
-                
-                if posterior is not None and hasattr(posterior, 'metadata'):
-                    if 'marginal_parent_probs' in posterior.metadata:
-                        probs = posterior.metadata['marginal_parent_probs']
-                        print(f"\n  Posterior parent probs passed to acquisition:")
-                        for var in variables:
-                            if var != target:
-                                print(f"    {var}: {probs.get(var, 0.0):.3f}")
-                
-                # Show detailed tensor content for last few timesteps
-                if len(tensor.shape) == 3 and tensor.shape[0] > 0:
-                    # Find where data actually starts (non-zero values)
-                    data_start = 0
-                    for t in range(tensor.shape[0]):
-                        if jnp.any(tensor[t, :, :] != 0):
-                            data_start = t
-                            break
-                    
-                    print(f"\n  Tensor content (showing last 3 timesteps, data starts at t={data_start}):")
-                    
-                    # Show last 3 timesteps
-                    for t_offset in [-2, -1, 0]:
-                        t_idx = tensor.shape[0] + t_offset - 1 if t_offset < 0 else tensor.shape[0] - 1
-                        if t_idx >= data_start:
-                            print(f"\n  Timestep t={t_idx} (offset {t_offset}):")
-                            
-                            if tensor.shape[2] >= 5:
-                                # 5-channel format
-                                print(f"    {'Var':<4} {'Value':>8} {'Target':>7} {'Interv':>7} {'Parent':>7} {'Recency':>7}")
-                                print(f"    {'-'*4} {'-'*8} {'-'*7} {'-'*7} {'-'*7} {'-'*7}")
-                                for i, var in enumerate(variables):
-                                    print(f"    {var:<4} {float(tensor[t_idx, i, 0]):>8.3f} "
-                                          f"{float(tensor[t_idx, i, 1]):>7.1f} "
-                                          f"{float(tensor[t_idx, i, 2]):>7.1f} "
-                                          f"{float(tensor[t_idx, i, 3]):>7.3f} "
-                                          f"{float(tensor[t_idx, i, 4]):>7.1f}")
-                            else:
-                                # 3-channel format
-                                print(f"    {'Var':<4} {'Value':>8} {'Target':>7} {'Interv':>7}")
-                                print(f"    {'-'*4} {'-'*8} {'-'*7} {'-'*7}")
-                                for i, var in enumerate(variables):
-                                    print(f"    {var:<4} {float(tensor[t_idx, i, 0]):>8.3f} "
-                                          f"{float(tensor[t_idx, i, 1]):>7.1f} "
-                                          f"{float(tensor[t_idx, i, 2]):>7.1f}")
-                    
-                    # Summary of interventions seen
-                    print(f"\n  Intervention history in tensor:")
-                    for t in range(data_start, tensor.shape[0]):
-                        intervened_vars = [variables[i] for i in range(len(variables)) 
-                                         if float(tensor[t, i, 2]) > 0.5]
-                        if intervened_vars:
-                            print(f"    t={t}: intervened on {intervened_vars}")
-                
-                result = original_acquisition(tensor, posterior, target, variables)
-                print(f"\n  Acquisition result: {result}")
-                if result['targets']:
-                    selected_var = list(result['targets'])[0]
-                    selected_val = list(result['values'].values())[0] if result['values'] else 'None'
-                    print(f"    Selected intervention: {selected_var} = {selected_val:.4f}")
-                else:
-                    print(f"    Selected intervention: None")
-                return result
-            
-            acquisition_to_use = debug_acquisition
-        else:
-            acquisition_to_use = acquisition_fn
+        def surrogate_fn(tensor, target, variables):
+            return surrogate.predict(tensor, target, variables)
         
         # Prepare active learning components if needed
         update_fn = None
@@ -289,7 +151,7 @@ def evaluate_method(
         
         # Evaluate
         eval_result = evaluator.evaluate(
-            acquisition_fn=acquisition_to_use,
+            acquisition_fn=acquisition_fn,
             scm=scm,
             config=config,
             surrogate_fn=surrogate_fn if surrogate.surrogate_type != 'dummy' else None,
@@ -660,10 +522,6 @@ def main():
     parser.add_argument('--plot_trajectories', action='store_true', 
                        help='Create trajectory plots showing metrics over steps')
     
-    # Debug mode
-    parser.add_argument('--debug', action='store_true', 
-                       help='Enable debug output for model inputs/outputs')
-    
     args = parser.parse_args()
     
     # Initialize registry
@@ -694,25 +552,14 @@ def main():
         for name, path in args.register_policy:
             try:
                 checkpoint_path = Path(path)
-                logger.info(f"DEBUG: Loading policy '{name}' from {checkpoint_path}")
-                logger.info(f"  Checkpoint exists: {checkpoint_path.exists()}")
-                
                 # Try to detect policy type from checkpoint
                 if 'grpo' in path.lower():
-                    logger.info(f"  Detected as GRPO policy")
-                    policy_fn = create_grpo_acquisition(checkpoint_path, seed=args.seed)
-                    logger.info(f"  GRPO policy function type: {type(policy_fn)}")
+                    policy_registry[name] = create_grpo_acquisition(checkpoint_path, seed=args.seed)
                 else:
-                    logger.info(f"  Detected as BC policy")
-                    policy_fn = create_bc_acquisition(checkpoint_path, seed=args.seed)
-                    logger.info(f"  BC policy function type: {type(policy_fn)}")
-                
-                policy_registry[name] = policy_fn
-                logger.info(f"✓ Registered policy '{name}' from {path}")
+                    policy_registry[name] = create_bc_acquisition(checkpoint_path, seed=args.seed)
+                logger.info(f"Registered policy '{name}' from {path}")
             except Exception as e:
                 logger.error(f"Failed to register policy '{name}': {e}")
-                import traceback
-                traceback.print_exc()
     
     # Create evaluation config
     eval_config = {
@@ -791,8 +638,7 @@ def main():
             pair_name = f"{policy_name}+{surrogate_name}"
             results = evaluate_method(
                 pair_name, policy_registry[policy_name], test_scms,
-                eval_config, surrogate_name, registry, args.surrogate_update_strategy,
-                debug=args.debug
+                eval_config, surrogate_name, registry, args.surrogate_update_strategy
             )
             all_results[pair_name] = results
     

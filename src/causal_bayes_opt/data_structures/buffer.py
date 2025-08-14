@@ -61,6 +61,10 @@ class ExperienceBuffer:
         self._observations: List[Sample] = []
         self._interventions: List[Tuple[Intervention, Sample]] = []  # (intervention, outcome)
         
+        # Posterior storage - parallel to samples for temporal consistency
+        self._obs_posteriors: List[Optional[Dict[str, Any]]] = []  # Posteriors for each observation
+        self._int_posteriors: List[Optional[Dict[str, Any]]] = []  # Posteriors for each intervention
+        
         # Indexing for fast queries - updated on insert
         self._obs_by_variables: Dict[FrozenSet[str], List[int]] = defaultdict(list)
         self._int_by_targets: Dict[FrozenSet[str], List[int]] = defaultdict(list)
@@ -74,12 +78,13 @@ class ExperienceBuffer:
         logger.debug("Initialized empty ExperienceBuffer")
     
     # Core operations
-    def add_observation(self, sample: Sample) -> None:
+    def add_observation(self, sample: Sample, posterior: Optional[Dict[str, Any]] = None) -> None:
         """
-        Add an observational sample to the buffer.
+        Add an observational sample to the buffer with optional posterior.
         
         Args:
             sample: Observational sample to add
+            posterior: Optional posterior distribution at this timestep
             
         Raises:
             ValueError: If sample is not observational
@@ -90,6 +95,7 @@ class ExperienceBuffer:
         # Add to storage
         obs_index = len(self._observations)
         self._observations.append(sample)
+        self._obs_posteriors.append(posterior)
         
         # Update indices
         variables = frozenset(get_values(sample).keys())
@@ -99,15 +105,17 @@ class ExperienceBuffer:
         self._variable_coverage.update(variables)
         self._last_update_time = time.time()
         
-        logger.debug(f"Added observational sample {obs_index} with variables: {variables}")
+        logger.debug(f"Added observational sample {obs_index} with variables: {variables}, has_posterior: {posterior is not None}")
     
-    def add_intervention(self, intervention: Intervention, outcome: Sample) -> None:
+    def add_intervention(self, intervention: Intervention, outcome: Sample, 
+                        posterior: Optional[Dict[str, Any]] = None) -> None:
         """
-        Add an intervention-outcome pair to the buffer.
+        Add an intervention-outcome pair to the buffer with optional posterior.
         
         Args:
             intervention: Intervention specification
             outcome: Sample resulting from the intervention
+            posterior: Optional posterior distribution that led to this intervention
             
         Raises:
             ValueError: If outcome is not interventional or inconsistent with intervention
@@ -122,6 +130,7 @@ class ExperienceBuffer:
         # Add to storage
         int_index = len(self._interventions)
         self._interventions.append((intervention, outcome))
+        self._int_posteriors.append(posterior)
         
         # Update indices
         intervention_type = get_intervention_type(outcome)
@@ -135,7 +144,7 @@ class ExperienceBuffer:
         self._variable_coverage.update(outcome_variables)
         self._last_update_time = time.time()
         
-        logger.debug(f"Added intervention {int_index} of type '{intervention_type}' targeting {targets}")
+        logger.debug(f"Added intervention {int_index} of type '{intervention_type}' targeting {targets}, has_posterior: {posterior is not None}")
     
     # Query operations
     def get_observations(self) -> List[Sample]:
@@ -151,6 +160,31 @@ class ExperienceBuffer:
         all_samples = self._observations.copy()
         all_samples.extend([outcome for _, outcome in self._interventions])
         return all_samples
+    
+    def get_all_samples_with_posteriors(self) -> List[Tuple[Sample, Optional[Dict[str, Any]]]]:
+        """
+        Get all samples with their associated posteriors.
+        
+        Returns:
+            List of (sample, posterior) tuples in chronological order
+        """
+        samples_with_posteriors = []
+        
+        # Add observations with posteriors
+        for sample, posterior in zip(self._observations, self._obs_posteriors):
+            samples_with_posteriors.append((sample, posterior))
+        
+        # Add intervention outcomes with posteriors
+        for (_, outcome), posterior in zip(self._interventions, self._int_posteriors):
+            samples_with_posteriors.append((outcome, posterior))
+        
+        return samples_with_posteriors
+    
+    def get_posteriors(self) -> List[Optional[Dict[str, Any]]]:
+        """Get all posteriors in chronological order."""
+        all_posteriors = self._obs_posteriors.copy()
+        all_posteriors.extend(self._int_posteriors)
+        return all_posteriors
     
     # Filtering operations
     def filter_by_variables(self, variables: FrozenSet[str]) -> 'ExperienceBuffer':

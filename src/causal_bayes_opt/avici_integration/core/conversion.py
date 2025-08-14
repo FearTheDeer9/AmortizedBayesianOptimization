@@ -44,8 +44,8 @@ def samples_to_avici_format(
     Returns:
         JAX array of shape [N, d, 3] where:
         - [:, :, 0] = variable values (standardized if params provided)
-        - [:, :, 1] = intervention indicators (1 if intervened, 0 otherwise)
-        - [:, :, 2] = target indicators (1 if target variable, 0 otherwise)
+        - [:, :, 1] = target indicators (1 if target variable, 0 otherwise)
+        - [:, :, 2] = intervention indicators (1 if intervened, 0 otherwise)
     """
     n_samples = len(samples)
     
@@ -62,8 +62,8 @@ def samples_to_avici_format(
     # Create target indicators [N, d]
     target_indicators = create_target_indicators(target_variable, variable_order, n_samples)
     
-    # Stack into [N, d, 3] tensor
-    avici_data = jnp.stack([values, intervention_indicators, target_indicators], axis=2)
+    # Stack into [N, d, 3] tensor - matching policy format (target in ch1, intervention in ch2)
+    avici_data = jnp.stack([values, target_indicators, intervention_indicators], axis=2)
     
     return avici_data
 

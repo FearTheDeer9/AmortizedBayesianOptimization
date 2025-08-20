@@ -1,0 +1,80 @@
+# Quick Test Configuration (5-minute sanity check)
+
+# Training scale (minimal for quick testing)
+total_episodes: 5
+interventions_per_episode: 10
+observations_per_episode: 10
+
+# Model architecture
+policy_architecture: simple_permutation_invariant
+use_fixed_std: true
+fixed_std: 0.5
+hidden_dim: 128  # Smaller for faster training
+surrogate_hidden_dim: 64
+
+# Learning rates
+learning_rate: 5e-4
+surrogate_learning_rate: 1e-3
+
+# GRPO configuration
+grpo_config:
+  group_size: 5  # Smaller for speed
+  entropy_coefficient: 0.01
+  clip_ratio: 0.2
+  gradient_clip: 1.0
+  ppo_epochs: 2  # Fewer epochs for speed
+
+# Joint training
+joint_training:
+  initial_phase: policy
+  episodes_per_phase: 2
+  loss_weights:
+    policy:
+      target_delta: 0.9
+      direct_parent: 0.1
+      information_gain: 0.0
+
+# Simplified curriculum (just simple stage)
+curriculum:
+  enabled: false  # Disabled for quick test
+  rotation_schedule:
+    simple: 2
+  progression_thresholds:
+    simple: -3.0
+  stages:
+    - simple
+
+# No replay buffer for quick test
+replay_buffer:
+  enabled: false
+
+# Minimal checkpointing
+checkpoint_every: 5
+keep_best_n: 1
+checkpoint_dir: checkpoints/quick_test
+
+# Minimal evaluation
+eval_every: 5
+eval_episodes: 2
+eval_interventions: 5
+
+# Verbose logging for debugging
+logging:
+  log_every: 1
+  track_metrics:
+    - avg_target_value
+    - range_utilization
+  wandb:
+    enabled: false
+
+# No early stopping for quick test
+early_stopping:
+  patience: 1000
+  min_target: -10.0
+
+# Output paths
+results_dir: results/quick_test
+tensorboard_dir: tensorboard/quick_test
+
+# Random seed
+seed: 42

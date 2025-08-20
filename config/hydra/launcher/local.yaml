@@ -1,4 +1,0 @@
-# @package hydra.launcher
-# Local Execution Configuration
-
-_target_: hydra._internal.BasicLauncher

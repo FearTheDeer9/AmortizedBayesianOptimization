@@ -23,7 +23,7 @@ import haiku as hk
 logger = logging.getLogger(__name__)
 
 
-def create_clean_bc_policy(hidden_dim: int = 256, architecture: str = "alternating_attention") -> callable:
+def create_clean_bc_policy(hidden_dim: int = 256, architecture: str = "permutation_invariant") -> callable:
     """
     Create BC policy function with consistent module paths.
     
@@ -32,8 +32,8 @@ def create_clean_bc_policy(hidden_dim: int = 256, architecture: str = "alternati
     
     Args:
         hidden_dim: Hidden dimension for policy network
-        architecture: Architecture type - "simple", "attention", or "alternating_attention"
-                     Default is "alternating_attention" for BC as it handles permutation symmetries better
+        architecture: Architecture type - "simple", "attention", "alternating_attention", or "permutation_invariant"
+                     Default is "permutation_invariant" for BC as it handles permutation symmetries better
         
     Returns:
         Policy function ready for hk.transform
@@ -48,9 +48,12 @@ def create_clean_bc_policy(hidden_dim: int = 256, architecture: str = "alternati
         create_attention_policy, 
         create_alternating_attention_policy
     )
+    from permutation_invariant_alternating_policy import create_permutation_invariant_alternating_policy
     
     # Select architecture - reuse the same implementations as GRPO
-    if architecture == "alternating_attention":
+    if architecture == "permutation_invariant":
+        return create_permutation_invariant_alternating_policy(hidden_dim)
+    elif architecture == "alternating_attention":
         return create_alternating_attention_policy(hidden_dim)
     elif architecture == "attention":
         return create_attention_policy(hidden_dim)

@@ -119,12 +119,14 @@ class ConfigurableContinuousParentSetPredictionModel(hk.Module):
         # Check if attention layer supports pairwise features
         if self.attention_type == "pairwise":
             # Pass data for pairwise feature computation
+            # Extract observation values from 3-channel tensor
+            # Channel 0 contains the observation values
+            values_data = data[:, :, 0]  # [N, d]
             parent_logits = attention_layer(
                 target_embedding, 
                 node_embeddings,
-                data=data,
-                target_idx=target_variable,
-                is_training=is_training
+                values_data=values_data,
+                target_idx=target_variable
             )
         else:
             # Standard attention without pairwise features

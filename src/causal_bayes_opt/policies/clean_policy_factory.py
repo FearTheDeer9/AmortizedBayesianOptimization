@@ -13,11 +13,24 @@ import jax
 import jax.numpy as jnp
 import haiku as hk
 from typing import Dict, Any, Callable
+# Import handling for permutation_invariant_alternating_policy
+try:
+    from .permutation_invariant_alternating_policy import create_permutation_invariant_alternating_policy
+    from .simple_permutation_invariant_policy import create_simple_permutation_invariant_policy
+except ImportError:
+    # Fallback for when module is imported directly
+    try:
+        from permutation_invariant_alternating_policy import create_permutation_invariant_alternating_policy
+        from simple_permutation_invariant_policy import create_simple_permutation_invariant_policy
+    except ImportError:
+        pass  # Will be handled when used
 
 
 def create_clean_grpo_policy(
     hidden_dim: int = 256,
-    architecture: str = "simple"
+    architecture: str = "permutation_invariant",
+    use_fixed_std: bool = False,
+    fixed_std: float = 0.5
 ) -> Callable:
     """
     Create GRPO policy function with consistent module paths.
@@ -27,12 +40,19 @@ def create_clean_grpo_policy(
     
     Args:
         hidden_dim: Hidden dimension for the network
-        architecture: Architecture type - "simple", "attention", or "alternating_attention"
+        architecture: Architecture type - "simple", "attention", "alternating_attention", 
+                    "permutation_invariant", or "simple_permutation_invariant"
+        use_fixed_std: If True, use fixed std for value sampling
+        fixed_std: Fixed std value if use_fixed_std=True
         
     Returns:
         Policy function that maps tensor inputs to action distributions
     """
-    if architecture == "alternating_attention":
+    if architecture == "permutation_invariant":
+        return create_permutation_invariant_alternating_policy(hidden_dim, use_fixed_std, fixed_std)
+    elif architecture == "simple_permutation_invariant":
+        return create_simple_permutation_invariant_policy(hidden_dim, use_fixed_std, fixed_std)
+    elif architecture == "alternating_attention":
         return create_alternating_attention_policy(hidden_dim)
     elif architecture == "attention":
         return create_attention_policy(hidden_dim)
@@ -307,10 +327,6 @@ def create_alternating_attention_policy(hidden_dim: int = 256) -> Callable:
         num_heads = 4
         
         for layer_idx in range(num_layers):
-            # Layer norm before attention
-            x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True,
-                            name=f"pre_norm_{layer_idx}")(x)
-            
             if layer_idx % 2 == 0:
                 # Attention over time dimension (for each variable)
                 # Use vmap instead of for loop for JAX compatibility
@@ -388,7 +404,7 @@ def _sample_attention_layer_vmap(x, num_heads, hidden_dim, layer_name):
         # Define single variable attention function
         def attend_single_var(var_samples):
             """Process one variable's samples. var_samples: [T, hidden_dim]"""
-            # Layer norm
+            # Pre-norm: Layer norm before attention
             var_samples_norm = hk.LayerNorm(
                 axis=-1, create_scale=True, create_offset=True,
                 name="sample_norm"
@@ -398,12 +414,12 @@ def _sample_attention_layer_vmap(x, num_heads, hidden_dim, layer_name):
             attn_output = hk.MultiHeadAttention(
                 num_heads=num_heads,
                 key_size=hidden_dim // num_heads,
-                w_init_scale=2.0,
+                w_init_scale=1.0,  # Reduced from 2.0
                 model_size=hidden_dim,
                 name="mha"
             )(var_samples_norm, var_samples_norm, var_samples_norm)
             
-            # Residual connection
+            # Residual connection (pre-norm: add to original input)
             var_attended = var_samples + attn_output
             
             # Feed-forward network
@@ -446,7 +462,7 @@ def _variable_attention_layer_vmap(x, num_heads, hidden_dim, layer_name):
         # Define single timestep attention function
         def attend_single_timestep(timestep_vars):
             """Process one timestep's variables. timestep_vars: [n_vars, hidden_dim]"""
-            # Layer norm
+            # Pre-norm: Layer norm before attention
             timestep_norm = hk.LayerNorm(
                 axis=-1, create_scale=True, create_offset=True,
                 name="var_norm"
@@ -456,12 +472,12 @@ def _variable_attention_layer_vmap(x, num_heads, hidden_dim, layer_name):
             attn_output = hk.MultiHeadAttention(
                 num_heads=num_heads,
                 key_size=hidden_dim // num_heads,
-                w_init_scale=2.0,
+                w_init_scale=1.0,  # Reduced from 2.0
                 model_size=hidden_dim,
                 name="mha"
             )(timestep_norm, timestep_norm, timestep_norm)
             
-            # Residual connection
+            # Residual connection (pre-norm: add to original input)
             timestep_attended = timestep_vars + attn_output
             
             # Feed-forward network

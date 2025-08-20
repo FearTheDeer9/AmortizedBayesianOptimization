@@ -57,7 +57,8 @@ def create_fork_scm(noise_scale: float = 1.0, target: str = "Y") -> pyr.PMap:
 
 
 def create_chain_scm(chain_length: int = 3, coefficient: float = 1.5, 
-                    noise_scale: float = 1.0) -> pyr.PMap:
+                    noise_scale: float = 1.0,
+                    variable_ranges: Optional[Dict[str, Tuple[float, float]]] = None) -> pyr.PMap:
     """
     Create a linear chain structure: X0 → X1 → X2 → ... → X_{n-1}
     
@@ -68,10 +69,13 @@ def create_chain_scm(chain_length: int = 3, coefficient: float = 1.5,
         chain_length: Number of variables in chain (minimum 3)
         coefficient: Coefficient for each link
         noise_scale: Standard deviation for noise terms
+        variable_ranges: Optional ranges for intervention values
         
     Returns:
         SCM with chain structure
     """
+    from typing import Dict, Tuple, Optional
+    
     if chain_length < 3:
         raise ValueError("Chain length must be at least 3")
     
@@ -86,7 +90,8 @@ def create_chain_scm(chain_length: int = 3, coefficient: float = 1.5,
         edges=edges,
         coefficients=coefficients,
         noise_scales=noise_scales,
-        target=target
+        target=target,
+        variable_ranges=variable_ranges
     )
     
     # Add metadata

@@ -13,7 +13,7 @@ Key features:
 import jax
 import jax.numpy as jnp
 import haiku as hk
-from typing import Optional, Tuple
+from typing import Optional, TupleW
 
 
 class ParentAttentionLayer(hk.Module):
@@ -127,30 +127,30 @@ class ParentAttentionLayer(hk.Module):
         """
         n_vars = keys.shape[0]
         
-        # 1. Compute pairwise statistical features
-        pairwise_features = self.compute_pairwise_features(values_data, target_idx)  # [d, 6]
+        # 1. Compute pairwise statistical features - COMMENTED OUT TO TEST PURE NN
+        # pairwise_features = self.compute_pairwise_features(values_data, target_idx)  # [d, 6]
         
-        # 2. Project pairwise features to embedding space
-        feature_projection = hk.Linear(
-            self.hidden_dim // 2,
-            w_init=self.w_init,
-            name="feature_projection"
-        )
-        projected_features = feature_projection(pairwise_features)  # [d, hidden_dim//2]
+        # 2. Project pairwise features to embedding space - COMMENTED OUT
+        # feature_projection = hk.Linear(
+        #     self.hidden_dim // 2,
+        #     w_init=self.w_init,
+        #     name="feature_projection"
+        # )
+        # projected_features = feature_projection(pairwise_features)  # [d, hidden_dim//2]
         
-        # 3. Combine with node embeddings
+        # 3. Combine with node embeddings - SIMPLIFIED TO JUST USE EMBEDDINGS
         # Create combined representation for each potential parent
         combined_keys = []
         for j in range(n_vars):
-            # Combine: [target_embedding, candidate_embedding, pairwise_features]
+            # Combine: [target_embedding, candidate_embedding] - NO PAIRWISE FEATURES
             combined = jnp.concatenate([
                 query,                    # Target embedding
                 keys[j],                  # Candidate parent embedding
-                projected_features[j]     # Pairwise features
+                # projected_features[j]   # Pairwise features - REMOVED
             ])
             combined_keys.append(combined)
         
-        combined_keys = jnp.stack(combined_keys)  # [n_vars, hidden_dim * 2.5]
+        combined_keys = jnp.stack(combined_keys)  # [n_vars, hidden_dim * 2] - SIZE CHANGED
         
         # 4. Multi-layer scoring network
         # This learns to predict parent probability from combined features
@@ -165,21 +165,22 @@ class ParentAttentionLayer(hk.Module):
         
         scores = score_net(combined_keys).squeeze(-1)  # [n_vars]
         
-        # 5. Add direct feature influence
+        # 5. Add direct feature influence - COMMENTED OUT TO TEST PURE NN
         # Some features are strong indicators (e.g., high lag correlation)
-        feature_direct = hk.Linear(
-            1,
-            w_init=self.w_init,
-            with_bias=False,
-            name="feature_direct"
-        )
+        # feature_direct = hk.Linear(
+        #     1,
+        #     w_init=self.w_init,
+        #     with_bias=False,
+        #     name="feature_direct"
+        # )
         
-        # Use most informative features directly
-        direct_features = pairwise_features[:, [1, 2, 4]]  # corr, lag_corr, var_ratio
-        direct_scores = feature_direct(direct_features).squeeze(-1)  # [n_vars]
+        # Use most informative features directly - REMOVED
+        # direct_features = pairwise_features[:, [1, 2, 4]]  # corr, lag_corr, var_ratio
+        # direct_scores = feature_direct(direct_features).squeeze(-1)  # [n_vars]
         
-        # Combine learned scores with direct feature scores
-        final_scores = scores + 0.5 * direct_scores
+        # Combine learned scores with direct feature scores - JUST USE SCORES
+        # final_scores = scores + 0.5 * direct_scores
+        final_scores = scores  # Pure NN output, no statistical feature hacks
         
         # DEBUG: Check 2-variable attention computation
         # if n_vars == 2:

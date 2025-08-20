@@ -117,20 +117,26 @@ def create_continuous_learnable_surrogate(
     optimizer = optax.adam(learning_rate)
     opt_state = optimizer.init(params)
     
-    # Create prediction function
-    def predict_fn(tensor: jnp.ndarray, target_idx: int, 
+    # Create prediction function that handles both string and int target
+    def predict_fn(tensor: jnp.ndarray, target_var, 
                    variables: List[str]) -> Dict[str, Any]:
         """
         Predict parent probabilities for target variable.
         
         Args:
             tensor: Data tensor [T, n_vars, 3]
-            target_idx: Index of target variable
+            target_var: Target variable (name or index)
             variables: List of variable names (for creating output dict)
             
         Returns:
             Dictionary with parent probabilities and metadata
         """
+        # Convert target to index if it's a string
+        if isinstance(target_var, str):
+            target_idx = variables.index(target_var)
+        else:
+            target_idx = target_var
+            
         # Get model outputs
         # Note: We use a fixed key for deterministic predictions
         rng = jax.random.PRNGKey(0)
@@ -177,7 +183,7 @@ def create_continuous_learnable_surrogate(
             Tuple of (new_params, new_opt_state, metrics_dict)
         """
         # Convert buffer to tensor
-        tensor, variables = buffer_to_three_channel_tensor(
+        tensor, mapper = buffer_to_three_channel_tensor(
             buffer, target_variable, standardize=True
         )
         
@@ -189,8 +195,9 @@ def create_continuous_learnable_surrogate(
                 'param_norm': 0.0
             }
         
-        # Get target index
-        target_idx = variables.index(target_variable)
+        # Get target index from mapper
+        target_idx = mapper.target_idx
+        variables = mapper.variables
         
         # Define loss function
         def loss_fn(params, rng):

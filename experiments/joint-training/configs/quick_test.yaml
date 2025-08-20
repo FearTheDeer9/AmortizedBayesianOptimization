@@ -1,0 +1,35 @@
+# Quick test configuration for joint training
+# Run with: python train_joint.py --quick-test
+
+# Model initialization
+policy_checkpoint: null  # Set to path for pretrained
+surrogate_checkpoint: null  # Set to path for pretrained
+
+# Architecture
+hidden_dim: 128
+num_layers: 8
+num_heads: 8
+
+# GRPO reward weights
+grpo_reward_config:
+  target_improvement_weight: 0.7
+  parent_accuracy_weight: 0.2
+  info_gain_weight: 0.1
+  exploration_bonus: 0.0
+
+# Alternating schedule (for quick test)
+policy_episodes_per_phase: 1
+surrogate_steps_per_phase: 100
+f1_rotation_threshold: 0.9
+
+# SCM generation
+scm_generation:
+  min_vars: 3
+  max_vars: 10
+  generator_type: diverse
+
+# Training
+max_episodes: 2
+use_surrogate: true
+learning_rate: 0.0005
+surrogate_lr: 0.0001

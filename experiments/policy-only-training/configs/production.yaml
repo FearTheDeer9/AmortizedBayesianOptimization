@@ -1,0 +1,93 @@
+# Production Training Configuration for GRPO ACBO
+
+# Training scale
+total_episodes: 1000
+interventions_per_episode: 30
+observations_per_episode: 20
+
+# Model architecture (based on experiments)
+policy_architecture: simple_permutation_invariant
+use_fixed_std: true
+fixed_std: 1.5  # Higher for better exploration
+hidden_dim: 256
+surrogate_hidden_dim: 128
+
+# Learning rates
+learning_rate: 5e-4
+surrogate_learning_rate: 1e-3
+
+# GRPO configuration
+grpo_config:
+  group_size: 10
+  entropy_coefficient: 0.01  # Increased for exploration
+  clip_ratio: 0.2
+  gradient_clip: 1.0
+  ppo_epochs: 4
+  
+# Joint training configuration
+joint_training:
+  initial_phase: policy
+  episodes_per_phase: 10
+  loss_weights:
+    policy:
+      target_delta: 0.9  # Heavy focus on target
+      direct_parent: 0.1
+      information_gain: 0.0  # Disabled based on experiments
+      
+# Curriculum learning
+curriculum:
+  enabled: true
+  rotation_schedule:
+    simple: 5      # Rotate every 5 episodes in simple stage
+    medium: 10     # Rotate every 10 episodes in medium stage
+    complex: 20    # Rotate every 20 episodes in complex stage
+  progression_thresholds:
+    simple: -3.5   # Advance from simple when avg target < -3.5
+    medium: -4.5   # Advance from medium when avg target < -4.5
+  stages:
+    - simple
+    - medium
+    - complex
+
+# Memory management
+replay_buffer:
+  enabled: true
+  capacity: 1000
+  prioritized: true
+  priority_alpha: 0.6
+  priority_beta: 0.4
+
+# Checkpointing
+checkpoint_every: 50
+keep_best_n: 5
+checkpoint_dir: checkpoints/production
+
+# Evaluation
+eval_every: 25
+eval_episodes: 10
+eval_interventions: 20
+
+# Monitoring
+logging:
+  log_every: 10
+  track_metrics:
+    - avg_target_value
+    - range_utilization
+    - within_episode_improvement
+    - gradient_norm
+    - parameter_change
+  wandb:
+    enabled: false
+    project: acbo-grpo-production
+    
+# Early stopping
+early_stopping:
+  patience: 100  # Episodes without improvement
+  min_target: -6.5  # Stop if achieved
+  
+# Output paths
+results_dir: results/production
+tensorboard_dir: tensorboard/production
+
+# Random seed
+seed: 42

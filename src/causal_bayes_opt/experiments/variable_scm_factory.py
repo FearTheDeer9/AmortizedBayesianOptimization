@@ -33,6 +33,8 @@ class VariableSCMFactory:
     def __init__(self, 
                  noise_scale: float = 1.0,
                  coefficient_range: Tuple[float, float] = (-2.0, 2.0),
+                 intervention_range: Optional[Tuple[float, float]] = None,
+                 vary_intervention_ranges: bool = True,
                  seed: int = 42):
         """
         Initialize SCM factory.
@@ -40,10 +42,14 @@ class VariableSCMFactory:
         Args:
             noise_scale: Standard deviation for noise terms
             coefficient_range: Range for edge coefficients
+            intervention_range: Default range for intervention values (if None, will vary)
+            vary_intervention_ranges: If True, randomly vary ranges per node and SCM
             seed: Random seed for reproducible generation
         """
         self.noise_scale = noise_scale
         self.coefficient_range = coefficient_range
+        self.intervention_range = intervention_range
+        self.vary_intervention_ranges = vary_intervention_ranges
         self.seed = seed
         self.key = random.PRNGKey(seed)
     
@@ -64,8 +70,8 @@ class VariableSCMFactory:
         Returns:
             Generated SCM with metadata
         """
-        if num_variables < 3 or num_variables > 8:
-            raise ValueError(f"num_variables must be 3-8, got {num_variables}")
+        if num_variables < 3:
+            raise ValueError(f"num_variables must be at least 3, got {num_variables}")
         
         if structure_type not in self.STRUCTURE_TYPES:
             raise ValueError(f"Unknown structure_type: {structure_type}")
@@ -95,13 +101,42 @@ class VariableSCMFactory:
         # Create noise scales for all variables
         noise_scales = {var: self.noise_scale for var in variables}
         
+        # Create variable-specific intervention ranges
+        if self.vary_intervention_ranges:
+            # Sample different ranges for each variable
+            variable_ranges = {}
+            for var in variables:
+                # Sample range bounds
+                self.key, subkey = random.split(self.key)
+                # Sample max value between 1.0 and 5.0
+                max_val = float(random.uniform(subkey, (), minval=1.0, maxval=5.0))
+                # Sometimes use asymmetric ranges
+                self.key, subkey = random.split(self.key)
+                if random.uniform(subkey, ()) < 0.3:  # 30% chance of asymmetric
+                    self.key, subkey = random.split(self.key)
+                    min_val = -float(random.uniform(subkey, (), minval=1.0, maxval=max_val))
+                else:
+                    min_val = -max_val
+                variable_ranges[var] = (min_val, max_val)
+        elif self.intervention_range:
+            # Use fixed range for all variables
+            variable_ranges = {var: self.intervention_range for var in variables}
+        else:
+            # Default varying ranges
+            variable_ranges = {}
+            for var in variables:
+                self.key, subkey = random.split(self.key)
+                max_val = float(random.uniform(subkey, (), minval=1.5, maxval=3.0))
+                variable_ranges[var] = (-max_val, max_val)
+        
         # Build SCM
         scm = create_simple_linear_scm(
             variables=variables,
             edges=edges,
             coefficients=coefficients,
             noise_scales=noise_scales,
-            target=target_variable
+            target=target_variable,
+            variable_ranges=variable_ranges
         )
         
         # Add comprehensive metadata
@@ -373,9 +408,11 @@ class VariableSCMFactory:
 
 
 # Convenience functions for backward compatibility
-def create_variable_fork_scm(num_variables: int, noise_scale: float = 1.0, target: Optional[str] = None) -> pyr.PMap:
+def create_variable_fork_scm(num_variables: int, noise_scale: float = 1.0, 
+                            intervention_range: Tuple[float, float] = (-2.0, 2.0),
+                            target: Optional[str] = None) -> pyr.PMap:
     """Create fork SCM with variable number of variables."""
-    factory = VariableSCMFactory(noise_scale=noise_scale)
+    factory = VariableSCMFactory(noise_scale=noise_scale, intervention_range=intervention_range)
     return factory.create_variable_scm(
         num_variables=num_variables,
         structure_type="fork",
@@ -383,18 +420,21 @@ def create_variable_fork_scm(num_variables: int, noise_scale: float = 1.0, targe
     )
 
 
-def create_variable_chain_scm(num_variables: int, noise_scale: float = 1.0) -> pyr.PMap:
+def create_variable_chain_scm(num_variables: int, noise_scale: float = 1.0,
+                             intervention_range: Tuple[float, float] = (-2.0, 2.0)) -> pyr.PMap:
     """Create chain SCM with variable number of variables."""
-    factory = VariableSCMFactory(noise_scale=noise_scale)
+    factory = VariableSCMFactory(noise_scale=noise_scale, intervention_range=intervention_range)
     return factory.create_variable_scm(
         num_variables=num_variables,
         structure_type="chain"
     )
 
 
-def create_variable_mixed_scm(num_variables: int, noise_scale: float = 1.0, target: Optional[str] = None) -> pyr.PMap:
+def create_variable_mixed_scm(num_variables: int, noise_scale: float = 1.0,
+                             intervention_range: Tuple[float, float] = (-2.0, 2.0),
+                             target: Optional[str] = None) -> pyr.PMap:
     """Create mixed structure SCM with variable number of variables."""
-    factory = VariableSCMFactory(noise_scale=noise_scale)
+    factory = VariableSCMFactory(noise_scale=noise_scale, intervention_range=intervention_range)
     return factory.create_variable_scm(
         num_variables=num_variables,
         structure_type="mixed",

@@ -72,7 +72,8 @@ def create_simple_linear_scm(
     coefficients: Dict[Tuple[str, str], float],
     noise_scales: Dict[str, float],
     target: str,
-    intercepts: Optional[Dict[str, float]] = None
+    intercepts: Optional[Dict[str, float]] = None,
+    variable_ranges: Optional[Dict[str, Tuple[float, float]]] = None
 ) -> pyr.PMap:
     """
     Factory function for creating simple linear SCMs with validation.
@@ -87,6 +88,7 @@ def create_simple_linear_scm(
         noise_scales: Mapping from variable names to noise standard deviations
         target: Target variable name (must be in variables)
         intercepts: Optional intercepts for each variable (default: 0.0)
+        variable_ranges: Optional ranges for intervention values (default: (-10, 10))
         
     Returns:
         A validated SCM ready for sampling and analysis
@@ -145,6 +147,23 @@ def create_simple_linear_scm(
         # Fill in missing intercepts
         intercepts = {var: intercepts.get(var, DEFAULT_INTERCEPT) for var in variables}
     
+    # Set default variable ranges with some variety
+    import random
+    if variable_ranges is None:
+        # Create varied but reasonable ranges for each variable
+        range_options = [(-5.0, 5.0), (-10.0, 10.0), (-2.0, 2.0), (-3.0, 3.0)]
+        rng = random.Random(42)  # Fixed seed for reproducibility
+        variable_ranges = {}
+        for var in variables:
+            # Select a range from options based on variable index
+            idx = hash(var) % len(range_options)
+            variable_ranges[var] = range_options[idx]
+    else:
+        # Fill in missing ranges with default
+        for var in variables:
+            if var not in variable_ranges:
+                variable_ranges[var] = (-10.0, 10.0)
+    
     # Build mechanisms for each variable
     mechanisms = {}
     
@@ -162,13 +181,17 @@ def create_simple_linear_scm(
         )
         mechanisms[var] = mechanism
     
-    # Create SCM
+    # Create SCM with variable ranges in metadata
     scm = create_scm(
         variables=frozenset(variables),
         edges=frozenset(edges),
         mechanisms=mechanisms,
         target=target,
-        metadata={'mechanism_type': 'linear', 'created_by': 'test_factory'}
+        metadata={
+            'mechanism_type': 'linear',
+            'created_by': 'test_factory',
+            'variable_ranges': variable_ranges
+        }
     )
     
     # Final validation

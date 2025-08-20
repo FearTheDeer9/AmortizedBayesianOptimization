@@ -85,6 +85,8 @@ class ContinuousParentSetPredictionModel(hk.Module):
             encoder = NodeFeatureEncoder(
                 hidden_dim=self.hidden_dim,
                 num_layers=self.num_layers,
+                num_heads=self.num_heads,
+                key_size=self.key_size,
                 dropout_rate=dropout_rate,
                 name="encoder"
             )

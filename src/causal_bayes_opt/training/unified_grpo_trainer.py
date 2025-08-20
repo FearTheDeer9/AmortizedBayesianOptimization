@@ -136,6 +136,10 @@ class UnifiedGRPOTrainer:
         
         Supports both config-based and parameter-based initialization.
         """
+        print("DEBUG: UnifiedGRPOTrainer.__init__ called")
+        import sys
+        sys.stdout.flush()
+        
         # Handle config vs parameters
         if config is not None:
             if isinstance(config, DictConfig):
@@ -169,9 +173,23 @@ class UnifiedGRPOTrainer:
             )
         
         # Initialize components
+        print("DEBUG: About to initialize policy")
+        sys.stdout.flush()
         self._initialize_policy()
+        print("DEBUG: Policy initialized")
+        sys.stdout.flush()
+        
+        print("DEBUG: About to initialize surrogate")
+        sys.stdout.flush()
         self._initialize_surrogate()
+        print("DEBUG: Surrogate initialized")
+        sys.stdout.flush()
+        
+        print("DEBUG: About to initialize GRPO")
+        sys.stdout.flush()
         self._initialize_grpo()
+        print("DEBUG: GRPO initialized")
+        sys.stdout.flush()
         
         # Training state
         self.training_metrics = []
@@ -190,7 +208,7 @@ class UnifiedGRPOTrainer:
         self.rng_key = random.PRNGKey(self.seed)
         
         # Extract key configurations
-        self.max_episodes = config.get('max_episodes', 1000)
+        self.max_episodes = config.get('max_episodes', 20)  # REDUCED FROM 1000
         self.n_variables_range = config.get('n_variables_range', [3, 8])
         self.obs_per_episode = config.get('obs_per_episode', 100)
         self.max_interventions = config.get('max_interventions', 10)
@@ -208,6 +226,10 @@ class UnifiedGRPOTrainer:
         
         # Policy architecture override (from command line)
         self.policy_architecture = config.get('policy_architecture', None)
+        
+        # Fixed std configuration
+        self.use_fixed_std = config.get('use_fixed_std', False)
+        self.fixed_std = config.get('fixed_std', 0.5)
         
         # Training config
         self.learning_rate = config.get('learning_rate', 3e-4)
@@ -244,7 +266,9 @@ class UnifiedGRPOTrainer:
         self.reward_stats = RunningStats(window_size=1000)
         
         # Enhanced GRPO parameters (from enhanced trainer)
-        self.group_size = config.get('group_size', 4)  # Number of samples per state
+        # Get group_size from grpo_config if present, otherwise from root config
+        grpo_config = config.get('grpo_config', {})
+        self.group_size = grpo_config.get('group_size', config.get('group_size', 4))  # Number of samples per state
         self.use_grpo_rewards = config.get('use_grpo_rewards', False)  # Default to False for backward compat
         self.grpo_reward_config = config.get('grpo_reward_config', {
             'reward_weights': {
@@ -389,29 +413,60 @@ class UnifiedGRPOTrainer:
         
     def _initialize_policy(self):
         """Initialize policy network using shared factory."""
-        # Determine policy architecture - default to alternating_attention for best performance
-        policy_architecture = "alternating_attention"  # Changed default from "simple"
+        logger.info("Starting _initialize_policy()...")
+        
+        # Determine policy architecture - default to permutation_invariant for best performance
+        # Priority: explicit policy_architecture > architecture_level > default
         if hasattr(self, 'policy_architecture') and self.policy_architecture is not None:
             policy_architecture = self.policy_architecture
-        elif self.architecture_level == "attention":
-            policy_architecture = "attention"
-        elif self.architecture_level == "simplified" or self.architecture_level == "simple":
-            policy_architecture = "simple"  # Only use simple if explicitly requested
+            logger.info(f"Using explicitly set policy_architecture: {policy_architecture}")
+        elif hasattr(self, 'architecture_level') and self.architecture_level is not None:
+            # Map architecture_level to policy architecture
+            if self.architecture_level == "attention":
+                policy_architecture = "attention"
+            elif self.architecture_level == "simplified" or self.architecture_level == "simple":
+                policy_architecture = "simple"  # Only use simple if explicitly requested
+            else:
+                # Default for any other architecture_level
+                policy_architecture = "permutation_invariant"
+            logger.info(f"Mapped architecture_level '{self.architecture_level}' to '{policy_architecture}'")
+        else:
+            # Default when nothing is specified
+            policy_architecture = "permutation_invariant"
+            logger.info("Using default architecture: permutation_invariant")
             
         logger.info(f"Initializing policy with architecture: {policy_architecture}")
+        logger.info(f"About to call create_clean_grpo_policy...")
+        
+        # Log configuration source
+        if policy_architecture == "permutation_invariant":
+            logger.info("✓ Using permutation_invariant_alternating_policy (BEST architecture)")
+        else:
+            logger.warning(f"⚠ Using {policy_architecture} instead of recommended permutation_invariant")
+        
+        # Check if we should use fixed std
+        use_fixed_std = getattr(self, 'use_fixed_std', False)
+        fixed_std = getattr(self, 'fixed_std', 0.5)
         
         policy_fn = create_clean_grpo_policy(
             hidden_dim=self.hidden_dim,
-            architecture=policy_architecture
+            architecture=policy_architecture,
+            use_fixed_std=use_fixed_std,
+            fixed_std=fixed_std
         )
+        logger.info(f"create_clean_grpo_policy returned with {policy_architecture} architecture")
+        
         self.policy_fn = hk.transform(policy_fn)
+        logger.info("hk.transform completed")
         
         # Initialize with dummy data - now 5 channels
         dummy_tensor = jnp.zeros((10, 5, 5))  # [T=10, n_vars=5, channels=5]
         self.rng_key, init_key = random.split(self.rng_key)
+        logger.info("About to initialize policy params...")
         self.policy_params = self.policy_fn.init(init_key, dummy_tensor, 0)
+        logger.info("Policy params initialized")
         
-        logger.info(f"Initialized policy with architecture: {policy_architecture} (level: {self.architecture_level})")
+        logger.info(f"Initialized policy with architecture: {policy_architecture}")
         
     def _initialize_surrogate(self):
         """Initialize surrogate model for structure learning."""
@@ -452,61 +507,90 @@ class UnifiedGRPOTrainer:
         # Use group_size from enhanced mode if available, otherwise use batch_size
         group_size = self.group_size if hasattr(self, 'group_size') else self.batch_size
         
-        # Get PPO epochs from grpo_config if available (enhanced mode)
-        ppo_epochs = 4  # Default
-        if hasattr(self, 'grpo_reward_config'):
-            # Check if we have grpo_config with ppo_epochs
-            grpo_config = getattr(self, 'config', {}).get('grpo_config', {})
-            ppo_epochs = grpo_config.get('ppo_epochs', 4)
+        # Get GRPO config parameters
+        grpo_config = getattr(self, 'config', {}).get('grpo_config', {})
+        ppo_epochs = grpo_config.get('ppo_epochs', 4)
+        # Lower entropy coefficient for less exploration, more exploitation
+        entropy_coeff = grpo_config.get('entropy_coefficient', 0.001 if self.use_grpo_rewards else 0.01)
+        clip_ratio = grpo_config.get('clip_ratio', 0.2)
+        gradient_clip = grpo_config.get('gradient_clip', 1.0)
         
         self.grpo_config = GRPOConfig(
             group_size=group_size,
             interventions_per_state=1,
             learning_rate=self.learning_rate,
-            clip_ratio=0.2,
-            entropy_coeff=0.01 if self.use_grpo_rewards else 0.1,  # Lower entropy for enhanced mode
-            max_grad_norm=1.0,
-            ppo_epochs=ppo_epochs  # Add PPO epochs support
+            clip_ratio=clip_ratio,
+            entropy_coeff=entropy_coeff,
+            max_grad_norm=gradient_clip,
+            ppo_epochs=ppo_epochs
         )
         
-        # Create optimizer
-        self.optimizer = optax.chain(
-            optax.clip_by_global_norm(self.grpo_config.max_grad_norm),
-            optax.adam(learning_rate=self.learning_rate)
+        # Create optimizer with gradient clipping and learning rate schedule
+        optimizer_chain = []
+        if gradient_clip is not None and gradient_clip > 0:
+            optimizer_chain.append(optax.clip_by_global_norm(gradient_clip))
+        
+        # Add cosine decay schedule for better exploration/exploitation balance
+        # Decay from initial LR to 10% over training
+        total_steps = getattr(self, 'max_episodes', 1000) * 10  # Approximate steps
+        lr_schedule = optax.cosine_decay_schedule(
+            init_value=self.learning_rate,
+            decay_steps=total_steps,
+            alpha=0.1  # Final LR will be 10% of initial
         )
+        optimizer_chain.append(optax.adam(learning_rate=lr_schedule))
+        self.optimizer = optax.chain(*optimizer_chain)
         
         # Initialize optimizer state
         self.optimizer_state = self.optimizer.init(self.policy_params)
         
         # Create custom GRPO update function
         def grpo_update(params, opt_state, batch):
-            """GRPO update with simplified batch format."""
-            # Compute loss and gradients
-            def loss_fn(p):
-                return self._compute_simple_grpo_loss(p, batch)
+            """GRPO update with PPO-style multiple epochs."""
+            # Store metrics from all epochs
+            all_losses = []
+            all_grad_norms = []
+            all_approx_kls = []
             
-            (loss_value, loss_info), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
+            current_params = params
+            current_opt_state = opt_state
             
-            # Apply updates
-            updates, new_opt_state = self.optimizer.update(grads, opt_state, params)
-            new_params = optax.apply_updates(params, updates)
+            # Perform multiple PPO epochs on the same batch
+            for epoch in range(ppo_epochs):
+                # Compute loss and gradients
+                def loss_fn(p):
+                    return self._compute_simple_grpo_loss(p, batch)
+                
+                (loss_value, loss_info), grads = jax.value_and_grad(loss_fn, has_aux=True)(current_params)
+                
+                # Apply updates
+                updates, current_opt_state = self.optimizer.update(grads, current_opt_state, current_params)
+                current_params = optax.apply_updates(current_params, updates)
+                
+                # Track metrics
+                all_losses.append(loss_value)
+                all_grad_norms.append(optax.global_norm(grads))
+                all_approx_kls.append(loss_info['approx_kl'])
+                
+                # Early stopping if KL divergence too large (PPO best practice)
+                if loss_info['approx_kl'] > 0.02:  # Standard PPO threshold
+                    logger.debug(f"Early stopping at epoch {epoch+1}/{ppo_epochs} due to KL={loss_info['approx_kl']:.4f}")
+                    break
             
-            # Compute gradient norm
-            grad_norm = optax.global_norm(grads)
-            
-            return new_params, new_opt_state, GRPOUpdate(
+            # Use metrics from final epoch for reporting
+            return current_params, current_opt_state, GRPOUpdate(
                 policy_loss=loss_info['policy_loss'],
                 entropy_loss=loss_info['entropy_loss'],
                 kl_penalty=loss_info['kl_penalty'],
                 total_loss=loss_value,
-                grad_norm=grad_norm,
+                grad_norm=all_grad_norms[-1],
                 group_baseline=loss_info['group_baseline'],
                 mean_reward=loss_info['mean_reward'],
                 reward_std=loss_info['reward_std'],
                 mean_advantage=loss_info['mean_advantage'],
                 advantage_std=loss_info['advantage_std'],
                 mean_entropy=loss_info['mean_entropy'],
-                approx_kl=loss_info['approx_kl'],
+                approx_kl=all_approx_kls[-1],
                 mean_ratio=loss_info.get('mean_ratio', 1.0),
                 ratio_std=loss_info.get('ratio_std', 0.0)
             )
@@ -520,59 +604,87 @@ class UnifiedGRPOTrainer:
         logger.info(f"Initialized {'enhanced' if self.use_grpo_rewards else 'standard'} GRPO with group_size={group_size}, entropy_coeff={self.grpo_config.entropy_coeff}")
     
     def _create_enhanced_grpo_update(self):
-        """Create enhanced GRPO update function with more debugging info."""
+        """Create enhanced GRPO update function with PPO epochs and debugging."""
         from types import SimpleNamespace
         import jax
         import optax
         
+        # Get PPO epochs from config
+        grpo_config = getattr(self, 'config', {}).get('grpo_config', {})
+        ppo_epochs = grpo_config.get('ppo_epochs', 4)
+        
         def enhanced_grpo_update(params, opt_state, batch):
-            """Enhanced GRPO update with extra debugging."""
-            # Compute loss and gradients with our enhanced loss function
-            def loss_fn(p):
-                return self._compute_simple_grpo_loss(p, batch)
+            """Enhanced GRPO update with PPO-style multiple epochs."""
+            # Store metrics from all epochs
+            all_losses = []
+            all_grad_norms = []
+            all_approx_kls = []
+            all_loss_infos = []
             
-            (loss_value, loss_info), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
+            current_params = params
+            current_opt_state = opt_state
             
-            # Apply updates
-            updates, new_opt_state = self.optimizer.update(grads, opt_state, params)
-            new_params = optax.apply_updates(params, updates)
+            # Perform multiple PPO epochs on the same batch
+            for epoch in range(ppo_epochs):
+                # Compute loss and gradients with our enhanced loss function
+                def loss_fn(p):
+                    return self._compute_simple_grpo_loss(p, batch)
+                
+                (loss_value, loss_info), grads = jax.value_and_grad(loss_fn, has_aux=True)(current_params)
+                
+                # Apply updates
+                updates, current_opt_state = self.optimizer.update(grads, current_opt_state, current_params)
+                current_params = optax.apply_updates(current_params, updates)
+                
+                # Track metrics
+                all_losses.append(loss_value)
+                all_grad_norms.append(optax.global_norm(grads))
+                all_approx_kls.append(loss_info['approx_kl'])
+                all_loss_infos.append(loss_info)
+                
+                # Early stopping if KL divergence too large (PPO best practice)
+                if loss_info['approx_kl'] > 0.02:  # Standard PPO threshold
+                    logger.debug(f"Enhanced: Early stopping at epoch {epoch+1}/{ppo_epochs} due to KL={loss_info['approx_kl']:.4f}")
+                    break
             
-            # Compute gradient norm
-            grad_norm = optax.global_norm(grads)
+            # Use metrics from final epoch for reporting
+            final_loss_info = all_loss_infos[-1]
             
-            # Create enhanced metrics with all debugging info from loss_info
+            # Create enhanced metrics with all debugging info from final_loss_info
             enhanced_metrics = SimpleNamespace(
                 # Standard fields
-                policy_loss=loss_info['policy_loss'],
-                entropy_loss=loss_info['entropy_loss'],
-                kl_penalty=loss_info['kl_penalty'],
-                total_loss=loss_value,
-                grad_norm=grad_norm,
-                group_baseline=loss_info['group_baseline'],
-                mean_reward=loss_info['mean_reward'],
-                reward_std=loss_info['reward_std'],
-                mean_advantage=loss_info['mean_advantage'],
-                advantage_std=loss_info['advantage_std'],
-                mean_entropy=loss_info['mean_entropy'],
-                approx_kl=loss_info['approx_kl'],
+                policy_loss=final_loss_info['policy_loss'],
+                entropy_loss=final_loss_info['entropy_loss'],
+                kl_penalty=final_loss_info['kl_penalty'],
+                total_loss=all_losses[-1],
+                grad_norm=all_grad_norms[-1],
+                group_baseline=final_loss_info['group_baseline'],
+                mean_reward=final_loss_info['mean_reward'],
+                reward_std=final_loss_info['reward_std'],
+                mean_advantage=final_loss_info['mean_advantage'],
+                advantage_std=final_loss_info['advantage_std'],
+                mean_entropy=final_loss_info['mean_entropy'],
+                approx_kl=all_approx_kls[-1],
                 # Enhanced debugging fields
-                mean_ratio=loss_info.get('mean_ratio', 1.0),
-                ratio_std=loss_info.get('ratio_std', 0.0),
-                mean_log_prob_change=loss_info.get('mean_log_prob_change', 0.0),
-                surr1_mean=loss_info.get('surr1_mean', 0.0),
-                surr2_mean=loss_info.get('surr2_mean', 0.0),
-                surr_min_mean=loss_info.get('surr_min_mean', 0.0),
-                clip_fraction=loss_info.get('clip_fraction', 0.0),
-                positive_advantages=loss_info.get('positive_advantages', 0),
-                negative_advantages=loss_info.get('negative_advantages', 0),
+                mean_ratio=final_loss_info.get('mean_ratio', 1.0),
+                ratio_std=final_loss_info.get('ratio_std', 0.0),
+                mean_log_prob_change=final_loss_info.get('mean_log_prob_change', 0.0),
+                surr1_mean=final_loss_info.get('surr1_mean', 0.0),
+                surr2_mean=final_loss_info.get('surr2_mean', 0.0),
+                surr_min_mean=final_loss_info.get('surr_min_mean', 0.0),
+                clip_fraction=final_loss_info.get('clip_fraction', 0.0),
+                positive_advantages=final_loss_info.get('positive_advantages', 0),
+                negative_advantages=final_loss_info.get('negative_advantages', 0),
                 # Diagnostic fields
-                loss_terms_sum=loss_info.get('loss_terms_sum', 0.0),
-                loss_terms_mean=loss_info.get('loss_terms_mean', 0.0),
-                log_prob_variance=loss_info.get('log_prob_variance', 0.0),
-                unique_log_probs=loss_info.get('unique_log_probs', 0)
+                loss_terms_sum=final_loss_info.get('loss_terms_sum', 0.0),
+                loss_terms_mean=final_loss_info.get('loss_terms_mean', 0.0),
+                log_prob_variance=final_loss_info.get('log_prob_variance', 0.0),
+                unique_log_probs=final_loss_info.get('unique_log_probs', 0),
+                # PPO epoch tracking
+                ppo_epochs_completed=len(all_losses)
             )
             
-            return new_params, new_opt_state, enhanced_metrics
+            return current_params, current_opt_state, enhanced_metrics
         
         self.grpo_update = enhanced_grpo_update
         
@@ -651,6 +763,7 @@ class UnifiedGRPOTrainer:
         # Training history
         episode_metrics = []
         embedding_stats = []  # Track embedding statistics
+        self._embedding_stats_temp = embedding_stats  # Make accessible to episode method
         curriculum_info = []  # Track curriculum progression
         
         # Main training loop
@@ -824,6 +937,37 @@ class UnifiedGRPOTrainer:
             
             logger.info("="*70 + "\n")
         
+        # Log probability evolution summary
+        if hasattr(self, 'probability_history') and self.probability_history:
+            logger.info("\n" + "="*70)
+            logger.info("PROBABILITY EVOLUTION SUMMARY")
+            logger.info("="*70)
+            
+            # Group by SCM
+            from collections import defaultdict
+            scm_probs = defaultdict(list)
+            for record in self.probability_history:
+                scm_probs[record['scm']].append(record)
+            
+            for scm_name, records in scm_probs.items():
+                if len(records) > 1:
+                    logger.info(f"\n{scm_name}:")
+                    first = records[0]
+                    last = records[-1]
+                    logger.info(f"  Episodes: {first['episode']} -> {last['episode']}")
+                    logger.info(f"  Max-Min diff: {first['max_min']:.4f} -> {last['max_min']:.4f}")
+                    logger.info(f"  Entropy: {first['entropy']:.3f} -> {last['entropy']:.3f}")
+                    
+                    # Check for sudden changes
+                    sudden_changes = []
+                    for i in range(1, len(records)):
+                        change = records[i]['max_min'] - records[i-1]['max_min']
+                        if abs(change) > 0.5:
+                            sudden_changes.append((records[i]['episode'], change))
+                    
+                    if sudden_changes:
+                        logger.info(f"  SUDDEN CHANGES detected at episodes: {sudden_changes}")
+        
         # Prepare results
         training_time = time.time() - start_time
         final_metrics = episode_metrics[-1] if episode_metrics else {}
@@ -882,6 +1026,17 @@ class UnifiedGRPOTrainer:
         target_idx = variables.index(target_var)
         true_parents = list(get_parents(scm, target_var)) if hasattr(scm, 'edges') else []
         
+        # Track training progress
+        if episode_idx % 10 == 0:  # Less frequent logging
+            logger.info(f"\n{'='*70}")
+            logger.info(f"EPISODE {episode_idx} - {scm_name}")
+            logger.info(f"Target: {target_var}, True parents: {true_parents}")
+            logger.info(f"Training step: {self.training_step}")
+        
+        # Initialize probability tracking if not exists
+        if not hasattr(self, 'probability_history'):
+            self.probability_history = []
+        
         # Initialize buffer with observational data
         buffer = ExperienceBuffer()
         key, obs_key = random.split(key)
@@ -915,7 +1070,8 @@ class UnifiedGRPOTrainer:
             'actions': [],
             'rewards': [],
             'old_log_probs': [],
-            'target_idx': None  # Will be set from mapper
+            'target_idx': None,  # Will be set from mapper
+            'intervention_details': []  # Store full intervention info for best selection
         }
         
         # Generate batch of interventions for GRPO
@@ -948,18 +1104,17 @@ class UnifiedGRPOTrainer:
                 tensor_3ch = tensor[:, :, :3]  # Extract first 3 channels for surrogate
                 posterior_before = self.surrogate_predict_fn(tensor_3ch, target_var, mapper.variables)
             else:
-                # No surrogate - convert 3-channel to 5-channel with zeros
-                tensor_3ch, mapper = buffer_to_three_channel_tensor(
-                    buffer, target_var, max_history_size=100, standardize=True
+                # No surrogate - use buffer_to_five_channel_tensor with None surrogate
+                tensor, mapper, diagnostics = buffer_to_five_channel_tensor(
+                    buffer, target_var, 
+                    surrogate_fn=None,  # No surrogate function
+                    max_history_size=100, 
+                    standardize=True
                 )
-                # Pad to 5 channels
-                T, n_vars, _ = tensor_3ch.shape
-                tensor = jnp.zeros((T, n_vars, 5))
-                tensor = tensor.at[:, :, :3].set(tensor_3ch)
                 posterior_before = None
             
             # Monitor embedding statistics
-            if episode_idx % 10 == 0 and _ == 0:  # Check first sample every 10 episodes
+            if episode_idx % 10 == 0 and step == 0:  # Check first sample every 10 episodes
                 # Analyze tensor values (channel 0 - the actual values)
                 value_channel = tensor[:, :, 0]
                 # Compute statistics across variables and time
@@ -975,7 +1130,9 @@ class UnifiedGRPOTrainer:
                     'overall_std': float(overall_std),
                     'mean_time_std': float(jnp.mean(time_stds))
                 }
-                embedding_stats.append(embedding_stat)
+                # Only append if embedding_stats exists (when called from train())
+                if hasattr(self, '_embedding_stats_temp'):
+                    self._embedding_stats_temp.append(embedding_stat)
                 
                 # Log warning if embeddings are too uniform
                 if overall_std < 0.01:
@@ -993,6 +1150,39 @@ class UnifiedGRPOTrainer:
             
             # Get policy output with 5-channel input
             key, policy_key = random.split(key)
+            
+            # DEBUG: Analyze tensor before policy call
+            if episode_idx % 10 == 0 and step == 0:
+                # Get raw values from buffer to compare
+                all_samples = buffer.get_all_samples()
+                if all_samples:
+                    last_sample = all_samples[-1]
+                    raw_values = get_values(last_sample)
+                    logger.info(f"\n[RAW VALUES] Episode {episode_idx}:")
+                    logger.info(f"  Last sample raw values: {raw_values}")
+                    logger.info(f"  Variables in buffer: {sorted(raw_values.keys())}")
+                    raw_vals_list = list(raw_values.values())
+                    logger.info(f"  Raw value range: [{min(raw_vals_list):.3f}, {max(raw_vals_list):.3f}]")
+                    logger.info(f"  Raw value std: {jnp.std(jnp.array(raw_vals_list)):.3f}")
+                
+                logger.info(f"\n[TENSOR DEBUG] Episode {episode_idx}, Step {step}:")
+                logger.info(f"  Tensor shape: {tensor.shape}")
+                logger.info(f"  Mapper variables: {mapper.variables}")
+                logger.info(f"  Target: {target_var} (idx: {mapper.target_idx})")
+                
+                # Analyze each channel
+                for ch_idx, ch_name in enumerate(['Values', 'Target', 'Interv', 'Probs', 'Recency']):
+                    channel = tensor[:, :, ch_idx]
+                    logger.info(f"  Channel {ch_idx} ({ch_name}):")
+                    logger.info(f"    Mean: {jnp.mean(channel):.3f}, Std: {jnp.std(channel):.3f}")
+                    logger.info(f"    Last timestep: {channel[-1]}")
+                
+                # Check if variables look different
+                value_channel = tensor[:, :, 0]
+                var_means = jnp.mean(value_channel, axis=0)  # Mean per variable
+                logger.info(f"  Variable value means: {var_means}")
+                logger.info(f"  Variable value std between vars: {jnp.std(var_means):.3f}")
+            
             # CRITICAL: Use mapper's target index, not original SCM index!
             # The mapper sorts variables, so indices change
             policy_output = self.policy_fn.apply(
@@ -1016,6 +1206,55 @@ class UnifiedGRPOTrainer:
             # Compute probabilities from original logits for GRPO loss
             var_probs = jax.nn.softmax(var_logits)
             
+            # PRINCIPLED LOGGING: Track probabilities and input data
+            if step == 0:  # Log once per GRPO batch
+                # Log probabilities for each variable
+                prob_info = []
+                for i, var_name in enumerate(mapper.variables):
+                    if i != mapper.target_idx:
+                        prob_info.append(f"{var_name}:{var_probs[i]:.3f}")
+                logger.info(f"  Variable probabilities: {' '.join(prob_info)}")
+                
+                # Compute differentiation metrics
+                valid_probs = var_probs[var_probs > 0]
+                prob_std = float(jnp.std(valid_probs))
+                max_min_diff = float(jnp.max(valid_probs) - jnp.min(valid_probs))
+                entropy = -float(jnp.sum(valid_probs * jnp.log(valid_probs + 1e-8)))
+                
+                logger.info(f"  Prob metrics - Std: {prob_std:.4f}, Max-Min: {max_min_diff:.4f}, Entropy: {entropy:.3f}")
+                
+                # Store probability history for tracking changes
+                prob_record = {
+                    'episode': episode_idx,
+                    'scm': scm_name,
+                    'target': target_var,
+                    'probs': {var_name: float(var_probs[i]) for i, var_name in enumerate(mapper.variables) if i != mapper.target_idx},
+                    'std': prob_std,
+                    'max_min': max_min_diff,
+                    'entropy': entropy
+                }
+                self.probability_history.append(prob_record)
+                
+                # Check for sudden changes in probabilities
+                if len(self.probability_history) > 1:
+                    prev_record = self.probability_history[-2]
+                    if prev_record['scm'] == scm_name:  # Same SCM
+                        prev_max_min = prev_record['max_min']
+                        change = max_min_diff - prev_max_min
+                        if abs(change) > 0.5:  # Sudden large change
+                            logger.warning(f"  SUDDEN PROBABILITY CHANGE: {prev_max_min:.4f} -> {max_min_diff:.4f} (change: {change:+.4f})")
+                
+                # Log input tensor info for consistency check
+                logger.info(f"  Input tensor shape: {tensor.shape}")
+                logger.info(f"  Buffer size: {buffer.size()}")
+                
+                # Check consistency: tensor should grow by 1 sample each intervention
+                if hasattr(self, '_last_buffer_size'):
+                    size_diff = buffer.size() - self._last_buffer_size
+                    if size_diff != 1 and step > 0:
+                        logger.warning(f"  WARNING: Buffer size changed by {size_diff} (expected 1)")
+                self._last_buffer_size = buffer.size()
+            
             # DEBUG: Print detailed info about variable selection
             if self.training_step % 10 == 0 and step == 0:  # First step every 10 training steps
                 logger.info(f"\n[DEBUG] Episode {episode_idx}, Step {step}:")
@@ -1024,6 +1263,15 @@ class UnifiedGRPOTrainer:
                 logger.info(f"  Target index: {mapper.target_idx}")
                 logger.info(f"  Logits: {var_logits}")
                 logger.info(f"  Probs: {var_probs}")
+                
+                # Track probability differentiation
+                probs_array = jnp.array(var_probs)
+                # Exclude target (which is masked as 0)
+                valid_probs = probs_array[probs_array > 0]
+                prob_std = jnp.std(valid_probs) if len(valid_probs) > 1 else 0.0
+                prob_max_diff = jnp.max(valid_probs) - jnp.min(valid_probs) if len(valid_probs) > 1 else 0.0
+                logger.info(f"  Prob differentiation - Std: {prob_std:.4f}, Max-Min: {prob_max_diff:.4f}")
+                
                 logger.info(f"  Selected idx: {selected_var_idx}")
                 selected_var_name = mapper.get_name(int(selected_var_idx))
                 logger.info(f"  Selected var: {selected_var_name}")
@@ -1148,59 +1396,94 @@ class UnifiedGRPOTrainer:
                 scm, intervention, n_samples=10, seed=int(sample_key[0])
             )
             
+            # Store intervention details for later (before computing reward)
+            # Get posterior before intervention
+            posterior_before = None
+            if self.use_surrogate and self.surrogate_predict_fn is not None:
+                # Compute posterior BEFORE intervention
+                logger.debug(
+                    f"Computing posterior before intervention - "
+                    f"target: {target_var}, buffer size: {buffer.size()}"
+                )
+                posterior_before = self.surrogate_predict_fn(
+                    tensor[:, :, :3], target_var, mapper.variables
+                )
+                logger.debug(
+                    f"Posterior entropy before: {posterior_before.get('entropy', 0):.3f}"
+                )
+            else:
+                # No surrogate - use uniform posterior (0.5 probability for each potential parent)
+                from ..training.five_channel_converter import create_uniform_posterior
+                posterior_before = create_uniform_posterior(mapper.variables, target_var, probability=0.5)
+            
+            # Store intervention details for buffer update after GRPO
+            intervention_info = {
+                'intervention': intervention,
+                'samples': intervention_samples,
+                'posterior': posterior_before
+            }
+            
             # Compute reward
             outcome_sample = intervention_samples[0] if intervention_samples else None
             if outcome_sample:
-                # Get posterior before and after intervention if using surrogate
-                posterior_before = None
+                # Calculate posterior_after for reward computation
+                # We need to simulate what it would be WITHOUT actually adding to buffer
                 posterior_after = None
                 if self.use_surrogate and self.surrogate_predict_fn is not None:
-                    # Compute posterior BEFORE intervention
-                    logger.debug(
-                        f"Computing posterior before intervention - "
-                        f"target: {target_var}, buffer size: {buffer.size()}"
-                    )
-                    posterior_before = self.surrogate_predict_fn(
-                        tensor[:, :, :3], target_var, mapper.variables
-                    )
-                    logger.debug(
-                        f"Posterior entropy before: {posterior_before.get('entropy', 0):.3f}"
-                    )
-                else:
-                    # No surrogate - use uniform posterior (0.5 probability for each potential parent)
-                    from ..training.five_channel_converter import create_uniform_posterior
-                    posterior_before = create_uniform_posterior(mapper.variables, target_var, probability=0.5)
-                
-                # Always add intervention samples to buffer with appropriate posterior
-                for sample in intervention_samples:
-                    buffer.add_intervention(intervention, sample, posterior=posterior_before)
-                
-                if self.use_surrogate and self.surrogate_predict_fn is not None:
+                    # Create a temporary buffer copy to simulate the intervention
+                    temp_buffer = ExperienceBuffer()
+                    # Copy existing samples
+                    for sample in buffer.get_all_samples():
+                        if hasattr(sample, 'intervention'):
+                            temp_buffer.add_intervention(
+                                sample.intervention, 
+                                sample, 
+                                posterior=sample.posterior if hasattr(sample, 'posterior') else None
+                            )
+                        else:
+                            temp_buffer.add_observation(
+                                sample,
+                                posterior=sample.posterior if hasattr(sample, 'posterior') else None
+                            )
                     
-                    # Update surrogate with the buffer INCLUDING intervention results
-                    self.surrogate_params, self.surrogate_opt_state, update_metrics = \
+                    # Add the current intervention to temp buffer
+                    for sample in intervention_samples:
+                        temp_buffer.add_intervention(intervention, sample, posterior=posterior_before)
+                    
+                    # Update surrogate with temp buffer to get what posterior would be
+                    temp_surrogate_params = self.surrogate_params
+                    temp_surrogate_opt_state = self.surrogate_opt_state
+                    temp_surrogate_params, temp_surrogate_opt_state, _ = \
                         self.surrogate_update_fn(
-                            self.surrogate_params,
-                            self.surrogate_opt_state,
-                            buffer,  # Buffer now includes intervention samples
+                            temp_surrogate_params,
+                            temp_surrogate_opt_state,
+                            temp_buffer,
                             target_var
                         )
                     
-                    # Create tensor from updated buffer for posterior_after
+                    # Create tensor from temp buffer for posterior_after
                     tensor_after, mapper_after = buffer_to_three_channel_tensor(
-                        buffer, target_var, max_history_size=100, standardize=True
+                        temp_buffer, target_var, max_history_size=100, standardize=True
                     )
                     
-                    # Compute posterior after intervention with updated surrogate
-                    logger.debug(
-                        f"Computing posterior after intervention - "
-                        f"new buffer size: {buffer.size()}"
+                    # Compute posterior after with temp surrogate
+                    # Create a temporary predict function with updated params
+                    # Need to provide RNG key for Haiku transformed function
+                    self.rng_key, surrogate_key = random.split(self.rng_key)
+                    # Convert target_var to index for surrogate
+                    target_idx_after = mapper_after.variables.index(target_var) if isinstance(target_var, str) else target_var
+                    posterior_after = self.surrogate_net.apply(
+                        temp_surrogate_params,
+                        surrogate_key,  # RNG key required as second argument
+                        tensor_after, 
+                        target_idx_after, 
+                        mapper_after.variables
                     )
-                    posterior_after = self.surrogate_predict_fn(
-                        tensor_after[:, :, :3], target_var, mapper_after.variables
-                    )
+                    
                     logger.debug(
-                        f"Posterior entropy after: {posterior_after.get('entropy', 0):.3f}"
+                        f"Simulated posterior after intervention - "
+                        f"entropy before: {posterior_before.get('entropy', 0):.3f}, "
+                        f"entropy after: {posterior_after.get('entropy', 0):.3f}"
                     )
                 else:
                     logger.debug("No surrogate model available for info gain")
@@ -1309,6 +1592,7 @@ class UnifiedGRPOTrainer:
             })
             grpo_batch_data['rewards'].append(reward)
             grpo_batch_data['old_log_probs'].append(float(log_prob))
+            grpo_batch_data['intervention_details'].append(intervention_info)
             
             # Store mapper's target index (same for all samples in batch)
             if grpo_batch_data['target_idx'] is None:
@@ -1326,14 +1610,146 @@ class UnifiedGRPOTrainer:
         grpo_batch['target_variable'] = target_var
         grpo_batch['target_idx'] = grpo_batch_data['target_idx']  # Pass mapper's target index
         
+        # Store old params for comparison
+        old_params = self.policy_params
+        
+        # Log before update
+        print(f"\n{'='*60}")
+        print(f"[GRPO UPDATE] Episode {episode_idx}, Intervention {len(buffer.get_interventions())}")
+        print(f"{'='*60}")
+        
+        # Log batch statistics
+        print(f"\n📊 GRPO Batch Statistics:")
+        print(f"  Group size: {len(grpo_batch['interventions'])}")
+        print(f"  Rewards shape: {grpo_batch['rewards'].shape}")
+        print(f"  Rewards range: [{jnp.min(grpo_batch['rewards']):.4f}, {jnp.max(grpo_batch['rewards']):.4f}]")
+        print(f"  Mean reward: {jnp.mean(grpo_batch['rewards']):.4f}")
+        
+        # Log advantages if available
+        if 'advantages' in grpo_batch:
+            print(f"  Advantages range: [{jnp.min(grpo_batch['advantages']):.4f}, {jnp.max(grpo_batch['advantages']):.4f}]")
+            print(f"  Mean advantage: {jnp.mean(grpo_batch['advantages']):.4f}")
+        
         # Perform GRPO update
+        print(f"\n🔄 Performing GRPO update...")
         self.policy_params, self.optimizer_state, grpo_metrics = self.grpo_update(
             self.policy_params,
             self.optimizer_state,
             grpo_batch
         )
         
+        # Always check if parameters actually changed (not just every 50 episodes)
+        param_changes = jax.tree.map(
+            lambda old, new: jnp.linalg.norm(new - old),
+            old_params, self.policy_params
+        )
+        change_leaves, _ = jax.tree_util.tree_flatten(param_changes)
+        total_change = jnp.sum(jnp.array(change_leaves))
+        max_change = jnp.max(jnp.array(change_leaves))
+        mean_change = jnp.mean(jnp.array(change_leaves))
+        
+        print(f"\n✅ Update Complete:")
+        print(f"  Gradient norm: {grpo_metrics.grad_norm:.6f}")
+        print(f"  Policy loss: {grpo_metrics.policy_loss:.4f}")
+        print(f"  Value loss: {grpo_metrics.value_loss:.4f}")
+        print(f"  Mean advantage: {grpo_metrics.mean_advantage:.4f}")
+        
+        print(f"\n🔧 Parameter Changes:")
+        print(f"  Total change (sum of norms): {total_change:.6f}")
+        print(f"  Mean change: {mean_change:.6f}")
+        print(f"  Max change: {max_change:.6f}")
+        
+        if total_change < 1e-8:
+            print(f"  ⚠️ WARNING: NO PARAMETERS CHANGED!")
+            print(f"     Possible causes:")
+            print(f"     - Learning rate too small (current: {self.learning_rate})")
+            print(f"     - Gradients are zero (norm: {grpo_metrics.grad_norm:.6f})")
+            print(f"     - Optimizer issue")
+        elif total_change < 1e-6:
+            print(f"  ⚠️ WARNING: Very small parameter changes")
+        else:
+            print(f"  ✅ Parameters updated successfully")
+        
+        # Log specific parameter changes for key layers
+        if episode_idx % 10 == 0:  # More frequent detailed logging
+            print(f"\n📍 Key Layer Changes:")
+            for key, change in param_changes.items():
+                if 'var_mlp_output' in key or 'val_mlp_output' in key or 'input_projection' in key:
+                    if hasattr(change, 'shape'):
+                        print(f"    {key}: norm={jnp.linalg.norm(change):.6f}, shape={change.shape}")
+        
         self.training_step += 1
+        
+        # Only process GRPO batch data if it exists (i.e., we're in GRPO/policy phase)
+        if 'grpo_batch_data' in locals() and grpo_batch_data is not None:
+            # After GRPO update, add only the BEST intervention to buffer
+            # This maintains a consistent causal history
+            best_idx = jnp.argmax(grpo_batch_data['rewards'])
+            best_intervention_info = grpo_batch_data['intervention_details'][int(best_idx)]
+            
+            # Get buffer size before adding
+            buffer_size_before = buffer.size()
+            
+            # Add only ONE sample from the best intervention to maintain clear causal attribution
+            # This ensures the model sees a consistent history without noise confusion
+            if best_intervention_info['samples']:
+                # Take the first sample (could also randomly select one)
+                single_sample = best_intervention_info['samples'][0]
+                buffer.add_intervention(
+                    best_intervention_info['intervention'], 
+                    single_sample, 
+                    posterior=best_intervention_info['posterior']
+                )
+            
+            # Verify buffer grew correctly
+            buffer_size_after = buffer.size()
+            samples_added = buffer_size_after - buffer_size_before
+            
+            # Get the last sample from buffer for verification
+            last_buffer_sample = buffer.get_all_samples()[-1] if buffer.get_all_samples() else None
+            last_sample_values = get_values(last_buffer_sample) if last_buffer_sample else {}
+            last_target_value = last_sample_values.get(target_var, None)
+            
+            # Log which intervention was selected with detailed info
+            best_reward = grpo_batch_data['rewards'][best_idx]
+            best_action = grpo_batch_data['actions'][int(best_idx)]
+            best_var_name = mapper.get_name(int(best_action['variable']))
+            
+            logger.info(
+                f"\n[BEST INTERVENTION SELECTED] Episode {episode_idx}:"
+            )
+            logger.info(
+                f"  Selected intervention {best_idx+1}/{self.grpo_config.group_size}: "
+                f"{best_var_name} = {best_action['value']:.3f}"
+            )
+            logger.info(f"  Best reward: {best_reward:.3f}")
+            logger.info(f"  Buffer size: {buffer_size_before} -> {buffer_size_after} ({samples_added} samples added)")
+            logger.info(f"  Last buffer target value: {last_target_value:.3f}" if last_target_value is not None else "  Last buffer target value: None")
+            
+            # Compare with best intervention's target value
+            best_intervention_sample = best_intervention_info['samples'][0] if best_intervention_info['samples'] else None
+            if best_intervention_sample:
+                best_intervention_values = get_values(best_intervention_sample)
+                best_intervention_target = best_intervention_values.get(target_var, None)
+                logger.info(f"  Best intervention target value: {best_intervention_target:.3f}" if best_intervention_target is not None else "  Best intervention target value: None")
+                
+                # Sanity check
+                if last_target_value is not None and best_intervention_target is not None:
+                    if abs(last_target_value - best_intervention_target) < 0.001:
+                        logger.info("  ✓ SANITY CHECK PASSED: Buffer contains correct intervention")
+                    else:
+                        logger.warning(f"  ✗ SANITY CHECK FAILED: Buffer value {last_target_value:.3f} != Best intervention {best_intervention_target:.3f}")
+        
+        # Now update surrogate if using one
+        if self.use_surrogate and self.surrogate_predict_fn is not None:
+            self.surrogate_params, self.surrogate_opt_state, update_metrics = \
+                self.surrogate_update_fn(
+                    self.surrogate_params,
+                    self.surrogate_opt_state,
+                    buffer,  # Buffer now includes only the best intervention
+                    target_var
+                )
+            logger.debug(f"Surrogate updated with best intervention. Loss: {update_metrics.get('loss', 0):.4f}")
         
         # Compute structure metrics if surrogate is available
         structure_metrics = {}
@@ -1341,6 +1757,21 @@ class UnifiedGRPOTrainer:
             # Use the last posterior (after all interventions)
             metrics = compute_structure_metrics_continuous(posterior_before, true_parents)
             structure_metrics = metrics
+        
+        # Log target value trend every 5 episodes (per SCM!)
+        if episode_idx % 5 == 0 and self.target_value_history:
+            # Get history ONLY for this specific SCM
+            scm_history = [h for h in self.target_value_history if h['scm'] == scm_name]
+            if len(scm_history) >= 2:
+                recent_targets = [h['target_value'] for h in scm_history[-5:]]  # Last 5 for this SCM
+                initial_value = scm_history[0]['target_value']
+                current_value = scm_history[-1]['target_value']
+                trend = current_value - initial_value
+                logger.info(
+                    f"\n[TARGET TREND] Episode {episode_idx}, SCM {scm_name}: "
+                    f"Initial: {initial_value:.2f}, Current: {current_value:.2f}, "
+                    f"Trend: {trend:+.3f} {'↓' if trend < 0 else '↑'}"
+                )
         
         return {
             'episode': episode_idx,
@@ -1427,42 +1858,20 @@ class UnifiedGRPOTrainer:
         if self.use_grpo_rewards and 'advantages' in batch:
             # Enhanced mode: use pre-computed group advantages
             advantages = batch['advantages']
+            group_baseline = jnp.mean(rewards)  # Still need for metrics
         else:
-            # Standard mode: compute advantages using non-intervention baseline
-            buffer = batch.get('buffer')
-            target_variable = batch.get('target_variable')
-        
-        if buffer is not None and target_variable is not None:
-            # Get observational (non-intervened) samples
-            obs_samples = buffer.get_observations()
-            if len(obs_samples) > 0:
-                # Extract target values from observational data
-                obs_target_values = []
-                for sample in obs_samples:
-                    # Values are nested under 'values' key in the sample
-                    if 'values' in sample and target_variable in sample['values']:
-                        obs_target_values.append(float(sample['values'][target_variable]))
-                
-                if len(obs_target_values) > 0:
-                    # Baseline = average target value without interventions
-                    non_intervention_baseline = jnp.mean(jnp.array(obs_target_values))
-                    logger.debug(
-                        f"[BASELINE] Using non-intervention baseline: {non_intervention_baseline:.3f} "
-                        f"(from {len(obs_target_values)} obs samples)"
-                    )
-                else:
-                    # Fallback to mean rewards if no observational data
-                    non_intervention_baseline = jnp.mean(rewards)
-                    logger.debug("[BASELINE] No obs target values, using mean rewards")
-            else:
-                # No observational data, use mean rewards
-                non_intervention_baseline = jnp.mean(rewards)
-        else:
-            # Fallback to original GRPO baseline
-            non_intervention_baseline = jnp.mean(rewards)
-        
-        # Advantages = how much better than not intervening
-        advantages = rewards - non_intervention_baseline
+            # PROPER GRPO: Use within-group baseline
+            # The group baseline is the mean of rewards within this batch
+            # This compares actions taken from the SAME state
+            group_baseline = jnp.mean(rewards)
+            
+            # Advantages = how much better than average in this group
+            advantages = rewards - group_baseline
+            
+            logger.debug(
+                f"[GRPO BASELINE] Group mean: {group_baseline:.3f}, "
+                f"Rewards range: [{jnp.min(rewards):.3f}, {jnp.max(rewards):.3f}]"
+            )
         
         # Normalize advantages for stability (only in standard mode)
         adv_std = jnp.std(advantages)
@@ -1563,12 +1972,7 @@ class UnifiedGRPOTrainer:
         approx_kl = jnp.mean((new_log_probs - old_log_probs) ** 2)
         
         # Determine baseline value for reporting
-        if self.use_grpo_rewards and 'advantages' in batch:
-            # Enhanced mode uses group mean as baseline
-            group_baseline = jnp.mean(rewards)
-        else:
-            # Standard mode uses non-intervention baseline
-            group_baseline = non_intervention_baseline
+        # group_baseline already computed above in both modes
         
         loss_info = {
             'policy_loss': policy_loss,
@@ -1620,7 +2024,8 @@ class UnifiedGRPOTrainer:
         # Save policy checkpoint
         policy_architecture = {
             'hidden_dim': self.config.get('architecture', {}).get('hidden_dim', 256),
-            'architecture_level': self.architecture_level
+            'architecture_level': self.architecture_level,
+            'architecture_type': self.policy_architecture if hasattr(self, 'policy_architecture') else 'alternating_attention'
         }
         
         training_config = {
@@ -1691,7 +2096,8 @@ class UnifiedGRPOTrainer:
         config = self.config if hasattr(self, 'config') else {}
         architecture = {
             'hidden_dim': config.get('architecture', {}).get('hidden_dim', 256),
-            'architecture_level': self.architecture_level
+            'architecture_level': self.architecture_level,
+            'architecture_type': self.policy_architecture if hasattr(self, 'policy_architecture') else 'alternating_attention'
         }
         
         # Training configuration

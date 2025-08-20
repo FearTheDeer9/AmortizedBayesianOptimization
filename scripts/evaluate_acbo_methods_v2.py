@@ -181,6 +181,15 @@ def evaluate_method(
                     probs = result.metadata['marginal_parent_probs']
                     print(f"  Predicted parent probabilities:")
                     true_parents = get_parents(scm, target)
+                    
+                    # Calculate diversity metrics
+                    import numpy as np
+                    prob_values = [probs.get(var, 0.0) for var in variables if var != target]
+                    if prob_values:
+                        prob_std = np.std(prob_values)
+                        prob_range = max(prob_values) - min(prob_values)
+                        print(f"  Probability diversity - std: {prob_std:.4f}, range: {prob_range:.4f}")
+                    
                     for var in variables:
                         if var != target:
                             prob = probs.get(var, 0.0)

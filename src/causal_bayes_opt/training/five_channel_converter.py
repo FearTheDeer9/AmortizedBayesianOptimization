@@ -345,8 +345,9 @@ def _extend_to_five_channels(
         # In future, could make this time-varying
         tensor_5ch = tensor_5ch.at[:, :, 3].set(prob_vector[None, :])
     else:
-        # No surrogate - use zeros
-        logger.debug("No surrogate predictions available, using zero probabilities")
+        # No surrogate - use uniform 0.5 probability (uninformative prior)
+        logger.debug("No surrogate predictions available, using uniform 0.5 probabilities")
+        tensor_5ch = tensor_5ch.at[:, :, 3].set(0.5)
     
     # Channel 4: Intervention recency
     recency_matrix = _compute_intervention_recency_matrix(
@@ -550,17 +551,17 @@ def _extract_values_vector(sample: Any, variable_order: List[str]) -> jnp.ndarra
 
 
 def _standardize_values(tensor: jnp.ndarray, actual_size: int) -> jnp.ndarray:
-    """Standardize the values channel using global statistics."""
+    """Standardize the values channel using per-variable statistics."""
     # Get the actual data region (excluding padding)
     start_idx = tensor.shape[0] - actual_size
     actual_data = tensor[start_idx:, :, 0]  # Values channel
     
-    # Compute global statistics
-    global_mean = jnp.mean(actual_data)
-    global_std = jnp.std(actual_data) + 1e-8
+    # Compute per-variable statistics (axis=0 is time, we standardize across time for each variable)
+    per_var_mean = jnp.mean(actual_data, axis=0, keepdims=True)  # [1, n_vars]
+    per_var_std = jnp.std(actual_data, axis=0, keepdims=True) + 1e-8  # [1, n_vars]
     
-    # Standardize only the actual data region
-    standardized_values = (tensor[:, :, 0] - global_mean) / global_std
+    # Standardize only the actual data region using per-variable statistics
+    standardized_values = (tensor[:, :, 0] - per_var_mean) / per_var_std
     
     # Only update the non-padded region
     mask = jnp.zeros(tensor.shape[0])

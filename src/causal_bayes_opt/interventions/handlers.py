@@ -21,6 +21,48 @@ from ..data_structures.scm import (
 logger = logging.getLogger(__name__)
 
 
+def clip_intervention_values(
+    values: Dict[str, float], 
+    scm: Optional[pyr.PMap] = None,
+    default_range: tuple[float, float] = (-2.0, 2.0)
+) -> Dict[str, float]:
+    """
+    Clip intervention values based on SCM-specific ranges or defaults.
+    
+    This prevents the policy from exploiting infinite values in linear SCMs
+    by constraining interventions to reasonable ranges.
+    
+    Args:
+        values: Dictionary mapping variables to intervention values
+        scm: Optional SCM with variable_ranges in metadata
+        default_range: Default range if SCM doesn't specify
+        
+    Returns:
+        Dictionary with clipped values
+    """
+    import jax.numpy as jnp
+    
+    # Get variable-specific ranges from SCM if available
+    if scm:
+        metadata = scm.get('metadata', {})
+        variable_ranges = metadata.get('variable_ranges', {})
+    else:
+        variable_ranges = {}
+    
+    # Clip each value to its appropriate range
+    clipped_values = {}
+    for var, val in values.items():
+        var_range = variable_ranges.get(var, default_range)
+        clipped_val = float(jnp.clip(val, var_range[0], var_range[1]))
+        
+        if clipped_val != val:
+            logger.debug(f"Clipped intervention for {var}: {val:.3f} -> {clipped_val:.3f} (range: {var_range})")
+        
+        clipped_values[var] = clipped_val
+    
+    return clipped_values
+
+
 # Perfect intervention handler
 def perfect_intervention_handler(scm: pyr.PMap, intervention: pyr.PMap) -> pyr.PMap:
     """

@@ -1,0 +1,211 @@
+# Configuration for component ablation experiments
+
+experiment:
+  name: "component_ablation"
+  description: "Systematic evaluation of design choices through component ablation"
+  seed: 42
+
+# Test configuration
+test_setup:
+  # Graph sizes for ablation (smaller for faster iteration)
+  graph_sizes: [10, 20, 50]
+  n_graphs_per_size: 5
+  n_interventions: 30
+  
+  # Evaluation protocol
+  use_same_scms: true  # Use identical SCMs for fair comparison
+  statistical_testing: true
+  confidence_level: 0.95
+
+# Component ablation configurations (Experiment 3.1)
+component_ablation:
+  # Full model (reference)
+  full_model:
+    name: "Full Model"
+    policy_type: "trained"
+    surrogate_type: "trained" 
+    training_method: "joint"
+    use_grpo: true
+    use_bc_initialization: true
+    use_alternating_attention: true
+    description: "Complete model with all components"
+    
+  # Ablated variants
+  ablated_variants:
+    - name: "Without GRPO"
+      policy_type: "trained"
+      surrogate_type: "trained"
+      training_method: "joint"
+      use_grpo: false  # Use vanilla policy gradient instead
+      use_bc_initialization: true
+      use_alternating_attention: true
+      description: "Replace GRPO with vanilla policy gradient"
+      
+    - name: "Without BC Initialization"
+      policy_type: "trained"
+      surrogate_type: "trained"  
+      training_method: "joint"
+      use_grpo: true
+      use_bc_initialization: false  # Random initialization
+      use_alternating_attention: true
+      description: "Random policy initialization instead of BC"
+      
+    - name: "Without Joint Training"
+      policy_type: "trained"
+      surrogate_type: "trained"
+      training_method: "independent"  # Train separately
+      use_grpo: true
+      use_bc_initialization: true
+      use_alternating_attention: true
+      description: "Independent training of policy and surrogate"
+      
+    - name: "Without Alternating Attention"
+      policy_type: "trained"
+      surrogate_type: "trained"
+      training_method: "joint"
+      use_grpo: true
+      use_bc_initialization: true
+      use_alternating_attention: false  # Standard transformer
+      description: "Standard transformer instead of alternating attention"
+      
+    - name: "Random Policy + Learned Surrogate"
+      policy_type: "random"
+      surrogate_type: "trained"
+      description: "Random policy with learned posterior network"
+
+# Reward component analysis (Experiment 3.2)
+reward_analysis:
+  # Different reward configurations
+  reward_configurations:
+    - name: "Optimization Only"
+      optimization_weight: 1.0
+      structure_weight: 0.0
+      parent_supervision_weight: 0.0
+      description: "Pure target optimization"
+      
+    - name: "Structure Only"
+      optimization_weight: 0.0
+      structure_weight: 1.0
+      parent_supervision_weight: 0.0
+      description: "Pure structure learning"
+      
+    - name: "Balanced Combination"
+      optimization_weight: 0.7
+      structure_weight: 0.3
+      parent_supervision_weight: 0.0
+      description: "Balanced multi-objective"
+      
+    - name: "With Parent Supervision"
+      optimization_weight: 0.6
+      structure_weight: 0.3
+      parent_supervision_weight: 0.1
+      description: "Full multi-objective with supervision"
+      
+    - name: "Structure Heavy"
+      optimization_weight: 0.3
+      structure_weight: 0.7
+      parent_supervision_weight: 0.0
+      description: "Emphasize structure learning"
+
+# Training paradigm comparison (Experiment 3.3)
+training_paradigms:
+  paradigm_configurations:
+    - name: "Joint Training"
+      training_method: "joint"
+      phase_length: 1000
+      use_replay_buffer: true
+      description: "Standard joint training"
+      
+    - name: "Independent Training"
+      training_method: "independent"
+      description: "Separate policy and surrogate training"
+      
+    - name: "Short Phases"
+      training_method: "joint"
+      phase_length: 500  # Shorter alternation
+      use_replay_buffer: true
+      description: "More frequent phase switching"
+      
+    - name: "Long Phases"
+      training_method: "joint"
+      phase_length: 2000  # Longer alternation
+      use_replay_buffer: true
+      description: "Less frequent phase switching"
+      
+    - name: "No Replay Buffer"
+      training_method: "joint"
+      phase_length: 1000
+      use_replay_buffer: false
+      description: "Joint training without experience replay"
+
+# Metrics for ablation analysis
+metrics:
+  # Optimization performance
+  optimization_metrics:
+    - "final_target_value"
+    - "best_target_value"
+    - "convergence_rate"
+    - "interventions_to_threshold"
+    - "cumulative_regret"
+    
+  # Structure learning performance  
+  structure_metrics:
+    - "parent_f1_score"
+    - "parent_precision"
+    - "parent_recall"
+    - "structural_hamming_distance"
+    
+  # Efficiency metrics
+  efficiency_metrics:
+    - "inference_time"
+    - "training_time" 
+    - "memory_usage"
+    - "sample_efficiency"
+
+# Analysis settings
+analysis:
+  # Statistical testing
+  paired_testing: true  # Use paired tests (same SCMs)
+  multiple_comparison_correction: "bonferroni"
+  
+  # Effect size analysis
+  compute_effect_sizes: true
+  practical_significance_threshold: 0.1  # 10% improvement threshold
+  
+  # Ranking and importance
+  component_importance_ranking: true
+  interaction_effects: false  # Too complex for initial analysis
+
+# Visualization settings
+plotting:
+  # Ablation summary plots
+  create_ablation_table: true
+  create_component_ranking: true
+  create_radar_charts: true
+  
+  # Detailed analysis plots
+  convergence_by_component: true
+  structure_learning_comparison: true
+  efficiency_comparison: true
+  
+  # Statistical visualization
+  significance_indicators: true
+  effect_size_visualization: true
+
+# Output format
+output:
+  formats: ["csv", "json", "latex"]
+  create_paper_ready_tables: true
+  include_statistical_tests: true
+
+# Resource management
+resource_limits:
+  max_training_time_per_variant: 3600  # 1 hour per training variant
+  max_evaluation_time: 7200  # 2 hours total evaluation
+  
+# Quick test mode
+quick_test:
+  graph_sizes: [10]
+  n_graphs_per_size: 2
+  n_interventions: 10
+  use_existing_checkpoints: true  # Don't retrain for quick tests

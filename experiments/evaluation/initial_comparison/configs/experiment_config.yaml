@@ -1,0 +1,47 @@
+# Configuration for initial comparison experiment
+# This experiment compares random, oracle, and trained policies
+# across different SCM sizes
+
+experiment:
+  name: "initial_comparison"
+  description: "Compare baseline methods with trained/untrained policies"
+  seed: 42
+
+# SCM generation settings
+scm_generation:
+  sizes: [5, 10, 20, 50, 100]  # Number of variables in each SCM
+  n_scms_per_size: 10  # Number of SCMs to generate per size
+  structure_types: ["random", "chain", "fork"]  # Types to rotate through
+  edge_density: 0.3  # For random graphs
+
+# Data generation settings
+data_generation:
+  n_observational_samples: 200  # Initial observational data
+  n_interventions: 50  # Number of interventions to perform
+
+# Method configurations
+methods:
+  # Baselines are configured in the script
+  # Policy and surrogate checkpoints are passed via command line
+  use_surrogate: true  # Whether to use surrogate model
+
+# Metrics to track
+metrics:
+  track:
+    - "shd"  # Structural Hamming Distance
+    - "f1"  # F1 score for edge detection
+    - "precision"  # Edge precision
+    - "recall"  # Edge recall
+    - "final_target"  # Final target value
+    - "best_target"  # Best target value achieved
+
+# Output settings
+output:
+  save_trajectories: true  # Save full intervention trajectories
+  generate_plots: true  # Generate visualization plots
+  save_format: ["csv", "json"]  # Formats for saving results
+
+# Logging settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

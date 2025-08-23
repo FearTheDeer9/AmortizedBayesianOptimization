@@ -48,16 +48,28 @@ def create_clean_grpo_policy(
     Returns:
         Policy function that maps tensor inputs to action distributions
     """
+    # IMPORTANT: "permutation_invariant" now maps to the simple version (4-channel standard)
+    # The old alternating version is deprecated
     if architecture == "permutation_invariant":
-        return create_permutation_invariant_alternating_policy(hidden_dim, use_fixed_std, fixed_std)
+        # Map to the new standard (simple_permutation_invariant)
+        return create_simple_permutation_invariant_policy(hidden_dim, use_fixed_std, fixed_std)
     elif architecture == "simple_permutation_invariant":
         return create_simple_permutation_invariant_policy(hidden_dim, use_fixed_std, fixed_std)
+    elif architecture == "deprecated_permutation_invariant_alternating":
+        # Old 5-channel version - DEPRECATED, kept only for backward compatibility
+        return create_permutation_invariant_alternating_policy(hidden_dim, use_fixed_std, fixed_std)
     elif architecture == "alternating_attention":
         return create_alternating_attention_policy(hidden_dim)
     elif architecture == "attention":
         return create_attention_policy(hidden_dim)
     elif architecture == "simple":
         return create_simple_policy(hidden_dim)
+    elif architecture == "simple_mlp":
+        return create_simple_mlp_policy(hidden_dim)
+    elif architecture == "simplified_permutation_invariant":
+        return create_simplified_permutation_invariant_policy(hidden_dim, use_fixed_std, fixed_std)
+    elif architecture == "quantile":
+        return create_quantile_policy(hidden_dim, use_fixed_std, fixed_std)
     else:
         raise ValueError(f"Unknown architecture: {architecture}")
 
@@ -134,10 +146,10 @@ def create_simple_policy(hidden_dim: int = 256) -> Callable:
         variable_head = hk.Linear(1, name="variable_head")(x_agg)
         variable_logits = variable_head.squeeze(-1)  # [n_vars]
         
-        # Mask out target variable (cannot intervene on target)
+        # Mask out target variable (FIXED: use large negative instead of -inf)
         variable_logits = jnp.where(
             jnp.arange(n_vars) == target_idx,
-            -jnp.inf,
+            -1e10,  # Large negative instead of -inf to avoid infinite loss
             variable_logits
         )
         
@@ -150,6 +162,334 @@ def create_simple_policy(hidden_dim: int = 256) -> Callable:
         }
     
     return policy_fn
+
+
+def create_simple_mlp_policy(hidden_dim: int = 256) -> Callable:
+    """
+    Create the simplest possible MLP policy for GRPO comparison.
+    
+    This architecture:
+    1. Flattens all input to single vector (no temporal/structural assumptions)
+    2. Uses standard MLP layers (no residuals, no layer norm complexity)
+    3. Same input/output interface as existing policies
+    4. Tests if architectural complexity is limiting learning
+    
+    Args:
+        hidden_dim: Hidden dimension for MLP layers
+        
+    Returns:
+        Policy function with same interface as create_clean_grpo_policy
+    """
+    def simple_mlp_policy_fn(tensor_input: jnp.ndarray, target_idx: int = 0) -> Dict[str, jnp.ndarray]:
+        """
+        Simple MLP policy network - no assumptions about structure.
+        
+        Args:
+            tensor_input: [T, n_vars, C] tensor where C can be 3 or 5
+            target_idx: Index of target variable to mask
+            
+        Returns:
+            Dictionary with:
+            - variable_logits: [n_vars] logits for variable selection
+            - value_params: [n_vars, 2] mean and log_std for each variable
+        """
+        T, n_vars, n_channels = tensor_input.shape
+        
+        # Handle both 3 and 5 channel inputs (compatibility)
+        if n_channels == 3:
+            # Legacy 3-channel format - pad with zeros
+            padded = jnp.zeros((T, n_vars, 5))
+            padded = padded.at[:, :, :3].set(tensor_input)
+            tensor_input = padded
+            n_channels = 5
+        elif n_channels != 5:
+            raise ValueError(f"Expected 3 or 5 channels, got {n_channels}")
+        
+        # SIMPLE: Flatten everything to single vector
+        # No temporal processing, no permutation invariance, no complex aggregation
+        flat_input = tensor_input.flatten()  # [T * n_vars * 5]
+        
+        # Standard MLP stack - just learn the mapping
+        x = hk.Linear(hidden_dim, name="mlp_layer1")(flat_input)
+        x = jax.nn.relu(x)
+        
+        x = hk.Linear(hidden_dim, name="mlp_layer2")(x)
+        x = jax.nn.relu(x)
+        
+        x = hk.Linear(hidden_dim, name="mlp_layer3")(x)
+        x = jax.nn.relu(x)
+        
+        # Output heads - predict for each variable
+        # Variable selection head
+        var_logits = hk.Linear(n_vars, name="variable_output")(x)  # [n_vars]
+        
+        # Value prediction head  
+        value_flat = hk.Linear(n_vars * 2, name="value_output")(x)  # [n_vars * 2]
+        value_params = value_flat.reshape(n_vars, 2)  # [n_vars, 2]
+        
+        # Mask out target variable (FIXED: use large negative instead of -inf)
+        variable_logits = jnp.where(
+            jnp.arange(n_vars) == target_idx,
+            -1e10,  # Large negative instead of -inf to avoid infinite loss
+            var_logits
+        )
+        
+        return {
+            'variable_logits': variable_logits,
+            'value_params': value_params
+        }
+    
+    return simple_mlp_policy_fn
+
+
+def create_simplified_permutation_invariant_policy(
+    hidden_dim: int = 256,
+    use_fixed_std: bool = True,
+    fixed_std: float = 0.5
+) -> Callable:
+    """
+    Create simplified version of permutation invariant policy.
+    
+    Based on simple_permutation_invariant_policy.py but without complex attention:
+    1. Uses 4 channels (like current)
+    2. Pads 3→4 with uniform 0.5 parent probs (like current) 
+    3. SIMPLIFIED: No alternating attention layers
+    4. SIMPLIFIED: Simple pooling instead of complex temporal processing
+    5. Same output heads as current
+    """
+    def simplified_policy_fn(tensor_input: jnp.ndarray, target_idx: int = 0) -> Dict[str, jnp.ndarray]:
+        """Simplified permutation invariant policy without complex attention."""
+        T, n_vars, n_channels = tensor_input.shape
+        
+        # Handle channel conversion (same as current architecture)
+        if n_channels == 3:
+            # No surrogate case - pad channel 3 with uniform 0.5 parent probs
+            padded = jnp.zeros((T, n_vars, 4))
+            padded = padded.at[:, :, :3].set(tensor_input)
+            padded = padded.at[:, :, 3].set(0.5)  # Uniform parent probability
+            tensor_input = padded
+        elif n_channels == 5:
+            # Has surrogate - drop duplicative 5th channel
+            tensor_input = tensor_input[:, :, :4]
+        elif n_channels != 4:
+            raise ValueError(f"Expected 3, 4, or 5 channels, got {n_channels}")
+        
+        # Simple initial projection (same as current)
+        x_flat = tensor_input.reshape(-1, 4)
+        x_proj = hk.Linear(hidden_dim, name="input_projection")(x_flat)
+        x = x_proj.reshape(T, n_vars, hidden_dim)
+        
+        # SIMPLIFIED: Replace 4 alternating attention layers with simple processing
+        # Option 1: Single attention layer + pooling
+        x_attended = _simple_attention_layer(x, hidden_dim, "single_attention")
+        
+        # Simple mean pooling over time (like original)
+        x_pooled = jnp.mean(x_attended, axis=0)  # [n_vars, hidden_dim]
+        
+        # Final processing (like original)
+        x_final = hk.LayerNorm(
+            axis=-1, create_scale=True, create_offset=True,
+            name="output_norm"
+        )(x_pooled)
+        
+        # ORIGINAL GENERALIZATION PATTERN: Per-variable heads (works for any variable count)
+        # Variable selection head - applies same function to each variable
+        var_hidden = hk.Sequential([
+            hk.Linear(hidden_dim // 2, name="var_mlp_1"),
+            jax.nn.gelu,
+            hk.Linear(1, name="var_mlp_output")  # ✅ Output size = 1 (not n_vars!)
+        ])(x_final)
+        
+        variable_logits = var_hidden.squeeze(-1)  # [n_vars, 1] → [n_vars]
+        
+        # TODAY'S GRADIENT FIX: Proper target masking
+        variable_logits = jnp.where(
+            jnp.arange(n_vars) == target_idx,
+            -1e10,  # Large negative instead of -inf to avoid infinite loss
+            variable_logits
+        )
+        
+        # Value prediction head: MEAN-ONLY (fixed std handled in training loop)
+        val_hidden = hk.Sequential([
+            hk.Linear(hidden_dim // 2, name="val_mlp_1"),
+            jax.nn.gelu,
+            hk.Linear(1, name="val_mlp_output",
+                     w_init=hk.initializers.VarianceScaling(1.0, "fan_avg", "truncated_normal"))  # Larger init for exploration
+        ])(x_final)
+        
+        value_means = val_hidden.squeeze(-1)  # [n_vars] - only means!
+        
+        # For interface compatibility, create value_params with fixed std
+        if use_fixed_std:
+            value_log_std = jnp.ones(n_vars) * jnp.log(fixed_std)
+            value_params = jnp.stack([value_means, value_log_std], axis=-1)  # [n_vars, 2]
+        else:
+            # If not using fixed std, still only predict means (std becomes fixed default)
+            default_std = 0.5
+            value_log_std = jnp.ones(n_vars) * jnp.log(default_std)
+            value_params = jnp.stack([value_means, value_log_std], axis=-1)  # [n_vars, 2]
+        
+        return {
+            'variable_logits': variable_logits,
+            'value_params': value_params
+        }
+    
+    return simplified_policy_fn
+
+
+@hk.transparent
+def _simple_attention_layer(x, hidden_dim, layer_name):
+    """Single attention layer based on working create_attention_policy pattern."""
+    with hk.experimental.name_scope(layer_name):
+        T, n_vars, _ = x.shape
+        
+        # Pre-norm (like working version)
+        x_norm = hk.LayerNorm(
+            axis=-1, create_scale=True, create_offset=True,
+            name="pre_norm"
+        )(x)
+        
+        # Attention over time dimension (like working version)
+        x_transposed = jnp.transpose(x_norm, (1, 0, 2))  # [n_vars, T, hidden_dim]
+        
+        def attend_single_var(var_sequence):
+            """Attend over time for single variable (like working version)."""
+            return hk.MultiHeadAttention(
+                num_heads=4,
+                key_size=hidden_dim // 4,
+                model_size=hidden_dim,
+                w_init=hk.initializers.VarianceScaling(1.0, "fan_avg", "uniform"),  # ✅ PROPER INIT
+                name="time_attention"
+            )(var_sequence, var_sequence, var_sequence)
+        
+        # Apply attention to each variable
+        attended_vars = jax.vmap(attend_single_var)(x_transposed)
+        x_attended = jnp.transpose(attended_vars, (1, 0, 2))  # [T, n_vars, hidden_dim]
+        
+        # Add & norm (like working version)
+        x_attended = x + x_attended
+        
+        # FFN layer (like working version)
+        x_norm2 = hk.LayerNorm(
+            axis=-1, create_scale=True, create_offset=True,
+            name="ffn_norm"
+        )(x_attended)
+        
+        # Flatten for FFN
+        x_flat = x_norm2.reshape(-1, hidden_dim)
+        ffn_output = hk.Sequential([
+            hk.Linear(hidden_dim * 4, name="ffn_up", 
+                     w_init=hk.initializers.VarianceScaling(1.0, "fan_avg", "uniform")),
+            jax.nn.gelu,
+            hk.Linear(hidden_dim, name="ffn_down",
+                     w_init=hk.initializers.VarianceScaling(1.0, "fan_avg", "uniform"))
+        ])(x_flat)
+        
+        # Reshape and add residual
+        x_ffn = ffn_output.reshape(T, n_vars, hidden_dim)
+        return x_attended + x_ffn
+
+
+def create_quantile_policy(
+    hidden_dim: int = 256,
+    use_fixed_std: bool = True,
+    fixed_std: float = 0.5
+) -> Callable:
+    """
+    Create quantile-based policy that unifies variable selection and value prediction.
+    
+    Brilliant architecture idea:
+    - Output: [n_vars, 3] quantile scores (25%, 50%, 75% for each variable)
+    - Selection: argmax across ALL n_vars×3 scores 
+    - Value mapping: Selected quantile → percentile from buffer history
+    - Gradient flow: Policy gradients handle non-differentiable selection perfectly
+    
+    Advantages:
+    - Single head (no gradient conflicts)
+    - Historical awareness (uses actual buffer statistics)
+    - Adaptive strategy (learns optimal percentile choices)
+    - Joint optimization (variable + value learned together)
+    """
+    
+    def quantile_policy_fn(tensor_input: jnp.ndarray, target_idx: int = 0) -> Dict[str, jnp.ndarray]:
+        """Quantile-based policy with unified variable and value prediction."""
+        T, n_vars, n_channels = tensor_input.shape
+        
+        # Handle channel conversion (same as successful simplified policy)
+        if n_channels == 3:
+            # No surrogate - pad with uniform parent probs
+            padded = jnp.zeros((T, n_vars, 4))
+            padded = padded.at[:, :, :3].set(tensor_input)
+            padded = padded.at[:, :, 3].set(0.5)
+            tensor_input = padded
+        elif n_channels == 5:
+            # Drop 5th channel
+            tensor_input = tensor_input[:, :, :4]
+        elif n_channels != 4:
+            raise ValueError(f"Expected 3, 4, or 5 channels, got {n_channels}")
+        
+        # Enhanced processing with alternating attention for sample/variable information sharing
+        x_flat = tensor_input.reshape(-1, 4)
+        x_proj = hk.Linear(hidden_dim, name="input_projection")(x_flat)
+        x = x_proj.reshape(T, n_vars, hidden_dim)
+        
+        # ALTERNATING ATTENTION: Share information through both samples and variables
+        num_layers = 4
+        num_heads = 4
+        
+        for layer_idx in range(num_layers):
+            if layer_idx % 2 == 0:
+                # Attention over time dimension (for each variable) - learn sample patterns
+                x = _sample_attention_layer_vmap(x, num_heads, hidden_dim, f"time_attn_{layer_idx}")
+            else:
+                # Attention over variables dimension (for each timestep) - learn variable relationships
+                x = _variable_attention_layer_vmap(x, num_heads, hidden_dim, f"var_attn_{layer_idx}")
+        
+        # Advanced pooling with learned attention weights (like working attention policy)
+        pooling_query = hk.get_parameter(
+            "pooling_query", [1, hidden_dim],
+            init=hk.initializers.TruncatedNormal()
+        )
+        pooling_query = jnp.broadcast_to(pooling_query, (n_vars, hidden_dim))
+        
+        # Compute attention weights over time
+        scores = jnp.einsum('vh,tvh->tv', pooling_query, x) / jnp.sqrt(hidden_dim)
+        attention_weights = jax.nn.softmax(scores, axis=0)  # [T, n_vars]
+        
+        # Weighted sum over time (preserves more information than mean)
+        x_pooled = jnp.einsum('tv,tvh->vh', attention_weights, x)  # [n_vars, hidden_dim]
+        
+        # Final processing
+        x_final = hk.LayerNorm(
+            axis=-1, create_scale=True, create_offset=True,
+            name="output_norm"
+        )(x_pooled)
+        
+        # UNIFIED QUANTILE HEAD: 3 scores per variable (25%, 50%, 75%)
+        quantile_scores = hk.Sequential([
+            hk.Linear(hidden_dim // 2, name="quantile_mlp_1"),
+            jax.nn.gelu,
+            hk.Linear(3, name="quantile_output")  # [n_vars, 3] - 3 quantile scores per variable
+        ])(x_final)
+        
+        # Mask target variable (FIXED: use -infinity for true masking)
+        target_mask = jnp.full(3, -jnp.inf)  # True masking to prevent any selection
+        quantile_scores = quantile_scores.at[target_idx, :].set(target_mask)
+        
+        # For interface compatibility, create standard outputs
+        # Variable logits: Use max quantile score per variable
+        variable_logits = jnp.max(quantile_scores, axis=1)  # [n_vars]
+        
+        # Value params: Placeholder (will be filled by training loop based on quantile selection)
+        value_params = jnp.zeros((n_vars, 2))
+        
+        return {
+            'quantile_scores': quantile_scores,  # [n_vars, 3] - primary output
+            'variable_logits': variable_logits,  # [n_vars] - compatibility
+            'value_params': value_params         # [n_vars, 2] - compatibility placeholder
+        }
+    
+    return quantile_policy_fn
 
 
 def create_attention_policy(hidden_dim: int = 256) -> Callable:

@@ -4,7 +4,6 @@
 import sys
 import os
 import json
-import pickle
 import argparse
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
@@ -21,6 +20,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from optimizer_utils import create_adaptive_optimizer, create_curriculum_optimizer_config
+from src.causal_bayes_opt.utils.checkpoint_utils import save_checkpoint
 from src.causal_bayes_opt.experiments.variable_scm_factory import VariableSCMFactory
 from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables, get_target
 from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
@@ -259,13 +259,18 @@ def main():
                        help='Hidden dimension (AVICI uses 128)')
     parser.add_argument('--num-layers', type=int, default=8,
                        help='Number of layers (AVICI uses 8)')
+    parser.add_argument('--num-heads', type=int, default=8,
+                       help='Number of attention heads')
+    parser.add_argument('--key-size', type=int, default=32,
+                       help='Key size for attention')
+    parser.add_argument('--dropout', type=float, default=0.1,
+                       help='Dropout rate')
     parser.add_argument('--batch-size', type=int, default=32,
                        help='Batch size for training')
-    parser.add_argument('--num-observations', type=int, default=800,
-                       help='Number of observations per graph')
+    parser.add_argument('--num-observations', type=int,  default=200, help='Number of observations per graph')
     parser.add_argument('--lr', type=float, default=0.0001,
                        help='Learning rate')
-    parser.add_argument('--num-steps', type=int, default=50000,
+    parser.add_argument('--num-steps', type=int, default=5000,
                        help='Number of training steps')
     parser.add_argument('--min-vars', type=int, default=3,
                        help='Minimum number of variables')
@@ -273,7 +278,7 @@ def main():
                        help='Maximum number of variables')
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed')
-    parser.add_argument('--save-freq', type=int, default=1000,
+    parser.add_argument('--save-freq', type=int, default=100,
                        help='Save checkpoint every N steps')
     parser.add_argument('--log-freq', type=int, default=100,
                        help='Log metrics every N steps')
@@ -310,6 +315,9 @@ def main():
     policy_net, policy_params, surrogate_net, surrogate_params = initialize_models(
         hidden_dim=args.hidden_dim,
         num_layers=args.num_layers,
+        num_heads=args.num_heads,
+        key_size=args.key_size,
+        dropout=args.dropout,
         key=init_key,
         max_vars=args.max_vars
     )
@@ -379,14 +387,6 @@ def main():
         
         # Save checkpoint
         if step % args.save_freq == 0 or avg_f1 > best_f1:
-            checkpoint = {
-                'step': step,
-                'params': surrogate_params,
-                'opt_state': opt_state,
-                'metrics': batch_metrics,
-                'avg_f1': avg_f1
-            }
-            
             if avg_f1 > best_f1:
                 best_f1 = avg_f1
                 checkpoint_path = checkpoint_dir / 'best_model.pkl'
@@ -394,8 +394,35 @@ def main():
             else:
                 checkpoint_path = checkpoint_dir / f'checkpoint_step_{step}.pkl'
             
-            with open(checkpoint_path, 'wb') as f:
-                pickle.dump(checkpoint, f)
+            # Save using standardized checkpoint format
+            save_checkpoint(
+                path=checkpoint_path,
+                params=surrogate_params,
+                architecture={
+                    'hidden_dim': args.hidden_dim,
+                    'num_layers': args.num_layers,
+                    'num_heads': args.num_heads,
+                    'key_size': args.key_size,
+                    'dropout': args.dropout,
+                    'encoder_type': 'node_feature'
+                },
+                model_type='surrogate',
+                model_subtype='continuous_parent_set',
+                training_config={
+                    'learning_rate': args.lr,
+                    'batch_size': args.batch_size,
+                    'max_vars': args.max_vars,
+                    'min_vars': args.min_vars,
+                    'total_steps': args.num_steps
+                },
+                metadata={
+                    'step': step,
+                    'avg_f1': float(avg_f1),
+                    'best_f1': float(best_f1),
+                    'dataset': 'avici_style_diverse'
+                },
+                metrics=batch_metrics
+            )
         
         metrics_history.append({
             'step': step,

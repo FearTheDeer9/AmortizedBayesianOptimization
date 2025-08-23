@@ -106,13 +106,16 @@ def perfect_intervention_handler(scm: pyr.PMap, intervention: pyr.PMap) -> pyr.P
     if invalid_targets:
         raise ValueError(f"Intervention targets not in SCM: {sorted(invalid_targets)}")
     
+    # Clip intervention values to reasonable ranges
+    clipped_values = clip_intervention_values(values, scm)
+    
     # Create modified mechanisms
     original_mechanisms = get_mechanisms(scm)
     new_mechanisms = original_mechanisms.copy()
     
     # Replace mechanisms for intervened variables with constant functions
     for target in targets:
-        target_value = values[target]
+        target_value = clipped_values[target]
         
         # Create a constant mechanism that ignores parents and noise
         def create_constant_mechanism(value):
@@ -121,7 +124,7 @@ def perfect_intervention_handler(scm: pyr.PMap, intervention: pyr.PMap) -> pyr.P
                 return value
             return constant_mechanism
         
-        new_mechanisms[target] = create_constant_mechanism(target_value)
+        new_mechanisms = new_mechanisms.set(target, create_constant_mechanism(target_value))
         logger.debug(f"Created constant mechanism for '{target}' = {target_value}")
     
     # Create new SCM with modified mechanisms
@@ -138,7 +141,8 @@ def perfect_intervention_handler(scm: pyr.PMap, intervention: pyr.PMap) -> pyr.P
         'intervention_applied': True,
         'intervention_type': 'perfect',
         'intervention_targets': targets,
-        'intervention_values': values
+        'intervention_values': clipped_values,  # Store clipped values
+        'original_values': values  # Keep original for reference
     }
     
     # Merge with existing metadata

@@ -256,8 +256,11 @@ def create_random_acquisition(seed: int = 42) -> Callable:
         """Random intervention selection."""
         nonlocal rng_key
         
+        # Ensure variables is a list (defensive programming)
+        var_list = list(variables) if not isinstance(variables, list) else variables
+        
         # Remove target from candidates
-        candidates = [v for v in variables if v != target]
+        candidates = [v for v in var_list if v != target]
         
         # Random selection
         rng_key, var_key, val_key = random.split(rng_key, 3)
@@ -895,6 +898,9 @@ def create_optimal_oracle_acquisition(scm: Any,
                                  target: str,
                                  variables: List[str]) -> Dict[str, Any]:
         """Optimal oracle intervention using exact SCM knowledge."""
+        # Ensure variables is a list (defensive programming)
+        var_list = list(variables) if not isinstance(variables, list) else variables
+        
         # Get true parents of target
         true_parents = list(get_parents(scm, target))
         
@@ -902,8 +908,8 @@ def create_optimal_oracle_acquisition(scm: Any,
             # Target is a root node - no parents to intervene on
             # Return a dummy intervention
             return {
-                'targets': frozenset([variables[0] if variables[0] != target else variables[1]]),
-                'values': {variables[0] if variables[0] != target else variables[1]: 0.0}
+                'targets': frozenset([var_list[0] if var_list[0] != target else var_list[1]]),
+                'values': {var_list[0] if var_list[0] != target else var_list[1]: 0.0}
             }
         
         # Get the target mechanism to access coefficients

@@ -73,7 +73,8 @@ def create_simple_linear_scm(
     noise_scales: Dict[str, float],
     target: str,
     intercepts: Optional[Dict[str, float]] = None,
-    variable_ranges: Optional[Dict[str, Tuple[float, float]]] = None
+    variable_ranges: Optional[Dict[str, Tuple[float, float]]] = None,
+    output_bounds: Optional[Tuple[float, float]] = None
 ) -> pyr.PMap:
     """
     Factory function for creating simple linear SCMs with validation.
@@ -89,6 +90,7 @@ def create_simple_linear_scm(
         target: Target variable name (must be in variables)
         intercepts: Optional intercepts for each variable (default: 0.0)
         variable_ranges: Optional ranges for intervention values (default: (-10, 10))
+        output_bounds: Optional (min, max) bounds for mechanism outputs
         
     Returns:
         A validated SCM ready for sampling and analysis
@@ -172,12 +174,16 @@ def create_simple_linear_scm(
         parents = [parent for parent, child in edges if child == var]
         var_coefficients = {parent: coefficients[(parent, var)] for parent in parents}
         
-        # Create mechanism
+        # Create mechanism with variable-specific bounds from ranges
+        var_bounds = variable_ranges.get(var, output_bounds)
         mechanism = create_linear_mechanism(
             parents=parents,
             coefficients=var_coefficients,
             intercept=intercepts[var],
-            noise_scale=noise_scales[var]
+            noise_scale=noise_scales[var],
+            output_bounds=var_bounds,  # Use variable-specific bounds
+            variable_name=var,
+            scm_metadata={'variable_ranges': variable_ranges}
         )
         mechanisms[var] = mechanism
     

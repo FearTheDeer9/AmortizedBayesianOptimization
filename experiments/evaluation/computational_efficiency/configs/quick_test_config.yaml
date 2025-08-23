@@ -1,0 +1,57 @@
+# Quick test configuration for computational efficiency experiment
+
+experiment:
+  name: "computational_efficiency_quick"
+  description: "Quick test of computational efficiency analysis"
+  seed: 42
+
+# Small scale for quick testing
+scaling_test:
+  sizes: [5, 10, 15]  # Small sizes for quick test
+  n_repetitions: 2  # Fewer repetitions
+  max_time_per_method: 60.0  # 1 minute timeout
+  max_memory_mb: 2000.0  # 2GB limit
+  
+  methods_to_compare:
+    - "random"
+    - "our_method" 
+    - "untrained"
+
+# Simple SCM generation
+scm_generation:
+  structure_types: ["random"]
+  edge_density: 0.3
+  mechanism_type: "linear"
+
+# Minimal data
+data_generation:
+  n_observational_samples: 30
+  n_interventions: 5
+
+# Enable all efficiency tests
+efficiency_tests:
+  inference_time:
+    enabled: true
+    measure_per_intervention: true
+    
+  memory_usage:
+    enabled: true
+    track_peak_memory: true
+    force_gc_between_runs: true
+    
+  training_time:
+    enabled: true
+
+# Basic analysis
+analysis:
+  estimate_complexity_class: true
+  compute_relative_speedup: true
+
+# Output settings
+output:
+  save_raw_measurements: true
+  generate_scaling_plots: true
+
+# Logging
+logging:
+  level: "INFO"

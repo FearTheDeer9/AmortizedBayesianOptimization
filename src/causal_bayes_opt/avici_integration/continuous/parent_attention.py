@@ -13,7 +13,8 @@ Key features:
 import jax
 import jax.numpy as jnp
 import haiku as hk
-from typing import Optional, TupleW
+from typing import Optional, Tuple
+
 
 
 class ParentAttentionLayer(hk.Module):

@@ -399,6 +399,85 @@ class ExperienceBuffer:
             'is_consistent': self.validate_consistency()
         }
     
+    def get_variable_history(self, variable_name: str, max_samples: int = 50) -> List[float]:
+        """
+        Get historical values for a specific variable.
+        
+        Args:
+            variable_name: Name of variable to get history for
+            max_samples: Maximum number of recent samples to return
+            
+        Returns:
+            List of recent values for the specified variable
+        """
+        values = []
+        for sample in self.get_all_samples():
+            sample_values = get_values(sample)
+            if variable_name in sample_values:
+                values.append(float(sample_values[variable_name]))
+        
+        # Return most recent samples
+        return values[-max_samples:] if max_samples < len(values) else values
+    
+    def get_variable_percentiles(self, variable_name: str, percentiles: List[float]) -> List[float]:
+        """
+        Get percentile values for a variable from its history.
+        
+        Args:
+            variable_name: Name of variable
+            percentiles: List of percentiles (0.0 to 1.0)
+            
+        Returns:
+            List of percentile values corresponding to input percentiles
+        """
+        import jax.numpy as jnp
+        
+        history = self.get_variable_history(variable_name)
+        
+        if len(history) < 3:  # Need minimum samples for meaningful percentiles
+            # Return default values if insufficient history
+            return [0.0] * len(percentiles)
+        
+        history_array = jnp.array(history)
+        
+        # Compute percentiles
+        percentile_values = []
+        for p in percentiles:
+            percentile_val = float(jnp.percentile(history_array, p * 100))
+            percentile_values.append(percentile_val)
+        
+        return percentile_values
+    
+    def get_variable_statistics(self, variable_name: str) -> Dict[str, float]:
+        """
+        Get comprehensive statistics for a variable.
+        
+        Args:
+            variable_name: Name of variable
+            
+        Returns:
+            Dictionary with mean, std, min, max, percentiles
+        """
+        import jax.numpy as jnp
+        
+        history = self.get_variable_history(variable_name)
+        
+        if not history:
+            return {'count': 0, 'mean': 0.0, 'std': 0.0, 'min': 0.0, 'max': 0.0}
+        
+        history_array = jnp.array(history)
+        
+        return {
+            'count': len(history),
+            'mean': float(jnp.mean(history_array)),
+            'std': float(jnp.std(history_array)),
+            'min': float(jnp.min(history_array)),
+            'max': float(jnp.max(history_array)),
+            'p25': float(jnp.percentile(history_array, 25)),
+            'p50': float(jnp.percentile(history_array, 50)),
+            'p75': float(jnp.percentile(history_array, 75))
+        }
+
     def __len__(self) -> int:
         """Support len() operation."""
         return self.size()

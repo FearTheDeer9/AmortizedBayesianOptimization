@@ -97,10 +97,10 @@ def create_simple_permutation_invariant_policy(
         
         variable_logits = var_hidden.squeeze(-1)
         
-        # Mask target variable
+        # Mask target variable (FIXED: use large negative instead of -inf)
         variable_logits = jnp.where(
             jnp.arange(n_vars) == target_idx,
-            -jnp.inf,
+            -1e10,  # Large negative instead of -inf to avoid infinite loss
             variable_logits
         )
         

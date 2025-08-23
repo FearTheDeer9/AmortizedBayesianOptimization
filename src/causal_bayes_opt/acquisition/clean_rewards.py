@@ -71,9 +71,23 @@ def compute_clean_reward(
             weights[key] = default_val
     
     # 1. Target improvement reward
+    # Handle both dict config and RewardConfig object
+    if hasattr(config, 'optimization_direction'):
+        # RewardConfig object
+        opt_dir = config.optimization_direction
+        reward_type = getattr(config, 'reward_type', 'continuous')
+        stats = getattr(config, 'stats', None)
+    else:
+        # Dict config
+        opt_dir = config.get('optimization_direction', 'MINIMIZE')
+        reward_type = config.get('reward_type', 'continuous')
+        stats = config.get('stats', None)
+    
     target_reward = compute_target_reward(
         buffer_before, target_variable, outcome,
-        optimization_direction=config.get('optimization_direction', 'MINIMIZE')
+        optimization_direction=opt_dir,
+        reward_type=reward_type,
+        stats=stats
     )
     
     # 2. Diversity bonus for trying less-intervened variables
@@ -133,7 +147,9 @@ def compute_target_reward(
     buffer: ExperienceBuffer,
     target_variable: str,
     intervention_outcome: Any,
-    optimization_direction: str = 'MINIMIZE'
+    optimization_direction: str = 'MINIMIZE',
+    reward_type: str = 'continuous',
+    stats: Any = None
 ) -> float:
     """
     Compute reward based on target variable improvement.
@@ -177,25 +193,43 @@ def compute_target_reward(
     
     outcome_value = float(outcome_values[target_variable])
     
-    # Compute improvement from baseline
-    if optimization_direction == 'MINIMIZE':
-        improvement = baseline - outcome_value  # Lower is better
+    if reward_type == 'binary' and stats is not None:
+        # Binary reward: +1 if above mean, -1 if below mean
+        stats.update(outcome_value)
+        current_mean = stats.mean
+        
+        if outcome_value > current_mean:
+            reward = 1.0
+        else:
+            reward = -1.0
+        
+        # Flip sign if minimizing (above mean is bad for minimization)
+        if optimization_direction == "MINIMIZE":
+            reward = -reward
+            
+        logger.info(f"[BINARY TARGET REWARD] Value: {outcome_value:.3f}, Mean: {current_mean:.3f}, Binary reward: {reward:.1f}")
+        
     else:
-        improvement = outcome_value - baseline  # Higher is better
-    
-    # Normalize by standard deviation for scale-invariant reward
-    if len(obs_values) > 1:
-        std_dev = float(jnp.std(jnp.array(obs_values)))
-        if std_dev > 0:
-            normalized_improvement = improvement / std_dev
+        
+        # Compute improvement from baseline
+        if optimization_direction == 'MINIMIZE':
+            improvement = baseline - outcome_value  # Lower is better
+        else:
+            improvement = outcome_value - baseline  # Higher is better
+        
+        # Normalize by standard deviation for scale-invariant reward
+        if len(obs_values) > 1:
+            std_dev = float(jnp.std(jnp.array(obs_values)))
+            if std_dev > 0:
+                normalized_improvement = improvement / std_dev
+            else:
+                normalized_improvement = improvement
         else:
             normalized_improvement = improvement
-    else:
-        normalized_improvement = improvement
-    
-    # Convert to [0, 1] range using sigmoid
-    # Centered at 0 improvement, positive improvement gives reward > 0.5
-    reward = float(1.0 / (1.0 + jnp.exp(-2.0 * normalized_improvement)))
+        
+        # Convert to [0, 1] range using sigmoid
+        # Centered at 0 improvement, positive improvement gives reward > 0.5
+        reward = float(1.0 / (1.0 + jnp.exp(-2.0 * normalized_improvement)))
     
     logger.debug(
         f"Target reward: baseline={baseline:.3f}, outcome={outcome_value:.3f}, "

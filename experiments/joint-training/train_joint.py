@@ -296,8 +296,9 @@ class JointTrainer(JointACBOTrainer):
         
         # Set up training parameters
         self.policy_episodes_per_phase = config.get('policy_episodes_per_phase', 5)
-        self.surrogate_steps_per_phase = config.get('surrogate_steps_per_phase', 1000)
+        self.surrogate_steps_per_phase = config.get('surrogate_steps_per_phase', 10)
         self.f1_rotation_threshold = config.get('f1_rotation_threshold', 0.9)
+        self.surrogate_early_stop_patience = config.get('surrogate_early_stop_patience', 5)
         
         # GRPO reward weights
         self.grpo_reward_config = config.get('grpo_reward_config', {
@@ -423,6 +424,11 @@ class JointTrainer(JointACBOTrainer):
         phase_grad_norms = []
         phase_param_changes = []
         
+        # Early stopping configuration
+        early_stop_patience = getattr(self, 'surrogate_early_stop_patience', 5)
+        best_f1_for_early_stop = 0.0
+        steps_without_improvement = 0
+        
         # Use tqdm for progress if not in debug mode
         iterator = tqdm(range(self.surrogate_steps_per_phase), desc="Surrogate training") if not self.debug_mode else range(self.surrogate_steps_per_phase)
         
@@ -473,6 +479,19 @@ class JointTrainer(JointACBOTrainer):
                 phase_grad_norms.append(grad_norm)
             if param_change is not None:
                 phase_param_changes.append(param_change)
+            
+            # Early stopping check
+            if avg_f1 > best_f1_for_early_stop:
+                best_f1_for_early_stop = avg_f1
+                steps_without_improvement = 0
+            else:
+                steps_without_improvement += 1
+                
+            if steps_without_improvement >= early_stop_patience:
+                logger.info(f"Early stopping triggered after {step+1} steps (no improvement for {early_stop_patience} steps)")
+                if not self.debug_mode and hasattr(iterator, 'close'):
+                    iterator.close()
+                break
             
             # Log progress with enhanced metrics
             should_log = (step % self.log_freq == 0) or (step == 0) or self.debug_mode
@@ -548,8 +567,8 @@ class JointTrainer(JointACBOTrainer):
         for sample in samples:
             buffer.add_observation(sample)
         
-        # Interventional data
-        for _ in range(200):
+        # Interventional data (reduced from 200 to 50 for efficiency)
+        for _ in range(50):
             rng_key, action_key, int_key, post_key = random.split(rng_key, 4)
             
             # Random intervention
@@ -701,6 +720,7 @@ def create_config(args) -> Dict[str, Any]:
         'policy_episodes_per_phase': args.policy_episodes,
         'surrogate_steps_per_phase': args.surrogate_steps,
         'f1_rotation_threshold': args.f1_threshold,
+        'surrogate_early_stop_patience': args.early_stop_patience,
         'episodes_per_phase': args.policy_episodes,  # For JointACBOTrainer
         
         # SCM generation
@@ -763,10 +783,12 @@ def main():
                        help='Total number of training episodes')
     parser.add_argument('--policy-episodes', type=int, default=5,
                        help='Policy episodes per phase')
-    parser.add_argument('--surrogate-steps', type=int, default=1000,
-                       help='Surrogate training steps per phase')
+    parser.add_argument('--surrogate-steps', type=int, default=10,
+                       help='Surrogate training steps per phase (default: 10 for efficiency)')
     parser.add_argument('--f1-threshold', type=float, default=0.9,
                        help='F1 threshold for SCM rotation')
+    parser.add_argument('--early-stop-patience', type=int, default=5,
+                       help='Early stopping patience for surrogate training (default: 5)')
     
     # GRPO reward weights
     parser.add_argument('--target-weight', type=float, default=0.7,
@@ -822,7 +844,7 @@ def main():
     if args.quick_test:
         args.episodes = 2
         args.policy_episodes = 1
-        args.surrogate_steps = 100
+        args.surrogate_steps = 2  # Very quick for testing
         logger.info("Running quick test mode")
     
     # Create configuration

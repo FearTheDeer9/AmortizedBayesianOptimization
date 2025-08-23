@@ -35,6 +35,7 @@ class VariableSCMFactory:
                  coefficient_range: Tuple[float, float] = (-2.0, 2.0),
                  intervention_range: Optional[Tuple[float, float]] = None,
                  vary_intervention_ranges: bool = True,
+                 use_output_bounds: bool = True,
                  seed: int = 42):
         """
         Initialize SCM factory.
@@ -44,12 +45,14 @@ class VariableSCMFactory:
             coefficient_range: Range for edge coefficients
             intervention_range: Default range for intervention values (if None, will vary)
             vary_intervention_ranges: If True, randomly vary ranges per node and SCM
+            use_output_bounds: If True, apply size-dependent bounds to mechanism outputs
             seed: Random seed for reproducible generation
         """
         self.noise_scale = noise_scale
         self.coefficient_range = coefficient_range
         self.intervention_range = intervention_range
         self.vary_intervention_ranges = vary_intervention_ranges
+        self.use_output_bounds = use_output_bounds
         self.seed = seed
         self.key = random.PRNGKey(seed)
     
@@ -101,7 +104,7 @@ class VariableSCMFactory:
         # Create noise scales for all variables
         noise_scales = {var: self.noise_scale for var in variables}
         
-        # Create variable-specific intervention ranges
+        # Create UNIFIED variable ranges (for both interventions AND outputs)
         if self.vary_intervention_ranges:
             # Sample different ranges for each variable
             variable_ranges = {}
@@ -110,33 +113,54 @@ class VariableSCMFactory:
                 self.key, subkey = random.split(self.key)
                 # Sample max value between 1.0 and 5.0
                 max_val = float(random.uniform(subkey, (), minval=1.0, maxval=5.0))
-                # Sometimes use asymmetric ranges
+                # Always use asymmetric ranges to avoid learned biases
                 self.key, subkey = random.split(self.key)
-                if random.uniform(subkey, ()) < 0.3:  # 30% chance of asymmetric
+                if random.uniform(subkey, ()) < 0.5:  # 50% chance of each asymmetry
+                    # Larger negative range
                     self.key, subkey = random.split(self.key)
-                    min_val = -float(random.uniform(subkey, (), minval=1.0, maxval=max_val))
+                    min_val = -float(random.uniform(subkey, (), minval=max_val, maxval=max_val * 2))
                 else:
-                    min_val = -max_val
+                    # Larger positive range
+                    self.key, subkey = random.split(self.key)
+                    min_val = -float(random.uniform(subkey, (), minval=0.5, maxval=max_val))
                 variable_ranges[var] = (min_val, max_val)
         elif self.intervention_range:
             # Use fixed range for all variables
             variable_ranges = {var: self.intervention_range for var in variables}
         else:
-            # Default varying ranges
+            # Default varying ranges (asymmetric)
             variable_ranges = {}
             for var in variables:
                 self.key, subkey = random.split(self.key)
                 max_val = float(random.uniform(subkey, (), minval=1.5, maxval=3.0))
-                variable_ranges[var] = (-max_val, max_val)
+                # Make asymmetric by default
+                self.key, subkey = random.split(self.key)
+                min_val = -float(random.uniform(subkey, (), minval=1.0, maxval=max_val * 1.5))
+                variable_ranges[var] = (min_val, max_val)
         
-        # Build SCM
+        # If output bounds are enabled, expand ranges based on graph depth
+        # This ensures we can still have meaningful dynamics
+        if self.use_output_bounds:
+            import math
+            # Scale factor increases with graph size to allow for value propagation
+            bound_scale = math.sqrt(num_variables / 5.0)
+            
+            # Expand variable ranges by this factor
+            expanded_ranges = {}
+            for var, (min_val, max_val) in variable_ranges.items():
+                expanded_ranges[var] = (min_val * bound_scale, max_val * bound_scale)
+            variable_ranges = expanded_ranges
+            logger.debug(f"Expanded variable ranges by factor {bound_scale:.2f} for {num_variables} variables")
+        
+        # Build SCM with unified variable ranges
         scm = create_simple_linear_scm(
             variables=variables,
             edges=edges,
             coefficients=coefficients,
             noise_scales=noise_scales,
             target=target_variable,
-            variable_ranges=variable_ranges
+            variable_ranges=variable_ranges,
+            output_bounds=None  # We handle bounds through variable_ranges now
         )
         
         # Add comprehensive metadata
@@ -352,6 +376,51 @@ class VariableSCMFactory:
             attempts += 1
         
         return edges, coefficients
+    
+    def _add_output_bounds_to_scm(self, scm: pyr.PMap, edges: List[Tuple[str, str]], 
+                                  coefficients: Dict[Tuple[str, str], float],
+                                  noise_scales: Dict[str, float],
+                                  output_bounds: Tuple[float, float]) -> pyr.PMap:
+        """Add output bounds to all mechanisms in an SCM."""
+        from ..mechanisms.linear import LinearMechanism, RootMechanism
+        from ..data_structures.scm import get_variables, get_mechanisms, create_scm
+        
+        variables = list(get_variables(scm))
+        original_mechanisms = get_mechanisms(scm)
+        
+        # Create new mechanisms with bounds
+        new_mechanisms = {}
+        for var in variables:
+            # Find parents
+            parents = [parent for parent, child in edges if child == var]
+            
+            if parents:
+                # Create bounded linear mechanism
+                var_coefficients = {parent: coefficients[(parent, var)] for parent in parents}
+                mechanism = LinearMechanism(
+                    var_coefficients, 
+                    intercept=0.0,  # Default intercept
+                    noise_scale=noise_scales[var],
+                    output_bounds=output_bounds
+                )
+            else:
+                # Create bounded root mechanism
+                mechanism = RootMechanism(
+                    mean=0.0,  # Default mean
+                    noise_scale=noise_scales[var],
+                    output_bounds=output_bounds
+                )
+            
+            new_mechanisms[var] = mechanism
+        
+        # Create new SCM with bounded mechanisms
+        return create_scm(
+            variables=get_variables(scm),
+            edges=frozenset(edges),
+            mechanisms=new_mechanisms,
+            target=scm.get('target'),
+            metadata=scm.get('metadata', {})
+        )
     
     def _would_create_cycle(self, existing_edges: List[Tuple[str, str]], from_var: str, to_var: str) -> bool:
         """Check if adding edge would create cycle (simple DFS check)."""

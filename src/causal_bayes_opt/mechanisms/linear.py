@@ -7,7 +7,7 @@ following functional programming principles.
 
 # Standard library imports
 import logging
-from typing import Dict, List, Callable, Any
+from typing import Dict, List, Callable, Any, Optional
 
 # Third-party imports
 import jax
@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 def _create_linear_mechanism_impl(
     coefficients: Dict[str, float],
     intercept: float,
-    noise_scale: float
+    noise_scale: float,
+    output_bounds: Optional[tuple[float, float]] = None
 ) -> MechanismFunction:
     """
     Core implementation for creating a linear mechanism function.
@@ -47,6 +48,7 @@ def _create_linear_mechanism_impl(
         coefficients: Mapping from parent variable names to coefficients
         intercept: Constant term in the linear equation
         noise_scale: Standard deviation of Gaussian noise
+        output_bounds: Optional (min, max) bounds for output values
         
     Returns:
         A mechanism function that computes: intercept + sum(coef * parent) + noise
@@ -79,6 +81,10 @@ def _create_linear_mechanism_impl(
         if noise_scale > 0:
             noise = random.normal(noise_key) * noise_scale
             result = result + noise
+        
+        # Apply output bounds if specified
+        if output_bounds is not None:
+            result = jnp.clip(result, output_bounds[0], output_bounds[1])
             
         return float(result)
     
@@ -87,7 +93,8 @@ def _create_linear_mechanism_impl(
 
 def _create_root_mechanism_impl(
     mean: float,
-    noise_scale: float
+    noise_scale: float,
+    output_bounds: Optional[tuple[float, float]] = None
 ) -> MechanismFunction:
     """
     Create a mechanism for root variables (variables with no parents).
@@ -95,6 +102,7 @@ def _create_root_mechanism_impl(
     Args:
         mean: Mean value for the root variable
         noise_scale: Standard deviation of Gaussian noise
+        output_bounds: Optional (min, max) bounds for output values
         
     Returns:
         A mechanism function that generates: mean + noise
@@ -105,7 +113,13 @@ def _create_root_mechanism_impl(
             logger.warning(f"Root mechanism called with non-empty parent values: {parent_values}")
         
         noise = random.normal(noise_key) * noise_scale
-        return float(mean + noise)
+        result = mean + noise
+        
+        # Apply output bounds if specified
+        if output_bounds is not None:
+            result = jnp.clip(result, output_bounds[0], output_bounds[1])
+            
+        return float(result)
     
     return mechanism
 
@@ -216,6 +230,9 @@ def create_linear_mechanism(
     coefficients: Dict[str, float],
     intercept: float = DEFAULT_INTERCEPT,
     noise_scale: float = DEFAULT_NOISE_SCALE,
+    output_bounds: Optional[tuple[float, float]] = None,
+    variable_name: Optional[str] = None,
+    scm_metadata: Optional[Dict[str, Any]] = None,
     _return_descriptor: bool = False
 ) -> MechanismFunction:
     """
@@ -229,6 +246,9 @@ def create_linear_mechanism(
         coefficients: Mapping from parent variable names to their coefficients
         intercept: Constant term in the linear equation
         noise_scale: Standard deviation of Gaussian noise (>= 0)
+        output_bounds: Optional (min, max) bounds for output values
+        variable_name: Optional name of this variable (for range lookup)
+        scm_metadata: Optional SCM metadata containing variable_ranges
         _return_descriptor: If True, return (function, descriptor) tuple for serialization
         
     Returns:
@@ -256,10 +276,18 @@ def create_linear_mechanism(
     if not isinstance(intercept, (int, float)) or not jnp.isfinite(intercept):
         raise ValueError(f"Intercept must be a finite number, got: {intercept}")
     
+    # Determine effective output bounds: prefer explicit, then metadata lookup
+    effective_bounds = output_bounds
+    if effective_bounds is None and variable_name and scm_metadata:
+        variable_ranges = scm_metadata.get('variable_ranges', {})
+        if variable_name in variable_ranges:
+            effective_bounds = variable_ranges[variable_name]
+            logger.debug(f"Using variable range for {variable_name}: {effective_bounds}")
+    
     # Handle root variables (no parents)
     if not parents:
         logger.debug(f"Creating root mechanism with mean={intercept}, noise_scale={noise_scale}")
-        mechanism = RootMechanism(intercept, noise_scale)
+        mechanism = RootMechanism(intercept, noise_scale, effective_bounds)
         
         if _return_descriptor:
             from .descriptors import RootMechanismDescriptor
@@ -273,7 +301,7 @@ def create_linear_mechanism(
     
     # Create linear mechanism
     logger.debug(f"Creating linear mechanism with {len(parents)} parents, intercept={intercept}")
-    mechanism = LinearMechanism(coefficients, intercept, noise_scale)
+    mechanism = LinearMechanism(coefficients, intercept, noise_scale, effective_bounds)
     
     if _return_descriptor:
         from .descriptors import LinearMechanismDescriptor
@@ -291,6 +319,7 @@ def create_linear_mechanism(
 def create_root_mechanism(
     mean: float = 0.0,
     noise_scale: float = DEFAULT_NOISE_SCALE,
+    output_bounds: Optional[tuple[float, float]] = None,
     _return_descriptor: bool = False
 ) -> MechanismFunction:
     """
@@ -299,6 +328,7 @@ def create_root_mechanism(
     Args:
         mean: Mean value for the root variable
         noise_scale: Standard deviation of Gaussian noise
+        output_bounds: Optional (min, max) bounds for output values
         _return_descriptor: If True, return (function, descriptor) tuple for serialization
         
     Returns:
@@ -318,7 +348,7 @@ def create_root_mechanism(
     if not isinstance(mean, (int, float)) or not jnp.isfinite(mean):
         raise ValueError(f"Mean must be a finite number, got: {mean}")
     
-    mechanism = RootMechanism(mean, noise_scale)
+    mechanism = RootMechanism(mean, noise_scale, output_bounds)
     
     if _return_descriptor:
         from .descriptors import RootMechanismDescriptor

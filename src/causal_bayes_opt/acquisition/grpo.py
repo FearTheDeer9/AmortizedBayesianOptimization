@@ -37,7 +37,7 @@ class GRPOConfig:
     # Loss coefficients (no value loss in pure GRPO!)
     clip_ratio: float = 0.2
     entropy_coeff: float = 0.01
-    kl_penalty_coeff: float = 0.0  # Updated default based on recent findings
+    kl_penalty_coeff: float = 0.01  # Updated default based on recent findings
     
     # Optimization
     max_grad_norm: float = 1.0

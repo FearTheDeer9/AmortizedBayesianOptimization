@@ -5,7 +5,7 @@ This module provides pickleable mechanism classes that can be used
 with multiprocessing, replacing the closure-based mechanisms.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Tuple
 import jax
 import jax.numpy as jnp
 import jax.random as random
@@ -18,7 +18,8 @@ class LinearMechanism:
     Implements: Y = intercept + sum(coeff_i * X_i) + noise
     """
     
-    def __init__(self, coefficients: Dict[str, float], intercept: float, noise_scale: float):
+    def __init__(self, coefficients: Dict[str, float], intercept: float, noise_scale: float,
+                 output_bounds: Optional[Tuple[float, float]] = None):
         """
         Initialize linear mechanism.
         
@@ -26,10 +27,12 @@ class LinearMechanism:
             coefficients: Mapping from parent variable names to coefficients
             intercept: Constant term in the linear equation
             noise_scale: Standard deviation of Gaussian noise
+            output_bounds: Optional (min, max) bounds for output values
         """
         self.coefficients = dict(coefficients)  # Store as regular dict for pickling
         self.intercept = float(intercept)
         self.noise_scale = float(noise_scale)
+        self.output_bounds = output_bounds
         self.parent_names = list(coefficients.keys())
         self.coeff_array = jnp.array([coefficients[name] for name in self.parent_names])
     
@@ -57,6 +60,10 @@ class LinearMechanism:
         if self.noise_scale > 0:
             noise = random.normal(noise_key) * self.noise_scale
             result = result + noise
+        
+        # Apply output bounds if specified
+        if self.output_bounds is not None:
+            result = jnp.clip(result, self.output_bounds[0], self.output_bounds[1])
             
         return float(result)
     
@@ -65,7 +72,8 @@ class LinearMechanism:
         return {
             'coefficients': self.coefficients,
             'intercept': self.intercept,
-            'noise_scale': self.noise_scale
+            'noise_scale': self.noise_scale,
+            'output_bounds': self.output_bounds
         }
     
     def __setstate__(self, state: Dict[str, Any]) -> None:
@@ -73,6 +81,7 @@ class LinearMechanism:
         self.coefficients = state['coefficients']
         self.intercept = state['intercept']
         self.noise_scale = state['noise_scale']
+        self.output_bounds = state.get('output_bounds')  # Use get for backward compatibility
         self.parent_names = list(self.coefficients.keys())
         self.coeff_array = jnp.array([self.coefficients[name] for name in self.parent_names])
 
@@ -84,16 +93,19 @@ class RootMechanism:
     Implements: Y = mean + noise
     """
     
-    def __init__(self, mean: float, noise_scale: float):
+    def __init__(self, mean: float, noise_scale: float, 
+                 output_bounds: Optional[Tuple[float, float]] = None):
         """
         Initialize root mechanism.
         
         Args:
             mean: Mean value for the root variable
             noise_scale: Standard deviation of Gaussian noise
+            output_bounds: Optional (min, max) bounds for output values
         """
         self.mean = float(mean)
         self.noise_scale = float(noise_scale)
+        self.output_bounds = output_bounds
     
     def __call__(self, parent_values: Dict[str, float], noise_key: jax.Array) -> float:
         """
@@ -113,16 +125,24 @@ class RootMechanism:
             )
         
         noise = random.normal(noise_key) * self.noise_scale
-        return float(self.mean + noise)
+        result = self.mean + noise
+        
+        # Apply output bounds if specified
+        if self.output_bounds is not None:
+            result = jnp.clip(result, self.output_bounds[0], self.output_bounds[1])
+            
+        return float(result)
     
     def __getstate__(self) -> Dict[str, Any]:
         """Get state for pickling."""
         return {
             'mean': self.mean,
-            'noise_scale': self.noise_scale
+            'noise_scale': self.noise_scale,
+            'output_bounds': self.output_bounds
         }
     
     def __setstate__(self, state: Dict[str, Any]) -> None:
         """Set state from unpickling."""
         self.mean = state['mean']
         self.noise_scale = state['noise_scale']
+        self.output_bounds = state.get('output_bounds')  # Use get for backward compatibility

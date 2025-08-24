@@ -249,9 +249,157 @@ class UnifiedGRPOTrainer:
             logger.info("Surrogate learning disabled")
             return
         
-        # Placeholder for surrogate initialization
-        # This would be implemented when needed
-        logger.info("Surrogate initialization placeholder")
+        # Load AVICI surrogate checkpoint if specified
+        surrogate_checkpoint_path = self.config.get('surrogate_checkpoint_path', None)
+        if surrogate_checkpoint_path:
+            self._load_avici_surrogate_checkpoint(surrogate_checkpoint_path)
+            logger.info(f"Loaded AVICI surrogate from: {surrogate_checkpoint_path}")
+        else:
+            # No surrogate checkpoint specified - create placeholder
+            self.surrogate_predict_fn = None
+            logger.info("No surrogate checkpoint specified - using uniform posteriors")
+    
+    def _load_avici_surrogate_checkpoint(self, checkpoint_path: str):
+        """Load AVICI surrogate checkpoint using existing utilities."""
+        from pathlib import Path
+        from ..utils.checkpoint_utils import load_checkpoint
+        
+        checkpoint_file = Path(checkpoint_path)
+        logger.info(f"Loading AVICI surrogate from: {checkpoint_path}")
+        
+        # Use existing checkpoint loading utilities
+        checkpoint = load_checkpoint(checkpoint_file)
+        
+        # Extract surrogate components from AVICI checkpoint
+        if 'params' in checkpoint:
+            surrogate_params = checkpoint['params']
+        elif 'model_state' in checkpoint:
+            surrogate_params = checkpoint['model_state']
+        else:
+            logger.warning(f"Unknown checkpoint format. Keys: {list(checkpoint.keys())}")
+            surrogate_params = checkpoint  # Try using the whole checkpoint
+        
+        surrogate_architecture = checkpoint.get('architecture', {})
+        
+        self.surrogate_params = surrogate_params
+        self.surrogate_architecture = surrogate_architecture
+        
+        # Create surrogate prediction function using loaded AVICI model
+        # This will be used as surrogate_fn in buffer_to_four_channel_tensor()
+        def surrogate_predict_fn(tensor_3ch, target_var, variables):
+            """Predict parent probabilities using loaded AVICI surrogate."""
+            try:
+                # Get target index
+                target_idx = variables.index(target_var) if isinstance(target_var, str) else target_var
+                
+                # Apply loaded AVICI surrogate (adapt interface as needed)
+                # The exact interface depends on how AVICI model was saved
+                self.rng_key, surrogate_key = random.split(self.rng_key)
+                
+                # Try to reconstruct and apply AVICI model
+                # This may need adjustment based on actual AVICI checkpoint format
+                from ..avici_integration.enhanced_surrogate import create_enhanced_surrogate_for_grpo
+                
+                # Apply loaded AVICI surrogate using proper interface
+                # Need to reconstruct the AVICI model from loaded parameters
+                from ..avici_integration.continuous.model import ContinuousParentSetPredictionModel
+                import haiku as hk
+                
+                # Reconstruct AVICI model with loaded architecture
+                def avici_model_fn(x, target_idx, is_training=False):
+                    model = ContinuousParentSetPredictionModel(
+                        hidden_dim=self.surrogate_architecture.get('hidden_dim', 128),
+                        num_heads=self.surrogate_architecture.get('num_heads', 8),
+                        num_layers=self.surrogate_architecture.get('num_layers', 8),
+                        key_size=self.surrogate_architecture.get('key_size', 32),
+                        dropout=self.surrogate_architecture.get('dropout', 0.1)
+                    )
+                    return model(x, target_idx, is_training)
+                
+                # Create Haiku transformed model
+                avici_net = hk.transform(avici_model_fn)
+                
+                # Apply with loaded parameters
+                avici_prediction = avici_net.apply(
+                    self.surrogate_params, surrogate_key, tensor_3ch, target_idx, False
+                )
+                
+                # Extract parent probabilities from AVICI output
+                if 'parent_probabilities' in avici_prediction:
+                    parent_probs = avici_prediction['parent_probabilities']
+                elif 'attention_logits' in avici_prediction:
+                    # Convert logits to probabilities
+                    attention_logits = avici_prediction['attention_logits']
+                    parent_probs = jax.nn.sigmoid(attention_logits)
+                else:
+                    logger.warning(f"Unknown AVICI output format: {list(avici_prediction.keys())}")
+                    parent_probs = jnp.ones(len(variables)) / len(variables)
+                
+                prediction = {
+                    'parent_probs': parent_probs,
+                    'entropy': -jnp.sum(parent_probs * jnp.log(parent_probs + 1e-8))
+                }
+                
+                return prediction
+                
+            except Exception as e:
+                logger.warning(f"AVICI surrogate prediction failed: {e}")
+                # Fallback to uniform distribution
+                return {'parent_probs': jnp.ones(len(variables)) / len(variables)}
+        
+        self.surrogate_predict_fn = surrogate_predict_fn
+        logger.info("✅ AVICI surrogate loaded using ModelLoader infrastructure")
+    
+    def _assign_progressive_posteriors(self, buffer: ExperienceBuffer, target_var: str):
+        """
+        Assign posteriors to observational samples progressively.
+        
+        Each sample gets the posterior the surrogate would have had at that point in time:
+        - Sample 1: posterior from just sample 1
+        - Sample 2: posterior from samples 1+2  
+        - Sample 3: posterior from samples 1+2+3
+        - And so on...
+        
+        This maintains temporal consistency with forward training process.
+        """
+        if not self.use_surrogate or not self.surrogate_predict_fn:
+            logger.info("No surrogate available - observational samples will use uniform posteriors")
+            return
+        
+        logger.info("Assigning progressive posteriors to observational samples...")
+        
+        observations = buffer.get_observations()
+        
+        for i, obs_sample in enumerate(observations):
+            # Create temporary buffer with samples 1 through i+1
+            temp_buffer = ExperienceBuffer()
+            for j in range(i + 1):
+                temp_buffer.add_observation(observations[j])
+            
+            # Convert to tensor for surrogate prediction
+            from .three_channel_converter import buffer_to_three_channel_tensor
+            tensor_3ch, mapper = buffer_to_three_channel_tensor(
+                temp_buffer, target_var, max_history_size=100, standardize=False
+            )
+            
+            # Get posterior that surrogate would have had at this point
+            posterior = self.surrogate_predict_fn(tensor_3ch, target_var, mapper.variables)
+            
+            # Update the observation with this posterior
+            # Note: This requires the buffer to support posterior updates
+            # For now, we'll store it and apply during tensor conversion
+            obs_sample.posterior = posterior
+            
+            if i < 3:  # Log first few for debugging
+                logger.debug(f"  Sample {i+1}: posterior entropy = {posterior.get('entropy', 0):.3f}")
+        
+        logger.info(f"✅ Assigned progressive posteriors to {len(observations)} observational samples")
+    
+    def _initialize_new_surrogate(self):
+        """Initialize new surrogate model (when no checkpoint provided)."""
+        # Placeholder for new surrogate initialization
+        self.surrogate_predict_fn = None
+        logger.info("New surrogate initialization not implemented - using uniform posteriors")
     
     def _initialize_grpo(self):
         """Initialize GRPO trainer - using modular approach."""
@@ -389,6 +537,10 @@ class UnifiedGRPOTrainer:
         obs_samples = sample_from_linear_scm(scm, self.obs_per_episode, seed=int(obs_key[0]))
         for sample in obs_samples:
             buffer.add_observation(sample)
+        
+        # CRITICAL: Assign progressive posteriors to observational samples
+        # Each sample gets posterior based on data available up to that point
+        self._assign_progressive_posteriors(buffer, target_var)
         
         # Collect GRPO batch
         grpo_batch_data = {
@@ -656,7 +808,11 @@ class UnifiedGRPOTrainer:
             'new_log_probs_sample': new_log_probs[:3], 
             'advantages_sample': advantages[:3],
             'ratios_sample': ratio[:3],
-            'surr1_sample': surr1[:3]
+            'surr1_sample': surr1[:3],
+            # Add detailed log prob analysis
+            'log_prob_differences': new_log_probs[:5] - old_log_probs[:5],
+            'identical_count': jnp.sum(jnp.abs(new_log_probs - old_log_probs) < 1e-8),
+            'total_samples': len(new_log_probs)
         }
         
         entropy_loss = -self.grpo_config.entropy_coeff * jnp.mean(entropy_values)
@@ -795,9 +951,60 @@ class UnifiedGRPOTrainer:
         for step in range(self.grpo_config.group_size):
             key, step_key = random.split(key)
             
-            # Convert buffer to 4-channel tensor (Values, Target, Intervention, Posterior)
+            # Convert buffer to 4-channel tensor with AVICI surrogate if available
+            surrogate_fn = self.surrogate_predict_fn if (self.use_surrogate and hasattr(self, 'surrogate_predict_fn')) else None
+            
+            # DEBUG: AVICI utilization before tensor conversion
+            if step == 0:  # Log once per intervention
+                print(f"\n🔮 AVICI SURROGATE UTILIZATION DEBUG:")
+                print(f"  Use surrogate: {self.use_surrogate}")
+                print(f"  Surrogate function available: {surrogate_fn is not None}")
+                
+                if surrogate_fn:
+                    # Test AVICI prediction on current buffer
+                    from .three_channel_converter import buffer_to_three_channel_tensor
+                    test_tensor, test_mapper = buffer_to_three_channel_tensor(
+                        buffer, target_var, max_history_size=100, standardize=False
+                    )
+                    
+                    print(f"  Testing AVICI on buffer with {buffer.size()} samples...")
+                    test_prediction = surrogate_fn(test_tensor, target_var, test_mapper.variables)
+                    
+                    print(f"  🎯 AVICI PREDICTION RESULTS:")
+                    print(f"    Target: {target_var}")
+                    print(f"    Variables: {test_mapper.variables}")
+                    
+                    if 'parent_probs' in test_prediction:
+                        parent_probs = test_prediction['parent_probs']
+                        true_parents = get_parents(scm, target_var) if hasattr(scm, 'edges') else []
+                        
+                        print(f"    Parent probabilities:")
+                        for i, var in enumerate(test_mapper.variables):
+                            if var != target_var and i < len(parent_probs):
+                                prob = float(parent_probs[i])
+                                is_true_parent = var in true_parents
+                                marker = "🎯" if is_true_parent else "❌" if prob > 0.7 else ""
+                                print(f"      {var}: {prob:.3f} {marker}")
+                                
+                        # Calculate discrimination performance
+                        if true_parents:
+                            true_probs = [float(parent_probs[i]) for i, var in enumerate(test_mapper.variables) 
+                                         if var in true_parents and i < len(parent_probs)]
+                            false_probs = [float(parent_probs[i]) for i, var in enumerate(test_mapper.variables) 
+                                          if var not in true_parents and var != target_var and i < len(parent_probs)]
+                            
+                            if true_probs and false_probs:
+                                discrimination = np.mean(true_probs) - np.mean(false_probs)
+                                print(f"    📊 AVICI Performance: {discrimination:+.3f} discrimination")
+                                print(f"      True parents: {np.mean(true_probs):.3f} avg")
+                                print(f"      Non-parents: {np.mean(false_probs):.3f} avg")
+                    else:
+                        print(f"    ❌ Unexpected format: {list(test_prediction.keys())}")
+                else:
+                    print(f"  ❌ No AVICI surrogate available")
+            
             tensor, mapper, diagnostics = buffer_to_four_channel_tensor(
-                buffer, target_var, max_history_size=100, standardize=False
+                buffer, target_var, surrogate_fn=surrogate_fn, max_history_size=100, standardize=False
             )
             
             # Get policy output
@@ -977,12 +1184,39 @@ class UnifiedGRPOTrainer:
             self.policy_params, self.optimizer_state, grpo_batch
         )
         
-        # Debug GRPO update results
+        # Debug GRPO update results with loss component analysis
         print(f"\n📊 GRPO UPDATE RESULTS:")
         print(f"  Policy loss: {float(grpo_metrics.policy_loss):.6f}")
+        print(f"  Entropy loss: {float(grpo_metrics.entropy_loss):.6f}")  
+        print(f"  Total loss: {float(grpo_metrics.total_loss):.6f}")
         print(f"  Mean reward: {float(grpo_metrics.mean_reward):.3f}")
         print(f"  Mean advantage: {float(grpo_metrics.mean_advantage):.3f}")
         print(f"  Gradient norm: {float(grpo_metrics.grad_norm):.6f}")
+        
+        # CRITICAL: Analyze loss component breakdown
+        policy_loss_val = float(grpo_metrics.policy_loss)
+        entropy_loss_val = float(grpo_metrics.entropy_loss)
+        total_loss_val = float(grpo_metrics.total_loss)
+        
+        print(f"\n🔍 LOSS COMPONENT ANALYSIS:")
+        print(f"  Policy loss: {policy_loss_val:.6f}")
+        print(f"  Entropy loss: {entropy_loss_val:.6f}") 
+        print(f"  Total loss: {total_loss_val:.6f}")
+        print(f"  Sum check: {policy_loss_val + entropy_loss_val:.6f}")
+        
+        if abs(total_loss_val) > 1e-6:
+            policy_ratio = abs(policy_loss_val) / abs(total_loss_val)
+            entropy_ratio = abs(entropy_loss_val) / abs(total_loss_val)
+            print(f"  Loss contribution: policy={policy_ratio:.1%}, entropy={entropy_ratio:.1%}")
+            
+            if entropy_ratio > 0.8:
+                print(f"  🚨 ENTROPY DOMINATES! Gradients from exploration, not reward learning")
+            elif policy_ratio > 0.8:
+                print(f"  ✅ Policy loss dominates - reward-based learning active") 
+            else:
+                print(f"  ⚠️  Mixed loss sources")
+        else:
+            print(f"  🚨 TOTAL LOSS ≈ 0 - how are we getting gradients?")
         print(f"  🔍 LEARNING RATE & STEP SIZE:")
         print(f"    Learning rate: {self.learning_rate}")
         print(f"    Gradient norm: {float(grpo_metrics.grad_norm):.6f}")
@@ -1026,15 +1260,35 @@ class UnifiedGRPOTrainer:
         # DEBUG: Detailed sample analysis from loss computation  
         if hasattr(grpo_metrics, 'sample_analysis') and grpo_metrics.sample_analysis:
             sa = grpo_metrics.sample_analysis
+            print(f"\n🔬 LOG PROBABILITY ANALYSIS:")
+            
+            # Show log probability differences  
+            if 'log_prob_differences' in sa:
+                log_diffs = [float(x) for x in sa['log_prob_differences']]
+                identical_count = int(sa['identical_count'])
+                total_samples = int(sa['total_samples'])
+                
+                print(f"  Log prob differences (first 5): {[f'{d:.6f}' for d in log_diffs]}")
+                print(f"  Identical log probs: {identical_count}/{total_samples}")
+                print(f"  Identical percentage: {100*identical_count/total_samples:.1f}%")
+                
+                if identical_count == total_samples:
+                    print(f"  🚨 ALL log probabilities identical - policy not changing")
+                elif identical_count > total_samples * 0.8:
+                    print(f"  ⚠️  Most log probabilities identical - minimal policy change")
+                else:
+                    print(f"  ✅ Log probabilities changing meaningfully")
+            
             print(f"\n🔬 SAMPLE-BY-SAMPLE ANALYSIS (First 3):")
-            for i in range(3):
+            for i in range(min(3, len(sa['old_log_probs_sample']))):
                 old_lp = float(sa['old_log_probs_sample'][i]) 
                 new_lp = float(sa['new_log_probs_sample'][i])
                 adv = float(sa['advantages_sample'][i])
                 ratio = float(sa['ratios_sample'][i])
                 surr = float(sa['surr1_sample'][i])
-                print(f"  Sample {i}: old_lp={old_lp:.3f}, new_lp={new_lp:.3f}, ratio={ratio:.3f}, adv={adv:.3f}, surr={surr:.3f}")
-            print(f"  🔍 Key Question: Are individual ratios = 1.0 or just the mean?")
+                diff = new_lp - old_lp
+                print(f"  Sample {i}: old_lp={old_lp:.3f}, new_lp={new_lp:.3f} (diff={diff:.6f}), ratio={ratio:.3f}, adv={adv:.3f}, surr={surr:.3f}")
+            print(f"  🔍 Key Question: Why are new_log_probs = old_log_probs?")
         
         # Add gradient flow analysis for quantile architecture
         print(f"\n🔬 QUANTILE SCORE EVOLUTION:")

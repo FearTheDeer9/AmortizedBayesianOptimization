@@ -21,8 +21,9 @@ sys.path.insert(0, str(project_root))
 
 from optimizer_utils import create_adaptive_optimizer, create_curriculum_optimizer_config
 from src.causal_bayes_opt.utils.checkpoint_utils import save_checkpoint
-from src.causal_bayes_opt.experiments.variable_scm_factory import VariableSCMFactory
-from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables, get_target
+from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables, get_target, create_scm
+from src.causal_bayes_opt.mechanisms.linear import create_linear_mechanism
+import pyrsistent as pyr
 from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
 from src.causal_bayes_opt.data_structures.sample import create_sample
 from src.causal_bayes_opt.interventions.handlers import create_perfect_intervention
@@ -87,6 +88,131 @@ def generate_diverse_graph_batch(rng_key, batch_size: int = 32,
         })
     
     return graphs
+
+
+def create_scm_from_config(config: Dict, rng_key) -> pyr.PMap:
+    """Create SCM using unified create_scm() interface instead of VariableSCMFactory."""
+    num_vars = config['num_vars']
+    structure = config['structure']
+    edge_density = config['edge_density']
+    
+    # Generate variable names
+    variables = frozenset([f'X{i}' for i in range(num_vars)])
+    
+    # Create mechanisms for each variable
+    mechanisms = {}
+    edges = set()
+    
+    if structure == 'chain':
+        # Chain: X0 -> X1 -> X2 -> ... -> X(n-1)
+        for i in range(num_vars):
+            if i == 0:
+                # Root variable
+                mechanisms[f'X{i}'] = create_linear_mechanism(
+                    parents=[], coefficients={}, intercept=0.0, noise_scale=1.0
+                )
+            else:
+                # Chain variable
+                parent = f'X{i-1}'
+                edges.add((parent, f'X{i}'))
+                mechanisms[f'X{i}'] = create_linear_mechanism(
+                    parents=[parent], 
+                    coefficients={parent: 1.0}, 
+                    intercept=0.0, 
+                    noise_scale=1.0
+                )
+    
+    elif structure == 'fork':
+        # Fork: X0 -> X1, X0 -> X2, X0 -> X3, ...
+        for i in range(num_vars):
+            if i == 0:
+                # Root (common cause)
+                mechanisms[f'X{i}'] = create_linear_mechanism(
+                    parents=[], coefficients={}, intercept=0.0, noise_scale=1.0
+                )
+            else:
+                # Fork children
+                parent = 'X0'
+                edges.add((parent, f'X{i}'))
+                mechanisms[f'X{i}'] = create_linear_mechanism(
+                    parents=[parent],
+                    coefficients={parent: 1.0},
+                    intercept=0.0,
+                    noise_scale=1.0
+                )
+    
+    elif structure == 'collider':
+        # Collider: X0 -> X(n-1), X1 -> X(n-1), ..., X(n-2) -> X(n-1)
+        for i in range(num_vars):
+            if i == num_vars - 1:
+                # Collider (common effect)
+                parents = [f'X{j}' for j in range(num_vars - 1)]
+                for parent in parents:
+                    edges.add((parent, f'X{i}'))
+                coefficients = {parent: 1.0 for parent in parents}
+                mechanisms[f'X{i}'] = create_linear_mechanism(
+                    parents=parents,
+                    coefficients=coefficients,
+                    intercept=0.0,
+                    noise_scale=1.0
+                )
+            else:
+                # Root variables
+                mechanisms[f'X{i}'] = create_linear_mechanism(
+                    parents=[], coefficients={}, intercept=0.0, noise_scale=1.0
+                )
+    
+    else:
+        # Random/mixed structure - simplified random graph
+        rng_key, edge_key = random.split(rng_key)
+        
+        # Create mechanisms (all root variables for simplicity)
+        for i in range(num_vars):
+            mechanisms[f'X{i}'] = create_linear_mechanism(
+                parents=[], coefficients={}, intercept=0.0, noise_scale=1.0
+            )
+        
+        # Add a few random edges based on edge_density
+        max_edges = int(edge_density * num_vars * (num_vars - 1) / 2)
+        edge_count = 0
+        
+        for i in range(num_vars):
+            for j in range(i + 1, num_vars):
+                if edge_count >= max_edges:
+                    break
+                rng_key, add_edge_key = random.split(rng_key)
+                if random.uniform(add_edge_key) < edge_density:
+                    # Add edge X_i -> X_j
+                    parent, child = f'X{i}', f'X{j}'
+                    edges.add((parent, child))
+                    
+                    # Update child mechanism to include parent
+                    mechanisms[child] = create_linear_mechanism(
+                        parents=[parent],
+                        coefficients={parent: 1.0},
+                        intercept=0.0,
+                        noise_scale=1.0
+                    )
+                    edge_count += 1
+    
+    # Choose random target (not X0 to avoid trivial cases)
+    target_idx = random.choice(rng_key, num_vars)
+    target_var = f'X{target_idx}'
+    
+    # Create SCM using unified interface
+    scm = create_scm(
+        variables=variables,
+        edges=frozenset(edges),
+        mechanisms=pyr.pmap(mechanisms),
+        target=target_var,
+        metadata=pyr.pmap({
+            'structure': structure,
+            'edge_density': edge_density,
+            'num_variables': num_vars
+        })
+    )
+    
+    return scm
 
 
 def initialize_models(hidden_dim: int = 128, 
@@ -336,7 +462,6 @@ def main():
     # Training metrics
     metrics_history = []
     best_f1 = 0.0
-    factory = VariableSCMFactory(seed=args.seed)
     
     for step in range(args.num_steps):
         # Generate diverse batch of graphs
@@ -345,14 +470,11 @@ def main():
             batch_key, args.batch_size, args.min_vars, args.max_vars
         )
         
-        # Create SCMs from configs
+        # Create SCMs from configs using unified interface
         scm_batch = []
         for config in graph_configs:
-            scm = factory.create_variable_scm(
-                num_variables=config['num_vars'],
-                structure_type=config['structure'],
-                edge_density=config['edge_density']
-            )
+            rng_key, scm_key = random.split(rng_key)
+            scm = create_scm_from_config(config, scm_key)
             scm_batch.append(scm)
         
         # Train on batch

@@ -318,15 +318,111 @@ class DiverseGRPOTrainer(JointACBOTrainer):
         return super()._should_switch_phase()
     
     def _run_grpo_episode(self, episode_idx, scm, scm_name, key):
-        """Override to track metrics and use parent's working GRPO implementation."""
+        """Override to track metrics and add surrogate debugging."""
         # Set current episode metadata
         self.current_episode_data['size_category'] = 'single'
         self.current_episode_data['num_vars'] = len(list(get_variables(scm)))
         
         logger.info(f"\nEpisode {episode_idx}: Single SCM with {self.current_episode_data['num_vars']} variables")
         
+        # DEBUG: Check surrogate utilization before episode
+        print(f"\n🔍 SURROGATE & BUFFER DEBUG (Episode {episode_idx}):")
+        
+        # Check surrogate availability
+        if hasattr(self, 'use_surrogate') and self.use_surrogate:
+            print(f"  ✅ Surrogate enabled in config")
+            if hasattr(self, 'surrogate_predict_fn') and self.surrogate_predict_fn:
+                print(f"  ✅ AVICI surrogate loaded and available")
+            else:
+                print(f"  ❌ AVICI surrogate not available")
+        else:
+            print(f"  ❌ Surrogate disabled in config")
+            
+        # Check true causal structure for comparison
+        target_var = get_target(scm)
+        true_parents = list(get_parents(scm, target_var)) if hasattr(scm, 'edges') else []
+        variables = list(get_variables(scm))
+        
+        print(f"  🎯 TRUE CAUSAL STRUCTURE:")
+        print(f"    Target: {target_var}")
+        print(f"    True parents: {true_parents}")
+        print(f"    All variables: {variables}")
+        print(f"    Expected: E,F should get high parent probabilities")
+        
         # Use parent's proven GRPO implementation
         result = super()._run_grpo_episode(episode_idx, scm, scm_name, key)
+        
+        # DEBUG: Check buffer state and surrogate utilization after episode
+        print(f"\n📊 POST-EPISODE BUFFER & SURROGATE ANALYSIS:")
+        
+        # Get buffer from trainer if accessible (might need to access through trainer state)
+        # For now, create a test to verify surrogate predictions on complex SCM
+        from src.causal_bayes_opt.data_structures.buffer import ExperienceBuffer
+        from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
+        from src.causal_bayes_opt.training.three_channel_converter import buffer_to_three_channel_tensor
+        
+        # Create test buffer with complex SCM data
+        test_buffer = ExperienceBuffer()
+        test_samples = sample_from_linear_scm(scm, 20, seed=42)
+        for sample in test_samples:
+            test_buffer.add_observation(sample)
+            
+        # Test AVICI predictions on complex structure
+        if hasattr(self, 'surrogate_predict_fn') and self.surrogate_predict_fn:
+            tensor_3ch, mapper = buffer_to_three_channel_tensor(
+                test_buffer, target_var, max_history_size=100, standardize=False
+            )
+            
+            surrogate_prediction = self.surrogate_predict_fn(tensor_3ch, target_var, mapper.variables)
+            
+            print(f"  🔮 AVICI SURROGATE PREDICTIONS ON COMPLEX SCM:")
+            print(f"    Target: {target_var}")
+            print(f"    Variables: {mapper.variables}")
+            
+            if 'parent_probs' in surrogate_prediction:
+                parent_probs = surrogate_prediction['parent_probs']
+                print(f"    Parent probabilities:")
+                
+                for i, var in enumerate(mapper.variables):
+                    if var != target_var and i < len(parent_probs):
+                        prob = float(parent_probs[i])
+                        is_true_parent = var in true_parents
+                        marker = "🎯" if is_true_parent else "❌" if prob > 0.7 else ""
+                        print(f"      {var}: {prob:.3f} {marker}")
+                        
+                # Analyze how well AVICI distinguishes parents
+                if true_parents:
+                    true_parent_probs = []
+                    false_parent_probs = []
+                    
+                    for i, var in enumerate(mapper.variables):
+                        if var != target_var and i < len(parent_probs):
+                            prob = float(parent_probs[i])
+                            if var in true_parents:
+                                true_parent_probs.append(prob)
+                            else:
+                                false_parent_probs.append(prob)
+                    
+                    if true_parent_probs and false_parent_probs:
+                        avg_true = np.mean(true_parent_probs)
+                        avg_false = np.mean(false_parent_probs)
+                        discrimination = avg_true - avg_false
+                        
+                        print(f"  📊 AVICI PERFORMANCE ANALYSIS:")
+                        print(f"    True parents (E,F): {avg_true:.3f} avg probability")
+                        print(f"    False parents: {avg_false:.3f} avg probability") 
+                        print(f"    Discrimination: {discrimination:+.3f}")
+                        
+                        if discrimination > 0.2:
+                            print(f"    ✅ AVICI strongly discriminates parents")
+                        elif discrimination > 0.1:
+                            print(f"    ⚠️  AVICI weakly discriminates parents")
+                        else:
+                            print(f"    ❌ AVICI not discriminating parents")
+            else:
+                print(f"    ❌ Unexpected prediction format: {list(surrogate_prediction.keys())}")
+        else:
+            print(f"  ❌ AVICI surrogate not available for testing")
         
         # Track episode performance
         self._track_episode_performance(episode_idx)
@@ -423,7 +519,7 @@ def create_single_scm_config(
         # Core episode settings (reduced for sanity check)
         'max_episodes': 1,  # More episodes to see quantile strategy learning
         'obs_per_episode': 10,
-        'max_interventions': 200,  # Single intervention for focused debugging
+        'max_interventions': 2,   # Minimal interventions for debugging
         
         # CRITICAL: Disable phase switching for pure GRPO
         'episodes_per_phase': 999999,  # Never switch phases
@@ -440,7 +536,7 @@ def create_single_scm_config(
         'fixed_std': 1.0,  # Much larger to allow discovery of X = -10 strategy
         
         # CRITICAL: Reduce learning rate to prevent gradient explosion
-        'learning_rate': 5e-3,  # Much lower to prevent huge oscillating steps
+        'learning_rate': 5e-4,  # Much lower to prevent huge oscillating steps
         
         # GRPO configuration (back to reasonable size for now)
         'grpo_config': {
@@ -462,8 +558,9 @@ def create_single_scm_config(
         # Use composite reward for surrogate integration (includes info_gain)
         'reward_type': 'composite',
         
-        # Surrogate model configuration
-        'surrogate_lr': 1e-3,           # Surrogate learning rate
+        # Surrogate model configuration - load AVICI checkpoint
+        'surrogate_checkpoint_path': 'experiments/surrogate-only-training/scripts/checkpoints/avici_runs/avici_style_20250822_213115/checkpoint_step_200.pkl',
+        'surrogate_lr': 1e-3,           # Surrogate learning rate (for updates)
         'surrogate_hidden_dim': 128,    # Surrogate architecture
         'surrogate_layers': 4,
         'surrogate_heads': 8,

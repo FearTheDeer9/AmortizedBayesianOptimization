@@ -24,6 +24,15 @@ class InterventionRecord:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass 
+class PosteriorRecord:
+    """Record of surrogate posterior predictions."""
+    step: int
+    parent_probabilities: Dict[str, np.ndarray]
+    confidence_scores: Dict[str, float]
+    prediction_metadata: Dict[str, Any] = field(default_factory=dict)
+
+
 class MetricCollector:
     """Collect and compute experiment-specific metrics."""
     
@@ -42,12 +51,16 @@ class MetricCollector:
         self.metrics_to_track = metrics_to_track
         self.trajectories = []
         self.current_trajectory = []
+        self.current_posterior_trajectory = []
         self.method_results = defaultdict(list)
         self.current_method = None
         self.current_scm = None
         
         # For tracking optimal values (needed for regret)
         self.optimal_values = {}
+        
+        # For structure learning metrics
+        self.true_parents = {}
         
         logger.info(f"Initialized MetricCollector tracking: {metrics_to_track}")
         
@@ -64,6 +77,7 @@ class MetricCollector:
             self.end_trajectory()
             
         self.current_trajectory = []
+        self.current_posterior_trajectory = []
         self.current_method = method_name
         self.current_scm = scm_name
         logger.debug(f"Started trajectory for {method_name} on {scm_name}")
@@ -90,6 +104,38 @@ class MetricCollector:
             metadata=metadata
         )
         self.current_trajectory.append(record)
+    
+    def record_posterior(self,
+                        parent_probabilities: Dict[str, np.ndarray],
+                        confidence_scores: Optional[Dict[str, float]] = None,
+                        **metadata):
+        """
+        Record surrogate posterior predictions.
+        
+        Args:
+            parent_probabilities: Dictionary mapping variables to parent probability arrays
+            confidence_scores: Optional confidence scores for predictions
+            **metadata: Additional prediction metadata
+        """
+        if confidence_scores is None:
+            confidence_scores = {}
+        
+        record = PosteriorRecord(
+            step=len(self.current_posterior_trajectory),
+            parent_probabilities=parent_probabilities,
+            confidence_scores=confidence_scores,
+            prediction_metadata=metadata
+        )
+        self.current_posterior_trajectory.append(record)
+    
+    def set_true_parents(self, true_parents: Dict[str, List[str]]):
+        """
+        Set true parent relationships for structure learning evaluation.
+        
+        Args:
+            true_parents: Dictionary mapping variables to their true parents
+        """
+        self.true_parents = true_parents
         
     def set_optimal_value(self, scm_name: str, optimal_value: float):
         """
@@ -127,6 +173,7 @@ class MetricCollector:
         
         # Clear current trajectory
         self.current_trajectory = []
+        self.current_posterior_trajectory = []
         self.current_method = None
         self.current_scm = None
         
@@ -175,6 +222,14 @@ class MetricCollector:
                     break
             total_vars = len(all_vars_set) if all_vars_set else unique_vars
             metrics['exploration_ratio'] = unique_vars / max(total_vars, 1)
+        
+        # Structure learning metrics (if we have posterior predictions and true parents)
+        if ('structure_learning' in self.metrics_to_track and 
+            self.current_posterior_trajectory and 
+            self.true_parents):
+            
+            structure_metrics = self._compute_structure_learning_metrics()
+            metrics.update(structure_metrics)
                 
         return metrics
     
@@ -214,6 +269,48 @@ class MetricCollector:
             if record.target_value <= threshold:
                 return i + 1
         return len(self.current_trajectory)
+    
+    def _compute_structure_learning_metrics(self) -> Dict[str, float]:
+        """
+        Compute structure learning metrics from posterior predictions.
+        
+        Returns:
+            Dictionary of structure learning metrics
+        """
+        if not self.current_posterior_trajectory or not self.true_parents:
+            return {}
+        
+        # Use final posterior predictions for evaluation
+        final_posterior = self.current_posterior_trajectory[-1]
+        parent_probs = final_posterior.parent_probabilities
+        
+        # Get variable list from true parents
+        variables = list(self.true_parents.keys())
+        
+        # Import graph metrics for evaluation
+        from experiments.evaluation.initial_comparison.src.graph_metrics import evaluate_graph_discovery
+        
+        try:
+            graph_metrics = evaluate_graph_discovery(
+                self.true_parents, parent_probs, variables, threshold=0.5
+            )
+            
+            return {
+                'parent_f1': graph_metrics.get('f1', 0.0),
+                'parent_precision': graph_metrics.get('precision', 0.0),
+                'parent_recall': graph_metrics.get('recall', 0.0),
+                'structural_hamming_distance': graph_metrics.get('shd', 0.0),
+                'true_edges': graph_metrics.get('n_true_edges', 0),
+                'predicted_edges': graph_metrics.get('n_predicted_edges', 0)
+            }
+        except Exception as e:
+            logger.warning(f"Failed to compute structure learning metrics: {e}")
+            return {
+                'parent_f1': 0.0,
+                'parent_precision': 0.0, 
+                'parent_recall': 0.0,
+                'structural_hamming_distance': 0.0
+            }
     
     def get_comparison_metrics(self) -> Dict[str, Dict[str, float]]:
         """

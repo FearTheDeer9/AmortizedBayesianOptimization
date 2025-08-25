@@ -116,9 +116,15 @@ def compute_orientation_accuracy(true_adj: np.ndarray,
     Returns:
         Orientation accuracy (0 to 1)
     """
+    print(f"DEBUG ORIENTATION: true_adj type: {type(true_adj)}, dtype: {true_adj.dtype}")
+    print(f"DEBUG ORIENTATION: pred_adj type: {type(pred_adj)}, dtype: {pred_adj.dtype}")
+    print(f"DEBUG ORIENTATION: About to compute true_skeleton = true_adj | true_adj.T")
+    
     # Find skeleton (undirected edges) that match
     true_skeleton = true_adj | true_adj.T
+    print(f"DEBUG ORIENTATION: true_skeleton computed successfully")
     pred_skeleton = pred_adj | pred_adj.T
+    print(f"DEBUG ORIENTATION: pred_skeleton computed successfully")
     
     # Find edges that exist in both skeletons
     common_skeleton = true_skeleton & pred_skeleton
@@ -164,25 +170,43 @@ def evaluate_graph_discovery(true_parents: Dict[str, List[str]],
     n_vars = len(var_list)
     var_to_idx = {var: i for i, var in enumerate(var_list)}
     
-    # Build true adjacency matrix
-    true_adj = np.zeros((n_vars, n_vars))
+    # Build true adjacency matrix (use int dtype for bitwise operations)
+    true_adj = np.zeros((n_vars, n_vars), dtype=int)
+    print(f"DEBUG GRAPH: Building true adjacency matrix ({n_vars}x{n_vars})")
+    print(f"DEBUG GRAPH: true_parents type: {type(true_parents)}")
+    print(f"DEBUG GRAPH: Sample true_parents entry: {list(true_parents.items())[0] if true_parents else 'None'}")
+    
     for child, parents in true_parents.items():
+        print(f"DEBUG GRAPH: Processing child={child}, parents={parents}, parents_type={type(parents)}")
         if child in var_to_idx:
             child_idx = var_to_idx[child]
             for parent in parents:
                 if parent in var_to_idx:
                     parent_idx = var_to_idx[parent]
                     true_adj[parent_idx, child_idx] = 1
+                    print(f"DEBUG GRAPH: Set edge {parent}({parent_idx}) -> {child}({child_idx})")
     
-    # Build predicted adjacency matrix
-    pred_adj = np.zeros((n_vars, n_vars))
+    print(f"DEBUG GRAPH: True adjacency matrix dtype: {true_adj.dtype}, shape: {true_adj.shape}")
+    
+    # Build predicted adjacency matrix (use int dtype for bitwise operations)
+    pred_adj = np.zeros((n_vars, n_vars), dtype=int)
+    print(f"DEBUG GRAPH: Building predicted adjacency matrix")
+    print(f"DEBUG GRAPH: predicted_probs type: {type(predicted_probs)}")
+    print(f"DEBUG GRAPH: Sample predicted_probs entry: {list(predicted_probs.items())[0] if predicted_probs else 'None'}")
+    
     for child, probs in predicted_probs.items():
+        print(f"DEBUG GRAPH: Processing child={child}, probs_shape={probs.shape if hasattr(probs, 'shape') else 'no_shape'}, probs_type={type(probs)}")
         if child in var_to_idx:
             child_idx = var_to_idx[child]
             # probs should be a vector of length n_vars
             if len(probs) == n_vars:
-                pred_adj[:, child_idx] = (probs > threshold).astype(int)
+                threshold_result = (probs > threshold)
+                print(f"DEBUG GRAPH: threshold_result type: {type(threshold_result)}, dtype: {threshold_result.dtype if hasattr(threshold_result, 'dtype') else 'no_dtype'}")
+                pred_adj[:, child_idx] = threshold_result.astype(int)
                 pred_adj[child_idx, child_idx] = 0  # No self-loops
+                print(f"DEBUG GRAPH: Set predicted edges for {child}")
+    
+    print(f"DEBUG GRAPH: Predicted adjacency matrix dtype: {pred_adj.dtype}, shape: {pred_adj.shape}")
     
     # Compute all metrics
     shd = compute_shd(true_adj, pred_adj)

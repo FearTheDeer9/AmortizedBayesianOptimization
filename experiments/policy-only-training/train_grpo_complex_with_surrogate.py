@@ -517,9 +517,9 @@ def create_single_scm_config(
     
     config = {
         # Core episode settings (reduced for sanity check)
-        'max_episodes': 1,  # More episodes to see quantile strategy learning
+        'max_episodes': 1,  # Test meaningful ratios in episode 2
         'obs_per_episode': 10,
-        'max_interventions': 2,   # Minimal interventions for debugging
+        'max_interventions': 15,   # Minimal interventions for debugging
         
         # CRITICAL: Disable phase switching for pure GRPO
         'episodes_per_phase': 999999,  # Never switch phases

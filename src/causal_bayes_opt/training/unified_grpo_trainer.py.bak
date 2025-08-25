@@ -527,27 +527,8 @@ class UnifiedGRPOTrainer:
         This is the core method that needed the most cleanup.
         """
         # Get SCM info - use mapper for consistent variable ordering
-        variables = list(get_variables(scm))
         target_var = get_target(scm)
-        target_idx = variables.index(target_var)
         true_parents = list(get_parents(scm, target_var)) if hasattr(scm, 'edges') else []
-        
-        # Log SCM structure details for this episode
-        coefficients = scm.get('coefficients', {})
-        parent_coeffs = {
-            parent: coefficients.get((parent, target_var), 0.0)
-            for parent in true_parents
-        }
-        metadata = scm.get('metadata', pyr.pmap({}))
-        structure_type = metadata.get('structure_type', 'unknown')
-        
-        logger.info(
-            f"\n[Episode {episode_idx}] SCM: {scm_name}\n"
-            f"  Structure: {structure_type} with {len(variables)} variables\n"
-            f"  Target: {target_var}\n"
-            f"  True parents: {true_parents}\n"
-            f"  Coefficients: {parent_coeffs}"
-        )
         
         # Initialize buffer with observational data
         buffer = ExperienceBuffer()
@@ -762,6 +743,15 @@ class UnifiedGRPOTrainer:
         advantages = rewards - group_baseline
         advantages = advantages / (jnp.std(advantages) + 1e-8)
         
+        # DEBUG: Log GRPO advantage calculation (outside JAX compilation)
+        if hasattr(self, '_debug_grpo_loss') and self._debug_grpo_loss:
+            print(f"\n🔍 GRPO ADVANTAGE CALCULATION:")
+            print(f"  Rewards: {[f'{float(r):.3f}' for r in rewards]}")
+            print(f"  Baseline: {float(group_baseline):.3f}")
+            print(f"  Raw advantages: {[f'{float(a):.3f}' for a in (rewards - group_baseline)]}")
+            print(f"  Normalized advantages: {[f'{float(a):.3f}' for a in advantages]}")
+            print(f"  Positive advantages (should increase scores): {int(jnp.sum(advantages > 0))} of {len(advantages)}")
+        
         # Forward pass
         batch_size = states.shape[0]
         new_log_probs = []
@@ -972,6 +962,55 @@ class UnifiedGRPOTrainer:
             # Convert buffer to 4-channel tensor with AVICI surrogate if available
             surrogate_fn = self.surrogate_predict_fn if (self.use_surrogate and hasattr(self, 'surrogate_predict_fn')) else None
             
+            # DEBUG: AVICI utilization before tensor conversion
+            if step == 0:  # Log once per intervention
+                print(f"\n🔮 AVICI SURROGATE UTILIZATION DEBUG:")
+                print(f"  Use surrogate: {self.use_surrogate}")
+                print(f"  Surrogate function available: {surrogate_fn is not None}")
+                
+                if surrogate_fn:
+                    # Test AVICI prediction on current buffer
+                    from .three_channel_converter import buffer_to_three_channel_tensor
+                    test_tensor, test_mapper = buffer_to_three_channel_tensor(
+                        buffer, target_var, max_history_size=100, standardize=False
+                    )
+                    
+                    print(f"  Testing AVICI on buffer with {buffer.size()} samples...")
+                    test_prediction = surrogate_fn(test_tensor, target_var, test_mapper.variables)
+                    
+                    print(f"  🎯 AVICI PREDICTION RESULTS:")
+                    print(f"    Target: {target_var}")
+                    print(f"    Variables: {test_mapper.variables}")
+                    
+                    if 'parent_probs' in test_prediction:
+                        parent_probs = test_prediction['parent_probs']
+                        true_parents = get_parents(scm, target_var) if hasattr(scm, 'edges') else []
+                        
+                        print(f"    Parent probabilities:")
+                        for i, var in enumerate(test_mapper.variables):
+                            if var != target_var and i < len(parent_probs):
+                                prob = float(parent_probs[i])
+                                is_true_parent = var in true_parents
+                                marker = "🎯" if is_true_parent else "❌" if prob > 0.7 else ""
+                                print(f"      {var}: {prob:.3f} {marker}")
+                                
+                        # Calculate discrimination performance
+                        if true_parents:
+                            true_probs = [float(parent_probs[i]) for i, var in enumerate(test_mapper.variables) 
+                                         if var in true_parents and i < len(parent_probs)]
+                            false_probs = [float(parent_probs[i]) for i, var in enumerate(test_mapper.variables) 
+                                          if var not in true_parents and var != target_var and i < len(parent_probs)]
+                            
+                            if true_probs and false_probs:
+                                discrimination = np.mean(true_probs) - np.mean(false_probs)
+                                print(f"    📊 AVICI Performance: {discrimination:+.3f} discrimination")
+                                print(f"      True parents: {np.mean(true_probs):.3f} avg")
+                                print(f"      Non-parents: {np.mean(false_probs):.3f} avg")
+                    else:
+                        print(f"    ❌ Unexpected format: {list(test_prediction.keys())}")
+                else:
+                    print(f"  ❌ No AVICI surrogate available")
+            
             tensor, mapper, diagnostics = buffer_to_four_channel_tensor(
                 buffer, target_var, surrogate_fn=surrogate_fn, max_history_size=100, standardize=False
             )
@@ -999,6 +1038,11 @@ class UnifiedGRPOTrainer:
                     from .quantile_selection import log_quantile_details
                     
                     # DEBUG: Check mapper and target index
+                    print(f"🔍 MAPPER TARGET DEBUG:")
+                    print(f"  Mapper variables: {mapper.variables}")
+                    print(f"  Target variable: {target_var}")
+                    print(f"  Mapper target_idx: {mapper.target_idx}")
+                    print(f"  Variables list: {variables}")
                     
                     log_quantile_details(policy_output['quantile_scores'], debug_info, mapper.variables, target_var, scm)
                 
@@ -1027,6 +1071,7 @@ class UnifiedGRPOTrainer:
                     for i, var_name in enumerate(mapper.variables):
                         if i != mapper.target_idx:
                             prob_info.append(f"{var_name}:{var_probs[i]:.3f}")
+                    print(f"  Variable probabilities: {' '.join(prob_info)}")
             
             # Create and apply intervention (same for both architectures)
             # FIXED: Always use mapper.variables for consistent ordering
@@ -1089,20 +1134,56 @@ class UnifiedGRPOTrainer:
         grpo_batch_data['rewards'] = jnp.array(grpo_batch_data['rewards'])
         grpo_batch_data['old_log_probs'] = jnp.array(grpo_batch_data['old_log_probs'])
         
-        # Log batch intervention statistics
-        if grpo_batch_data['actions']:
-            intervention_vars = [a['variable'] for a in grpo_batch_data['actions']]
-            unique_vars, counts = jnp.unique(jnp.array(intervention_vars), return_counts=True)
-            var_distribution = {variables[int(v)]: int(c) for v, c in zip(unique_vars, counts)}
-            
-            logger.info(
-                f"  Batch interventions: {len(grpo_batch_data['actions'])} total\n"
-                f"  Variable distribution: {var_distribution}\n"
-                f"  Mean reward: {float(jnp.mean(grpo_batch_data['rewards'])):.4f}"
-            )
-        
         # Create GRPO batch and update policy
         grpo_batch = self._create_grpo_batch(grpo_batch_data)
+        
+        # Debug GRPO batch before update
+        print(f"\n📊 GRPO BATCH DEBUG:")
+        print(f"  Batch rewards: {[f'{float(r):.1f}' for r in grpo_batch['rewards']]}")
+        print(f"  Batch size: {len(grpo_batch['rewards'])}")
+        
+        # CRITICAL: Check if flat_quantile_idx is in actions
+        if 'flat_quantile_idx' in grpo_batch['actions']:
+            print(f"  ✅ flat_quantile_idx present: {grpo_batch['actions']['flat_quantile_idx'][:5]}...")
+            
+            # DEBUG: Track action-advantage pairing for gradient flow analysis
+            print(f"\n🔬 ACTION-ADVANTAGE PAIRING:")
+            
+            # Track X vs Z patterns separately
+            x_rewards, z_rewards = [], []
+            x_quantiles, z_quantiles = [], []
+            
+            for i in range(min(10, len(grpo_batch['rewards']))):
+                flat_idx = int(grpo_batch['actions']['flat_quantile_idx'][i])
+                var_idx, quant_idx = divmod(flat_idx, 3)
+                var_name = mapper.variables[var_idx] if var_idx < len(mapper.variables) else f"var_{var_idx}"
+                quant_name = ['25%', '50%', '75%'][quant_idx]
+                reward = float(grpo_batch['rewards'][i])
+                
+                # Separate X and Z patterns
+                if var_name == 'X':
+                    x_rewards.append(reward)
+                    x_quantiles.append(quant_name)
+                elif var_name == 'Z':
+                    z_rewards.append(reward)
+                    z_quantiles.append(quant_name)
+                
+                if i < 5:  # Show first 5 for detail
+                    print(f"  Action {i}: {var_name}_{quant_name} (flat_idx={flat_idx}) → reward={reward:.1f}")
+            
+            # Analyze patterns
+            if x_rewards:
+                print(f"\n📊 X vs Z LEARNING SIGNAL:")
+                print(f"  X rewards: {x_rewards} (avg: {sum(x_rewards)/len(x_rewards):.2f})")
+                print(f"  X quantiles: {x_quantiles}")
+                if z_rewards:
+                    print(f"  Z rewards: {z_rewards} (avg: {sum(z_rewards)/len(z_rewards):.2f})")
+                    print(f"  Z quantiles: {z_quantiles}")
+                    print(f"  🔍 Are X rewards consistently better than Z rewards?")
+                
+        else:
+            print(f"  ❌ flat_quantile_idx MISSING from actions!")
+            print(f"  Available action keys: {list(grpo_batch['actions'].keys())}")
         
         # Store old params for gradient analysis
         old_params_for_grad_analysis = self.policy_params
@@ -1111,9 +1192,114 @@ class UnifiedGRPOTrainer:
             self.policy_params, self.optimizer_state, grpo_batch
         )
         
+        # Debug GRPO update results with loss component analysis
+        print(f"\n📊 GRPO UPDATE RESULTS:")
+        print(f"  Policy loss: {float(grpo_metrics.policy_loss):.6f}")
+        print(f"  Entropy loss: {float(grpo_metrics.entropy_loss):.6f}")  
+        print(f"  Total loss: {float(grpo_metrics.total_loss):.6f}")
+        print(f"  Mean reward: {float(grpo_metrics.mean_reward):.3f}")
+        print(f"  Mean advantage: {float(grpo_metrics.mean_advantage):.3f}")
+        print(f"  Gradient norm: {float(grpo_metrics.grad_norm):.6f}")
         
+        # CRITICAL: Analyze loss component breakdown
+        policy_loss_val = float(grpo_metrics.policy_loss)
+        entropy_loss_val = float(grpo_metrics.entropy_loss)
+        total_loss_val = float(grpo_metrics.total_loss)
+        
+        print(f"\n🔍 LOSS COMPONENT ANALYSIS:")
+        print(f"  Policy loss: {policy_loss_val:.6f}")
+        print(f"  Entropy loss: {entropy_loss_val:.6f}") 
+        print(f"  Total loss: {total_loss_val:.6f}")
+        print(f"  Sum check: {policy_loss_val + entropy_loss_val:.6f}")
+        
+        if abs(total_loss_val) > 1e-6:
+            policy_ratio = abs(policy_loss_val) / abs(total_loss_val)
+            entropy_ratio = abs(entropy_loss_val) / abs(total_loss_val)
+            print(f"  Loss contribution: policy={policy_ratio:.1%}, entropy={entropy_ratio:.1%}")
+            
+            if entropy_ratio > 0.8:
+                print(f"  🚨 ENTROPY DOMINATES! Gradients from exploration, not reward learning")
+            elif policy_ratio > 0.8:
+                print(f"  ✅ Policy loss dominates - reward-based learning active") 
+            else:
+                print(f"  ⚠️  Mixed loss sources")
+        else:
+            print(f"  🚨 TOTAL LOSS ≈ 0 - how are we getting gradients?")
+        print(f"  🔍 LEARNING RATE & STEP SIZE:")
+        print(f"    Learning rate: {self.learning_rate}")
+        print(f"    Gradient norm: {float(grpo_metrics.grad_norm):.6f}")
+        print(f"    Effective step size: {self.learning_rate * float(grpo_metrics.grad_norm):.6f}")
+        print(f"    🚨 If step size > 1.0, gradients may be too large!")
+        print(f"  🔍 RATIO ANALYSIS:")
+        print(f"    Mean ratio (exp(new-old)): {float(grpo_metrics.mean_ratio):.3f}")
+        print(f"    Ratio std: {float(grpo_metrics.ratio_std):.3f}")
+        print(f"    Approx KL: {float(grpo_metrics.approx_kl):.6f}")
+        print(f"  🚨 CRITICAL: If mean_ratio ≈ 1.0, policy isn't changing!")
+        print(f"  🚨 CRITICAL: If policy_loss = 0 with clear advantages, gradient flow is broken!")
+        print(f"  Expected: Clear advantages should create non-zero policy_loss")
+        
+        # DEBUG: Show advantages computed in loss
+        print(f"\n🔬 ADVANTAGES FROM LOSS COMPUTATION:")
+        print(f"  Mean advantage: {float(grpo_metrics.mean_advantage):.6f}")
+        print(f"  Advantage std: {float(grpo_metrics.advantage_std):.6f}")
+        print(f"  Group baseline: {float(grpo_metrics.group_baseline):.3f}")
+        print(f"  🔍 If mean_advantage ≈ 0, policy_loss will be ≈ 0 (by design)")
+        print(f"  🔍 Learning happens through advantage VARIANCE, not mean")
+        
+        # DEBUG: Expected advantages for each action
+        print(f"\n🔬 ACTION → ADVANTAGE ANALYSIS:")
+        baseline = float(grpo_metrics.group_baseline)
+        advantage_std = float(grpo_metrics.advantage_std)
+        
+        for i in range(min(5, len(grpo_batch['rewards']))):
+            flat_idx = int(grpo_batch['actions']['flat_quantile_idx'][i])
+            var_idx, quant_idx = divmod(flat_idx, 3)
+            var_name = mapper.variables[var_idx] if var_idx < len(mapper.variables) else f"var_{var_idx}"
+            quant_name = ['25%', '50%', '75%'][quant_idx]
+            reward = float(grpo_batch['rewards'][i])
+            
+            # Calculate expected advantage
+            raw_advantage = reward - baseline  
+            normalized_advantage = raw_advantage / (advantage_std + 1e-8) if advantage_std > 1e-8 else 0.0
+            expected_direction = "INCREASE" if normalized_advantage > 0 else "DECREASE"
+            
+            print(f"  Action {i}: {var_name}_{quant_name} (idx={flat_idx}) → adv={normalized_advantage:+.2f} → should {expected_direction}")
+        
+        # DEBUG: Detailed sample analysis from loss computation  
+        if hasattr(grpo_metrics, 'sample_analysis') and grpo_metrics.sample_analysis:
+            sa = grpo_metrics.sample_analysis
+            print(f"\n🔬 LOG PROBABILITY ANALYSIS:")
+            
+            # Show log probability differences  
+            if 'log_prob_differences' in sa:
+                log_diffs = [float(x) for x in sa['log_prob_differences']]
+                identical_count = int(sa['identical_count'])
+                total_samples = int(sa['total_samples'])
+                
+                print(f"  Log prob differences (first 5): {[f'{d:.6f}' for d in log_diffs]}")
+                print(f"  Identical log probs: {identical_count}/{total_samples}")
+                print(f"  Identical percentage: {100*identical_count/total_samples:.1f}%")
+                
+                if identical_count == total_samples:
+                    print(f"  🚨 ALL log probabilities identical - policy not changing")
+                elif identical_count > total_samples * 0.8:
+                    print(f"  ⚠️  Most log probabilities identical - minimal policy change")
+                else:
+                    print(f"  ✅ Log probabilities changing meaningfully")
+            
+            print(f"\n🔬 SAMPLE-BY-SAMPLE ANALYSIS (First 3):")
+            for i in range(min(3, len(sa['old_log_probs_sample']))):
+                old_lp = float(sa['old_log_probs_sample'][i]) 
+                new_lp = float(sa['new_log_probs_sample'][i])
+                adv = float(sa['advantages_sample'][i])
+                ratio = float(sa['ratios_sample'][i])
+                surr = float(sa['surr1_sample'][i])
+                diff = new_lp - old_lp
+                print(f"  Sample {i}: old_lp={old_lp:.3f}, new_lp={new_lp:.3f} (diff={diff:.6f}), ratio={ratio:.3f}, adv={adv:.3f}, surr={surr:.3f}")
+            print(f"  🔍 Key Question: Why are new_log_probs = old_log_probs?")
         
         # Add gradient flow analysis for quantile architecture
+        print(f"\n🔬 QUANTILE SCORE EVOLUTION:")
         
         # Get quantile scores before and after update
         sample_tensor = grpo_batch_data['states'][0]
@@ -1127,6 +1313,7 @@ class UnifiedGRPOTrainer:
             new_scores = new_output['quantile_scores'].flatten() 
             score_changes = new_scores - old_scores
             
+            print(f"  Score changes by quantile option:")
             for i in range(min(9, len(score_changes))):  # Show first 9 (3 vars × 3 quantiles)
                 var_idx, quant_idx = divmod(i, 3)
                 var_name = mapper.variables[var_idx] if var_idx < len(mapper.variables) else f"var_{var_idx}"
@@ -1135,12 +1322,16 @@ class UnifiedGRPOTrainer:
                 
                 # Determine if this quantile option was used and what advantage it should have gotten
                 direction = "↑" if change > 0 else "↓" if change < 0 else "→"
+                print(f"    {var_name}_{quant_name} (idx={i}): {change:+.3f} {direction}")
                 
+            print(f"\n🔍 GRADIENT DIRECTION ANALYSIS:")
+            print(f"  Based on action-advantage pairing from this batch:")
             
             # Check specific actions and their expected vs actual changes
             baseline = float(grpo_metrics.group_baseline)
             advantage_std = float(grpo_metrics.advantage_std)
             
+            print(f"  Checking first few actions against score changes:")
             for i in range(min(3, len(grpo_batch['rewards']))):
                 flat_idx = int(grpo_batch['actions']['flat_quantile_idx'][i])
                 var_idx, quant_idx = divmod(flat_idx, 3)
@@ -1158,7 +1349,9 @@ class UnifiedGRPOTrainer:
                 actual = "↑" if actual_change > 0 else "↓" if actual_change < 0 else "→"
                 
                 match = "✅" if expected == actual else "❌"
+                print(f"    {var_name}_{quant_name}: expected {expected}, actual {actual} ({actual_change:+.3f}) {match}")
                 
+            print(f"  🚨 If ❌ appears, gradient direction is inverted!")
                 
         if hasattr(self, 'grpo_logger') and len(grpo_batch_data['states']) > 0:
             # Get a sample policy output to determine architecture

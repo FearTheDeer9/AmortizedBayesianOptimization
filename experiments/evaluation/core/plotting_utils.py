@@ -1,562 +1,633 @@
 """
-Visualization utilities for evaluation results.
+Plotting utilities for multi-SCM evaluation results.
 
-This module provides standard plotting functions for visualizing
-evaluation results across different methods and experiments.
+Provides functions for visualizing:
+- Average performance trajectories with confidence bands
+- Per-SCM performance heatmaps
+- Method comparison bar charts
+- Summary statistics and reports
 """
 
-import logging
-import matplotlib.pyplot as plt
 import numpy as np
-from typing import Dict, List, Optional, Tuple, Any
-from pathlib import Path
+import matplotlib.pyplot as plt
 import seaborn as sns
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Tuple
 import pandas as pd
+from datetime import datetime
+import logging
 
 logger = logging.getLogger(__name__)
 
+# Set style for better-looking plots
+sns.set_style("whitegrid")
+plt.rcParams['figure.figsize'] = (12, 8)
+plt.rcParams['font.size'] = 10
 
-class PlottingUtils:
-    """Standard plotting functions for evaluation."""
+
+def plot_evaluation_results(results: Dict[str, List[Dict]], 
+                           output_dir: Path,
+                           timestamp: str,
+                           scms: Optional[List[Any]] = None):
+    """
+    Generate comprehensive plots for evaluation results.
     
-    @staticmethod
-    def setup_style():
-        """Set up plotting style for consistent visualizations."""
-        # Use a style that works with the installed matplotlib version
-        try:
-            plt.style.use('seaborn-v0_8-darkgrid')
-        except:
-            try:
-                plt.style.use('seaborn-darkgrid')
-            except:
-                plt.style.use('ggplot')
-        
-        # Set color palette
-        sns.set_palette("husl")
-        
-        # Set default figure parameters
-        plt.rcParams['figure.figsize'] = (10, 6)
-        plt.rcParams['font.size'] = 12
-        plt.rcParams['axes.labelsize'] = 12
-        plt.rcParams['axes.titlesize'] = 14
-        plt.rcParams['xtick.labelsize'] = 10
-        plt.rcParams['ytick.labelsize'] = 10
-        plt.rcParams['legend.fontsize'] = 10
-        plt.rcParams['figure.dpi'] = 100
-        
-    @staticmethod
-    def plot_convergence(results: Dict[str, List[List[float]]], 
-                        save_path: Optional[Path] = None,
-                        title: str = "Convergence Comparison",
-                        ylabel: str = "Target Value",
-                        show_confidence: bool = True) -> plt.Figure:
-        """
-        Plot convergence curves for multiple methods.
-        
-        Args:
-            results: Dictionary mapping method names to lists of trajectories
-            save_path: Optional path to save the figure
-            title: Plot title
-            ylabel: Y-axis label
-            show_confidence: Whether to show confidence intervals
-            
-        Returns:
-            Matplotlib figure
-        """
-        PlottingUtils.setup_style()
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        colors = sns.color_palette("husl", n_colors=len(results))
-        
-        for (method_name, trajectories), color in zip(results.items(), colors):
-            if not trajectories:
-                continue
-                
-            # Pad trajectories to same length
-            max_len = max(len(t) for t in trajectories)
-            padded = []
-            for t in trajectories:
-                if len(t) < max_len:
-                    # Pad with last value
-                    padded.append(t + [t[-1]] * (max_len - len(t)))
-                else:
-                    padded.append(t)
-            
-            # Compute mean and std
-            padded_array = np.array(padded)
-            mean_trajectory = np.mean(padded_array, axis=0)
-            std_trajectory = np.std(padded_array, axis=0)
-            
-            x = np.arange(len(mean_trajectory))
-            
-            # Plot mean
-            ax.plot(x, mean_trajectory, label=method_name, linewidth=2, color=color)
-            
-            # Plot confidence interval
-            if show_confidence and len(trajectories) > 1:
-                ax.fill_between(x, 
-                               mean_trajectory - std_trajectory,
-                               mean_trajectory + std_trajectory,
-                               alpha=0.2, color=color)
-        
-        ax.set_xlabel('Intervention Number')
-        ax.set_ylabel(ylabel)
-        ax.set_title(title)
-        ax.legend(loc='best')
-        ax.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            save_path = Path(save_path)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-            logger.info(f"Saved convergence plot to {save_path}")
-        
-        return fig
+    Args:
+        results: Dictionary mapping method names to lists of trajectory dicts
+        output_dir: Directory to save plots
+        timestamp: Timestamp string for file naming
+        scms: Optional list of SCM objects for additional context
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     
-    @staticmethod
-    def plot_method_comparison(metrics: Dict[str, Dict[str, float]],
-                              metric_names: Optional[List[str]] = None,
-                              save_path: Optional[Path] = None,
-                              title: str = "Method Comparison") -> plt.Figure:
-        """
-        Create bar plot comparing methods across metrics.
-        
-        Args:
-            metrics: Dictionary mapping method names to metric dictionaries
-            metric_names: Optional list of specific metrics to plot
-            save_path: Optional path to save the figure
-            title: Plot title
+    # Compute average trajectories
+    averaged = compute_average_trajectories(results)
+    
+    # Create multi-panel figure for main results
+    fig = plt.figure(figsize=(16, 10))
+    
+    # Plot 1: Normalized target value trajectories
+    ax1 = plt.subplot(2, 3, 1)
+    plot_target_trajectories(ax1, averaged, 'Normalized Target Value')
+    
+    # Plot 2: F1 score trajectories
+    ax2 = plt.subplot(2, 3, 2)
+    plot_metric_trajectories(ax2, averaged, 'f1', 'F1 Score')
+    
+    # Plot 3: SHD trajectories
+    ax3 = plt.subplot(2, 3, 3)
+    plot_metric_trajectories(ax3, averaged, 'shd', 'Structural Hamming Distance')
+    
+    # Plot 4: Final performance comparison
+    ax4 = plt.subplot(2, 3, 4)
+    plot_final_performance_bars(ax4, averaged)
+    
+    # Plot 5: Per-SCM heatmap (if we have enough SCMs)
+    if results and len(next(iter(results.values()))) >= 5:
+        ax5 = plt.subplot(2, 3, 5)
+        plot_per_scm_heatmap(ax5, results, 'normalized_targets')
+    
+    # Plot 6: Summary statistics table
+    ax6 = plt.subplot(2, 3, 6)
+    n_scms = len(next(iter(results.values()))) if results else 0
+    plot_summary_table(ax6, averaged, n_scms)
+    
+    plt.suptitle(f'Multi-SCM Evaluation Results ({timestamp})', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    # Save main figure
+    fig_path = output_dir / f"evaluation_results_{timestamp}.png"
+    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+    logger.info(f"Saved main results plot to {fig_path}")
+    
+    # Create detailed trajectory plots
+    create_detailed_trajectory_plots(results, averaged, output_dir, timestamp)
+    
+    # Create method comparison plots
+    create_method_comparison_plots(results, output_dir, timestamp)
+    
+    plt.close('all')
+    logger.info(f"All plots saved to {output_dir}")
+
+
+def compute_average_trajectories(results: Dict[str, List[Dict]]) -> Dict[str, Dict]:
+    """Compute mean and std trajectories across SCMs."""
+    averaged = {}
+    
+    for method_name, method_results in results.items():
+        if not method_results:
+            continue
             
-        Returns:
-            Matplotlib figure
-        """
-        PlottingUtils.setup_style()
+        # Stack trajectories from all SCMs
+        all_normalized = []
+        all_f1 = []
+        all_shd = []
         
-        if not metrics:
-            logger.warning("No metrics to plot")
-            return None
+        for scm_result in method_results:
+            if 'normalized_targets' in scm_result:
+                all_normalized.append(scm_result['normalized_targets'])
+            if 'f1_scores' in scm_result:
+                all_f1.append(scm_result['f1_scores'])
+            if 'shd_values' in scm_result:
+                all_shd.append(scm_result['shd_values'])
         
-        methods = list(metrics.keys())
-        
-        # Get metric names if not specified
-        if metric_names is None:
-            # Get all mean metrics (exclude std, min, max)
-            all_metrics = set()
-            for method_metrics in metrics.values():
-                all_metrics.update(k for k in method_metrics.keys() if k.startswith('mean_'))
-            metric_names = sorted(list(all_metrics))
-        
-        if not metric_names:
-            logger.warning("No metrics found to plot")
-            return None
-        
-        n_metrics = len(metric_names)
-        n_methods = len(methods)
-        
-        # Create subplots
-        if n_metrics <= 3:
-            fig, axes = plt.subplots(1, n_metrics, figsize=(5*n_metrics, 6))
+        # Convert to numpy arrays and compute statistics
+        if all_normalized:
+            all_normalized = np.array(all_normalized)
+            normalized_mean = np.nanmean(all_normalized, axis=0)
+            normalized_std = np.nanstd(all_normalized, axis=0)
         else:
-            n_rows = (n_metrics + 2) // 3
-            fig, axes = plt.subplots(n_rows, 3, figsize=(15, 5*n_rows))
-        
-        if n_metrics == 1:
-            axes = [axes]
+            normalized_mean = np.array([])
+            normalized_std = np.array([])
+            
+        if all_f1:
+            all_f1 = np.array(all_f1)
+            f1_mean = np.nanmean(all_f1, axis=0)
+            f1_std = np.nanstd(all_f1, axis=0)
         else:
-            axes = axes.flatten() if n_metrics > 3 else axes
-        
-        colors = sns.color_palette("husl", n_colors=n_methods)
-        
-        for i, metric_name in enumerate(metric_names):
-            if i >= len(axes):
-                break
-                
-            ax = axes[i]
+            f1_mean = np.array([])
+            f1_std = np.array([])
             
-            # Get values and error bars
-            values = []
-            errors = []
-            for method in methods:
-                mean_val = metrics[method].get(metric_name, 0)
-                values.append(mean_val)
-                
-                # Get std if available
-                std_key = metric_name.replace('mean_', 'std_')
-                std_val = metrics[method].get(std_key, 0)
-                errors.append(std_val)
-            
-            # Create bar plot
-            x_pos = np.arange(len(methods))
-            bars = ax.bar(x_pos, values, yerr=errors if any(errors) else None,
-                          capsize=5, color=colors)
-            
-            # Formatting
-            display_name = metric_name.replace('mean_', '').replace('_', ' ').title()
-            ax.set_title(display_name)
-            ax.set_xlabel('Method')
-            ax.set_ylabel('Value')
-            ax.set_xticks(x_pos)
-            ax.set_xticklabels(methods, rotation=45, ha='right')
-            
-            # Add value labels on bars
-            for bar, val in zip(bars, values):
-                height = bar.get_height()
-                if 'accuracy' in metric_name:
-                    label = f'{val:.1%}'
-                else:
-                    label = f'{val:.3f}'
-                ax.text(bar.get_x() + bar.get_width()/2., height,
-                       label, ha='center', va='bottom', fontsize=10)
-        
-        # Remove unused subplots
-        for i in range(n_metrics, len(axes)):
-            fig.delaxes(axes[i])
-        
-        fig.suptitle(title, fontsize=16)
-        plt.tight_layout()
-        
-        if save_path:
-            save_path = Path(save_path)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-            logger.info(f"Saved comparison plot to {save_path}")
-        
-        return fig
-    
-    @staticmethod
-    def plot_scaling_analysis(scaling_results: Dict[int, Dict[str, float]],
-                            metric: str = 'mean_best_value',
-                            save_path: Optional[Path] = None,
-                            title: str = "Scaling Analysis") -> plt.Figure:
-        """
-        Plot performance vs SCM size.
-        
-        Args:
-            scaling_results: Dictionary mapping SCM sizes to method performance
-            metric: Which metric to plot
-            save_path: Optional path to save the figure
-            title: Plot title
-            
-        Returns:
-            Matplotlib figure
-        """
-        PlottingUtils.setup_style()
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        if not scaling_results:
-            logger.warning("No scaling results to plot")
-            return fig
-        
-        sizes = sorted(scaling_results.keys())
-        
-        # Get all methods
-        all_methods = set()
-        for size_results in scaling_results.values():
-            all_methods.update(size_results.keys())
-        methods = sorted(list(all_methods))
-        
-        colors = sns.color_palette("husl", n_colors=len(methods))
-        
-        for method, color in zip(methods, colors):
-            values = []
-            for size in sizes:
-                if method in scaling_results[size]:
-                    values.append(scaling_results[size][method].get(metric, np.nan))
-                else:
-                    values.append(np.nan)
-            
-            # Plot only non-nan values
-            valid_sizes = [s for s, v in zip(sizes, values) if not np.isnan(v)]
-            valid_values = [v for v in values if not np.isnan(v)]
-            
-            if valid_sizes:
-                ax.plot(valid_sizes, valid_values, marker='o', label=method,
-                       linewidth=2, markersize=8, color=color)
-        
-        ax.set_xlabel('Number of Variables')
-        ax.set_ylabel(metric.replace('_', ' ').title())
-        ax.set_title(title)
-        ax.legend(loc='best')
-        ax.grid(True, alpha=0.3)
-        
-        # Set x-axis to show all sizes
-        ax.set_xticks(sizes)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            save_path = Path(save_path)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-            logger.info(f"Saved scaling plot to {save_path}")
-        
-        return fig
-    
-    @staticmethod
-    def plot_ablation_study(ablation_results: Dict[str, Dict[str, float]],
-                           baseline_name: str = 'full_model',
-                           save_path: Optional[Path] = None,
-                           title: str = "Ablation Study") -> plt.Figure:
-        """
-        Plot ablation study results.
-        
-        Args:
-            ablation_results: Dictionary mapping configuration names to metrics
-            baseline_name: Name of the baseline configuration
-            save_path: Optional path to save the figure
-            title: Plot title
-            
-        Returns:
-            Matplotlib figure
-        """
-        PlottingUtils.setup_style()
-        
-        # Convert to relative performance
-        if baseline_name not in ablation_results:
-            logger.warning(f"Baseline {baseline_name} not found in results")
-            baseline_metrics = next(iter(ablation_results.values()))
+        if all_shd:
+            all_shd = np.array(all_shd)
+            shd_mean = np.nanmean(all_shd, axis=0)
+            shd_std = np.nanstd(all_shd, axis=0)
         else:
-            baseline_metrics = ablation_results[baseline_name]
+            shd_mean = np.array([])
+            shd_std = np.array([])
         
-        # Get all metrics
-        metric_names = list(baseline_metrics.keys())
-        configurations = list(ablation_results.keys())
+        averaged[method_name] = {
+            'normalized_mean': normalized_mean,
+            'normalized_std': normalized_std,
+            'f1_mean': f1_mean,
+            'f1_std': f1_std,
+            'shd_mean': shd_mean,
+            'shd_std': shd_std
+        }
+    
+    return averaged
+
+
+def plot_target_trajectories(ax, averaged: Dict[str, Dict], title: str):
+    """Plot normalized target value trajectories with confidence bands."""
+    colors = plt.cm.tab10(np.linspace(0, 1, len(averaged)))
+    
+    for (method_name, metrics), color in zip(averaged.items(), colors):
+        if len(metrics['normalized_mean']) == 0:
+            continue
+            
+        x = np.arange(len(metrics['normalized_mean']))
+        mean = metrics['normalized_mean']
+        std = metrics['normalized_std']
         
-        # Create DataFrame for heatmap
-        data = []
-        for config in configurations:
-            row = []
-            for metric in metric_names:
-                if metric in ablation_results[config]:
-                    # Compute relative performance
-                    baseline_val = baseline_metrics.get(metric, 1.0)
-                    config_val = ablation_results[config][metric]
-                    if baseline_val != 0:
-                        relative = (config_val / baseline_val - 1) * 100  # Percentage change
+        # Plot mean line
+        ax.plot(x, mean, label=method_name, color=color, linewidth=2)
+        
+        # Add confidence band (±1 std)
+        ax.fill_between(x, mean - std, mean + std, alpha=0.2, color=color)
+    
+    ax.set_xlabel('Intervention Step')
+    ax.set_ylabel('Normalized Target Value')
+    ax.set_title(title)
+    ax.legend(loc='best')
+    ax.grid(True, alpha=0.3)
+    
+    # Invert y-axis if minimizing (lower is better)
+    ax.invert_yaxis()
+
+
+def plot_metric_trajectories(ax, averaged: Dict[str, Dict], metric: str, title: str):
+    """Plot metric trajectories (F1 or SHD) with confidence bands."""
+    colors = plt.cm.tab10(np.linspace(0, 1, len(averaged)))
+    
+    for (method_name, metrics), color in zip(averaged.items(), colors):
+        mean_key = f'{metric}_mean'
+        std_key = f'{metric}_std'
+        
+        if mean_key not in metrics or len(metrics[mean_key]) == 0:
+            continue
+            
+        x = np.arange(len(metrics[mean_key]))
+        mean = metrics[mean_key]
+        std = metrics[std_key]
+        
+        # Plot mean line
+        ax.plot(x, mean, label=method_name, color=color, linewidth=2)
+        
+        # Add confidence band
+        ax.fill_between(x, mean - std, mean + std, alpha=0.2, color=color)
+    
+    ax.set_xlabel('Intervention Step')
+    ax.set_ylabel(title)
+    ax.set_title(f'{title} Trajectory')
+    ax.legend(loc='best')
+    ax.grid(True, alpha=0.3)
+    
+    # For SHD, lower is better
+    if metric == 'shd':
+        ax.invert_yaxis()
+
+
+def plot_final_performance_bars(ax, averaged: Dict[str, Dict]):
+    """Plot bar chart comparing final performance across methods."""
+    method_names = []
+    final_targets = []
+    final_f1s = []
+    final_shds = []
+    
+    for method_name, metrics in averaged.items():
+        method_names.append(method_name)
+        
+        # Get final values (last intervention)
+        if len(metrics['normalized_mean']) > 0:
+            final_targets.append(metrics['normalized_mean'][-1])
+        else:
+            final_targets.append(np.nan)
+            
+        if len(metrics['f1_mean']) > 0:
+            final_f1s.append(metrics['f1_mean'][-1])
+        else:
+            final_f1s.append(np.nan)
+            
+        if len(metrics['shd_mean']) > 0:
+            final_shds.append(metrics['shd_mean'][-1])
+        else:
+            final_shds.append(np.nan)
+    
+    # Create grouped bar chart
+    x = np.arange(len(method_names))
+    width = 0.25
+    
+    # Normalize metrics to [0, 1] for comparison
+    norm_targets = np.array(final_targets)
+    norm_f1s = np.array(final_f1s)
+    norm_shds = 1 - (np.array(final_shds) / np.nanmax(final_shds)) if np.nanmax(final_shds) > 0 else np.zeros_like(final_shds)
+    
+    ax.bar(x - width, 1 - norm_targets, width, label='Target (lower is better)', color='steelblue')
+    ax.bar(x, norm_f1s, width, label='F1 Score', color='forestgreen')
+    ax.bar(x + width, norm_shds, width, label='1 - Normalized SHD', color='coral')
+    
+    ax.set_xlabel('Method')
+    ax.set_ylabel('Performance (higher is better)')
+    ax.set_title('Final Performance Comparison')
+    ax.set_xticks(x)
+    ax.set_xticklabels(method_names, rotation=45, ha='right')
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis='y')
+
+
+def plot_per_scm_heatmap(ax, results: Dict[str, List[Dict]], metric: str):
+    """Create heatmap showing per-SCM performance."""
+    # Create matrix of final values
+    method_names = list(results.keys())
+    n_scms = len(results[method_names[0]])
+    
+    matrix = np.zeros((len(method_names), n_scms))
+    
+    for i, method in enumerate(method_names):
+        for j, scm_result in enumerate(results[method]):
+            if metric in scm_result and len(scm_result[metric]) > 0:
+                # Use final value
+                matrix[i, j] = scm_result[metric][-1]
+            else:
+                matrix[i, j] = np.nan
+    
+    # Create heatmap
+    sns.heatmap(matrix, ax=ax, annot=True, fmt='.2f', 
+                xticklabels=[f'SCM {i+1}' for i in range(n_scms)],
+                yticklabels=method_names,
+                cmap='RdYlGn_r' if metric == 'normalized_targets' else 'RdYlGn',
+                cbar_kws={'label': 'Final Normalized Target'})
+    
+    ax.set_title('Per-SCM Final Performance')
+    ax.set_xlabel('SCM')
+    ax.set_ylabel('Method')
+
+
+def plot_summary_table(ax, averaged: Dict[str, Dict], n_scms: int):
+    """Create summary statistics table."""
+    ax.axis('tight')
+    ax.axis('off')
+    
+    # Prepare data for table
+    table_data = []
+    headers = ['Method', 'Final Target↓', 'Best Target↓', 'Max F1↑', 'Min SHD↓']
+    
+    for method_name, metrics in averaged.items():
+        row = [method_name]
+        
+        # Final and best normalized target
+        if len(metrics['normalized_mean']) > 0:
+            row.append(f"{metrics['normalized_mean'][-1]:.3f}")
+            row.append(f"{np.min(metrics['normalized_mean']):.3f}")
+        else:
+            row.extend(['N/A', 'N/A'])
+        
+        # Max F1
+        if len(metrics['f1_mean']) > 0:
+            row.append(f"{np.nanmax(metrics['f1_mean']):.3f}")
+        else:
+            row.append('N/A')
+        
+        # Min SHD
+        if len(metrics['shd_mean']) > 0:
+            row.append(f"{np.nanmin(metrics['shd_mean']):.1f}")
+        else:
+            row.append('N/A')
+        
+        table_data.append(row)
+    
+    # Create table
+    table = ax.table(cellText=table_data, colLabels=headers,
+                    cellLoc='center', loc='center',
+                    colWidths=[0.3, 0.15, 0.15, 0.15, 0.15])
+    
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1.2, 1.5)
+    
+    # Style header row
+    for i in range(len(headers)):
+        table[(0, i)].set_facecolor('#4CAF50')
+        table[(0, i)].set_text_props(weight='bold', color='white')
+    
+    # Alternate row colors
+    for i in range(1, len(table_data) + 1):
+        for j in range(len(headers)):
+            if i % 2 == 0:
+                table[(i, j)].set_facecolor('#f0f0f0')
+    
+    ax.set_title(f'Summary Statistics (n={n_scms} SCMs)', fontweight='bold', pad=20)
+
+
+def create_detailed_trajectory_plots(results: Dict[str, List[Dict]], 
+                                    averaged: Dict[str, Dict],
+                                    output_dir: Path, 
+                                    timestamp: str):
+    """Create detailed individual trajectory plots."""
+    
+    # Plot 1: Detailed target value trajectories with individual SCM traces
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    colors = plt.cm.tab10(np.linspace(0, 1, len(results)))
+    
+    for (method_name, method_results), color in zip(results.items(), colors):
+        if not method_results:
+            continue
+            
+        # Plot individual SCM trajectories (light)
+        for scm_result in method_results:
+            if 'normalized_targets' in scm_result:
+                x = np.arange(len(scm_result['normalized_targets']))
+                axes[0, 0].plot(x, scm_result['normalized_targets'], 
+                              alpha=0.1, color=color, linewidth=0.5)
+        
+        # Plot average (bold)
+        if method_name in averaged and len(averaged[method_name]['normalized_mean']) > 0:
+            x = np.arange(len(averaged[method_name]['normalized_mean']))
+            axes[0, 0].plot(x, averaged[method_name]['normalized_mean'],
+                          label=method_name, color=color, linewidth=2)
+    
+    axes[0, 0].set_title('Target Value Trajectories (All SCMs)')
+    axes[0, 0].set_xlabel('Intervention Step')
+    axes[0, 0].set_ylabel('Normalized Target Value')
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+    axes[0, 0].invert_yaxis()
+    
+    # Plot 2: Learning curves (improvement over baseline)
+    for (method_name, method_results), color in zip(results.items(), colors):
+        if not method_results:
+            continue
+            
+        improvements = []
+        for scm_result in method_results:
+            if 'normalized_targets' in scm_result and len(scm_result['normalized_targets']) > 1:
+                initial = scm_result['normalized_targets'][0]
+                trajectory = np.array(scm_result['normalized_targets'])
+                improvement = (initial - trajectory) / (initial + 1e-10)
+                improvements.append(improvement)
+        
+        if improvements:
+            mean_improvement = np.mean(improvements, axis=0)
+            x = np.arange(len(mean_improvement))
+            axes[0, 1].plot(x, mean_improvement * 100, 
+                          label=method_name, color=color, linewidth=2)
+    
+    axes[0, 1].set_title('Relative Improvement from Initial Value')
+    axes[0, 1].set_xlabel('Intervention Step')
+    axes[0, 1].set_ylabel('Improvement (%)')
+    axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3)
+    axes[0, 1].axhline(y=0, color='black', linestyle='--', alpha=0.5)
+    
+    # Plot 3: Structure learning progression
+    for (method_name, method_results), color in zip(results.items(), colors):
+        if 'Surrogate' in method_name:  # Only plot methods with surrogate
+            f1_trajectories = []
+            for scm_result in method_results:
+                if 'f1_scores' in scm_result:
+                    f1_trajectories.append(scm_result['f1_scores'])
+            
+            if f1_trajectories:
+                mean_f1 = np.nanmean(f1_trajectories, axis=0)
+                x = np.arange(len(mean_f1))
+                axes[1, 0].plot(x, mean_f1, label=method_name, 
+                              color=color, linewidth=2, marker='o', markersize=4)
+    
+    axes[1, 0].set_title('Structure Learning Progress (Methods with Surrogate)')
+    axes[1, 0].set_xlabel('Intervention Step')
+    axes[1, 0].set_ylabel('F1 Score')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 0].set_ylim([0, 1])
+    
+    # Plot 4: Convergence analysis
+    for (method_name, method_results), color in zip(results.items(), colors):
+        convergence_steps = []
+        for scm_result in method_results:
+            if 'normalized_targets' in scm_result:
+                trajectory = np.array(scm_result['normalized_targets'])
+                if len(trajectory) > 5:
+                    # Find where improvement plateaus (change < 1% for 3 steps)
+                    for i in range(3, len(trajectory)-2):
+                        window = trajectory[i:i+3]
+                        if np.std(window) < 0.01:
+                            convergence_steps.append(i)
+                            break
                     else:
-                        relative = 0
-                    row.append(relative)
-                else:
-                    row.append(np.nan)
-            data.append(row)
+                        convergence_steps.append(len(trajectory))
         
-        df = pd.DataFrame(data, index=configurations, columns=metric_names)
-        
-        # Create heatmap
-        fig, ax = plt.subplots(figsize=(12, 8))
-        sns.heatmap(df, annot=True, fmt='.1f', cmap='RdYlGn', center=0,
-                   cbar_kws={'label': 'Relative Performance (%)'}, ax=ax)
-        
-        ax.set_title(title)
-        ax.set_xlabel('Metrics')
-        ax.set_ylabel('Configurations')
-        
-        plt.tight_layout()
-        
-        if save_path:
-            save_path = Path(save_path)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-            logger.info(f"Saved ablation plot to {save_path}")
-        
-        return fig
+        if convergence_steps:
+            axes[1, 1].boxplot(convergence_steps, positions=[len(results) - list(results.keys()).index(method_name)],
+                             widths=0.6, patch_artist=True,
+                             boxprops=dict(facecolor=color, alpha=0.7))
     
-    @staticmethod
-    def create_summary_figure(all_results: Dict[str, Any],
-                             save_path: Optional[Path] = None,
-                             title: str = "Evaluation Summary") -> plt.Figure:
-        """
-        Create a comprehensive summary figure with multiple subplots.
-        
-        Args:
-            all_results: Dictionary containing all evaluation results
-            save_path: Optional path to save the figure
-            title: Overall figure title
-            
-        Returns:
-            Matplotlib figure
-        """
-        PlottingUtils.setup_style()
-        
-        fig = plt.figure(figsize=(16, 10))
-        gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
-        
-        # 1. Convergence plot (top left, spans 2 columns)
-        ax1 = fig.add_subplot(gs[0, :2])
-        if 'all_trajectories' in all_results:
-            trajectories = all_results['all_trajectories']
-            colors = sns.color_palette("husl", n_colors=len(trajectories))
-            
-            for (method_name, method_trajectories), color in zip(trajectories.items(), colors):
-                if method_trajectories:
-                    # Compute mean trajectory
-                    max_len = max(len(t) for t in method_trajectories)
-                    padded = [t + [t[-1]]*(max_len-len(t)) for t in method_trajectories]
-                    mean_traj = np.mean(padded, axis=0)
-                    
-                    ax1.plot(mean_traj, label=method_name, linewidth=2, color=color)
-            
-            ax1.set_xlabel('Intervention Number')
-            ax1.set_ylabel('Target Value')
-            ax1.set_title('Convergence Comparison')
-            ax1.legend(loc='best')
-            ax1.grid(True, alpha=0.3)
-        
-        # 2. Final performance comparison (top right)
-        ax2 = fig.add_subplot(gs[0, 2])
-        if 'comparison_metrics' in all_results:
-            metrics = all_results['comparison_metrics']
-            methods = list(metrics.keys())
-            final_values = [metrics[m].get('mean_final_value', 0) for m in methods]
-            
-            colors = sns.color_palette("husl", n_colors=len(methods))
-            bars = ax2.bar(range(len(methods)), final_values, color=colors)
-            ax2.set_xticks(range(len(methods)))
-            ax2.set_xticklabels(methods, rotation=45, ha='right')
-            ax2.set_ylabel('Final Target Value')
-            ax2.set_title('Final Performance')
-            
-            # Add value labels
-            for bar, val in zip(bars, final_values):
-                ax2.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                        f'{val:.2f}', ha='center', va='bottom')
-        
-        # 3. Parent accuracy (bottom left)
-        ax3 = fig.add_subplot(gs[1, 0])
-        if 'comparison_metrics' in all_results:
-            metrics = all_results['comparison_metrics']
-            methods = list(metrics.keys())
-            parent_acc = [metrics[m].get('mean_parent_accuracy', 0) for m in methods]
-            
-            colors = sns.color_palette("husl", n_colors=len(methods))
-            bars = ax3.bar(range(len(methods)), parent_acc, color=colors)
-            ax3.set_xticks(range(len(methods)))
-            ax3.set_xticklabels(methods, rotation=45, ha='right')
-            ax3.set_ylabel('Parent Accuracy')
-            ax3.set_title('Parent Selection Accuracy')
-            ax3.set_ylim([0, 1])
-            
-            # Add percentage labels
-            for bar, val in zip(bars, parent_acc):
-                ax3.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                        f'{val:.1%}', ha='center', va='bottom')
-        
-        # 4. Sample efficiency (bottom middle)
-        ax4 = fig.add_subplot(gs[1, 1])
-        if 'comparison_metrics' in all_results:
-            metrics = all_results['comparison_metrics']
-            methods = list(metrics.keys())
-            efficiency = [metrics[m].get('mean_interventions_to_threshold', 
-                                        float('inf')) for m in methods]
-            
-            # Replace inf with max value for plotting
-            max_val = max(e for e in efficiency if e != float('inf'))
-            efficiency = [e if e != float('inf') else max_val * 1.2 for e in efficiency]
-            
-            colors = sns.color_palette("husl", n_colors=len(methods))
-            bars = ax4.bar(range(len(methods)), efficiency, color=colors)
-            ax4.set_xticks(range(len(methods)))
-            ax4.set_xticklabels(methods, rotation=45, ha='right')
-            ax4.set_ylabel('Interventions to Threshold')
-            ax4.set_title('Sample Efficiency')
-            
-            # Add value labels
-            for bar, val in zip(bars, efficiency):
-                ax4.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                        f'{int(val)}', ha='center', va='bottom')
-        
-        # 5. Summary statistics table (bottom right)
-        ax5 = fig.add_subplot(gs[1, 2])
-        ax5.axis('tight')
-        ax5.axis('off')
-        
-        if 'comparison_metrics' in all_results:
-            # Create summary table
-            metrics = all_results['comparison_metrics']
-            table_data = []
-            for method in metrics.keys():
-                row = [
-                    method,
-                    f"{metrics[method].get('mean_best_value', 0):.3f}",
-                    f"{metrics[method].get('mean_convergence_rate', 0):.3f}",
-                    f"{metrics[method].get('mean_parent_accuracy', 0):.1%}"
-                ]
-                table_data.append(row)
-            
-            table = ax5.table(cellText=table_data,
-                            colLabels=['Method', 'Best Value', 'Conv. Rate', 'Parent Acc.'],
-                            cellLoc='center',
-                            loc='center')
-            table.auto_set_font_size(False)
-            table.set_fontsize(10)
-            table.scale(1.2, 1.5)
-            ax5.set_title('Summary Statistics', pad=20)
-        
-        # Overall title
-        fig.suptitle(title, fontsize=16, y=0.98)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            save_path = Path(save_path)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-            logger.info(f"Saved summary figure to {save_path}")
-        
-        return fig
+    axes[1, 1].set_title('Convergence Analysis')
+    axes[1, 1].set_xlabel('Method')
+    axes[1, 1].set_ylabel('Steps to Convergence')
+    axes[1, 1].set_xticks(range(1, len(results) + 1))
+    axes[1, 1].set_xticklabels(list(results.keys())[::-1], rotation=45, ha='right')
+    axes[1, 1].grid(True, alpha=0.3, axis='y')
     
-    @staticmethod
-    def create_latex_table(metrics: Dict[str, Dict[str, float]],
-                          metric_names: Optional[List[str]] = None,
-                          caption: str = "Method Comparison",
-                          label: str = "tab:comparison") -> str:
-        """
-        Create LaTeX table of results.
-        
-        Args:
-            metrics: Dictionary mapping method names to metric dictionaries
-            metric_names: Optional list of specific metrics to include
-            caption: Table caption
-            label: Table label for referencing
+    plt.suptitle('Detailed Trajectory Analysis', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    # Save
+    fig_path = output_dir / f"detailed_trajectories_{timestamp}.png"
+    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+    logger.info(f"Saved detailed trajectories to {fig_path}")
+    plt.close()
+
+
+def create_method_comparison_plots(results: Dict[str, List[Dict]], 
+                                  output_dir: Path,
+                                  timestamp: str):
+    """Create pairwise method comparison plots."""
+    
+    # Extract final performance for each method on each SCM
+    method_names = list(results.keys())
+    n_methods = len(method_names)
+    
+    if n_methods < 2:
+        return
+    
+    # Create comparison matrix figure
+    fig, axes = plt.subplots(n_methods-1, n_methods-1, figsize=(12, 12))
+    
+    if n_methods == 2:
+        axes = np.array([[axes]])
+    elif n_methods == 3:
+        axes = axes.reshape(1, -1)
+    
+    for i in range(n_methods-1):
+        for j in range(i+1, n_methods):
+            ax_idx_i = i
+            ax_idx_j = j - 1
             
-        Returns:
-            LaTeX table string
-        """
-        if not metrics:
-            return ""
+            if n_methods > 2:
+                ax = axes[ax_idx_i, ax_idx_j] if ax_idx_i < axes.shape[0] and ax_idx_j < axes.shape[1] else None
+            else:
+                ax = axes[0, 0]
+                
+            if ax is None:
+                continue
+            
+            method1 = method_names[i]
+            method2 = method_names[j]
+            
+            # Get final values for both methods
+            values1 = []
+            values2 = []
+            
+            for scm_idx in range(len(results[method1])):
+                if 'normalized_targets' in results[method1][scm_idx] and \
+                   'normalized_targets' in results[method2][scm_idx] and \
+                   len(results[method1][scm_idx]['normalized_targets']) > 0 and \
+                   len(results[method2][scm_idx]['normalized_targets']) > 0:
+                    val1 = results[method1][scm_idx]['normalized_targets'][-1]
+                    val2 = results[method2][scm_idx]['normalized_targets'][-1]
+                    values1.append(val1)
+                    values2.append(val2)
+            
+            if values1 and values2:
+                ax.scatter(values1, values2, alpha=0.6, s=50)
+                
+                # Add diagonal line
+                lims = [min(min(values1), min(values2)), 
+                       max(max(values1), max(values2))]
+                ax.plot(lims, lims, 'k--', alpha=0.3)
+                
+                # Add labels
+                ax.set_xlabel(f'{method1}')
+                ax.set_ylabel(f'{method2}')
+                ax.set_title(f'{method1} vs {method2}', fontsize=9)
+                ax.grid(True, alpha=0.3)
+                
+                # Color points by which method is better
+                better = np.array(values1) < np.array(values2)  # Lower is better
+                colors = ['green' if b else 'red' for b in better]
+                ax.scatter(values1, values2, c=colors, alpha=0.6, s=50)
+                
+                # Add win rate
+                win_rate = np.mean(better) * 100
+                ax.text(0.05, 0.95, f'{method1} wins: {win_rate:.0f}%',
+                       transform=ax.transAxes, fontsize=8,
+                       verticalalignment='top')
+    
+    # Hide unused subplots
+    for i in range(n_methods-1):
+        for j in range(n_methods-1):
+            if j <= i and n_methods > 2:
+                axes[i, j].axis('off')
+    
+    plt.suptitle('Pairwise Method Comparisons (Final Performance)', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    # Save
+    fig_path = output_dir / f"method_comparisons_{timestamp}.png"
+    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+    logger.info(f"Saved method comparisons to {fig_path}")
+    plt.close()
+
+
+def create_report(results: Dict[str, List[Dict]], 
+                 output_dir: Path,
+                 timestamp: str,
+                 config: Dict[str, Any]):
+    """Generate a text report summarizing the evaluation."""
+    report_path = output_dir / f"evaluation_report_{timestamp}.txt"
+    
+    with open(report_path, 'w') as f:
+        f.write("=" * 80 + "\n")
+        f.write("MULTI-SCM EVALUATION REPORT\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("=" * 80 + "\n\n")
         
-        # Get metric names if not specified
-        if metric_names is None:
-            all_metrics = set()
-            for method_metrics in metrics.values():
-                all_metrics.update(k for k in method_metrics.keys() if k.startswith('mean_'))
-            metric_names = sorted(list(all_metrics))
+        # Configuration
+        f.write("CONFIGURATION\n")
+        f.write("-" * 40 + "\n")
+        for key, value in config.items():
+            f.write(f"  {key}: {value}\n")
+        f.write("\n")
         
-        # Create DataFrame
-        data = []
-        for method, method_metrics in metrics.items():
-            row = [method]
-            for metric in metric_names:
-                value = method_metrics.get(metric, np.nan)
-                if 'accuracy' in metric:
-                    row.append(f"{value:.1%}")
-                else:
-                    row.append(f"{value:.3f}")
-            data.append(row)
+        # Number of SCMs and methods
+        n_scms = len(next(iter(results.values()))) if results else 0
+        f.write(f"Number of SCMs evaluated: {n_scms}\n")
+        f.write(f"Number of methods compared: {len(results)}\n")
+        f.write(f"Methods: {', '.join(results.keys())}\n\n")
         
-        # Create column names
-        col_names = ['Method'] + [m.replace('mean_', '').replace('_', ' ').title() 
-                                  for m in metric_names]
+        # Compute averages
+        averaged = compute_average_trajectories(results)
         
-        df = pd.DataFrame(data, columns=col_names)
+        # Performance summary
+        f.write("PERFORMANCE SUMMARY\n")
+        f.write("-" * 40 + "\n")
         
-        # Convert to LaTeX
-        latex_str = df.to_latex(index=False, escape=False, column_format='l' + 'c'*len(metric_names))
+        for method_name, metrics in averaged.items():
+            f.write(f"\n{method_name}:\n")
+            
+            if len(metrics['normalized_mean']) > 0:
+                f.write(f"  Target Value:\n")
+                f.write(f"    Initial: {metrics['normalized_mean'][0]:.4f}\n")
+                f.write(f"    Final: {metrics['normalized_mean'][-1]:.4f}\n")
+                f.write(f"    Best: {np.min(metrics['normalized_mean']):.4f}\n")
+                f.write(f"    Improvement: {(metrics['normalized_mean'][0] - metrics['normalized_mean'][-1]):.4f}\n")
+            
+            if len(metrics['f1_mean']) > 0:
+                f.write(f"  Structure Learning:\n")
+                f.write(f"    Max F1: {np.nanmax(metrics['f1_mean']):.4f}\n")
+                f.write(f"    Final F1: {metrics['f1_mean'][-1]:.4f}\n")
+            
+            if len(metrics['shd_mean']) > 0:
+                f.write(f"    Min SHD: {np.nanmin(metrics['shd_mean']):.2f}\n")
+                f.write(f"    Final SHD: {metrics['shd_mean'][-1]:.2f}\n")
         
-        # Add caption and label
-        latex_str = latex_str.replace('\\begin{tabular}',
-                                     f'\\caption{{{caption}}}\n\\label{{{label}}}\n\\begin{{tabular}}')
+        # Statistical comparisons
+        f.write("\n\nSTATISTICAL COMPARISONS\n")
+        f.write("-" * 40 + "\n")
         
-        return latex_str
+        # Pairwise comparisons
+        method_list = list(results.keys())
+        for i in range(len(method_list)):
+            for j in range(i+1, len(method_list)):
+                method1, method2 = method_list[i], method_list[j]
+                
+                # Compare final values
+                finals1 = [r['normalized_targets'][-1] for r in results[method1] 
+                          if 'normalized_targets' in r and len(r['normalized_targets']) > 0]
+                finals2 = [r['normalized_targets'][-1] for r in results[method2]
+                          if 'normalized_targets' in r and len(r['normalized_targets']) > 0]
+                
+                if finals1 and finals2:
+                    wins = sum(f1 < f2 for f1, f2 in zip(finals1, finals2))
+                    total = len(finals1)
+                    f.write(f"\n{method1} vs {method2}:\n")
+                    f.write(f"  {method1} wins: {wins}/{total} ({100*wins/total:.1f}%)\n")
+                    f.write(f"  Mean difference: {np.mean(finals1) - np.mean(finals2):.4f}\n")
+        
+        f.write("\n" + "=" * 80 + "\n")
+        f.write("END OF REPORT\n")
+    
+    logger.info(f"Saved evaluation report to {report_path}")

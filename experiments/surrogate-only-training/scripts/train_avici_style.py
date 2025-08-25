@@ -286,7 +286,10 @@ def train_batch(scm_batch: List,
                policy_net, policy_params,
                surrogate_net, surrogate_params,
                optimizer, opt_state, 
-               num_observations: int,
+               min_datapoints: int,
+               max_datapoints: int,
+               min_obs_ratio: float,
+               max_obs_ratio: float,
                rng_key) -> Tuple:
     """Train on a batch of diverse SCMs."""
     
@@ -301,40 +304,106 @@ def train_batch(scm_batch: List,
         target_idx = mapper.target_idx
         true_parents = get_parents(scm, target_var)
         
-        # Generate observations (600 obs + 200 interventions like AVICI)
+        # Generate variable amount of data with variable ratios
         buffer = ExperienceBuffer()
+        
+        # Randomly sample total datapoints and observation ratio for this SCM
+        rng_key, datapoint_key, ratio_key = random.split(rng_key, 3)
+        total_datapoints = int(random.uniform(datapoint_key, minval=min_datapoints, maxval=max_datapoints))
+        obs_ratio = float(random.uniform(ratio_key, minval=min_obs_ratio, maxval=max_obs_ratio))
+        
+        num_observations = int(total_datapoints * obs_ratio)
+        num_interventions = total_datapoints - num_observations
+        
+        # Diagnostic: Print data configuration for first SCM in batch
+        if scm == scm_batch[0]:
+            print(f"  [DIAGNOSTIC] First SCM: {len(variables)} vars, target={target_var}")
+            print(f"  [DIAGNOSTIC] Data: {total_datapoints} total ({num_observations} obs, {num_interventions} int)")
+            print(f"  [DIAGNOSTIC] Obs ratio: {obs_ratio:.1%}")
         
         # Observational data
         rng_key, obs_key = random.split(rng_key)
         obs_seed = int(obs_key[0]) % 1000000
-        samples = sample_from_linear_scm(scm, n_samples=int(num_observations * 0.75), seed=obs_seed)
+        samples = sample_from_linear_scm(scm, n_samples=num_observations, seed=obs_seed)
         for sample in samples:
             buffer.add_observation(sample)
         
-        # Interventional data - following pattern from other scripts
-        for _ in range(int(num_observations * 0.25)):
-            rng_key, action_key, int_key, post_key = random.split(rng_key, 4)
+        # Optimized interventional data generation - vectorized approach
+        if num_interventions > 0:
+            # Pre-generate all intervention parameters at once
+            rng_key, int_key = random.split(rng_key)
+            int_keys = random.split(int_key, num_interventions * 3)
             
-            # Random selection for diversity (like other scripts)
+            # Create valid indices mask (exclude target)
             valid_mask = jnp.ones(len(variables)).at[target_idx].set(0)
             valid_indices = jnp.where(valid_mask)[0]
-            selected_idx = random.choice(action_key, valid_indices)
-            selected_var = mapper.get_name(int(selected_idx))
             
-            # Skip if somehow selected the target
-            if selected_var == target_var:
-                continue
-                
-            intervention_value = random.normal(int_key) * 2.0
-            
-            intervention = create_perfect_intervention(
-                targets=frozenset([selected_var]),
-                values={selected_var: float(intervention_value)}
+            # Vectorized generation of intervention targets and values
+            intervention_indices = random.choice(
+                int_keys[0], valid_indices, shape=(num_interventions,)
             )
+            intervention_values = random.normal(
+                int_keys[1], shape=(num_interventions,)
+            ) * 2.0
             
-            post_data = sample_with_intervention(scm, intervention, 1, seed=int(post_key[0]))
-            if post_data:
-                buffer.add_intervention(intervention, post_data[0])
+            # Group interventions by target variable for more efficient processing
+            interventions_by_var = {}
+            for i in range(num_interventions):
+                var_idx = int(intervention_indices[i])
+                var_name = mapper.get_name(var_idx)
+                
+                if var_name == target_var:  # Double-check, shouldn't happen
+                    continue
+                    
+                if var_name not in interventions_by_var:
+                    interventions_by_var[var_name] = []
+                interventions_by_var[var_name].append(float(intervention_values[i]))
+            
+            # Diagnostic: Print intervention distribution for first SCM
+            if scm == scm_batch[0]:
+                int_counts = {var: len(vals) for var, vals in interventions_by_var.items()}
+                print(f"  [DIAGNOSTIC] Intervention distribution: {int_counts}")
+                print(f"  [DIAGNOSTIC] Mean interventions per var: {np.mean(list(int_counts.values())):.1f}")
+            
+            # Process interventions by variable (more cache-friendly)
+            seed_counter = 0
+            for var_name, values in interventions_by_var.items():
+                for value in values:
+                    intervention = create_perfect_intervention(
+                        targets=frozenset([var_name]),
+                        values={var_name: value}
+                    )
+                    
+                    # Use deterministic seed based on counter
+                    post_seed = int(int_keys[2 + seed_counter % len(int_keys)][0]) % 1000000
+                    seed_counter += 1
+                    
+                    post_data = sample_with_intervention(scm, intervention, 1, seed=post_seed)
+                    if post_data:
+                        buffer.add_intervention(intervention, post_data[0])
+        
+        # Diagnostic: Check tensor for first SCM
+        if scm == scm_batch[0]:
+            tensor, _ = buffer_to_three_channel_tensor(buffer, target_var)
+            actual_buffer_size = len(buffer._observations) + len(buffer._interventions)
+            print(f"  [DIAGNOSTIC] Buffer size: {actual_buffer_size} (expected: {total_datapoints})")
+            print(f"  [DIAGNOSTIC] Tensor shape: {tensor.shape}")
+            print(f"  [DIAGNOSTIC] Channel means - Obs: {jnp.mean(tensor[:, :, 0]):.3f}, Int: {jnp.mean(tensor[:, :, 1]):.3f}")
+            
+            # Show rows where data actually exists (last rows since padding is at start)
+            print("\n  [DIAGNOSTIC] Last 5 rows of tensor channels (where actual data is):")
+            print("  Channel 0 - Variable VALUES (last 5 rows, all vars):")
+            print(f"  {tensor[-5:, :, 0]}")
+            print("  Channel 1 - TARGET indicators (1 if target variable, last 5 rows):")
+            print(f"  {tensor[-5:, :, 1]}")
+            print("  Channel 2 - INTERVENTION indicators (1 if intervened, last 5 rows):")
+            print(f"  {tensor[-5:, :, 2]}")
+            
+            # Count non-zero entries
+            values_nonzero = jnp.sum(tensor[:, :, 0] != 0)
+            target_ones = jnp.sum(tensor[:, :, 1] == 1)
+            intervention_ones = jnp.sum(tensor[:, :, 2] == 1)
+            print(f"\n  [DIAGNOSTIC] Non-zero counts - Values: {values_nonzero}, Target indicators: {target_ones}, Intervention indicators: {intervention_ones}")
         
         # Compute loss and gradients
         def loss_fn(params):
@@ -361,9 +430,24 @@ def train_batch(scm_batch: List,
         recall = tp / (tp + fn + 1e-8)
         f1 = 2 * precision * recall / (precision + recall + 1e-8)
         
+        # Diagnostic: Print predictions for first SCM
+        if scm == scm_batch[0]:
+            print(f"\n  [DIAGNOSTIC] Model predictions for first SCM:")
+            print(f"  True parents of {target_var}: {sorted(true_parents)}")
+            print(f"  Prediction probabilities: {pred_probs}")
+            print(f"  Predicted parents (>0.5): {predictions}")
+            print(f"  True labels: {labels}")
+            predicted_parents = [mapper.get_name(i) for i in range(len(predictions)) if predictions[i] == 1]
+            print(f"  Predicted parent names: {sorted(predicted_parents) if predicted_parents else 'None'}")
+            print(f"  TP={float(tp):.0f}, FP={float(fp):.0f}, FN={float(fn):.0f}, F1={float(f1):.3f}")
+        
         metrics.append({
             'num_vars': len(variables),
             'structure': scm.get('metadata', {}).get('structure', 'unknown'),
+            'total_datapoints': total_datapoints,
+            'num_observations': num_observations,
+            'num_interventions': num_interventions,
+            'obs_ratio': obs_ratio,
             'loss': float(loss),
             'f1': float(f1),
             'precision': float(precision),
@@ -393,8 +477,16 @@ def main():
                        help='Dropout rate')
     parser.add_argument('--batch-size', type=int, default=32,
                        help='Batch size for training')
-    parser.add_argument('--num-observations', type=int,  default=200, help='Number of observations per graph')
-    parser.add_argument('--lr', type=float, default=0.0001,
+    parser.add_argument('--num-observations', type=int,  default=200, help='Number of observations per graph (deprecated, use min/max-datapoints)')
+    parser.add_argument('--min-datapoints', type=int, default=100,
+                       help='Minimum total datapoints (obs + interventions) per graph')
+    parser.add_argument('--max-datapoints', type=int, default=1000,
+                       help='Maximum total datapoints (obs + interventions) per graph')
+    parser.add_argument('--min-obs-ratio', type=float, default=0.5,
+                       help='Minimum ratio of observations (0.5 = 50% observations)')
+    parser.add_argument('--max-obs-ratio', type=float, default=0.9,
+                       help='Maximum ratio of observations (0.9 = 90% observations)')
+    parser.add_argument('--lr', type=float, default=0.001,
                        help='Learning rate')
     parser.add_argument('--num-steps', type=int, default=5000,
                        help='Number of training steps')
@@ -419,7 +511,8 @@ def main():
     print(f"  Model: {args.hidden_dim} hidden, {args.num_layers} layers")
     print(f"  Training: {args.num_steps} steps, batch size {args.batch_size}")
     print(f"  Variables: {args.min_vars}-{args.max_vars}")
-    print(f"  Observations: {args.num_observations} per graph")
+    print(f"  Datapoints: {args.min_datapoints}-{args.max_datapoints} per graph")
+    print(f"  Observation ratio: {args.min_obs_ratio:.1%}-{args.max_obs_ratio:.1%}")
     print(f"  Learning rate: {args.lr}")
     
     # Create checkpoint directory
@@ -477,13 +570,16 @@ def main():
             scm = create_scm_from_config(config, scm_key)
             scm_batch.append(scm)
         
-        # Train on batch
+        # Train on batch with variable data configuration
         rng_key, train_key = random.split(rng_key)
         surrogate_params, opt_state, avg_loss, avg_f1, batch_metrics = train_batch(
             scm_batch, policy_net, policy_params,
             surrogate_net, surrogate_params,
             optimizer, opt_state,
-            args.num_observations,
+            args.min_datapoints,
+            args.max_datapoints,
+            args.min_obs_ratio,
+            args.max_obs_ratio,
             train_key
         )
         
@@ -500,8 +596,13 @@ def main():
                         size_metrics[f"{r[0]}-{r[1]}"].append(m['f1'])
                         break
             
+            # Calculate data distribution statistics
+            avg_datapoints = np.mean([m['total_datapoints'] for m in batch_metrics])
+            avg_obs_ratio = np.mean([m['obs_ratio'] for m in batch_metrics])
+            
             print(f"\nStep {step}/{args.num_steps}")
             print(f"  Avg Loss: {avg_loss:.4f}, Avg F1: {avg_f1:.4f}")
+            print(f"  Avg datapoints: {avg_datapoints:.0f} (obs ratio: {avg_obs_ratio:.1%})")
             print("  F1 by size:")
             for range_str, f1_list in size_metrics.items():
                 if f1_list:

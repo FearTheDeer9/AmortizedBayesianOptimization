@@ -26,11 +26,12 @@ sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 #     create_optimal_oracle_acquisition
 # )
 from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint, create_model_from_checkpoint
-from src.causal_bayes_opt.policies.clean_policy_factory import create_clean_grpo_policy
+from src.causal_bayes_opt.policies.clean_policy_factory import create_clean_grpo_policy, create_quantile_policy
 from src.causal_bayes_opt.policies.clean_bc_policy_factory import create_clean_bc_policy
 from src.causal_bayes_opt.avici_integration.enhanced_surrogate import (
     create_enhanced_surrogate_for_grpo, EnhancedSurrogateFactory
 )
+from src.causal_bayes_opt.avici_integration.continuous.model import ContinuousParentSetPredictionModel
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +50,19 @@ class ModelLoader:
         architecture = checkpoint.get('architecture', {})
         params = checkpoint.get('params', {})
         
-        # Get the architecture type from metadata
-        arch_type = architecture.get('architecture_type', 'permutation_invariant')
+        # Get the architecture type from metadata - check multiple possible keys
+        arch_type = architecture.get('architecture_type', 
+                                    architecture.get('policy_architecture', 'permutation_invariant'))
         
         # IMPORTANT: Map old "permutation_invariant" to new standard
         if arch_type == 'permutation_invariant':
             arch_type = 'simple_permutation_invariant'
             logger.info("Mapping 'permutation_invariant' to 'simple_permutation_invariant' (new standard)")
+        
+        # For quantile architecture, fixed_std is not applicable
+        if arch_type == 'quantile':
+            logger.info("Detected quantile architecture - std parameters not applicable")
+            return arch_type, True, 0.5  # Return dummy values for compatibility
         
         # DEFAULT: use_fixed_std=True (this is the standard in training)
         # Only set to False if we find evidence of learned std
@@ -100,7 +107,7 @@ class ModelLoader:
         return arch_type, use_fixed_std, fixed_std
     
     @staticmethod
-    def load_policy(checkpoint_path: Path, policy_type: str = 'auto', seed: int = 42) -> Callable:
+    def load_policy(checkpoint_path: Path, policy_type: str = 'auto', seed: int = 42, scm_metadata: Optional[Dict] = None) -> Callable:
         """
         Load policy model and return acquisition function.
         
@@ -130,21 +137,32 @@ class ModelLoader:
             logger.info(f"Loading GRPO policy from {checkpoint_path}")
             logger.info(f"  Architecture: {arch_type}, use_fixed_std: {use_fixed_std}")
             
-            # Create the policy with detected settings
-            from src.causal_bayes_opt.policies.clean_policy_factory import create_clean_grpo_policy
-            policy_fn = create_clean_grpo_policy(
-                hidden_dim=checkpoint.get('architecture', {}).get('hidden_dim', 256),
-                architecture=arch_type,
-                use_fixed_std=use_fixed_std,
-                fixed_std=fixed_std
-            )
+            # Handle quantile architecture separately
+            if arch_type == 'quantile':
+                from src.causal_bayes_opt.policies.clean_policy_factory import create_quantile_policy
+                policy_fn = create_quantile_policy(
+                    hidden_dim=checkpoint.get('architecture', {}).get('hidden_dim', 256)
+                )
+            else:
+                # Create the policy with detected settings
+                from src.causal_bayes_opt.policies.clean_policy_factory import create_clean_grpo_policy
+                policy_fn = create_clean_grpo_policy(
+                    hidden_dim=checkpoint.get('architecture', {}).get('hidden_dim', 256),
+                    architecture=arch_type,
+                    use_fixed_std=use_fixed_std,
+                    fixed_std=fixed_std
+                )
             
             # Transform and load params
             net = hk.without_apply_rng(hk.transform(policy_fn))
             params = checkpoint['params']
             
-            # Create acquisition function
-            return ModelLoader._create_acquisition_fn(net, params, seed, use_fixed_std, fixed_std)
+            # Create acquisition function  
+            if arch_type == 'quantile':
+                # Quantile policies need special handling in acquisition
+                return ModelLoader._create_quantile_acquisition_fn(net, params, seed, scm_metadata)
+            else:
+                return ModelLoader._create_acquisition_fn(net, params, seed, use_fixed_std, fixed_std)
             
         elif policy_type == 'bc':
             logger.info(f"Loading BC policy from {checkpoint_path}")
@@ -424,6 +442,79 @@ class ModelLoader:
             }
         
         return acquisition_fn
+    
+    @staticmethod
+    def _create_quantile_acquisition_fn(net, params, seed: int, scm_metadata: Optional[Dict] = None) -> Callable:
+        """Create acquisition function for quantile-based policies."""
+        rng_key = random.PRNGKey(seed)
+        
+        # Extract variable ranges from SCM metadata if available
+        variable_ranges = {}
+        if scm_metadata and 'variable_ranges' in scm_metadata:
+            variable_ranges = scm_metadata['variable_ranges']
+            logger.info(f"Using SCM variable ranges: {variable_ranges}")
+        
+        def quantile_acquisition_fn(tensor: jnp.ndarray,
+                                   posterior: Optional[Dict[str, Any]],
+                                   target: str,
+                                   variables: list) -> Dict[str, Any]:
+            nonlocal rng_key
+            
+            var_list = list(variables) if not isinstance(variables, list) else variables
+            target_idx = var_list.index(target) if target in var_list else 0
+            
+            # Get policy output
+            policy_output = net.apply(params, tensor, target_idx)
+            
+            # Extract quantile scores: [n_vars, 3] for 25%, 50%, 75%
+            quantile_scores = policy_output['quantile_scores']
+            
+            # Flatten scores to select from all variable-quantile pairs
+            flat_scores = quantile_scores.flatten()
+            
+            # Sample from the flattened distribution
+            rng_key, sample_key = random.split(rng_key)
+            probs = jax.nn.softmax(flat_scores)
+            selected_flat_idx = random.choice(sample_key, len(flat_scores), p=probs)
+            
+            # Convert flat index back to variable and quantile indices
+            n_vars = len(var_list)
+            selected_var_idx = selected_flat_idx // 3
+            selected_quantile_idx = selected_flat_idx % 3
+            
+            selected_var = var_list[int(selected_var_idx)]
+            
+            # Map quantile index to actual value using variable ranges
+            # Quantile indices: 0 = 25%, 1 = 50%, 2 = 75%
+            quantile_percentiles = {0: 0.25, 1: 0.50, 2: 0.75}
+            percentile = quantile_percentiles[int(selected_quantile_idx)]
+            
+            # Get variable range from SCM metadata or use default
+            if selected_var in variable_ranges:
+                min_val, max_val = variable_ranges[selected_var]
+            else:
+                # Default range if not specified
+                min_val, max_val = -2.0, 2.0
+                logger.debug(f"No range specified for {selected_var}, using default [{min_val}, {max_val}]")
+            
+            # Compute value at the selected percentile within the range
+            value = min_val + (max_val - min_val) * percentile
+            
+            # Optionally add some noise for exploration (similar to fixed_std in regular policies)
+            rng_key, noise_key = random.split(rng_key)
+            noise_std = 0.1  # Small exploration noise
+            noise = random.normal(noise_key) * noise_std
+            value = value + noise
+            
+            # Clip to ensure we stay within bounds
+            value = jnp.clip(value, min_val, max_val)
+            
+            return {
+                'targets': frozenset([selected_var]),
+                'values': {selected_var: float(value)}
+            }
+        
+        return quantile_acquisition_fn
     
     @staticmethod
     def create_untrained_policy(architecture: str = 'permutation_invariant',

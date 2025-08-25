@@ -191,7 +191,7 @@ def create_simple_linear_scm(
     scm = create_scm(
         variables=frozenset(variables),
         edges=frozenset(edges),
-        mechanisms=mechanisms,
+        mechanisms=pyr.pmap(mechanisms),  # Convert dict to pmap for consistency
         target=target,
         metadata={
             'mechanism_type': 'linear',

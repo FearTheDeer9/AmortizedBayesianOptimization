@@ -474,6 +474,49 @@ class VariableSCMFactory:
         
         logger.info(f"Created SCM suite with {len(scm_suite)} SCMs")
         return scm_suite
+    
+    def get_random_scm(self, 
+                      variable_counts: List[int] = [3, 4, 5, 6],
+                      structure_types: List[str] = ["fork", "chain", "collider", "mixed"],
+                      edge_density_range: Tuple[float, float] = (0.3, 0.7),
+                      name_prefix: str = "random") -> Tuple[str, pyr.PMap]:
+        """
+        Generate a random SCM by sampling from specified parameter ranges.
+        
+        Args:
+            variable_counts: List of possible variable counts to sample from
+            structure_types: List of possible structure types to sample from  
+            edge_density_range: Range for edge density (used for random structures)
+            name_prefix: Prefix for generated SCM name
+            
+        Returns:
+            Tuple of (scm_name, scm) for consistent interface
+        """
+        import random as py_random
+        
+        # Sample configuration
+        num_variables = py_random.choice(variable_counts)
+        structure_type = py_random.choice(structure_types)
+        
+        # Sample edge density for random structures
+        if structure_type == "random":
+            edge_density = py_random.uniform(*edge_density_range)
+        else:
+            edge_density = 0.5  # Default for structured types
+        
+        # Generate SCM
+        scm = self.create_variable_scm(
+            num_variables=num_variables,
+            structure_type=structure_type,
+            edge_density=edge_density
+        )
+        
+        # Create descriptive name
+        scm_name = f"{name_prefix}_{structure_type}_{num_variables}var"
+        
+        logger.info(f"🎲 Generated random SCM: {scm_name} (density={edge_density:.2f})")
+        
+        return scm_name, scm
 
 
 # Convenience functions for backward compatibility

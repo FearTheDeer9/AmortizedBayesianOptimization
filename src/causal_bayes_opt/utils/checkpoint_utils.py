@@ -154,6 +154,9 @@ def create_model_from_checkpoint(checkpoint: Dict[str, Any]) -> Tuple[hk.Transfo
         # Extract architecture type - handle both old and new checkpoint formats
         if 'architecture_type' in architecture:
             arch_type = architecture['architecture_type']
+        elif 'policy_architecture' in architecture:
+            # Handle alternative key name
+            arch_type = architecture['policy_architecture']
         elif 'architecture_level' in architecture:
             # Map old simplified level to alternating_attention
             arch_type = 'alternating_attention' if architecture['architecture_level'] == 'simplified' else 'simple'
@@ -168,9 +171,16 @@ def create_model_from_checkpoint(checkpoint: Dict[str, Any]) -> Tuple[hk.Transfo
             net = hk.transform(policy_fn)
             
         elif model_subtype == 'grpo':
-            from ..policies.clean_policy_factory import create_clean_grpo_policy
-            policy_fn = create_clean_grpo_policy(hidden_dim=hidden_dim, architecture=arch_type)
-            net = hk.transform(policy_fn)
+            # Handle quantile architecture specifically
+            if arch_type == 'quantile':
+                from ..policies.clean_policy_factory import create_quantile_policy
+                # Quantile policy doesn't need use_fixed_std params since it uses quantiles
+                policy_fn = create_quantile_policy(hidden_dim=hidden_dim)
+                net = hk.transform(policy_fn)
+            else:
+                from ..policies.clean_policy_factory import create_clean_grpo_policy
+                policy_fn = create_clean_grpo_policy(hidden_dim=hidden_dim, architecture=arch_type)
+                net = hk.transform(policy_fn)
             
         else:
             raise ValueError(f"Unknown policy subtype: {model_subtype}")

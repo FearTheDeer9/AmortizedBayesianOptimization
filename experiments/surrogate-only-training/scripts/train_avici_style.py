@@ -4,6 +4,7 @@
 import sys
 import os
 import json
+import time
 import argparse
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Optional
@@ -500,6 +501,12 @@ def main():
                        help='Save checkpoint every N steps')
     parser.add_argument('--log-freq', type=int, default=100,
                        help='Log metrics every N steps')
+    parser.add_argument('--max-time-minutes', type=int, default=None,
+                       help='Maximum training time in minutes')
+    parser.add_argument('--checkpoint', type=str, default=None,
+                       help='Path to checkpoint to resume from')
+    parser.add_argument('--checkpoint-output', type=str, default=None,
+                       help='Explicit path for final checkpoint output')
     
     args = parser.parse_args()
     
@@ -529,7 +536,10 @@ def main():
     # Initialize RNG
     rng_key = random.PRNGKey(args.seed)
     
-    # Initialize models
+    # Track time if limit specified
+    start_time = time.time() if args.max_time_minutes else None
+    
+    # Initialize models (always need full initialization for function signatures)
     rng_key, init_key = random.split(rng_key)
     policy_net, policy_params, surrogate_net, surrogate_params = initialize_models(
         hidden_dim=args.hidden_dim,
@@ -540,6 +550,20 @@ def main():
         key=init_key,
         max_vars=args.max_vars
     )
+    
+    # Determine starting step (for checkpoint continuation)
+    start_step = 0
+    if args.checkpoint and Path(args.checkpoint).exists():
+        print(f"\nLoading checkpoint from: {args.checkpoint}")
+        from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint
+        checkpoint = load_checkpoint(Path(args.checkpoint))
+        surrogate_params = checkpoint['params']  # Override with loaded params
+        start_step = checkpoint.get('metadata', {}).get('step', 0) + 1  # Continue from next step
+        print(f"  Loaded surrogate checkpoint from step {start_step - 1}")
+        print(f"  Will continue training from step {start_step}")
+        print(f"  Policy params remain dummy (not used in surrogate training)")
+    else:
+        print("\nTraining surrogate from scratch")
     
     # Initialize optimizer with cosine schedule
     schedule = optax.cosine_decay_schedule(
@@ -556,7 +580,19 @@ def main():
     metrics_history = []
     best_f1 = 0.0
     
-    for step in range(args.num_steps):
+    # Calculate end step for continuation
+    end_step = start_step + args.num_steps
+    print(f"Training from step {start_step} to {end_step}")
+    
+    for step in range(start_step, end_step):
+        # Check time limit if specified
+        if args.max_time_minutes and start_time:
+            elapsed_minutes = (time.time() - start_time) / 60.0
+            if elapsed_minutes >= args.max_time_minutes:
+                print(f"\nTime limit reached ({args.max_time_minutes} minutes), stopping training")
+                print(f"Completed training up to step {step}")
+                break
+        
         # Generate diverse batch of graphs
         rng_key, batch_key = random.split(rng_key)
         graph_configs = generate_diverse_graph_batch(
@@ -653,6 +689,38 @@ def main():
             'avg_f1': float(avg_f1),
             'batch_metrics': batch_metrics
         })
+    
+    # Save final checkpoint if explicit path specified
+    if args.checkpoint_output:
+        final_checkpoint_path = Path(args.checkpoint_output)
+        save_checkpoint(
+            path=final_checkpoint_path,
+            params=surrogate_params,
+            architecture={
+                'hidden_dim': args.hidden_dim,
+                'num_layers': args.num_layers,
+                'num_heads': args.num_heads,
+                'key_size': args.key_size,
+                'dropout': args.dropout,
+                'encoder_type': 'node_feature'
+            },
+            model_type='surrogate',
+            model_subtype='continuous_parent_set',
+            training_config={
+                'learning_rate': args.lr,
+                'batch_size': args.batch_size,
+                'max_vars': args.max_vars,
+                'min_vars': args.min_vars,
+                'total_steps': step
+            },
+            metadata={
+                'step': step,
+                'avg_f1': float(avg_f1) if 'avg_f1' in locals() else 0.0,
+                'best_f1': float(best_f1),
+                'dataset': 'avici_style_diverse'
+            }
+        )
+        print(f"Saved final checkpoint to: {final_checkpoint_path}")
     
     # Save final metrics
     with open(checkpoint_dir / 'metrics_history.json', 'w') as f:

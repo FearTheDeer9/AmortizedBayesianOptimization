@@ -1076,11 +1076,23 @@ class UnifiedGRPOTrainer:
             grpo_batch_data['actions'].append(action_data)
             grpo_batch_data['rewards'].append(reward)
             grpo_batch_data['old_log_probs'].append(float(log_prob))
-            grpo_batch_data['intervention_details'].append({
+            
+            # Store intervention details including debug info for convergence detection
+            intervention_detail = {
                 'intervention': intervention,
                 'samples': intervention_samples,
                 'posterior': None  # 4-channel includes posterior in tensor
-            })
+            }
+            
+            # Add debug_info for quantile architecture (needed for convergence detection)
+            if 'quantile_scores' in policy_output and debug_info:
+                intervention_detail['debug_info'] = {
+                    'selected_var_idx': selected_var_idx,
+                    'selected_quantile': debug_info.get('selected_quantile_idx'),
+                    'selection_probability': float(jnp.exp(debug_info.get('log_prob', -10.0)))
+                }
+            
+            grpo_batch_data['intervention_details'].append(intervention_detail)
             
             if grpo_batch_data['target_idx'] is None:
                 grpo_batch_data['target_idx'] = mapper.target_idx
@@ -1196,7 +1208,8 @@ class UnifiedGRPOTrainer:
             'best_intervention': {
                 'intervention': best_intervention_info['intervention'],
                 'outcome': best_intervention_info['samples'][0] if best_intervention_info['samples'] else None,
-                'posterior': best_intervention_info.get('posterior')
+                'posterior': best_intervention_info.get('posterior'),
+                'debug_info': best_intervention_info.get('debug_info')  # Pass through debug info for convergence detection
             },
             'candidate_rewards': [float(r) for r in grpo_batch_data['rewards']],
             'grpo_metrics': grpo_metrics,

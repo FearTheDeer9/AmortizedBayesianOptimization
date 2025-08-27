@@ -87,6 +87,18 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
         self.episodes_on_current_scm = 0
         self.rotation_episodes = joint_config.get('rotation_episodes', 20)
         
+        # New rotation configuration
+        self.rotate_after_episode = config.get('rotate_after_episode', True) if config else True
+        self.convergence_patience = config.get('convergence_patience', 3) if config else 3
+        self.convergence_threshold = config.get('convergence_threshold', 0.9) if config else 0.9
+        self.enable_early_rotation = config.get('enable_early_rotation', True) if config else True
+        
+        # Convergence tracking
+        self.recent_interventions = []  # Track recent (var, quantile) selections
+        self.consecutive_same_count = 0
+        self.last_intervention = None
+        self.convergence_detected = False
+        
         # Simple performance tracking
         self.policy_episodes = 0
         self.surrogate_episodes = 0
@@ -97,6 +109,26 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
         
         # Initialize surrogate optimizer here (like AVICI) to persist state
         self._initialize_surrogate_optimizer()
+        
+        # DEBUG: Print reward configuration
+        print(f"\n{'='*70}")
+        print(f"REWARD CONFIGURATION")
+        print(f"{'='*70}")
+        if config and 'reward_weights' in config:
+            weights = config['reward_weights']
+            print(f"Composite reward weights:")
+            print(f"  - Target weight: {weights.get('target', 1.0)}")
+            print(f"  - Parent bonus: {weights.get('parent', 0.0)}")
+            print(f"  - Info gain: {weights.get('info_gain', 0.0)}")
+        else:
+            print(f"Using standard target-based reward")
+        
+        if config and 'grpo_config' in config:
+            grpo = config['grpo_config']
+            print(f"\nGRPO Configuration:")
+            print(f"  - Entropy coefficient: {grpo.get('entropy_coefficient', 0.01)}")
+            print(f"  - Group size: {grpo.get('group_size', 10)}")
+        print(f"{'='*70}\n")
         
         logger.info(f"Initialized JointACBOTrainer:")
         logger.info(f"  Episodes per phase: {self.episodes_per_phase}")
@@ -148,9 +180,22 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
         current_scm_idx = 0
         episode_metrics = []
         
+        # Determine starting episode (for checkpoint continuation)
+        start_episode = getattr(self, 'start_episode', 0)
+        end_episode = start_episode + self.max_episodes
+        logger.info(f"Training from episode {start_episode} to {end_episode}")
+        
         # Main training loop
-        for episode in range(self.max_episodes):
+        for episode in range(start_episode, end_episode):
             self.episode_count = episode
+            
+            # Check time limit if specified
+            if self.config and self.config.get('wall_clock_timeout_minutes'):
+                elapsed_minutes = (time.time() - start_time) / 60.0
+                if elapsed_minutes >= self.config['wall_clock_timeout_minutes']:
+                    logger.info(f"\nTime limit reached ({self.config['wall_clock_timeout_minutes']} minutes), stopping training")
+                    logger.info(f"Completed {episode} episodes in {elapsed_minutes:.1f} minutes")
+                    break
             
             # Check phase switching
             if self._should_switch_phase():
@@ -160,6 +205,7 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
             if self._should_rotate_scm():
                 current_scm_idx = (current_scm_idx + 1) % len(scm_rotation)
                 self.episodes_on_current_scm = 0
+                self._reset_convergence_tracking()  # Reset tracking for new SCM
             
             # Get current SCM
             scm_name, scm = scm_rotation[current_scm_idx]
@@ -259,8 +305,73 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
         
         logger.info(f"Phase switched: {old_phase} -> {self.current_phase}")
     
+    def _check_convergence(self, var_idx: int, quantile_idx: int, probability: float) -> bool:
+        """
+        Check if we've converged on a single intervention.
+        
+        Returns True if the same (var, quantile) has been selected
+        consecutively with high probability.
+        """
+        current_intervention = (var_idx, quantile_idx)
+        
+        print(f"    🔄 Convergence check: current={current_intervention}, last={self.last_intervention}")
+        print(f"    📊 Probability={probability:.3f}, threshold={self.convergence_threshold:.3f}")
+        print(f"    🔢 Consecutive count={self.consecutive_same_count}, patience={self.convergence_patience}")
+        
+        # Check if this is a high-confidence selection
+        if probability >= self.convergence_threshold:
+            if self.last_intervention == current_intervention:
+                self.consecutive_same_count += 1
+                print(f"    ✅ Same intervention! Count now: {self.consecutive_same_count}")
+                
+                if self.consecutive_same_count >= self.convergence_patience:
+                    print(f"  🎯 CONVERGENCE: Intervention {current_intervention} selected "
+                          f"{self.consecutive_same_count} times with >{self.convergence_threshold:.1%} probability")
+                    return True
+            else:
+                # Different intervention, reset counter
+                print(f"    🔀 Different intervention, resetting count from {self.consecutive_same_count} to 1")
+                self.consecutive_same_count = 1
+                self.last_intervention = current_intervention
+        else:
+            # Low probability, don't count
+            print(f"    ⚠️ Probability {probability:.3f} below threshold {self.convergence_threshold:.3f}, resetting")
+            self.consecutive_same_count = 0
+            self.last_intervention = None
+        
+        return False
+    
+    def _reset_convergence_tracking(self):
+        """Reset convergence tracking for new SCM."""
+        self.recent_interventions = []
+        self.consecutive_same_count = 0
+        self.last_intervention = None
+        self.convergence_detected = False
+    
     def _should_rotate_scm(self) -> bool:
-        """Simple SCM rotation after fixed episodes."""
+        """
+        Check if we should rotate to a new SCM.
+        
+        Rotates if:
+        1. Episode-based rotation is enabled and we've finished an episode
+        2. Early rotation is enabled and convergence was detected
+        3. Falls back to old behavior if rotate_after_episode is False
+        """
+        # Check for convergence-based early rotation
+        if self.enable_early_rotation and self.convergence_detected:
+            print(f"  🔄 EARLY ROTATION: Convergence detected!")
+            self.convergence_detected = False  # Reset flag
+            return True
+        
+        # Check for episode-based rotation
+        if self.rotate_after_episode:
+            # Rotate after every episode (when we've done interventions)
+            should_rotate = self.episodes_on_current_scm >= 1
+            if should_rotate:
+                print(f"  🔄 EPISODE ROTATION: Completed episode on current SCM")
+            return should_rotate
+        
+        # Fall back to old behavior (rotate after fixed number of episodes)
         return self.episodes_on_current_scm >= self.rotation_episodes
     
     def _run_surrogate_episode(self, episode_idx: int, scm, scm_name: str, key) -> Dict[str, Any]:
@@ -775,6 +886,24 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
         target_var = get_target(scm)
         true_parents = list(get_parents(scm, target_var))
         
+        # DEBUG: Print SCM details at episode start
+        print(f"\n{'='*70}")
+        print(f"📊 EPISODE {episode_idx} - SCM DETAILS")
+        print(f"{'='*70}")
+        print(f"  Target: {target_var}")
+        print(f"  Parents: {true_parents if true_parents else 'None (root variable)'}")
+        print(f"  All variables: {variables}")
+        
+        # Try to get coefficients if available
+        try:
+            from ..experiments.variable_scm_factory import get_scm_info
+            scm_info = get_scm_info(scm)
+            if 'coefficients' in scm_info:
+                print(f"  Coefficients: {scm_info['coefficients']}")
+        except:
+            pass
+        print(f"{'='*70}\n")
+        
         # Initialize buffer with observations
         buffer = ExperienceBuffer()
         key, obs_key = random.split(key)
@@ -817,6 +946,38 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
             single_result = super()._run_single_grpo_intervention(
                 buffer, scm, target_var, variables, intervention_key
             )
+            
+            # Check for convergence if we have quantile architecture info
+            print(f"\n🔍 CONVERGENCE CHECK (Intervention {intervention_idx + 1}):")
+            print(f"  single_result keys: {list(single_result.keys())}")
+            
+            if 'best_intervention' in single_result:
+                best_int = single_result['best_intervention']
+                print(f"  best_intervention keys: {list(best_int.keys())}")
+                
+                if 'debug_info' in best_int and best_int['debug_info']:
+                    debug_info = best_int['debug_info']
+                    print(f"  debug_info keys: {list(debug_info.keys())}")
+                    print(f"  debug_info content: {debug_info}")
+                    
+                    if 'selected_var_idx' in debug_info and 'selected_quantile' in debug_info:
+                        var_idx = debug_info['selected_var_idx']
+                        quantile_idx = debug_info['selected_quantile']
+                        probability = debug_info.get('selection_probability', 0.0)
+                        
+                        print(f"  📊 Extracted: var_idx={var_idx}, quantile_idx={quantile_idx}, prob={probability:.3f}")
+                        
+                        # Check for convergence
+                        if self._check_convergence(var_idx, quantile_idx, probability):
+                            self.convergence_detected = True
+                            print(f"  ⚡ Setting convergence flag for early rotation")
+                            break  # Exit intervention loop early
+                    else:
+                        print(f"  ❌ Missing required keys in debug_info")
+                else:
+                    print(f"  ❌ No debug_info in best_intervention")
+            else:
+                print(f"  ❌ No best_intervention in single_result")
             
             # Add best intervention to buffer
             if 'best_intervention' in single_result and single_result['best_intervention']['outcome'] is not None:
@@ -868,6 +1029,26 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
                 print(f"  ⚠️ Getting worse within episode ({improvement:+.3f})")
             else:
                 print(f"  ➖ No clear trend within episode ({improvement:+.3f})")
+        
+        # DEBUG: Print surrogate predictions at end of episode
+        if self.use_surrogate and buffer:
+            try:
+                final_tensor, mapper = buffer_to_three_channel_tensor(
+                    buffer, target_var, max_history_size=100, standardize=True
+                )
+                surrogate_out = self.surrogate_predict_fn(final_tensor, target_var, variables)
+                
+                if 'parent_probs' in surrogate_out:
+                    print(f"\n🔮 SURROGATE PREDICTIONS (End of Episode):")
+                    probs = surrogate_out['parent_probs']
+                    for i, var in enumerate(variables):
+                        if var != target_var and i < len(probs):
+                            prob = float(probs[i])
+                            is_parent = "✓" if var in true_parents else ""
+                            print(f"  {var}: {prob:.3f} {is_parent}")
+                    print()
+            except Exception as e:
+                print(f"  Could not get surrogate predictions: {e}")
         
         return {
             'episode': episode_idx,

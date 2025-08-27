@@ -1,0 +1,34 @@
+{
+  "orchestration": {
+    "total_training_minutes": 15,
+    "minutes_per_phase": 3,
+    "start_phase": "surrogate",
+    "checkpoint_dir": "experiments/joint-training/checkpoints/continuation_test"
+  },
+  "surrogate_config": {
+    "hidden_dim": 32,
+    "num_layers": 2,
+    "lr": 0.001,
+    "batch_size": 2,
+    "min_vars": 3,
+    "max_vars": 4,
+    "min_datapoints": 5,
+    "max_datapoints": 10,
+    "num_steps": 10,
+    "save_freq": 5,
+    "log_freq": 2
+  },
+  "policy_config": {
+    "episodes": 5,
+    "patience": 2,
+    "threshold": 0.9,
+    "max_interventions": 3,
+    "obs_per_episode": 5,
+    "learning_rate": 0.001,
+    "reward_weights": {
+      "target": 0.7,
+      "parent": 0.2,
+      "info_gain": 0.1
+    }
+  }
+}

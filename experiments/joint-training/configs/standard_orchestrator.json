@@ -1,0 +1,33 @@
+{
+  "orchestration": {
+    "total_training_minutes": 2,
+    "minutes_per_phase": 1,
+    "start_phase": "surrogate",
+    "checkpoint_dir": "experiments/joint-training/checkpoints/standard_run"
+  },
+  "surrogate_config": {
+    "hidden_dim": 128,
+    "num_layers": 8,
+    "num_heads": 8,
+    "key_size": 32,
+    "dropout": 0.1,
+    "lr": 0.001,
+    "batch_size": 8,
+    "min_vars": 3,
+    "max_vars": 5,
+    "min_datapoints": 20,
+    "max_datapoints": 105,
+    "min_obs_ratio": 0.5,
+    "max_obs_ratio": 0.9,
+    "num_steps": 5000,
+    "save_freq": 100,
+    "log_freq": 100
+  },
+  "policy_config": {
+    "episodes": 200,
+    "patience": 3,
+    "threshold": 0.9,
+    "learning_rate": 0.0005,
+    "verbose": false
+  }
+}

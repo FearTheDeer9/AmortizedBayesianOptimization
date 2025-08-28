@@ -77,18 +77,26 @@ class NodeFeatureEncoder(hk.Module):
         Encode intervention data into variable embeddings using alternating attention.
         
         Args:
-            data: [N, d, 3] tensor (values, target_indicator, intervention_indicator)
+            data: [N, d, 3] or [batch_size, N, d, 3] tensor (values, target_indicator, intervention_indicator)
             is_training: Whether in training mode
             
         Returns:
-            embeddings: [d, hidden_dim]
+            embeddings: [d, hidden_dim] or [batch_size, d, hidden_dim]
         """
-        N, d, channels = data.shape
+        # Handle both single and batch inputs
+        is_batched = data.ndim == 4
+        if is_batched:
+            batch_size, N, d, channels = data.shape
+        else:
+            N, d, channels = data.shape
+            data = data[None, ...]  # Add batch dimension: [1, N, d, 3]
+            batch_size = 1
+        
         dropout_rate = self.dropout_rate if is_training else 0.0
         
         # Initial projection to hidden dimension
         z = hk.Linear(self.hidden_dim, w_init=self.w_init, name="input_projection")(data)
-        # z shape: [N, d, hidden_dim]
+        # z shape: [batch_size, N, d, hidden_dim]
         
         # Apply alternating attention blocks
         for layer_idx in range(self.num_layers):
@@ -110,11 +118,15 @@ class NodeFeatureEncoder(hk.Module):
         # If num_layers is odd, observations are in axis -2
         if self.num_layers % 2 == 0:
             # Observations in axis -3 (original position)
-            embeddings = jnp.max(z, axis=-3)  # [d, hidden_dim]
+            embeddings = jnp.max(z, axis=-3)  # [batch_size, d, hidden_dim]
         else:
             # Observations in axis -2 (swapped position)
-            embeddings = jnp.max(z, axis=-2)  # [N, hidden_dim]
-            # Need to swap back to get [d, hidden_dim]
+            embeddings = jnp.max(z, axis=-2)  # [batch_size, N, hidden_dim]
+            # Need to swap back to get [batch_size, d, hidden_dim]
             embeddings = jnp.swapaxes(embeddings, -2, -1)
+        
+        # Remove batch dimension if input wasn't batched
+        if not is_batched:
+            embeddings = embeddings[0]  # [d, hidden_dim]
         
         return embeddings

@@ -103,6 +103,7 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         
         # Episode-level tracking
         self.current_episode_interventions = []
+        self.completed_episodes_count = 0  # Simple episode counter
         self.current_episode_data = {
             'selections': [],
             'probabilities': [],
@@ -487,15 +488,18 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         else:
             logger.info(f"\n📍 NO ROTATION: Staying on same SCM (episode {self.episodes_on_current_scm})")
         
-        # Call parent's episode runner for GRPO updates
-        # Note: We've already done the episode, so this is mainly for the GRPO update
-        # We might need to refactor this to avoid double execution
-        result = super()._run_grpo_episode(episode_idx, scm, scm_name, key)
-        
         # Track episode performance
         self._track_episode_performance(episode_idx)
         
-        return result
+        # Return episode metrics (no redundant parent call needed)
+        return {
+            'episode': episode_idx,
+            'mean_reward': 0.0,  # Could calculate from interventions if needed
+            'n_interventions': len(self.current_episode_interventions),
+            'target_values': self.current_episode_data['target_values'],
+            'best_target': min(self.current_episode_data['target_values']) if self.current_episode_data['target_values'] else 0.0,
+            'convergence_triggered': self.current_episode_data['convergence_triggered']
+        }
     
     def _track_episode_performance(self, episode_idx):
         """Track performance metrics for analysis."""
@@ -512,6 +516,7 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         }
         
         self.episode_performances.append(metrics)
+        self.completed_episodes_count += 1  # Simple episode counter
         
         # Save checkpoint if needed
         if episode_idx in self.checkpoint_episodes:
@@ -622,7 +627,7 @@ def create_enhanced_config(
         
         # Reward weights (with surrogate info gain)
         'reward_weights': {
-            'target': 0.0,
+            'target': 1.0,
             'parent': 0.0,
             'info_gain': 0  # From surrogate
         },
@@ -824,9 +829,9 @@ def main():
         use_output_bounds=True
     )
     
-    # Define sampling configuration
+    # Define sampling configuration (full range 3-99)
     sampling_config = {
-        'variable_counts': [3, 4, 5, 6, 8, 10],  # Diverse sizes
+        'variable_counts': list(range(3, 100)),  # Full range 3-99
         'structure_types': ["fork", "chain", "collider", "mixed", "random"],
         'edge_density_range': (0.2, 0.6),
         'name_prefix': 'enhanced'
@@ -852,16 +857,10 @@ def main():
         checkpoint = load_checkpoint(Path(args.policy_checkpoint))
         trainer.policy_params = checkpoint['params']
         
-        # Set starting episode for continuation
-        # Check multiple possible fields for episode count
-        last_episode = (
-            checkpoint.get('metadata', {}).get('episode', 0) or 
-            checkpoint.get('metadata', {}).get('total_episodes', 0) or
-            0
-        )
-        trainer.start_episode = last_episode + 1 if last_episode > 0 else 0
-        logger.info(f"  Loaded policy checkpoint with {last_episode} completed episodes")
-        logger.info(f"  Will continue training from episode {trainer.start_episode}")
+        # Set starting episode for continuation (simple checkpoint-based approach)
+        trainer.start_episode = 1  # Resume from episode 1 (any non-zero value)
+        logger.info(f"  Policy checkpoint exists - will continue training from episode 1")
+        logger.info(f"  (Using checkpoint-based resume, not episode counting)")
     else:
         trainer.start_episode = 0  # Start from scratch
     
@@ -923,6 +922,7 @@ def main():
                 'experiment_type': 'enhanced_multi_scm',
                 'run_name': run_name,
                 'total_episodes': len(trainer.episode_performances),
+                'completed_episodes_count': trainer.completed_episodes_count,
                 'total_rotations': trainer.total_rotations,
                 'early_rotations': trainer.early_rotations,
                 'convergence_events': len(trainer.convergence_metrics['convergence_events']),

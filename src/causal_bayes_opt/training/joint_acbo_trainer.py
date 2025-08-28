@@ -187,6 +187,7 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
         
         # Main training loop
         for episode in range(start_episode, end_episode):
+            episode_start_time = time.time()
             self.episode_count = episode
             
             # Check time limit if specified
@@ -194,8 +195,10 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
                 elapsed_minutes = (time.time() - start_time) / 60.0
                 if elapsed_minutes >= self.config['wall_clock_timeout_minutes']:
                     logger.info(f"\nTime limit reached ({self.config['wall_clock_timeout_minutes']} minutes), stopping training")
-                    logger.info(f"Completed {episode} episodes in {elapsed_minutes:.1f} minutes")
+                    logger.info(f"Completed {episode - start_episode} episodes in {elapsed_minutes:.1f} minutes")
                     break
+            
+            logger.info(f"🚀 Starting episode {episode} (relative episode {episode - start_episode})")
             
             # Check phase switching
             if self._should_switch_phase():
@@ -227,6 +230,10 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
             
             episode_metrics.append(metrics)
             self.joint_metrics_history.append(self._create_joint_metrics(metrics))
+            
+            # Log episode timing
+            episode_duration = time.time() - episode_start_time
+            logger.info(f"✅ Episode {episode} completed in {episode_duration:.1f} seconds")
             
             # Track target progression across episodes
             if 'target_values' in metrics and metrics['target_values']:
@@ -880,11 +887,16 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
         - Episode: Multiple interventions on same SCM
         - Intervention: Generate GRPO candidates → update policy → add best to buffer
         """
+        # TIMING DEBUG: Track episode components
+        component_times = {}
+        component_start = time.time()
+        
         # Get SCM info
         from ..data_structures.scm import get_variables, get_target, get_parents
         variables = list(get_variables(scm))
         target_var = get_target(scm)
         true_parents = list(get_parents(scm, target_var))
+        component_times['scm_setup'] = time.time() - component_start
         
         # DEBUG: Print SCM details at episode start
         print(f"\n{'='*70}")
@@ -935,6 +947,7 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
         all_target_values = []  # Track target progression
         
         for intervention_idx in range(self.max_interventions):
+            intervention_start = time.time()
             print(f"\n{'='*50}")
             print(f"INTERVENTION {intervention_idx+1}/{self.max_interventions}")
             print(f"{'='*50}")
@@ -1001,6 +1014,10 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
                 # Track metrics
                 intervention_metrics.append(single_result)
                 all_rewards.extend(single_result.get('candidate_rewards', []))
+                
+                # Log intervention timing
+                intervention_duration = time.time() - intervention_start
+                logger.info(f"⏱️ Intervention {intervention_idx+1} completed in {intervention_duration:.1f} seconds")
         
         # Episode summary
         final_buffer_size = buffer.size()

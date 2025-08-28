@@ -1,9 +1,9 @@
 {
   "orchestration": {
-    "total_training_minutes": 15,
-    "minutes_per_phase": 3,
+    "total_training_minutes": 12,
+    "minutes_per_phase": 2,
     "start_phase": "surrogate",
-    "checkpoint_dir": "experiments/joint-training/checkpoints/continuation_test"
+    "checkpoint_dir": "experiments/joint-training/checkpoints/overhead_test"
   },
   "surrogate_config": {
     "hidden_dim": 32,
@@ -19,11 +19,11 @@
     "log_freq": 2
   },
   "policy_config": {
-    "episodes": 5,
+    "episodes": 3,
     "patience": 2,
     "threshold": 0.9,
-    "max_interventions": 3,
-    "obs_per_episode": 5,
+    "max_interventions": 1,
+    "obs_per_episode": 3,
     "learning_rate": 0.001,
     "reward_weights": {
       "target": 0.7,

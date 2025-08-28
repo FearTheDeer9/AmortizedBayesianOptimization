@@ -387,8 +387,8 @@ def save_results(results: Dict, scms: List, output_dir: Path):
 if __name__ == "__main__":
     # Define checkpoint paths
     project_root = Path(__file__).parent.parent.parent
-    policy_path = project_root / "checkpoints/grpo_runs/grpo_multi_scm_20250825_140559/final_policy.pkl"
-    surrogate_path = project_root / "experiments/surrogate-only-training/scripts/checkpoints/avici_runs/avici_style_20250822_213115/checkpoint_step_200.pkl"
+    policy_path = project_root / "experiments/joint-training/checkpoints/production_12hour/policy_phase_13.pkl"
+    surrogate_path = project_root / "experiments/joint-training/checkpoints/production_12hour/surrogate_phase_12.pkl"
     
     # Run evaluation
     logger.info("Starting multi-SCM evaluation...")

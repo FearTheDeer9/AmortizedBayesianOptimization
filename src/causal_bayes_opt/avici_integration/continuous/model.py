@@ -54,29 +54,44 @@ class ContinuousParentSetPredictionModel(hk.Module):
         self.encoder_type = encoder_type
     
     def __call__(self, 
-                 data: jnp.ndarray,         # [N, d, 3] intervention data
-                 target_variable: int,      # Target variable index
-                 is_training: bool = True   # Training mode flag
+                 data: jnp.ndarray,                    # [batch_size, N, d, 3] or [N, d, 3] intervention data
+                 target_variable,                      # int or [batch_size] target variable index(es)
+                 is_training: bool = True              # Training mode flag
                  ) -> dict[str, jnp.ndarray]:
         """
-        Predict parent probabilities for target variable.
+        Predict parent probabilities for target variable(s).
         
         Args:
-            data: Intervention data [N, d, 3] where:
-                  - [:, :, 0] = variable values (standardized)
-                  - [:, :, 1] = target indicators (1 if target variable)
-                  - [:, :, 2] = intervention indicators (1 if intervened)
-            target_variable: Index of target variable (0 <= target_variable < d)
+            data: Intervention data [batch_size, N, d, 3] or [N, d, 3] where:
+                  - [..., :, :, 0] = variable values (standardized)
+                  - [..., :, :, 1] = target indicators (1 if target variable)
+                  - [..., :, :, 2] = intervention indicators (1 if intervened)
+            target_variable: Index of target variable (int) or indices [batch_size]
             is_training: Whether model is in training mode
             
         Returns:
             Dictionary containing:
-            - 'node_embeddings': Node representations [d, hidden_dim]
-            - 'target_embedding': Target node representation [hidden_dim]
-            - 'attention_logits': Raw attention scores [d]
-            - 'parent_probabilities': Parent probabilities [d]
+            - 'node_embeddings': Node representations [batch_size, d, hidden_dim] or [d, hidden_dim]
+            - 'target_embedding': Target node representation [batch_size, hidden_dim] or [hidden_dim]
+            - 'attention_logits': Raw attention scores [batch_size, d] or [d]
+            - 'parent_probabilities': Parent probabilities [batch_size, d] or [d]
         """
-        N, d, channels = data.shape
+        # Handle both single and batch inputs
+        is_batched = data.ndim == 4
+        if is_batched:
+            batch_size, N, d, channels = data.shape
+            # Ensure target_variable is array for batch processing
+            if isinstance(target_variable, int):
+                target_variable = jnp.full(batch_size, target_variable)
+        else:
+            N, d, channels = data.shape
+            # Add batch dimension for unified processing
+            data = data[None, ...]  # [1, N, d, 3]
+            batch_size = 1
+            if isinstance(target_variable, int):
+                target_variable = jnp.array([target_variable])
+            else:
+                target_variable = jnp.array(target_variable)[None]
         
         dropout_rate = self.dropout if is_training else 0.0
         
@@ -122,7 +137,12 @@ class ContinuousParentSetPredictionModel(hk.Module):
             raise ValueError(f"Unknown encoder type: {self.encoder_type}")
         
         # Encode intervention data into node representations
-        node_embeddings = encoder(data, is_training=is_training)  # [d, hidden_dim]
+        # Now encoder supports batch processing natively
+        node_embeddings = encoder(data, is_training=is_training)  # [batch_size, d, hidden_dim] or [d, hidden_dim]
+        
+        # Ensure we have batch dimension for unified processing
+        if not is_batched and node_embeddings.ndim == 2:
+            node_embeddings = node_embeddings[None, ...]  # [1, d, hidden_dim]
         
         # DEBUG: Check embeddings for 2-variable graphs
         # if d == 2:
@@ -139,11 +159,12 @@ class ContinuousParentSetPredictionModel(hk.Module):
         if is_training:
             node_embeddings = hk.dropout(hk.next_rng_key(), dropout_rate, node_embeddings)
         
-        # Get target node embedding
-        target_embedding = node_embeddings[target_variable]  # [hidden_dim]
+        # Get target node embeddings for each item in batch
+        batch_indices = jnp.arange(batch_size)
+        target_embedding = node_embeddings[batch_indices, target_variable]  # [batch_size, hidden_dim]
         
         # Extract raw values for computing pairwise features
-        values = data[:, :, 0]  # [N, d]
+        values = data[:, :, :, 0]  # [batch_size, N, d]
         
         # Compute parent attention scores using enhanced layer
         if self.encoder_type in ["node_feature", "simple"]:
@@ -154,11 +175,11 @@ class ContinuousParentSetPredictionModel(hk.Module):
                 key_size=self.key_size
             )
             parent_logits = parent_attention(
-                target_embedding, 
-                node_embeddings,
-                values,
-                target_variable
-            )  # [d]
+                target_embedding,     # [batch_size, hidden_dim]
+                node_embeddings,      # [batch_size, d, hidden_dim] 
+                values,               # [batch_size, N, d]
+                target_variable       # [batch_size]
+            )  # [batch_size, d]
         else:
             # Fallback to original attention for other encoders
             parent_attention = OriginalParentAttentionLayer(
@@ -166,12 +187,13 @@ class ContinuousParentSetPredictionModel(hk.Module):
                 num_heads=self.num_heads,
                 key_size=self.key_size
             )
-            parent_logits = parent_attention(target_embedding, node_embeddings)  # [d]
+            parent_logits = parent_attention(target_embedding, node_embeddings)  # [batch_size, d]
         
-        # Mask target variable (cannot be its own parent)
+        # Mask target variables (cannot be their own parent)
+        target_mask = jnp.arange(d)[None, :] == target_variable[:, None]  # [batch_size, d]
         masked_logits = jnp.where(
-            jnp.arange(d) == target_variable,
-            -1e9,  # Large negative value for target variable
+            target_mask,
+            -1e9,  # Large negative value for target variables
             parent_logits
         )
         
@@ -189,7 +211,14 @@ class ContinuousParentSetPredictionModel(hk.Module):
         
         # Convert to probabilities using sigmoid (NOT softmax!)
         # Each variable independently has a probability of being a parent
-        parent_probs = jax.nn.sigmoid(masked_logits)  # [d]
+        parent_probs = jax.nn.sigmoid(masked_logits)  # [batch_size, d]
+        
+        # If input wasn't batched, remove batch dimension from outputs
+        if not is_batched:
+            node_embeddings = node_embeddings[0]      # [d, hidden_dim]
+            target_embedding = target_embedding[0]    # [hidden_dim] 
+            parent_logits = parent_logits[0]          # [d]
+            parent_probs = parent_probs[0]            # [d]
         
         return {
             'node_embeddings': node_embeddings,

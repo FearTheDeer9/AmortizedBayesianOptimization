@@ -36,23 +36,25 @@ from src.causal_bayes_opt.training.three_channel_converter import buffer_to_thre
 from src.causal_bayes_opt.utils.variable_mapping import VariableMapper
 
 
-def generate_homogeneous_graph_batch(rng_key, batch_size: int = 32, 
-                                    min_vars: int = 3, max_vars: int = 100) -> Tuple[int, List[Dict]]:
+def generate_diverse_graph_batch(rng_key, batch_size: int = 32, 
+                                min_vars: int = 3, max_vars: int = 100) -> List[Dict]:
     """
-    Generate homogeneous batch where all graphs have the same number of variables.
-    This follows AVICI's approach of avoiding padding by using same-size batches.
+    Generate diverse graph types similar to AVICI's training data.
     
-    Returns:
-        num_vars: Number of variables for all graphs in this batch
-        graphs: List of graph configurations with identical num_vars
+    Includes:
+    - Erdos-Renyi with different edge densities
+    - Chain structures
+    - Fork/Collider structures
+    - Mixed patterns
     """
-    # Sample number of variables for this entire batch
-    rng_key, vars_key = random.split(rng_key)
-    num_vars = int(random.uniform(vars_key, minval=min_vars, maxval=max_vars + 1))
-    
     graphs = []
     
     for i in range(batch_size):
+        rng_key, subkey = random.split(rng_key)
+        
+        # Sample number of variables uniformly
+        num_vars = int(random.uniform(subkey, minval=min_vars, maxval=max_vars + 1))
+        
         # Sample graph type
         rng_key, type_key = random.split(rng_key)
         graph_type_idx = random.choice(type_key, 5)
@@ -81,12 +83,12 @@ def generate_homogeneous_graph_batch(rng_key, batch_size: int = 32,
             edge_density = 0.25
         
         graphs.append({
-            'num_vars': num_vars,  # All graphs in batch have same num_vars
+            'num_vars': num_vars,
             'structure': structure,
             'edge_density': edge_density
         })
     
-    return num_vars, graphs
+    return graphs
 
 
 def create_scm_from_config(config: Dict, rng_key) -> pyr.PMap:
@@ -279,216 +281,6 @@ def compute_surrogate_loss(params, net, buffer, target_idx, target_var, true_par
     # Binary cross-entropy loss
     bce_loss = -(labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
     return jnp.mean(bce_loss), pred_probs, labels
-
-
-def compute_vectorized_surrogate_loss(params, net, batch_tensors, batch_target_indices, 
-                                     batch_true_parents, variables, rng_key):
-    """Compute BCE loss for vectorized batch of surrogate predictions."""
-    # batch_tensors: [batch_size, N, d, 3]
-    # batch_target_indices: [batch_size] 
-    # batch_true_parents: List of sets of parent variable names
-    
-    # Single forward pass for entire batch
-    predictions = net.apply(params, rng_key, batch_tensors, batch_target_indices, True)
-    
-    if 'parent_probabilities' in predictions:
-        pred_probs = predictions['parent_probabilities']  # [batch_size, d]
-    else:
-        raw_logits = predictions.get('attention_logits', jnp.zeros((len(batch_tensors), len(variables))))
-        pred_probs = jax.nn.sigmoid(raw_logits)
-    
-    pred_probs = jnp.clip(pred_probs, 1e-7, 1 - 1e-7)
-    
-    # Create ground truth labels for entire batch
-    batch_size, d = pred_probs.shape
-    labels_list = []
-    
-    for b in range(batch_size):
-        target_idx = batch_target_indices[b]
-        true_parents = batch_true_parents[b]
-        
-        labels = []
-        for i, var in enumerate(variables):
-            if i != target_idx:
-                label = 1.0 if var in true_parents else 0.0
-                labels.append(label)
-            else:
-                labels.append(0.0)  # Target can't be its own parent
-        
-        labels_list.append(jnp.array(labels))
-    
-    labels = jnp.stack(labels_list)  # [batch_size, d]
-    
-    # Binary cross-entropy loss
-    bce_loss = -(labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
-    return jnp.mean(bce_loss), pred_probs, labels
-
-
-def train_batch_vectorized(scm_batch: List,
-                           policy_net, policy_params,
-                           surrogate_net, surrogate_params,
-                           optimizer, opt_state,
-                           min_datapoints: int,
-                           max_datapoints: int,
-                           min_obs_ratio: float,
-                           max_obs_ratio: float,
-                           rng_key) -> Tuple:
-    """Train on a homogeneous batch of SCMs with vectorized processing."""
-    
-    batch_size = len(scm_batch)
-    
-    # All SCMs have same number of variables
-    first_scm = scm_batch[0]
-    variables = get_variables(first_scm)
-    num_vars = len(variables)
-    
-    # Prepare batch data structures
-    batch_tensors = []
-    batch_target_indices = []
-    batch_true_parents = []
-    batch_mappers = []
-    
-    for scm in scm_batch:
-        target_var = get_target(scm)
-        mapper = VariableMapper(variables, target_variable=target_var)
-        target_idx = mapper.target_idx
-        true_parents = get_parents(scm, target_var)
-        
-        # Generate data for this SCM
-        buffer = ExperienceBuffer()
-        
-        # Sample data configuration for this SCM
-        rng_key, datapoint_key, ratio_key = random.split(rng_key, 3)
-        total_datapoints = int(random.uniform(datapoint_key, minval=min_datapoints, maxval=max_datapoints))
-        obs_ratio = float(random.uniform(ratio_key, minval=min_obs_ratio, maxval=max_obs_ratio))
-        
-        num_observations = int(total_datapoints * obs_ratio)
-        num_interventions = total_datapoints - num_observations
-        
-        # Generate observational data
-        rng_key, obs_key = random.split(rng_key)
-        obs_seed = int(obs_key[0]) % 1000000
-        samples = sample_from_linear_scm(scm, n_samples=num_observations, seed=obs_seed)
-        for sample in samples:
-            buffer.add_observation(sample)
-        
-        # Generate interventional data
-        if num_interventions > 0:
-            rng_key, int_key = random.split(rng_key)
-            int_keys = random.split(int_key, num_interventions * 3)
-            
-            valid_mask = jnp.ones(len(variables)).at[target_idx].set(0)
-            valid_indices = jnp.where(valid_mask)[0]
-            
-            intervention_indices = random.choice(
-                int_keys[0], valid_indices, shape=(num_interventions,)
-            )
-            intervention_values = random.normal(
-                int_keys[1], shape=(num_interventions,)
-            ) * 2.0
-            
-            interventions_by_var = {}
-            for i in range(num_interventions):
-                var_idx = int(intervention_indices[i])
-                var_name = mapper.get_name(var_idx)
-                
-                if var_name not in interventions_by_var:
-                    interventions_by_var[var_name] = []
-                interventions_by_var[var_name].append(float(intervention_values[i]))
-            
-            seed_counter = 0
-            for var_name, values in interventions_by_var.items():
-                for value in values:
-                    intervention = create_perfect_intervention(
-                        targets=frozenset([var_name]),
-                        values={var_name: value}
-                    )
-                    
-                    post_seed = int(int_keys[2 + seed_counter % len(int_keys)][0]) % 1000000
-                    seed_counter += 1
-                    
-                    post_data = sample_with_intervention(scm, intervention, 1, seed=post_seed)
-                    if post_data:
-                        buffer.add_intervention(intervention, post_data[0])
-        
-        # Convert to tensor and store
-        tensor, _ = buffer_to_three_channel_tensor(buffer, target_var)
-        batch_tensors.append(tensor)
-        batch_target_indices.append(target_idx)
-        batch_true_parents.append(true_parents)
-        batch_mappers.append(mapper)
-    
-    # Stack all tensors into batch format
-    # Find max N across all tensors for padding
-    max_N = max(tensor.shape[0] for tensor in batch_tensors)
-    
-    # Pad all tensors to same N
-    padded_tensors = []
-    for tensor in batch_tensors:
-        N, d, channels = tensor.shape
-        if N < max_N:
-            # Pad with zeros at the beginning (our convention)
-            padding = jnp.zeros((max_N - N, d, channels))
-            padded_tensor = jnp.concatenate([padding, tensor], axis=0)
-        else:
-            padded_tensor = tensor
-        padded_tensors.append(padded_tensor)
-    
-    batch_data = jnp.stack(padded_tensors)  # [batch_size, max_N, d, 3]
-    batch_target_indices = jnp.array(batch_target_indices)  # [batch_size]
-    
-    # Compute loss and gradients with vectorized approach
-    def loss_fn(params):
-        rng_key_loss = random.PRNGKey(0)  # Deterministic for gradient
-        loss, pred_probs, labels = compute_vectorized_surrogate_loss(
-            params, surrogate_net, batch_data, batch_target_indices,
-            batch_true_parents, variables, rng_key_loss
-        )
-        return loss, (pred_probs, labels)
-    
-    (avg_loss, (batch_pred_probs, batch_labels)), grads = jax.value_and_grad(loss_fn, has_aux=True)(surrogate_params)
-    
-    # Update parameters
-    updates, opt_state = optimizer.update(grads, opt_state, surrogate_params)
-    surrogate_params = optax.apply_updates(surrogate_params, updates)
-    
-    # Compute batch metrics
-    batch_predictions = batch_pred_probs > 0.5
-    batch_tp = jnp.sum(batch_predictions * batch_labels, axis=-1)  # [batch_size]
-    batch_fp = jnp.sum(batch_predictions * (1 - batch_labels), axis=-1)
-    batch_fn = jnp.sum((1 - batch_predictions) * batch_labels, axis=-1)
-    
-    batch_precision = batch_tp / (batch_tp + batch_fp + 1e-8)
-    batch_recall = batch_tp / (batch_tp + batch_fn + 1e-8) 
-    batch_f1 = 2 * batch_precision * batch_recall / (batch_precision + batch_recall + 1e-8)
-    
-    # Create metrics for each SCM in batch
-    metrics = []
-    for i, (scm, mapper) in enumerate(zip(scm_batch, batch_mappers)):
-        variables_list = list(variables)
-        target_var = get_target(scm)
-        
-        # Generate data info (we could track this during generation for accuracy)
-        rng_key, sample_key = random.split(rng_key)
-        total_datapoints = int(random.uniform(sample_key, minval=min_datapoints, maxval=max_datapoints))
-        obs_ratio = 0.7  # Approximate, for logging
-        
-        metrics.append({
-            'num_vars': num_vars,
-            'structure': scm.get('metadata', {}).get('structure', 'unknown'),
-            'total_datapoints': total_datapoints,  # Approximate 
-            'num_observations': int(total_datapoints * obs_ratio),
-            'num_interventions': int(total_datapoints * (1 - obs_ratio)),
-            'obs_ratio': obs_ratio,
-            'loss': float(avg_loss),  # Same loss for all in batch
-            'f1': float(batch_f1[i]),
-            'precision': float(batch_precision[i]),
-            'recall': float(batch_recall[i])
-        })
-    
-    avg_f1 = float(jnp.mean(batch_f1))
-    
-    return surrogate_params, opt_state, avg_loss, avg_f1, metrics
 
 
 def train_batch(scm_batch: List, 
@@ -695,8 +487,8 @@ def main():
                        help='Minimum ratio of observations (0.5 = 50% observations)')
     parser.add_argument('--max-obs-ratio', type=float, default=0.9,
                        help='Maximum ratio of observations (0.9 = 90% observations)')
-    parser.add_argument('--lr', type=float, default=3e-5,
-                       help='Base learning rate (AVICI default: 3e-5, scaled by sqrt(batch_size))')
+    parser.add_argument('--lr', type=float, default=0.001,
+                       help='Learning rate')
     parser.add_argument('--num-steps', type=int, default=5000,
                        help='Number of training steps')
     parser.add_argument('--min-vars', type=int, default=3,
@@ -759,35 +551,28 @@ def main():
         max_vars=args.max_vars
     )
     
-    # Determine starting step (checkpoint-based approach)
+    # Determine starting step (for checkpoint continuation)
     start_step = 0
     if args.checkpoint and Path(args.checkpoint).exists():
         print(f"\nLoading checkpoint from: {args.checkpoint}")
         from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint
         checkpoint = load_checkpoint(Path(args.checkpoint))
         surrogate_params = checkpoint['params']  # Override with loaded params
-        
-        # Simple checkpoint-based continuation
-        last_step = checkpoint.get('metadata', {}).get('step', 0)
-        start_step = last_step + 1  # Continue from next step
-        print(f"  Loaded surrogate checkpoint from step {last_step}")
+        start_step = checkpoint.get('metadata', {}).get('step', 0) + 1  # Continue from next step
+        print(f"  Loaded surrogate checkpoint from step {start_step - 1}")
         print(f"  Will continue training from step {start_step}")
         print(f"  Policy params remain dummy (not used in surrogate training)")
     else:
         print("\nTraining surrogate from scratch")
     
-    # Initialize optimizer with AVICI's approach
-    import math
-    learning_rate = math.sqrt(args.batch_size) * args.lr  # AVICI's sqrt batch size scaling
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(1.0),  # AVICI uses gradient clipping
-        optax.lamb(learning_rate)        # AVICI uses LAMB optimizer
+    # Initialize optimizer with cosine schedule
+    schedule = optax.cosine_decay_schedule(
+        init_value=args.lr,
+        decay_steps=args.num_steps,
+        alpha=0.1  # Final LR = 0.1 * initial LR
     )
+    optimizer = optax.adamw(learning_rate=schedule, weight_decay=0.01)
     opt_state = optimizer.init(surrogate_params)
-    
-    print(f"Using AVICI optimizer settings:")
-    print(f"  Base LR: {args.lr} -> Scaled LR: {learning_rate:.6f}")
-    print(f"  Optimizer: LAMB with gradient clipping (1.0)")
     
     print(f"\nTraining for {args.num_steps} steps...")
     
@@ -808,9 +593,9 @@ def main():
                 print(f"Completed training up to step {step}")
                 break
         
-        # Generate homogeneous batch of graphs (all same num_vars)
+        # Generate diverse batch of graphs
         rng_key, batch_key = random.split(rng_key)
-        num_vars_batch, graph_configs = generate_homogeneous_graph_batch(
+        graph_configs = generate_diverse_graph_batch(
             batch_key, args.batch_size, args.min_vars, args.max_vars
         )
         
@@ -821,12 +606,9 @@ def main():
             scm = create_scm_from_config(config, scm_key)
             scm_batch.append(scm)
         
-        # Train on batch with vectorized processing
+        # Train on batch with variable data configuration
         rng_key, train_key = random.split(rng_key)
-        
-        # Time the vectorized approach
-        batch_start_time = time.time()
-        surrogate_params, opt_state, avg_loss, avg_f1, batch_metrics = train_batch_vectorized(
+        surrogate_params, opt_state, avg_loss, avg_f1, batch_metrics = train_batch(
             scm_batch, policy_net, policy_params,
             surrogate_net, surrogate_params,
             optimizer, opt_state,
@@ -836,7 +618,6 @@ def main():
             args.max_obs_ratio,
             train_key
         )
-        batch_time = time.time() - batch_start_time
         
         # Log metrics
         if step % args.log_freq == 0:
@@ -857,7 +638,6 @@ def main():
             
             print(f"\nStep {step}/{args.num_steps}")
             print(f"  Avg Loss: {avg_loss:.4f}, Avg F1: {avg_f1:.4f}")
-            print(f"  Batch time: {batch_time:.3f}s (num_vars={num_vars_batch})")
             print(f"  Avg datapoints: {avg_datapoints:.0f} (obs ratio: {avg_obs_ratio:.1%})")
             print("  F1 by size:")
             for range_str, f1_list in size_metrics.items():

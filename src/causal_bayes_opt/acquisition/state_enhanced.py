@@ -69,7 +69,7 @@ class EnhancedAcquisitionState:
     best_value: float
     current_target: str
     step: int
-    metadata: pyr.PMap[str, Any] = pyr.m()
+    metadata: pyr.PMap = pyr.m()
     
     # Enhanced mechanism-aware features
     mechanism_predictions: Optional[List[Any]] = None

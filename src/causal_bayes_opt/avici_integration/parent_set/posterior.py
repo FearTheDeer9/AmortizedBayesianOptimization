@@ -16,7 +16,7 @@ import pyrsistent as pyr
 
 # Type aliases
 ParentSet = FrozenSet[str]
-ParentSetProbs = pyr.PMap[ParentSet, float]
+ParentSetProbs = pyr.PMap
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class ParentSetPosterior:
     parent_set_probs: ParentSetProbs
     uncertainty: float
     top_k_sets: List[Tuple[ParentSet, float]]
-    metadata: pyr.PMap[str, Any] = pyr.m()
+    metadata: pyr.PMap = pyr.m()
     
     def __post_init__(self):
         """Validate the posterior distribution."""

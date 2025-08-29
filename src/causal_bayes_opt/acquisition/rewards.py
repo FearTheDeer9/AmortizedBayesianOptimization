@@ -54,7 +54,7 @@ class RewardComponents:
     parent_intervention_reward: float # Bonus for intervening on likely parents
     exploration_bonus: float          # Encourage diverse interventions
     total_reward: float              # Weighted combination
-    metadata: pyr.PMap[str, Any] = pyr.m()
+    metadata: pyr.PMap = pyr.m()
     
     def __post_init__(self):
         """Validate reward components."""

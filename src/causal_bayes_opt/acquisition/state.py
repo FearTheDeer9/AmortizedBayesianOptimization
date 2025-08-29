@@ -94,7 +94,7 @@ class AcquisitionState:
     
     # Context information
     step: int
-    metadata: pyr.PMap[str, Any] = pyr.m()
+    metadata: pyr.PMap= pyr.m()
     
     # Mechanism-aware enhancement (Part C: Integration)
     mechanism_predictions: Optional[List[Any]] = None  # List[MechanismPrediction] when available

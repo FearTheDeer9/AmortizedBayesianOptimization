@@ -103,8 +103,8 @@ def generate_homogeneous_graph_batch(rng_key, batch_size: int = 32, min_vars: in
     return num_vars, graphs
 
 
-def create_scm_with_factory(config: Dict, factory: VariableSCMFactory) -> pyr.PMap:
-    """Create SCM using VariableSCMFactory for consistency with policy training."""
+def create_scm_with_factory(config: Dict, factory: VariableSCMFactory, rng_key) -> pyr.PMap:
+    """Create SCM using VariableSCMFactory with random target selection."""
     num_vars = config['num_vars']
     structure = config['structure']
     edge_density = config['edge_density']
@@ -120,10 +120,22 @@ def create_scm_with_factory(config: Dict, factory: VariableSCMFactory) -> pyr.PM
     
     factory_structure = structure_mapping.get(structure, 'random')
     
+    # Randomize target selection for ALL structures to create diversity
+    variables = [f"X{i}" for i in range(num_vars)]
+    if factory_structure == 'chain':
+        # For chains, randomize which direction the chain goes
+        target_idx = int(random.choice(rng_key, num_vars))
+        target_variable = variables[target_idx]
+    else:
+        # For other structures, also randomize target
+        target_idx = int(random.choice(rng_key, num_vars)) 
+        target_variable = variables[target_idx]
+    
     # Create SCM using factory
     scm = factory.create_variable_scm(
         num_variables=num_vars,
         structure_type=factory_structure,
+        target_variable=target_variable,  # Randomize target for diversity
         edge_density=edge_density
     )
     
@@ -160,7 +172,9 @@ def initialize_models(hidden_dim: int = 128,
             num_heads=num_heads,
             num_layers=num_layers,
             key_size=key_size,
-            dropout=dropout
+            dropout=dropout,
+            use_temperature_scaling=True,
+            temperature_init=0.0
         )
         return model(x, target_idx, is_training)
     
@@ -231,12 +245,17 @@ def compute_vectorized_surrogate_loss(params, net, batch_tensors, batch_target_i
     batch_size, d = pred_probs.shape
     labels_list = []
     
+    # Need to get variables from each SCM's mapper, not just first SCM
+    # This is a limitation of the current vectorized approach - all SCMs must have same variables
+    # For now, use the variables list but ensure consistent ordering
+    variables_list = sorted(list(variables))  # Ensure consistent ordering
+    
     for b in range(batch_size):
         target_idx = batch_target_indices[b]
         true_parents = batch_true_parents[b]
         
         labels = []
-        for i, var in enumerate(variables):
+        for i, var in enumerate(variables_list):
             if i != target_idx:
                 label = 1.0 if var in true_parents else 0.0
                 labels.append(label)
@@ -355,6 +374,15 @@ def train_batch_vectorized(scm_batch: List,
         batch_target_indices.append(target_idx)
         batch_true_parents.append(true_parents)
         batch_mappers.append(mapper)
+        
+        # Debug: Print mapper info for each SCM
+        if len(batch_mappers) <= 2:  # Only for first 2 SCMs
+            scm_vars = get_variables(scm)
+            print(f"  [DEBUG] SCM {len(batch_mappers)-1}: target={target_var}, idx={target_idx}")
+            print(f"  [DEBUG] SCM variables: {sorted(scm_vars)}")
+            print(f"  [DEBUG] Batch variables: {sorted(variables)}")
+            print(f"  [DEBUG] Mapper variables: {mapper.variables}")
+            print(f"  [DEBUG] True parents: {sorted(true_parents)}")
     
     # Stack all tensors into batch format
     # Find max N across all tensors for padding
@@ -495,6 +523,9 @@ def train_batch(scm_batch: List,
         # Diagnostic: Print data configuration for first SCM in batch
         if scm == scm_batch[0]:
             print(f"  [DIAGNOSTIC] First SCM: {len(variables)} vars, target={target_var}")
+            print(f"  [DIAGNOSTIC] Variables from first SCM: {sorted(variables)}")
+            print(f"  [DIAGNOSTIC] This SCM variables: {sorted(get_variables(scm))}")
+            print(f"  [DIAGNOSTIC] Target index: {target_idx}")
             print(f"  [DIAGNOSTIC] Data: {total_datapoints} total ({num_observations} obs, {num_interventions} int)")
             print(f"  [DIAGNOSTIC] Obs ratio: {obs_ratio:.1%}")
         
@@ -799,10 +830,21 @@ def main():
             structure_types=args.structure_types
         )
         
-        # Create SCMs from configs using factory
+        # Create SCMs from configs using factory with fresh seeds for diversity
         scm_batch = []
-        for config in graph_configs:
-            scm = create_scm_with_factory(config, scm_factory)
+        for j, config in enumerate(graph_configs):
+            # Create a new factory instance with a different seed for each SCM
+            rng_key, scm_seed_key, target_key = random.split(rng_key, 3)
+            scm_seed = int(scm_seed_key[0]) % 1000000
+            
+            diverse_factory = VariableSCMFactory(
+                seed=scm_seed,  # Different seed for each SCM
+                noise_scale=1.0,
+                coefficient_range=(-2.0, 2.0),
+                vary_intervention_ranges=True,
+                use_output_bounds=True
+            )
+            scm = create_scm_with_factory(config, diverse_factory, target_key)
             scm_batch.append(scm)
         
         # Train on batch with vectorized processing

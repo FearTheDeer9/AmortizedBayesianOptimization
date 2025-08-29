@@ -23,7 +23,7 @@
     "save_freq": 200,
     "log_freq": 100,
     "structure_types": [
-      "collider"
+      "scale_free"
     ]
   },
   "policy_config": {
@@ -41,7 +41,7 @@
       "info_gain": 0.1
     },
     "structure_types": [
-      "collider"
+      "scale_free"
     ]
   }
 }

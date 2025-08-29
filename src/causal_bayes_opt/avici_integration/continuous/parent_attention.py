@@ -38,76 +38,6 @@ class ParentAttentionLayer(hk.Module):
         self.key_size = key_size
         self.w_init = hk.initializers.VarianceScaling(1.0, "fan_avg", "uniform")
     
-    def compute_pairwise_features(self,
-                                 values: jnp.ndarray,
-                                 target_idx: int) -> jnp.ndarray:
-        """
-        Compute statistical features between target and all variables.
-        
-        Args:
-            values: [N, d] observation values
-            target_idx: Index of target variable
-            
-        Returns:
-            features: [d, num_features] pairwise features
-        """
-        N, d = values.shape
-        target_values = values[:, target_idx]
-        
-        features_list = []
-        
-        for j in range(d):
-            if j == target_idx:
-                # Self-features
-                features = jnp.array([
-                    1.0,  # Is target indicator
-                    0.0,  # Correlation (self)
-                    0.0,  # Lag correlation
-                    0.0,  # Reverse lag correlation
-                    0.0,  # Conditional variance ratio
-                    0.0,  # Mutual information proxy
-                ])
-            else:
-                # Compute relationship features
-                other_values = values[:, j]
-                
-                # 1. Standard correlation
-                corr = jnp.corrcoef(target_values, other_values)[0, 1]
-                
-                # 2. Lag correlation (does j predict target?)
-                lag_corr = jnp.corrcoef(other_values[:-1], target_values[1:])[0, 1]
-                
-                # 3. Reverse lag correlation (does target predict j?)
-                rev_lag_corr = jnp.corrcoef(target_values[:-1], other_values[1:])[0, 1]
-                
-                # 4. Conditional variance ratio
-                # If j is parent of target, var(target|j) < var(target)
-                var_target = jnp.var(target_values)
-                # Simple linear regression coefficient
-                coef = corr * jnp.std(target_values) / (jnp.std(other_values) + 1e-8)
-                residual = target_values - coef * (other_values - jnp.mean(other_values))
-                var_target_given_j = jnp.var(residual)
-                var_ratio = var_target_given_j / (var_target + 1e-8)
-                
-                # 5. Mutual information proxy (using correlation)
-                # MI ≈ -0.5 * log(1 - corr^2) for Gaussian
-                mi_proxy = -0.5 * jnp.log(1 - corr**2 + 1e-8)
-                
-                features = jnp.array([
-                    0.0,  # Not target
-                    corr,
-                    lag_corr,
-                    rev_lag_corr,
-                    var_ratio,
-                    mi_proxy,
-                ])
-            
-            # Handle NaN values
-            features = jnp.nan_to_num(features, 0.0)
-            features_list.append(features)
-        
-        return jnp.stack(features_list)  # [d, 6]
-    
     def __call__(self, 
                  query: jnp.ndarray,        # [batch_size, hidden_dim] or [hidden_dim] - target node embedding(s)
                  keys: jnp.ndarray,         # [batch_size, n_vars, hidden_dim] or [n_vars, hidden_dim] - all node embeddings  
@@ -141,38 +71,28 @@ class ParentAttentionLayer(hk.Module):
             target_idx = jnp.array([target_idx])
             batch_size = 1
         
-        # 1. Compute pairwise statistical features - COMMENTED OUT TO TEST PURE NN
-        # pairwise_features = self.compute_pairwise_features(values_data, target_idx)  # [d, 6]
+        # Normalize embeddings before processing (like AVICI)
+        query_norm = query / (jnp.linalg.norm(query, axis=-1, keepdims=True) + 1e-8)
+        keys_norm = keys / (jnp.linalg.norm(keys, axis=-1, keepdims=True) + 1e-8)
         
-        # 2. Project pairwise features to embedding space - COMMENTED OUT
-        # feature_projection = hk.Linear(
-        #     self.hidden_dim // 2,
-        #     w_init=self.w_init,
-        #     name="feature_projection"
-        # )
-        # projected_features = feature_projection(pairwise_features)  # [d, hidden_dim//2]
+        # Use normalized embeddings
+        query_expanded_norm = query_norm[:, None, :]  # [batch_size, 1, hidden_dim]
+        query_tiled_norm = jnp.tile(query_expanded_norm, (1, n_vars, 1))  # [batch_size, n_vars, hidden_dim]
         
-        # 3. Combine with node embeddings - SIMPLIFIED TO JUST USE EMBEDDINGS
-        # Create combined representation for each potential parent
-        # For batched: query=[batch_size, hidden_dim], keys=[batch_size, n_vars, hidden_dim]
-        query_expanded = query[:, None, :]  # [batch_size, 1, hidden_dim]
-        query_tiled = jnp.tile(query_expanded, (1, n_vars, 1))  # [batch_size, n_vars, hidden_dim]
-        
-        # Combine target and candidate embeddings
+        # Combine normalized target and candidate embeddings
         combined_keys = jnp.concatenate([
-            query_tiled,  # [batch_size, n_vars, hidden_dim] - target for each candidate
-            keys          # [batch_size, n_vars, hidden_dim] - candidate embeddings
+            query_tiled_norm,  # [batch_size, n_vars, hidden_dim] - normalized target for each candidate
+            keys_norm          # [batch_size, n_vars, hidden_dim] - normalized candidate embeddings
         ], axis=-1)  # [batch_size, n_vars, hidden_dim * 2]
         
-        # 4. Multi-layer scoring network
-        # This learns to predict parent probability from combined features
+        # Multi-layer scoring network with bias initialization
         score_net = hk.Sequential([
             hk.Linear(self.hidden_dim, w_init=self.w_init),
             jax.nn.relu,
             hk.LayerNorm(axis=-1, create_scale=True, create_offset=True),
             hk.Linear(self.hidden_dim // 2, w_init=self.w_init),
             jax.nn.relu,
-            hk.Linear(1, w_init=self.w_init)  # Single score per variable
+            hk.Linear(1, w_init=self.w_init, b_init=hk.initializers.Constant(-3.0))  # Sparse prior bias like AVICI
         ], name="score_network")
         
         scores = score_net(combined_keys).squeeze(-1)  # [batch_size, n_vars]

@@ -148,17 +148,6 @@ class ContinuousParentSetPredictionModel(hk.Module):
         if not is_batched and node_embeddings.ndim == 2:
             node_embeddings = node_embeddings[None, ...]  # [1, d, hidden_dim]
         
-        # DEBUG: Check embeddings for 2-variable graphs
-        # if d == 2:
-        #     import pdb
-        #     pdb.set_trace()
-        #     # When breakpoint hits, investigate:
-        #     # (Pdb) p node_embeddings.shape
-        #     # (Pdb) p jnp.std(node_embeddings[0] - node_embeddings[1])
-        #     # (Pdb) p jnp.mean(jnp.abs(node_embeddings[0] - node_embeddings[1]))
-        #     # (Pdb) p data[:, :, 0]  # Check raw values
-        #     # (Pdb) c  # continue
-        
         # Apply dropout for regularization
         if is_training:
             node_embeddings = hk.dropout(hk.next_rng_key(), dropout_rate, node_embeddings)
@@ -214,17 +203,7 @@ class ContinuousParentSetPredictionModel(hk.Module):
             parent_logits
         )
         
-        # DEBUG: Check logits before sigmoid for 2-var graphs
-        # if d == 2:
-        #     non_target_idx = 1 - target_variable
-        #     non_target_logit = parent_logits[non_target_idx]
-        #     import pdb
-        #     pdb.set_trace()
-        #     # When breakpoint hits, investigate:
-        #     # (Pdb) p parent_logits
-        #     # (Pdb) p non_target_logit
-        #     # (Pdb) p jax.nn.sigmoid(non_target_logit)
-        #     # (Pdb) c
+        
         
         # Convert to probabilities using sigmoid (NOT softmax!)
         # Each variable independently has a probability of being a parent

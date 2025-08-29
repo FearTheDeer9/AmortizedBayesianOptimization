@@ -81,7 +81,7 @@ def plot_evaluation_results(results: Dict[str, List[Dict]],
     plt.savefig(fig_path, dpi=150, bbox_inches='tight')
     logger.info(f"Saved main results plot to {fig_path}")
     
-    # Create detailed trajectory plots
+    # Create detailed trajectory plots in separate subfolder (normalized target, F1, SHD only)
     create_detailed_trajectory_plots(results, averaged, output_dir, timestamp)
     
     # Create method comparison plots
@@ -345,12 +345,16 @@ def create_detailed_trajectory_plots(results: Dict[str, List[Dict]],
                                     averaged: Dict[str, Dict],
                                     output_dir: Path, 
                                     timestamp: str):
-    """Create detailed individual trajectory plots."""
+    """Create individual detailed trajectory plots saved to subfolder."""
     
-    # Plot 1: Detailed target value trajectories with individual SCM traces
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    # Create trajectories subfolder
+    trajectories_dir = output_dir / "trajectories"
+    trajectories_dir.mkdir(exist_ok=True)
     
     colors = plt.cm.tab10(np.linspace(0, 1, len(results)))
+    
+    # Plot 1: Normalized Target Trajectories
+    fig, ax = plt.subplots(figsize=(10, 6))
     
     for (method_name, method_results), color in zip(results.items(), colors):
         if not method_results:
@@ -360,105 +364,116 @@ def create_detailed_trajectory_plots(results: Dict[str, List[Dict]],
         for scm_result in method_results:
             if 'normalized_targets' in scm_result:
                 x = np.arange(len(scm_result['normalized_targets']))
-                axes[0, 0].plot(x, scm_result['normalized_targets'], 
-                              alpha=0.1, color=color, linewidth=0.5)
+                ax.plot(x, scm_result['normalized_targets'], 
+                       alpha=0.15, color=color, linewidth=0.8)
         
         # Plot average (bold)
         if method_name in averaged and len(averaged[method_name]['normalized_mean']) > 0:
             x = np.arange(len(averaged[method_name]['normalized_mean']))
-            axes[0, 0].plot(x, averaged[method_name]['normalized_mean'],
-                          label=method_name, color=color, linewidth=2)
+            mean = averaged[method_name]['normalized_mean']
+            std = averaged[method_name]['normalized_std']
+            
+            ax.plot(x, mean, label=method_name, color=color, linewidth=2.5)
+            ax.fill_between(x, mean - std, mean + std, alpha=0.2, color=color)
     
-    axes[0, 0].set_title('Target Value Trajectories (All SCMs)')
-    axes[0, 0].set_xlabel('Intervention Step')
-    axes[0, 0].set_ylabel('Normalized Target Value')
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3)
-    axes[0, 0].invert_yaxis()
+    ax.set_title('Normalized Target Value Trajectories', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Intervention Step')
+    ax.set_ylabel('Normalized Target Value (lower is better)')
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax.grid(True, alpha=0.3)
+    ax.invert_yaxis()
     
-    # Plot 2: Learning curves (improvement over baseline)
+    plt.tight_layout()
+    fig_path = trajectories_dir / f"normalized_target_trajectories_{timestamp}.png"
+    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+    logger.info(f"Saved normalized target trajectories to {fig_path}")
+    plt.close()
+    
+    # Plot 2: F1 Score Trajectories
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    has_f1_data = False
     for (method_name, method_results), color in zip(results.items(), colors):
         if not method_results:
             continue
             
-        improvements = []
+        # Plot individual SCM F1 trajectories
         for scm_result in method_results:
-            if 'normalized_targets' in scm_result and len(scm_result['normalized_targets']) > 1:
-                initial = scm_result['normalized_targets'][0]
-                trajectory = np.array(scm_result['normalized_targets'])
-                improvement = (initial - trajectory) / (initial + 1e-10)
-                improvements.append(improvement)
+            if 'f1_scores' in scm_result and len(scm_result['f1_scores']) > 0:
+                x = np.arange(len(scm_result['f1_scores']))
+                ax.plot(x, scm_result['f1_scores'], 
+                       alpha=0.15, color=color, linewidth=0.8)
+                has_f1_data = True
         
-        if improvements:
-            mean_improvement = np.mean(improvements, axis=0)
-            x = np.arange(len(mean_improvement))
-            axes[0, 1].plot(x, mean_improvement * 100, 
-                          label=method_name, color=color, linewidth=2)
-    
-    axes[0, 1].set_title('Relative Improvement from Initial Value')
-    axes[0, 1].set_xlabel('Intervention Step')
-    axes[0, 1].set_ylabel('Improvement (%)')
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3)
-    axes[0, 1].axhline(y=0, color='black', linestyle='--', alpha=0.5)
-    
-    # Plot 3: Structure learning progression
-    for (method_name, method_results), color in zip(results.items(), colors):
-        if 'Surrogate' in method_name:  # Only plot methods with surrogate
-            f1_trajectories = []
-            for scm_result in method_results:
-                if 'f1_scores' in scm_result:
-                    f1_trajectories.append(scm_result['f1_scores'])
+        # Plot average (bold)
+        if method_name in averaged and len(averaged[method_name]['f1_mean']) > 0:
+            x = np.arange(len(averaged[method_name]['f1_mean']))
+            mean = averaged[method_name]['f1_mean']
+            std = averaged[method_name]['f1_std']
             
-            if f1_trajectories:
-                mean_f1 = np.nanmean(f1_trajectories, axis=0)
-                x = np.arange(len(mean_f1))
-                axes[1, 0].plot(x, mean_f1, label=method_name, 
-                              color=color, linewidth=2, marker='o', markersize=4)
+            ax.plot(x, mean, label=method_name, color=color, linewidth=2.5, marker='o', markersize=4)
+            ax.fill_between(x, mean - std, mean + std, alpha=0.2, color=color)
     
-    axes[1, 0].set_title('Structure Learning Progress (Methods with Surrogate)')
-    axes[1, 0].set_xlabel('Intervention Step')
-    axes[1, 0].set_ylabel('F1 Score')
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3)
-    axes[1, 0].set_ylim([0, 1])
-    
-    # Plot 4: Convergence analysis
-    for (method_name, method_results), color in zip(results.items(), colors):
-        convergence_steps = []
-        for scm_result in method_results:
-            if 'normalized_targets' in scm_result:
-                trajectory = np.array(scm_result['normalized_targets'])
-                if len(trajectory) > 5:
-                    # Find where improvement plateaus (change < 1% for 3 steps)
-                    for i in range(3, len(trajectory)-2):
-                        window = trajectory[i:i+3]
-                        if np.std(window) < 0.01:
-                            convergence_steps.append(i)
-                            break
-                    else:
-                        convergence_steps.append(len(trajectory))
+    if has_f1_data:
+        ax.set_title('F1 Score Trajectories (Structure Learning)', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Intervention Step')
+        ax.set_ylabel('F1 Score (higher is better)')
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.grid(True, alpha=0.3)
+        ax.set_ylim([0, 1])
         
-        if convergence_steps:
-            axes[1, 1].boxplot(convergence_steps, positions=[len(results) - list(results.keys()).index(method_name)],
-                             widths=0.6, patch_artist=True,
-                             boxprops=dict(facecolor=color, alpha=0.7))
+        plt.tight_layout()
+        fig_path = trajectories_dir / f"f1_score_trajectories_{timestamp}.png"
+        plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+        logger.info(f"Saved F1 score trajectories to {fig_path}")
+    else:
+        logger.info("No F1 score data available, skipping F1 trajectory plot")
     
-    axes[1, 1].set_title('Convergence Analysis')
-    axes[1, 1].set_xlabel('Method')
-    axes[1, 1].set_ylabel('Steps to Convergence')
-    axes[1, 1].set_xticks(range(1, len(results) + 1))
-    axes[1, 1].set_xticklabels(list(results.keys())[::-1], rotation=45, ha='right')
-    axes[1, 1].grid(True, alpha=0.3, axis='y')
-    
-    plt.suptitle('Detailed Trajectory Analysis', fontsize=14, fontweight='bold')
-    plt.tight_layout()
-    
-    # Save
-    fig_path = output_dir / f"detailed_trajectories_{timestamp}.png"
-    plt.savefig(fig_path, dpi=150, bbox_inches='tight')
-    logger.info(f"Saved detailed trajectories to {fig_path}")
     plt.close()
+    
+    # Plot 3: SHD Trajectories  
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    has_shd_data = False
+    for (method_name, method_results), color in zip(results.items(), colors):
+        if not method_results:
+            continue
+            
+        # Plot individual SCM SHD trajectories
+        for scm_result in method_results:
+            if 'shd_values' in scm_result and len(scm_result['shd_values']) > 0:
+                x = np.arange(len(scm_result['shd_values']))
+                ax.plot(x, scm_result['shd_values'], 
+                       alpha=0.15, color=color, linewidth=0.8)
+                has_shd_data = True
+        
+        # Plot average (bold)
+        if method_name in averaged and len(averaged[method_name]['shd_mean']) > 0:
+            x = np.arange(len(averaged[method_name]['shd_mean']))
+            mean = averaged[method_name]['shd_mean']
+            std = averaged[method_name]['shd_std']
+            
+            ax.plot(x, mean, label=method_name, color=color, linewidth=2.5, marker='s', markersize=4)
+            ax.fill_between(x, mean - std, mean + std, alpha=0.2, color=color)
+    
+    if has_shd_data:
+        ax.set_title('Structural Hamming Distance Trajectories', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Intervention Step')
+        ax.set_ylabel('SHD (lower is better)')
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.grid(True, alpha=0.3)
+        ax.invert_yaxis()
+        
+        plt.tight_layout()
+        fig_path = trajectories_dir / f"shd_trajectories_{timestamp}.png"
+        plt.savefig(fig_path, dpi=150, bbox_inches='tight')
+        logger.info(f"Saved SHD trajectories to {fig_path}")
+    else:
+        logger.info("No SHD data available, skipping SHD trajectory plot")
+    
+    plt.close()
+    
+    logger.info(f"All individual trajectory plots saved to {trajectories_dir}")
 
 
 def create_method_comparison_plots(results: Dict[str, List[Dict]], 

@@ -112,6 +112,8 @@ class JointTrainingOrchestrator:
             cmd.extend(["--max-vars", str(surrogate_config['max_vars'])])
         if 'num_steps' in surrogate_config:
             cmd.extend(["--num-steps", str(surrogate_config['num_steps'])])
+        if 'structure_types' in surrogate_config:
+            cmd.extend(["--structure-types"] + surrogate_config['structure_types'])
         
         # Resume from previous checkpoint if exists
         if self.checkpoints['surrogate']:
@@ -121,10 +123,23 @@ class JointTrainingOrchestrator:
         # Log command
         logger.info(f"Running command: {' '.join(cmd)}")
         
-        # Run training
+        # Run training (with real-time output)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            logger.info("Surrogate training phase completed successfully")
+            # Use Popen to stream output in real-time
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            
+            # Stream output line by line
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    print(f"[SURROGATE] {line.rstrip()}")
+            
+            # Wait for completion
+            process.wait()
+            
+            if process.returncode == 0:
+                logger.info("Surrogate training phase completed successfully")
+            else:
+                raise subprocess.CalledProcessError(process.returncode, cmd)
             
             # Check if checkpoint was created
             if checkpoint_path.exists():
@@ -182,6 +197,16 @@ class JointTrainingOrchestrator:
         if 'obs_per_episode' in policy_config:
             cmd.extend(["--obs-per-episode", str(policy_config['obs_per_episode'])])
         
+        # Pass variable range if specified
+        if 'min_vars' in policy_config:
+            cmd.extend(["--min-vars", str(policy_config['min_vars'])])
+        if 'max_vars' in policy_config:
+            cmd.extend(["--max-vars", str(policy_config['max_vars'])])
+        
+        # Pass structure types if specified
+        if 'structure_types' in policy_config:
+            cmd.extend(["--structure-types"] + policy_config['structure_types'])
+        
         # Pass reward weights if specified
         if 'reward_weights' in policy_config:
             weights = policy_config['reward_weights']
@@ -205,10 +230,23 @@ class JointTrainingOrchestrator:
         # Log command
         logger.info(f"Running command: {' '.join(cmd)}")
         
-        # Run training
+        # Run training (with real-time output)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            logger.info("Policy training phase completed successfully")
+            # Use Popen to stream output in real-time
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            
+            # Stream output line by line
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    print(f"[POLICY] {line.rstrip()}")
+            
+            # Wait for completion
+            process.wait()
+            
+            if process.returncode == 0:
+                logger.info("Policy training phase completed successfully")
+            else:
+                raise subprocess.CalledProcessError(process.returncode, cmd)
             
             # Check if checkpoint was created
             if checkpoint_path.exists():
@@ -293,7 +331,8 @@ def create_default_config() -> Dict[str, Any]:
             'lr': 0.001,
             'batch_size': 32,
             'min_vars': 3,
-            'max_vars': 100
+            'max_vars': 100,
+            'structure_types': ['random', 'chain', 'fork', 'collider', 'mixed']  # Add structure types
         },
         'policy_config': {
             'episodes': 200,  # Max, but limited by time

@@ -1,0 +1,38 @@
+{
+  "orchestration": {
+    "total_training_minutes": 12,
+    "minutes_per_phase": 1,
+    "start_phase": "surrogate",
+    "checkpoint_dir": "experiments/joint-training/checkpoints/fork_only_test"
+  },
+  "surrogate_config": {
+    "hidden_dim": 128,
+    "num_layers": 4,
+    "lr": 0.001,
+    "batch_size": 16,
+    "min_vars": 3,
+    "max_vars": 10,
+    "num_steps": 10,
+    "structure_types": [
+      "fork"
+    ]
+  },
+  "policy_config": {
+    "episodes": 5,
+    "patience": 3,
+    "threshold": 0.9,
+    "learning_rate": 5e-4,
+    "max_interventions": 5,
+    "obs_per_episode": 10,
+    "min_vars": 3,
+    "max_vars": 10,
+    "structure_types": [
+      "fork"
+    ],
+    "reward_weights": {
+      "target": 1.0,
+      "parent": 0.0,
+      "info_gain": 0.0
+    }
+  }
+}

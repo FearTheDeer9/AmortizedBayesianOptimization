@@ -44,7 +44,9 @@ class ContinuousParentSetPredictionModel(hk.Module):
                  num_heads: int = 8,
                  key_size: int = 32,
                  dropout: float = 0.1,
-                 encoder_type: str = "node_feature"):
+                 encoder_type: str = "node_feature",
+                 use_temperature_scaling: bool = False,
+                 temperature_init: float = 0.0):
         super().__init__(name="ContinuousParentSetPrediction")
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -52,6 +54,8 @@ class ContinuousParentSetPredictionModel(hk.Module):
         self.key_size = key_size
         self.dropout = dropout
         self.encoder_type = encoder_type
+        self.use_temperature_scaling = use_temperature_scaling
+        self.temperature_init = temperature_init
     
     def __call__(self, 
                  data: jnp.ndarray,                    # [batch_size, N, d, 3] or [N, d, 3] intervention data
@@ -188,6 +192,19 @@ class ContinuousParentSetPredictionModel(hk.Module):
                 key_size=self.key_size
             )
             parent_logits = parent_attention(target_embedding, node_embeddings)  # [batch_size, d]
+        
+        # Apply temperature scaling if enabled
+        if self.use_temperature_scaling:
+            # Learn a temperature parameter similar to AVICI
+            temperature = hk.get_parameter(
+                "temperature", 
+                shape=(1,), 
+                dtype=parent_logits.dtype,
+                init=hk.initializers.Constant(self.temperature_init)
+            )
+            # Apply temperature scaling: logits * exp(temperature)
+            # This allows the model to learn to sharpen or soften predictions
+            parent_logits = parent_logits * jnp.exp(temperature)
         
         # Mask target variables (cannot be their own parent)
         target_mask = jnp.arange(d)[None, :] == target_variable[:, None]  # [batch_size, d]

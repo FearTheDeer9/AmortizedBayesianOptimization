@@ -27,7 +27,9 @@ class VariableSCMFactory:
         "chain": "Sequential causal chain (X1 → X2 → ... → Xn)",
         "collider": "Multiple causes with shared effect",
         "mixed": "Mixed structure with multiple patterns",
-        "random": "Random DAG with specified edge density"
+        "random": "Random DAG with specified edge density",
+        "scale_free": "Scale-free graph with hub nodes (power-law degree distribution)",
+        "two_layer": "Two-layer hierarchical structure (sources → sinks)"
     }
     
     def __init__(self, 
@@ -98,8 +100,23 @@ class VariableSCMFactory:
             edges, coefficients = self._create_mixed_structure(variables, target_variable)
         elif structure_type == "random":
             edges, coefficients = self._create_random_structure(variables, target_variable, edge_density)
+        elif structure_type == "scale_free":
+            edges, coefficients = self._create_scale_free_structure(variables, target_variable)
+        elif structure_type == "two_layer":
+            edges, coefficients = self._create_two_layer_structure(variables, target_variable)
         else:
             raise ValueError(f"Structure type {structure_type} not implemented")
+        
+        # Validate DAG structure
+        if not self._validate_dag_structure(edges, variables):
+            logger.warning(f"Generated {structure_type} structure is not a valid DAG, attempting to fix...")
+            # Remove edges that create cycles
+            validated_edges = []
+            for edge in edges:
+                if not self._would_create_cycle(validated_edges, edge[0], edge[1]):
+                    validated_edges.append(edge)
+            edges = validated_edges
+            logger.info(f"Fixed DAG structure, removed {len(edges) - len(validated_edges)} edges")
         
         # Create noise scales for all variables
         noise_scales = {var: self.noise_scale for var in variables}
@@ -199,7 +216,16 @@ class VariableSCMFactory:
             return variables[target_idx]
     
     def _create_fork_structure(self, variables: List[str], target: str) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float]]:
-        """Create fork structure: multiple variables → target."""
+        """
+        Create fork structure: multiple variables → target.
+        
+        Note: In causal terminology, this creates a "collider" structure where
+        the target variable has multiple parents (all other variables point to it).
+        The name "fork" is kept for backwards compatibility, but this is technically
+        a collider pattern where multiple causes affect a common effect (the target).
+        
+        Structure: X0 → Y ← X1, X2 → Y, etc. (where Y is the target)
+        """
         edges = []
         coefficients = {}
         
@@ -236,7 +262,15 @@ class VariableSCMFactory:
         return edges, coefficients
     
     def _create_collider_structure(self, variables: List[str], target: str) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float]]:
-        """Create collider structure with additional complexity."""
+        """
+        Create collider structure with additional complexity.
+        
+        This creates a partial collider where a subset of variables (up to 3) point
+        to the target, while remaining variables form additional causal chains.
+        This is similar to fork but with limited parent count and extra structure.
+        
+        Structure: Limited collider (max 3 parents) plus additional chains
+        """
         edges = []
         coefficients = {}
         
@@ -422,16 +456,157 @@ class VariableSCMFactory:
             metadata=scm.get('metadata', {})
         )
     
+    def _create_scale_free_structure(self, variables: List[str], target: str) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float]]:
+        """
+        Create scale-free structure using preferential attachment.
+        Scale-free networks have hub nodes with many connections.
+        """
+        edges = []
+        coefficients = {}
+        n_vars = len(variables)
+        
+        # Track degree for preferential attachment
+        in_degree = {var: 0 for var in variables}
+        out_degree = {var: 0 for var in variables}
+        
+        # Start with a small complete subgraph (seed)
+        seed_size = min(3, n_vars)
+        for i in range(seed_size):
+            for j in range(i + 1, seed_size):
+                # Add forward edge to ensure DAG
+                edge = (variables[i], variables[j])
+                edges.append(edge)
+                
+                self.key, subkey = random.split(self.key)
+                coeff = random.uniform(subkey, (), 
+                                     minval=self.coefficient_range[0], 
+                                     maxval=self.coefficient_range[1])
+                coefficients[edge] = float(coeff)
+                
+                out_degree[variables[i]] += 1
+                in_degree[variables[j]] += 1
+        
+        # Add remaining nodes using preferential attachment
+        for i in range(seed_size, n_vars):
+            new_node = variables[i]
+            
+            # Determine number of edges to add (typically 1-3)
+            self.key, subkey = random.split(self.key)
+            num_edges = int(random.uniform(subkey, (), minval=1, maxval=min(4, i)))
+            
+            # Select nodes to connect based on preferential attachment
+            # Higher degree nodes have higher probability of connection
+            existing_nodes = variables[:i]
+            
+            # Calculate attachment probabilities
+            total_degree = sum(in_degree[v] + out_degree[v] + 1 for v in existing_nodes)
+            probs = [(in_degree[v] + out_degree[v] + 1) / total_degree for v in existing_nodes]
+            
+            # Sample nodes to connect (without replacement)
+            self.key, subkey = random.split(self.key)
+            selected_indices = random.choice(
+                subkey, 
+                len(existing_nodes),
+                shape=(min(num_edges, len(existing_nodes)),),
+                p=jnp.array(probs),
+                replace=False
+            )
+            
+            for idx in selected_indices:
+                parent = existing_nodes[idx]
+                # Add edge parent -> new_node
+                edge = (parent, new_node)
+                edges.append(edge)
+                
+                self.key, subkey = random.split(self.key)
+                coeff = random.uniform(subkey, (), 
+                                     minval=self.coefficient_range[0], 
+                                     maxval=self.coefficient_range[1])
+                coefficients[edge] = float(coeff)
+                
+                out_degree[parent] += 1
+                in_degree[new_node] += 1
+        
+        return edges, coefficients
+    
+    def _create_two_layer_structure(self, variables: List[str], target: str) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float]]:
+        """
+        Create two-layer hierarchical structure.
+        First layer: source nodes (no parents)
+        Second layer: sink nodes (receive from first layer)
+        """
+        edges = []
+        coefficients = {}
+        n_vars = len(variables)
+        
+        # Split variables into two layers
+        layer1_size = n_vars // 2
+        layer1 = variables[:layer1_size]
+        layer2 = variables[layer1_size:]
+        
+        # Ensure we have at least one node in each layer
+        if not layer1 or not layer2:
+            # Fall back to chain for very small graphs
+            return self._create_chain_structure(variables)
+        
+        # Connect layer1 to layer2 with varying density
+        for source in layer1:
+            # Each source connects to 1-3 sinks
+            self.key, subkey = random.split(self.key)
+            num_connections = int(random.uniform(subkey, (), minval=1, maxval=min(4, len(layer2) + 1)))
+            
+            # Sample which sinks to connect to
+            self.key, subkey = random.split(self.key)
+            selected_sinks = random.choice(
+                subkey,
+                len(layer2),
+                shape=(min(num_connections, len(layer2)),),
+                replace=False
+            )
+            
+            for sink_idx in selected_sinks:
+                sink = layer2[sink_idx]
+                edge = (source, sink)
+                edges.append(edge)
+                
+                self.key, subkey = random.split(self.key)
+                coeff = random.uniform(subkey, (), 
+                                     minval=self.coefficient_range[0], 
+                                     maxval=self.coefficient_range[1])
+                coefficients[edge] = float(coeff)
+        
+        # Optionally add some connections within layer2 for complexity
+        if len(layer2) > 2:
+            for i in range(len(layer2) - 1):
+                # Add edge with 30% probability
+                self.key, subkey = random.split(self.key)
+                if random.uniform(subkey, ()) < 0.3:
+                    edge = (layer2[i], layer2[i + 1])
+                    edges.append(edge)
+                    
+                    self.key, subkey = random.split(self.key)
+                    coeff = random.uniform(subkey, (), 
+                                         minval=self.coefficient_range[0], 
+                                         maxval=self.coefficient_range[1])
+                    coefficients[edge] = float(coeff)
+        
+        return edges, coefficients
+    
     def _would_create_cycle(self, existing_edges: List[Tuple[str, str]], from_var: str, to_var: str) -> bool:
         """Check if adding edge would create cycle (simple DFS check)."""
-        # Build adjacency list
+        # Build adjacency list including the proposed new edge
         graph = {}
         for edge in existing_edges:
             if edge[0] not in graph:
                 graph[edge[0]] = []
             graph[edge[0]].append(edge[1])
         
-        # Check if there's a path from to_var to from_var
+        # Add the proposed edge temporarily
+        if from_var not in graph:
+            graph[from_var] = []
+        graph[from_var].append(to_var)
+        
+        # Check if there's a path from to_var back to from_var (which would create a cycle)
         def has_path(start: str, end: str, visited: Set[str]) -> bool:
             if start == end:
                 return True
@@ -445,6 +620,34 @@ class VariableSCMFactory:
             return False
         
         return has_path(to_var, from_var, set())
+    
+    def _validate_dag_structure(self, edges: List[Tuple[str, str]], variables: List[str]) -> bool:
+        """Validate that the edge list forms a valid DAG."""
+        # Build adjacency list
+        graph = {var: [] for var in variables}
+        for parent, child in edges:
+            graph[parent].append(child)
+        
+        # Perform topological sort using Kahn's algorithm
+        in_degree = {var: 0 for var in variables}
+        for parent in graph:
+            for child in graph[parent]:
+                in_degree[child] += 1
+        
+        queue = [var for var in variables if in_degree[var] == 0]
+        sorted_count = 0
+        
+        while queue:
+            node = queue.pop(0)
+            sorted_count += 1
+            
+            for child in graph[node]:
+                in_degree[child] -= 1
+                if in_degree[child] == 0:
+                    queue.append(child)
+        
+        # If we sorted all nodes, it's a DAG
+        return sorted_count == len(variables)
     
     def create_scm_suite(self, 
                         variable_ranges: List[int] = [3, 4, 5, 6, 8],
@@ -477,7 +680,7 @@ class VariableSCMFactory:
     
     def get_random_scm(self, 
                       variable_counts: List[int] = [3, 4, 5, 6],
-                      structure_types: List[str] = ["fork", "chain", "collider", "mixed"],
+                      structure_types: List[str] = ["fork", "chain", "collider", "mixed", "random", "scale_free", "two_layer"],
                       edge_density_range: Tuple[float, float] = (0.3, 0.7),
                       name_prefix: str = "random") -> Tuple[str, pyr.PMap]:
         """

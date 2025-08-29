@@ -140,8 +140,12 @@ class UnifiedGRPOTrainer:
             'info_gain': 0.0
         })
         
-        # Auto-activate info gain weight when using surrogate
-        if self.use_surrogate and self.reward_weights.get('info_gain', 0) == 0:
+        # Auto-activate info gain weight when using surrogate ONLY if not explicitly set
+        # Check if info_gain was explicitly provided in config
+        config_has_info_gain = (config and 'reward_weights' in config 
+                                and 'info_gain' in config['reward_weights'])
+        if self.use_surrogate and not config_has_info_gain:
+            # Only set default if not explicitly provided
             self.reward_weights['info_gain'] = 0.3
         
         # Initialize running stats FIRST (before reward config)

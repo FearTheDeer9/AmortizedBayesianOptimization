@@ -15,6 +15,7 @@ import jax.numpy as jnp
 import jax.random as random
 import haiku as hk
 import optax
+from sklearn.metrics import roc_auc_score, average_precision_score
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -22,8 +23,8 @@ sys.path.insert(0, str(project_root))
 
 from optimizer_utils import create_adaptive_optimizer, create_curriculum_optimizer_config
 from src.causal_bayes_opt.utils.checkpoint_utils import save_checkpoint
-from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables, get_target, create_scm
-from src.causal_bayes_opt.mechanisms.linear import create_linear_mechanism
+from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables, get_target
+from src.causal_bayes_opt.experiments.variable_scm_factory import VariableSCMFactory
 import pyrsistent as pyr
 from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
 from src.causal_bayes_opt.data_structures.sample import create_sample
@@ -36,16 +37,28 @@ from src.causal_bayes_opt.training.three_channel_converter import buffer_to_thre
 from src.causal_bayes_opt.utils.variable_mapping import VariableMapper
 
 
-def generate_homogeneous_graph_batch(rng_key, batch_size: int = 32, 
-                                    min_vars: int = 3, max_vars: int = 100) -> Tuple[int, List[Dict]]:
+def generate_homogeneous_graph_batch(rng_key, batch_size: int = 32, min_vars: int = 3, max_vars: int = 100,                structure_types: List[str] = None) -> Tuple[int, List[Dict]]:
     """
     Generate homogeneous batch where all graphs have the same number of variables.
     This follows AVICI's approach of avoiding padding by using same-size batches.
+    
+    Args:
+        rng_key: Random key for generation
+        batch_size: Number of graphs in batch
+        min_vars: Minimum number of variables
+        max_vars: Maximum number of variables
+        structure_types: List of structure types to sample from. 
+                        Options: 'random', 'chain', 'fork', 'collider', 'mixed', 'scale_free', 'two_layer'
+                        Default: ['random', 'chain', 'fork', 'collider', 'mixed']
     
     Returns:
         num_vars: Number of variables for all graphs in this batch
         graphs: List of graph configurations with identical num_vars
     """
+    # Default structure types if not specified
+    if structure_types is None:
+        structure_types = ['random', 'chain', 'fork', 'collider', 'mixed']
+    
     # Sample number of variables for this entire batch
     rng_key, vars_key = random.split(rng_key)
     num_vars = int(random.uniform(vars_key, minval=min_vars, maxval=max_vars + 1))
@@ -53,32 +66,34 @@ def generate_homogeneous_graph_batch(rng_key, batch_size: int = 32,
     graphs = []
     
     for i in range(batch_size):
-        # Sample graph type
+        # Sample graph type from provided list
         rng_key, type_key = random.split(rng_key)
-        graph_type_idx = random.choice(type_key, 5)
+        structure = structure_types[int(random.choice(type_key, len(structure_types)))]
         
-        if graph_type_idx == 0:
+        # Set edge density based on structure type
+        if structure == 'random':
             # Erdos-Renyi with varying edge density (1-3 edges per var)
             rng_key, density_key = random.split(rng_key)
             edges_per_var = random.uniform(density_key, minval=1.0, maxval=3.0)
             edge_density = min(edges_per_var / (num_vars - 1), 0.5)  # Cap at 0.5
-            structure = 'random'
-        elif graph_type_idx == 1:
+        elif structure == 'chain':
             # Chain structure (hardest for causal discovery)
-            structure = 'chain'
             edge_density = 1.0 / (num_vars - 1) if num_vars > 1 else 0.0
-        elif graph_type_idx == 2:
-            # Fork structure (common cause)
-            structure = 'fork'
+        elif structure in ['fork', 'collider']:
+            # Fork/Collider structures
             edge_density = 0.3
-        elif graph_type_idx == 3:
-            # Collider structure (common effect)
-            structure = 'collider'
-            edge_density = 0.3
-        else:
+        elif structure == 'mixed':
             # Mixed structure
-            structure = 'mixed'
             edge_density = 0.25
+        elif structure == 'scale_free':
+            # Scale-free networks tend to be sparser
+            edge_density = 0.2
+        elif structure == 'two_layer':
+            # Two-layer hierarchical structure
+            edge_density = 0.35
+        else:
+            # Default for unknown types
+            edge_density = 0.3
         
         graphs.append({
             'num_vars': num_vars,  # All graphs in batch have same num_vars
@@ -89,129 +104,33 @@ def generate_homogeneous_graph_batch(rng_key, batch_size: int = 32,
     return num_vars, graphs
 
 
-def create_scm_from_config(config: Dict, rng_key) -> pyr.PMap:
-    """Create SCM using unified create_scm() interface instead of VariableSCMFactory."""
+def create_scm_with_factory(config: Dict, factory: VariableSCMFactory) -> pyr.PMap:
+    """Create SCM using VariableSCMFactory for consistency with policy training."""
     num_vars = config['num_vars']
     structure = config['structure']
     edge_density = config['edge_density']
     
-    # Generate variable names
-    variables = frozenset([f'X{i}' for i in range(num_vars)])
+    # Map structure names from training config to factory structure types
+    structure_mapping = {
+        'random': 'random',
+        'chain': 'chain',
+        'fork': 'fork',
+        'collider': 'collider',
+        'mixed': 'mixed'
+    }
     
-    # Create mechanisms for each variable
-    mechanisms = {}
-    edges = set()
+    factory_structure = structure_mapping.get(structure, 'random')
     
-    if structure == 'chain':
-        # Chain: X0 -> X1 -> X2 -> ... -> X(n-1)
-        for i in range(num_vars):
-            if i == 0:
-                # Root variable
-                mechanisms[f'X{i}'] = create_linear_mechanism(
-                    parents=[], coefficients={}, intercept=0.0, noise_scale=1.0
-                )
-            else:
-                # Chain variable
-                parent = f'X{i-1}'
-                edges.add((parent, f'X{i}'))
-                mechanisms[f'X{i}'] = create_linear_mechanism(
-                    parents=[parent], 
-                    coefficients={parent: 1.0}, 
-                    intercept=0.0, 
-                    noise_scale=1.0
-                )
-    
-    elif structure == 'fork':
-        # Fork: X0 -> X1, X0 -> X2, X0 -> X3, ...
-        for i in range(num_vars):
-            if i == 0:
-                # Root (common cause)
-                mechanisms[f'X{i}'] = create_linear_mechanism(
-                    parents=[], coefficients={}, intercept=0.0, noise_scale=1.0
-                )
-            else:
-                # Fork children
-                parent = 'X0'
-                edges.add((parent, f'X{i}'))
-                mechanisms[f'X{i}'] = create_linear_mechanism(
-                    parents=[parent],
-                    coefficients={parent: 1.0},
-                    intercept=0.0,
-                    noise_scale=1.0
-                )
-    
-    elif structure == 'collider':
-        # Collider: X0 -> X(n-1), X1 -> X(n-1), ..., X(n-2) -> X(n-1)
-        for i in range(num_vars):
-            if i == num_vars - 1:
-                # Collider (common effect)
-                parents = [f'X{j}' for j in range(num_vars - 1)]
-                for parent in parents:
-                    edges.add((parent, f'X{i}'))
-                coefficients = {parent: 1.0 for parent in parents}
-                mechanisms[f'X{i}'] = create_linear_mechanism(
-                    parents=parents,
-                    coefficients=coefficients,
-                    intercept=0.0,
-                    noise_scale=1.0
-                )
-            else:
-                # Root variables
-                mechanisms[f'X{i}'] = create_linear_mechanism(
-                    parents=[], coefficients={}, intercept=0.0, noise_scale=1.0
-                )
-    
-    else:
-        # Random/mixed structure - simplified random graph
-        rng_key, edge_key = random.split(rng_key)
-        
-        # Create mechanisms (all root variables for simplicity)
-        for i in range(num_vars):
-            mechanisms[f'X{i}'] = create_linear_mechanism(
-                parents=[], coefficients={}, intercept=0.0, noise_scale=1.0
-            )
-        
-        # Add a few random edges based on edge_density
-        max_edges = int(edge_density * num_vars * (num_vars - 1) / 2)
-        edge_count = 0
-        
-        for i in range(num_vars):
-            for j in range(i + 1, num_vars):
-                if edge_count >= max_edges:
-                    break
-                rng_key, add_edge_key = random.split(rng_key)
-                if random.uniform(add_edge_key) < edge_density:
-                    # Add edge X_i -> X_j
-                    parent, child = f'X{i}', f'X{j}'
-                    edges.add((parent, child))
-                    
-                    # Update child mechanism to include parent
-                    mechanisms[child] = create_linear_mechanism(
-                        parents=[parent],
-                        coefficients={parent: 1.0},
-                        intercept=0.0,
-                        noise_scale=1.0
-                    )
-                    edge_count += 1
-    
-    # Choose random target (not X0 to avoid trivial cases)
-    target_idx = random.choice(rng_key, num_vars)
-    target_var = f'X{target_idx}'
-    
-    # Create SCM using unified interface
-    scm = create_scm(
-        variables=variables,
-        edges=frozenset(edges),
-        mechanisms=pyr.pmap(mechanisms),
-        target=target_var,
-        metadata=pyr.pmap({
-            'structure': structure,
-            'edge_density': edge_density,
-            'num_variables': num_vars
-        })
+    # Create SCM using factory
+    scm = factory.create_variable_scm(
+        num_variables=num_vars,
+        structure_type=factory_structure,
+        edge_density=edge_density
     )
     
     return scm
+
+
 
 
 def initialize_models(hidden_dim: int = 128, 
@@ -252,7 +171,7 @@ def initialize_models(hidden_dim: int = 128,
     return policy_net, policy_params, surrogate_net, surrogate_params
 
 
-def compute_surrogate_loss(params, net, buffer, target_idx, target_var, true_parents, variables, rng_key):
+def compute_surrogate_loss(params, net, buffer, target_idx, target_var, true_parents, variables, rng_key, use_weighted_loss=False):
     """Compute BCE loss for surrogate predictions."""
     tensor, _ = buffer_to_three_channel_tensor(buffer, target_var)
     predictions = net.apply(params, rng_key, tensor, target_idx, True)
@@ -276,13 +195,23 @@ def compute_surrogate_loss(params, net, buffer, target_idx, target_var, true_par
     
     labels = jnp.array(labels)
     
-    # Binary cross-entropy loss
-    bce_loss = -(labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
-    return jnp.mean(bce_loss), pred_probs, labels
+    # Binary cross-entropy loss with optional weighting
+    d = len(variables)
+    if use_weighted_loss:
+        # Assume average of ~1.5 parents per variable
+        pos_weight = max((d - 1.5) / 1.5, 1.0)
+        bce_loss = -(pos_weight * labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
+    else:
+        bce_loss = -(labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
+    
+    # Normalize by number of possible edges (excluding diagonal)
+    loss = jnp.sum(bce_loss) / (d * (d - 1))
+    
+    return loss, pred_probs, labels
 
 
 def compute_vectorized_surrogate_loss(params, net, batch_tensors, batch_target_indices, 
-                                     batch_true_parents, variables, rng_key):
+                                     batch_true_parents, variables, rng_key, use_weighted_loss=False):
     """Compute BCE loss for vectorized batch of surrogate predictions."""
     # batch_tensors: [batch_size, N, d, 3]
     # batch_target_indices: [batch_size] 
@@ -319,9 +248,18 @@ def compute_vectorized_surrogate_loss(params, net, batch_tensors, batch_target_i
     
     labels = jnp.stack(labels_list)  # [batch_size, d]
     
-    # Binary cross-entropy loss
-    bce_loss = -(labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
-    return jnp.mean(bce_loss), pred_probs, labels
+    # Binary cross-entropy loss with optional weighting
+    if use_weighted_loss:
+        # Assume average of ~1.5 parents per variable
+        pos_weight = max((d - 1.5) / 1.5, 1.0)
+        bce_loss = -(pos_weight * labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
+    else:
+        bce_loss = -(labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
+    
+    # Normalize by number of possible edges per graph (excluding diagonal)
+    loss = jnp.mean(jnp.sum(bce_loss, axis=-1) / (d * (d - 1)))
+    
+    return loss, pred_probs, labels
 
 
 def train_batch_vectorized(scm_batch: List,
@@ -332,7 +270,8 @@ def train_batch_vectorized(scm_batch: List,
                            max_datapoints: int,
                            min_obs_ratio: float,
                            max_obs_ratio: float,
-                           rng_key) -> Tuple:
+                           rng_key,
+                           use_weighted_loss: bool = False) -> Tuple:
     """Train on a homogeneous batch of SCMs with vectorized processing."""
     
     batch_size = len(scm_batch)
@@ -442,7 +381,7 @@ def train_batch_vectorized(scm_batch: List,
         rng_key_loss = random.PRNGKey(0)  # Deterministic for gradient
         loss, pred_probs, labels = compute_vectorized_surrogate_loss(
             params, surrogate_net, batch_data, batch_target_indices,
-            batch_true_parents, variables, rng_key_loss
+            batch_true_parents, variables, rng_key_loss, use_weighted_loss
         )
         return loss, (pred_probs, labels)
     
@@ -461,6 +400,30 @@ def train_batch_vectorized(scm_batch: List,
     batch_precision = batch_tp / (batch_tp + batch_fp + 1e-8)
     batch_recall = batch_tp / (batch_tp + batch_fn + 1e-8) 
     batch_f1 = 2 * batch_precision * batch_recall / (batch_precision + batch_recall + 1e-8)
+    
+    # Compute AUROC and AUPRC for each item in batch
+    batch_auroc = []
+    batch_auprc = []
+    for i in range(batch_size):
+        # Convert to numpy for sklearn
+        labels_np = np.array(batch_labels[i])
+        probs_np = np.array(batch_pred_probs[i])
+        
+        # Only compute if there are both positive and negative examples
+        if labels_np.sum() > 0 and labels_np.sum() < len(labels_np):
+            try:
+                auroc = roc_auc_score(labels_np, probs_np)
+                auprc = average_precision_score(labels_np, probs_np)
+            except:
+                auroc = 0.5  # Random baseline
+                auprc = labels_np.sum() / len(labels_np)  # Proportion of positives
+        else:
+            # All same class - metrics undefined
+            auroc = 0.5  # Undefined, use random baseline
+            auprc = labels_np.sum() / len(labels_np) if labels_np.sum() > 0 else 0.0
+        
+        batch_auroc.append(auroc)
+        batch_auprc.append(auprc)
     
     # Create metrics for each SCM in batch
     metrics = []
@@ -483,12 +446,16 @@ def train_batch_vectorized(scm_batch: List,
             'loss': float(avg_loss),  # Same loss for all in batch
             'f1': float(batch_f1[i]),
             'precision': float(batch_precision[i]),
-            'recall': float(batch_recall[i])
+            'recall': float(batch_recall[i]),
+            'auroc': float(batch_auroc[i]),
+            'auprc': float(batch_auprc[i])
         })
     
     avg_f1 = float(jnp.mean(batch_f1))
+    avg_auroc = float(np.mean(batch_auroc))
+    avg_auprc = float(np.mean(batch_auprc))
     
-    return surrogate_params, opt_state, avg_loss, avg_f1, metrics
+    return surrogate_params, opt_state, avg_loss, avg_f1, avg_auroc, avg_auprc, metrics
 
 
 def train_batch(scm_batch: List, 
@@ -705,6 +672,8 @@ def main():
                        help='Maximum number of variables')
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed')
+    parser.add_argument('--use-weighted-loss', action='store_true',
+                       help='Use weighted BCE loss for class imbalance')
     parser.add_argument('--save-freq', type=int, default=100,
                        help='Save checkpoint every N steps')
     parser.add_argument('--log-freq', type=int, default=100,
@@ -715,6 +684,10 @@ def main():
                        help='Path to checkpoint to resume from')
     parser.add_argument('--checkpoint-output', type=str, default=None,
                        help='Explicit path for final checkpoint output')
+    parser.add_argument('--structure-types', type=str, nargs='+', 
+                       default=['random', 'chain', 'fork', 'collider', 'mixed'],
+                       choices=['random', 'chain', 'fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
+                       help='SCM structure types to train on')
     
     args = parser.parse_args()
     
@@ -726,6 +699,7 @@ def main():
     print(f"  Model: {args.hidden_dim} hidden, {args.num_layers} layers")
     print(f"  Training: {args.num_steps} steps, batch size {args.batch_size}")
     print(f"  Variables: {args.min_vars}-{args.max_vars}")
+    print(f"  Structure types: {args.structure_types}")
     print(f"  Datapoints: {args.min_datapoints}-{args.max_datapoints} per graph")
     print(f"  Observation ratio: {args.min_obs_ratio:.1%}-{args.max_obs_ratio:.1%}")
     print(f"  Learning rate: {args.lr}")
@@ -743,6 +717,15 @@ def main():
     
     # Initialize RNG
     rng_key = random.PRNGKey(args.seed)
+    
+    # Initialize SCM factory for consistent graph generation
+    scm_factory = VariableSCMFactory(
+        seed=args.seed,
+        noise_scale=1.0,
+        coefficient_range=(-2.0, 2.0),
+        vary_intervention_ranges=True,
+        use_output_bounds=True
+    )
     
     # Track time if limit specified
     start_time = time.time() if args.max_time_minutes else None
@@ -811,14 +794,14 @@ def main():
         # Generate homogeneous batch of graphs (all same num_vars)
         rng_key, batch_key = random.split(rng_key)
         num_vars_batch, graph_configs = generate_homogeneous_graph_batch(
-            batch_key, args.batch_size, args.min_vars, args.max_vars
+            batch_key, args.batch_size, args.min_vars, args.max_vars,
+            structure_types=args.structure_types
         )
         
-        # Create SCMs from configs using unified interface
+        # Create SCMs from configs using factory
         scm_batch = []
         for config in graph_configs:
-            rng_key, scm_key = random.split(rng_key)
-            scm = create_scm_from_config(config, scm_key)
+            scm = create_scm_with_factory(config, scm_factory)
             scm_batch.append(scm)
         
         # Train on batch with vectorized processing
@@ -826,7 +809,7 @@ def main():
         
         # Time the vectorized approach
         batch_start_time = time.time()
-        surrogate_params, opt_state, avg_loss, avg_f1, batch_metrics = train_batch_vectorized(
+        surrogate_params, opt_state, avg_loss, avg_f1, avg_auroc, avg_auprc, batch_metrics = train_batch_vectorized(
             scm_batch, policy_net, policy_params,
             surrogate_net, surrogate_params,
             optimizer, opt_state,
@@ -834,7 +817,8 @@ def main():
             args.max_datapoints,
             args.min_obs_ratio,
             args.max_obs_ratio,
-            train_key
+            train_key,
+            args.use_weighted_loss
         )
         batch_time = time.time() - batch_start_time
         
@@ -857,6 +841,7 @@ def main():
             
             print(f"\nStep {step}/{args.num_steps}")
             print(f"  Avg Loss: {avg_loss:.4f}, Avg F1: {avg_f1:.4f}")
+            print(f"  Avg AUROC: {avg_auroc:.4f}, Avg AUPRC: {avg_auprc:.4f}")
             print(f"  Batch time: {batch_time:.3f}s (num_vars={num_vars_batch})")
             print(f"  Avg datapoints: {avg_datapoints:.0f} (obs ratio: {avg_obs_ratio:.1%})")
             print("  F1 by size:")
@@ -907,6 +892,8 @@ def main():
             'step': step,
             'avg_loss': float(avg_loss),
             'avg_f1': float(avg_f1),
+            'avg_auroc': float(avg_auroc),
+            'avg_auprc': float(avg_auprc),
             'batch_metrics': batch_metrics
         })
     

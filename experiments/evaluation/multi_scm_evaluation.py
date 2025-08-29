@@ -6,6 +6,7 @@ Evaluates multiple policy+surrogate combinations across randomly sampled SCMs
 and generates plots showing average performance trajectories.
 """
 
+import argparse
 import sys
 import json
 import numpy as np
@@ -39,14 +40,13 @@ logging.basicConfig(level=logging.DEBUG, format='%(name)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-def create_random_scms(n_scms: int = 10, seed: int = 42) -> List[Any]:
+def create_random_scms(n_scms: int = 10, seed: int = 42, structure_types: List[str] = ['fork', 'chain', 'collider', 'mixed', 'random'],
+                       num_variables_options: List[int] = list(range(3, 10))) -> List[Any]:
     """Create a diverse set of random SCMs for evaluation."""
     np.random.seed(seed)
     scm_factory = VariableSCMFactory(seed=seed, noise_scale=0.1)
     
     scms = []
-    structure_types = ['fork', 'chain', 'collider', 'mixed', 'random']
-    num_variables_options = [3, 4, 5, 6, 8]
     
     for i in range(n_scms):
         # Randomly select structure and size
@@ -224,13 +224,15 @@ def run_multi_scm_evaluation(
     policy_path: Optional[Path] = None,
     surrogate_path: Optional[Path] = None,
     n_scms: int = 10,
-    seed: int = 42
+    seed: int = 42,
+    structure_types: List[str] = ['fork', 'chain', 'collider', 'mixed', 'random'],
+    num_variables_options: List[int] = list(range(3, 10))
 ) -> Dict[str, Any]:
     """Run evaluation across multiple SCMs."""
     
     # Create random SCMs
     logger.info(f"Creating {n_scms} random SCMs...")
-    scms = create_random_scms(n_scms, seed)
+    scms = create_random_scms(n_scms, seed, structure_types, num_variables_options)
     
     # Evaluation config
     config = {
@@ -387,16 +389,33 @@ def save_results(results: Dict, scms: List, output_dir: Path):
 if __name__ == "__main__":
     # Define checkpoint paths
     project_root = Path(__file__).parent.parent.parent
-    policy_path = project_root / "experiments/joint-training/checkpoints/production_12hour/policy_phase_13.pkl"
-    surrogate_path = project_root / "experiments/joint-training/checkpoints/production_12hour/surrogate_phase_12.pkl"
-    
+    # add argparse for structure types
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--structure-types', type=str, nargs='+',
+                        default=['fork', 'chain', 'collider', 'mixed', 'random'],
+                        choices=['random', 'chain', 'fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
+                        help='SCM structure types to train on')
+    parser.add_argument('--policy-path', type=Path, default = "",
+                        help='Path to policy checkpoint')
+    parser.add_argument('--surrogate-path', type=Path, default="",
+                        help='Path to surrogate checkpoint')
+    parser.add_argument('--num-variables-options', type=int, nargs='+',
+                        default=list(range(3, 10)),
+                        help='Number of variables to sample from')
+    args = parser.parse_args()
+    structure_types = args.structure_types
+    policy_path = args.policy_path
+    surrogate_path = args.surrogate_path
+    num_variables_options = args.num_variables_options
     # Run evaluation
     logger.info("Starting multi-SCM evaluation...")
     results, scms = run_multi_scm_evaluation(
         policy_path=policy_path,
         surrogate_path=surrogate_path,
         n_scms=10,  # Full evaluation
-        seed=42
+        seed=42,
+        structure_types=structure_types,
+        num_variables_options=num_variables_options
     )
     
     # Save results

@@ -15,10 +15,7 @@
     "num_steps": 1000,
     "structure_types": [
       "fork",
-      "chain",
-      "collider",
-      "mixed",
-      "random"
+      "chain"
     ]
   },
   "policy_config": {
@@ -32,10 +29,7 @@
     "max_vars": 100,
     "structure_types": [
       "fork",
-      "chain",
-      "collider",
-      "mixed",
-      "random"
+      "chain"
     ],
     "reward_weights": {
       "target": 1.0,

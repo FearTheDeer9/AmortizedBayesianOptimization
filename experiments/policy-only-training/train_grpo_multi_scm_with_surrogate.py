@@ -173,16 +173,8 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         logger.info("🎯 EnhancedGRPOTrainer.train() called - our enhanced version is active!")
         
         # Store the original method and replace with our enhanced version
-        original_run_episode = self._run_grpo_episode
         self._run_grpo_episode = self._run_grpo_episode_with_tracking
-        
-        try:
-            # Call parent's train method with our method in place
-            result = super().train(scms)
-        finally:
-            # Restore original method (good practice, though train usually runs once)
-            self._run_grpo_episode = original_run_episode
-        
+        result = super().train(scms)
         return result
     
     def _rotate_scm(self, reason: str = "episode_end"):
@@ -720,6 +712,14 @@ def main():
                         help='Max interventions per episode')
     parser.add_argument('--obs-per-episode', type=int, default=None,
                         help='Observations per episode')
+    parser.add_argument('--structure-types', type=str, nargs='+',
+                        default=['fork', 'chain', 'collider', 'mixed', 'random'],
+                        choices=['random', 'chain', 'fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
+                        help='SCM structure types to train on')
+    parser.add_argument('--min-vars', type=int, default=3,
+                        help='Minimum number of variables in SCM')
+    parser.add_argument('--max-vars', type=int, default=99,
+                        help='Maximum number of variables in SCM')
     
     args = parser.parse_args()
     
@@ -829,10 +829,10 @@ def main():
         use_output_bounds=True
     )
     
-    # Define sampling configuration (full range 3-99)
+    # Define sampling configuration with respect to min/max vars
     sampling_config = {
-        'variable_counts': list(range(3, 100)),  # Full range 3-99
-        'structure_types': ["fork", "chain", "collider", "mixed", "random"],
+        'variable_counts': list(range(args.min_vars, args.max_vars + 1)),  # Use specified range
+        'structure_types': args.structure_types,  # Use command-line argument
         'edge_density_range': (0.2, 0.6),
         'name_prefix': 'enhanced'
     }

@@ -23,11 +23,7 @@
     "save_freq": 200,
     "log_freq": 100,
     "structure_types": [
-      "fork",
-      "chain",
-      "collider",
-      "mixed",
-      "random"
+      "collider"
     ]
   },
   "policy_config": {
@@ -45,11 +41,7 @@
       "info_gain": 0.1
     },
     "structure_types": [
-      "fork",
-      "chain",
-      "collider",
-      "mixed",
-      "random"
+      "collider"
     ]
   }
 }

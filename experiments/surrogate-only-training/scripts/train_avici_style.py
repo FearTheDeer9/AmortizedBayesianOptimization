@@ -15,7 +15,6 @@ import jax.numpy as jnp
 import jax.random as random
 import haiku as hk
 import optax
-from sklearn.metrics import roc_auc_score, average_precision_score
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -412,6 +411,8 @@ def train_batch_vectorized(scm_batch: List,
         # Only compute if there are both positive and negative examples
         if labels_np.sum() > 0 and labels_np.sum() < len(labels_np):
             try:
+                from sklearn.metrics import roc_auc_score, average_precision_score
+
                 auroc = roc_auc_score(labels_np, probs_np)
                 auprc = average_precision_score(labels_np, probs_np)
             except:

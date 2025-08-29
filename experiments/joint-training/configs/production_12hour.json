@@ -3,7 +3,7 @@
     "total_training_minutes": 720,
     "minutes_per_phase": 30,
     "start_phase": "surrogate",
-    "checkpoint_dir": "experiments/joint-training/checkpoints/production_fork_12hr"
+    "checkpoint_dir": "experiments/joint-training/checkpoints/production_12hr"
   },
   "surrogate_config": {
     "hidden_dim": 256,
@@ -18,7 +18,9 @@
       "chain",
       "collider",
       "mixed",
-      "random"
+      "random",
+      "scale_free",
+      "two_layer"
     ]
   },
   "policy_config": {
@@ -35,7 +37,9 @@
       "chain",
       "collider",
       "mixed",
-      "random"
+      "random",
+      "scale_free",
+      "two_layer"
     ],
     "reward_weights": {
       "target": 1.0,

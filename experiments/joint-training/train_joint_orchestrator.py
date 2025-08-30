@@ -53,6 +53,23 @@ class JointTrainingOrchestrator:
             'policy': None
         }
         
+        # Initialize from config if provided
+        if 'initial_surrogate_checkpoint' in self.orchestration:
+            initial_surrogate = Path(self.orchestration['initial_surrogate_checkpoint'])
+            if initial_surrogate.exists():
+                self.checkpoints['surrogate'] = initial_surrogate
+                logger.info(f"Initialized surrogate checkpoint from config: {initial_surrogate}")
+            else:
+                logger.warning(f"Initial surrogate checkpoint not found: {initial_surrogate}")
+        
+        if 'initial_policy_checkpoint' in self.orchestration:
+            initial_policy = Path(self.orchestration['initial_policy_checkpoint'])
+            if initial_policy.exists():
+                self.checkpoints['policy'] = initial_policy
+                logger.info(f"Initialized policy checkpoint from config: {initial_policy}")
+            else:
+                logger.warning(f"Initial policy checkpoint not found: {initial_policy}")
+        
         # Current phase
         self.current_phase = self.orchestration.get('start_phase', 'surrogate')
         
@@ -114,6 +131,8 @@ class JointTrainingOrchestrator:
             cmd.extend(["--num-steps", str(surrogate_config['num_steps'])])
         if 'structure_types' in surrogate_config:
             cmd.extend(["--structure-types"] + surrogate_config['structure_types'])
+        if 'disable_weighted_loss' in surrogate_config and surrogate_config['disable_weighted_loss']:
+            cmd.extend(["--use-weighted-loss"])  # Flag disables weighting now
         
         # Resume from previous checkpoint if exists
         if self.checkpoints['surrogate']:

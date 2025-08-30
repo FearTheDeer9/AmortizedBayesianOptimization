@@ -184,7 +184,7 @@ def initialize_models(hidden_dim: int = 128,
     return policy_net, policy_params, surrogate_net, surrogate_params
 
 
-def compute_surrogate_loss(params, net, buffer, target_idx, target_var, true_parents, variables, rng_key, use_weighted_loss=False):
+def compute_surrogate_loss(params, net, buffer, target_idx, target_var, true_parents, variables, rng_key, use_weighted_loss=True):
     """Compute BCE loss for surrogate predictions."""
     tensor, _ = buffer_to_three_channel_tensor(buffer, target_var)
     predictions = net.apply(params, rng_key, tensor, target_idx, True)
@@ -211,20 +211,20 @@ def compute_surrogate_loss(params, net, buffer, target_idx, target_var, true_par
     # Binary cross-entropy loss with optional weighting
     d = len(variables)
     if use_weighted_loss:
-        # Assume average of ~1.5 parents per variable
-        pos_weight = max((d - 1.5) / 1.5, 1.0)
+        # Assume 1/5 of possible edges are present (20% positive class)
+        pos_weight = 4.0  # (1 - 0.2) / 0.2 = 0.8 / 0.2 = 4.0
         bce_loss = -(pos_weight * labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
     else:
         bce_loss = -(labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
     
-    # Normalize by number of possible edges (excluding diagonal)
-    loss = jnp.sum(bce_loss) / (d * (d - 1))
+    # Normalize by number of possible parent edges for target (d - 1, excluding self)
+    loss = jnp.sum(bce_loss) / (d - 1)
     
     return loss, pred_probs, labels
 
 
 def compute_vectorized_surrogate_loss(params, net, batch_tensors, batch_target_indices, 
-                                     batch_true_parents, variables, rng_key, use_weighted_loss=False):
+                                     batch_true_parents, variables, rng_key, use_weighted_loss=True):
     """Compute BCE loss for vectorized batch of surrogate predictions."""
     # batch_tensors: [batch_size, N, d, 3]
     # batch_target_indices: [batch_size] 
@@ -268,14 +268,14 @@ def compute_vectorized_surrogate_loss(params, net, batch_tensors, batch_target_i
     
     # Binary cross-entropy loss with optional weighting
     if use_weighted_loss:
-        # Assume average of ~1.5 parents per variable
-        pos_weight = max((d - 1.5) / 1.5, 1.0)
+        # Assume 1/5 of possible edges are present (20% positive class)
+        pos_weight = 4.0  # (1 - 0.2) / 0.2 = 0.8 / 0.2 = 4.0
         bce_loss = -(pos_weight * labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
     else:
         bce_loss = -(labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
     
-    # Normalize by number of possible edges per graph (excluding diagonal)
-    loss = jnp.mean(jnp.sum(bce_loss, axis=-1) / (d * (d - 1)))
+    # Normalize by number of possible parent edges for target (d - 1, excluding self)
+    loss = jnp.mean(jnp.sum(bce_loss, axis=-1) / (d - 1))
     
     return loss, pred_probs, labels
 
@@ -289,7 +289,7 @@ def train_batch_vectorized(scm_batch: List,
                            min_obs_ratio: float,
                            max_obs_ratio: float,
                            rng_key,
-                           use_weighted_loss: bool = False) -> Tuple:
+                           use_weighted_loss: bool = True) -> Tuple:
     """Train on a homogeneous batch of SCMs with vectorized processing."""
     
     batch_size = len(scm_batch)
@@ -705,7 +705,7 @@ def main():
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed')
     parser.add_argument('--use-weighted-loss', action='store_true',
-                       help='Use weighted BCE loss for class imbalance')
+                       help='Disable weighted BCE loss (weighted loss is now default)')
     parser.add_argument('--save-freq', type=int, default=100,
                        help='Save checkpoint every N steps')
     parser.add_argument('--log-freq', type=int, default=100,
@@ -861,7 +861,7 @@ def main():
             args.min_obs_ratio,
             args.max_obs_ratio,
             train_key,
-            args.use_weighted_loss
+            not args.use_weighted_loss  # Invert flag: --use-weighted-loss now disables weighting
         )
         batch_time = time.time() - batch_start_time
         

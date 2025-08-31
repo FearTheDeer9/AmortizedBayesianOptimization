@@ -236,6 +236,10 @@ class JointTrainingOrchestrator:
             if 'info_gain' in weights:
                 cmd.extend(["--info-weight", str(weights['info_gain'])])
         
+        # Pass reward type if specified
+        if 'reward_type' in policy_config:
+            cmd.extend(["--reward-type", str(policy_config['reward_type'])])
+        
         # Pass surrogate checkpoint if available
         if self.checkpoints['surrogate']:
             cmd.extend(["--surrogate-checkpoint", str(self.checkpoints['surrogate'])])

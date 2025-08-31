@@ -183,7 +183,7 @@ class GRPORewardComputer:
     def _compute_binary_reward(self, intervention: Dict[str, Any], outcome_sample: Any, 
                               target_variable: str, current_group_rewards: list = None) -> Dict[str, Any]:
         """
-        Compute binary reward: +1 if below group median, 0 if above group median.
+        Compute binary reward: +1 if better than group median, 0 otherwise.
         
         Args:
             intervention: Applied intervention
@@ -204,16 +204,35 @@ class GRPORewardComputer:
         
         target_value = float(outcome_values[target_variable])
         
-        # For now, use simple binary logic based on value sign
-        # In GRPO batch context, this will be updated to use group median
-        if self.config.optimization_direction == "MINIMIZE":
-            # For minimization: negative values are good (+1), positive values are bad (0)
-            binary_reward = 1.0 if target_value < 0.0 else 0.0
-        else:
-            # For maximization: positive values are good (+1), negative values are bad (0)
-            binary_reward = 1.0 if target_value > 0.0 else 0.0
+        # Use group median if available, otherwise fall back to running stats
+        if current_group_rewards and len(current_group_rewards) > 1:
+            group_median = float(np.median(current_group_rewards))
+            if self.config.optimization_direction == "MINIMIZE":
+                # For minimization: below median is good (+1), above median is bad (0)
+                binary_reward = 1.0 if target_value < group_median else 0.0
+            else:
+                # For maximization: above median is good (+1), below median is bad (0)
+                binary_reward = 1.0 if target_value > group_median else 0.0
+            
+            logger.info(f"[BINARY TARGET REWARD] Value: {target_value:.3f}, Median: {group_median:.3f}, Binary reward: {binary_reward:.1f}")
         
-        logger.info(f"[BINARY TARGET REWARD] Value: {target_value:.3f}, Binary reward: {binary_reward:.1f}")
+        else:
+            # Fall back to running stats if no group provided
+            if self.stats is not None:
+                self.stats.update(target_value)
+                current_mean = self.stats.mean
+                if self.config.optimization_direction == "MINIMIZE":
+                    binary_reward = 1.0 if target_value < current_mean else 0.0
+                else:
+                    binary_reward = 1.0 if target_value > current_mean else 0.0
+                logger.info(f"[BINARY TARGET REWARD] Value: {target_value:.3f}, Mean: {current_mean:.3f}, Binary reward: {binary_reward:.1f}")
+            else:
+                # Last resort: use sign check
+                if self.config.optimization_direction == "MINIMIZE":
+                    binary_reward = 1.0 if target_value < 0.0 else 0.0
+                else:
+                    binary_reward = 1.0 if target_value > 0.0 else 0.0
+                logger.info(f"[BINARY TARGET REWARD] Value: {target_value:.3f}, Binary reward: {binary_reward:.1f} (sign fallback)")
         
         return {
             'total': binary_reward,

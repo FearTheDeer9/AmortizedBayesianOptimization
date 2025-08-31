@@ -1,0 +1,40 @@
+{
+  "orchestration": {
+    "total_training_minutes": 120,
+    "minutes_per_phase": 10,
+    "start_phase": "surrogate",
+    "checkpoint_dir": "scale_free/chapter_2",
+    "initial_surrogate_checkpoint": "experiments/joint-training/scale_free/surrogate_phase_11.pkl",
+    "initial_policy_checkpoint": "experiments/joint-training/scale_free/policy_phase_12.pkl"
+  },
+  "surrogate_config": {
+    "hidden_dim": 128,
+    "num_layers": 8,
+    "lr": 5e-4,
+    "batch_size": 8,
+    "min_vars": 3,
+    "max_vars": 20,
+    "num_steps": 1000,
+    "structure_types": [
+      "scale_free"
+    ]
+  },
+  "policy_config": {
+    "episodes": 500,
+    "patience": 5,
+    "threshold": 0.9,
+    "learning_rate": 5e-4,
+    "max_interventions": 10,
+    "obs_per_episode": 50,
+    "min_vars": 3,
+    "max_vars": 20,
+    "structure_types": [
+      "scale_free"
+    ],
+    "reward_weights": {
+      "target": 0.8,
+      "parent": 0.1,
+      "info_gain": 0.1
+    }
+  }
+}

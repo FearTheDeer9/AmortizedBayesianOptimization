@@ -99,10 +99,11 @@ def compute_information_gain_reward(
     target_variable: str,
     variables: list,
     tensor_5ch: Optional[Any] = None,
-    mapper: Optional[Any] = None
+    mapper: Optional[Any] = None,
+    info_gain_type: str = "entropy_reduction"
 ) -> float:
     """
-    Compute information gain as entropy reduction using stored posteriors from Channel 3.
+    Compute information gain using entropy reduction or probability change.
     
     Args:
         buffer: Current experience buffer (before intervention)
@@ -113,49 +114,127 @@ def compute_information_gain_reward(
         variables: List of all variables
         tensor_5ch: Optional pre-computed 5-channel tensor
         mapper: Optional pre-computed mapper
+        info_gain_type: "entropy_reduction" or "probability_change"
         
     Returns:
-        Information gain (entropy reduction, positive = good)
+        Information gain (positive = good)
     """
     if surrogate_predict_fn is None:
         return 0.0
     
     try:
-        # EFFICIENT: Use stored posteriors from Channel 3 if tensor provided
-        if tensor_5ch is not None and mapper is not None:
-            # Extract entropy from Channel 3 (stored posteriors)
-            entropy_before = _compute_entropy_from_channel(tensor_5ch[:, :, 3], target_variable, mapper)
-        else:
-            # Fallback: compute from buffer (less efficient)
-            from ..training.three_channel_converter import buffer_to_three_channel_tensor
-            tensor_before, mapper = buffer_to_three_channel_tensor(
-                buffer, target_variable, max_history_size=100, standardize=True
+        if info_gain_type == "probability_change":
+            # User's preferred: sum of absolute probability changes
+            return _compute_probability_change_info_gain(
+                buffer, intervention, outcome_sample, surrogate_predict_fn, 
+                target_variable, variables
             )
-            posterior_before = surrogate_predict_fn(tensor_before, target_variable, variables)
-            entropy_before = _compute_posterior_entropy(posterior_before, target_variable)
-        
-        # Create hypothetical buffer WITH intervention for "after" state
-        hypo_buffer = _copy_buffer(buffer)
-        hypo_buffer.add_intervention(intervention, outcome_sample)
-        
-        # Get tensor with posteriors for "after" state
-        from ..training.five_channel_converter import buffer_to_five_channel_tensor_with_posteriors
-        tensor_after, mapper_after, _ = buffer_to_five_channel_tensor_with_posteriors(
-            hypo_buffer, target_variable, max_history_size=100, standardize=True
-        )
-        
-        # Extract entropy from Channel 3 of "after" tensor
-        entropy_after = _compute_entropy_from_channel(tensor_after[:, :, 3], target_variable, mapper_after)
-        
-        # Information gain = entropy reduction
-        info_gain = entropy_before - entropy_after
-        
-        logger.debug(f"Info gain (efficient): {entropy_before:.4f} -> {entropy_after:.4f} = {info_gain:.4f}")
-        return float(info_gain)
+        else:
+            # Original: entropy reduction
+            return _compute_entropy_reduction_info_gain(
+                buffer, intervention, outcome_sample, surrogate_predict_fn,
+                target_variable, variables, tensor_5ch, mapper
+            )
         
     except Exception as e:
         logger.error(f"Error computing information gain: {e}")
         return 0.0
+
+
+def _compute_probability_change_info_gain(
+    buffer: ExperienceBuffer,
+    intervention: Dict[str, Any], 
+    outcome_sample: Any,
+    surrogate_predict_fn: Callable,
+    target_variable: str,
+    variables: list
+) -> float:
+    """
+    Compute info gain as sum of absolute probability changes.
+    
+    Returns:
+        sum(|prob_after[i] - prob_before[i]| for i in variables)
+    """
+    # Get before probabilities
+    from ..training.three_channel_converter import buffer_to_three_channel_tensor
+    tensor_before, _ = buffer_to_three_channel_tensor(
+        buffer, target_variable, max_history_size=100, standardize=False
+    )
+    
+    posterior_before = surrogate_predict_fn(tensor_before, target_variable, variables)
+    if 'parent_probs' not in posterior_before:
+        return 0.0
+    
+    probs_before = posterior_before['parent_probs']
+    
+    # Get after probabilities  
+    hypo_buffer = _copy_buffer(buffer)
+    hypo_buffer.add_intervention(intervention, outcome_sample)
+    
+    tensor_after, _ = buffer_to_three_channel_tensor(
+        hypo_buffer, target_variable, max_history_size=100, standardize=False
+    )
+    
+    posterior_after = surrogate_predict_fn(tensor_after, target_variable, variables)
+    if 'parent_probs' not in posterior_after:
+        return 0.0
+    
+    probs_after = posterior_after['parent_probs']
+    
+    # Compute absolute change sum
+    prob_changes = []
+    for i in range(min(len(probs_before), len(probs_after))):
+        change = abs(float(probs_after[i]) - float(probs_before[i]))
+        prob_changes.append(change)
+    
+    total_change = sum(prob_changes)
+    
+    logger.debug(f"Probability changes: {prob_changes}, Total: {total_change:.4f}")
+    return total_change
+
+
+def _compute_entropy_reduction_info_gain(
+    buffer: ExperienceBuffer,
+    intervention: Dict[str, Any],
+    outcome_sample: Any, 
+    surrogate_predict_fn: Callable,
+    target_variable: str,
+    variables: list,
+    tensor_5ch: Optional[Any] = None,
+    mapper: Optional[Any] = None
+) -> float:
+    """Original entropy reduction implementation."""
+    # EFFICIENT: Use stored posteriors from Channel 3 if tensor provided
+    if tensor_5ch is not None and mapper is not None:
+        # Extract entropy from Channel 3 (stored posteriors)
+        entropy_before = _compute_entropy_from_channel(tensor_5ch[:, :, 3], target_variable, mapper)
+    else:
+        # Fallback: compute from buffer (less efficient)
+        from ..training.three_channel_converter import buffer_to_three_channel_tensor
+        tensor_before, mapper = buffer_to_three_channel_tensor(
+            buffer, target_variable, max_history_size=100, standardize=True
+        )
+        posterior_before = surrogate_predict_fn(tensor_before, target_variable, variables)
+        entropy_before = _compute_posterior_entropy(posterior_before, target_variable)
+    
+    # Create hypothetical buffer WITH intervention for "after" state
+    hypo_buffer = _copy_buffer(buffer)
+    hypo_buffer.add_intervention(intervention, outcome_sample)
+    
+    # Get tensor with posteriors for "after" state
+    from ..training.five_channel_converter import buffer_to_five_channel_tensor_with_posteriors
+    tensor_after, mapper_after, _ = buffer_to_five_channel_tensor_with_posteriors(
+        hypo_buffer, target_variable, max_history_size=100, standardize=True
+    )
+    
+    # Extract entropy from Channel 3 of "after" tensor
+    entropy_after = _compute_entropy_from_channel(tensor_after[:, :, 3], target_variable, mapper_after)
+    
+    # Information gain = entropy reduction
+    info_gain = entropy_before - entropy_after
+    
+    logger.debug(f"Info gain (entropy): {entropy_before:.4f} -> {entropy_after:.4f} = {info_gain:.4f}")
+    return float(info_gain)
 
 
 def compute_parent_reward(scm: Any, intervention_variable: str, target_variable: str) -> float:

@@ -258,13 +258,7 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         self._reset_convergence_tracking()
         self.current_episode_data['num_vars'] = len(get_variables(scm))
         
-        # Store original max_interventions
-        original_max_interventions = self.max_interventions
-        
-        # Track if we trigger early rotation
-        early_rotation_triggered = False
-        
-        # Custom intervention loop with tracking
+        # Get SCM details for logging
         target_var = get_target(scm)
         variables = list(get_variables(scm))
         true_parents = list(get_parents(scm, target_var))
@@ -294,125 +288,36 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         logger.info(f"\nEpisode {episode_idx}: SCM with {len(variables)} vars, "
                    f"target={target_var}, parents={true_parents}")
         
-        # Initialize buffer for episode
-        from src.causal_bayes_opt.data_structures.buffer import ExperienceBuffer
-        from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
+        # Call parent's proven GRPO implementation
+        result = super()._run_grpo_episode(episode_idx, scm, scm_name, key)
         
-        buffer = ExperienceBuffer()
+        # Post-episode tracking and analysis
         
-        # Add observational data
-        obs_samples = sample_from_linear_scm(scm, self.obs_per_episode, seed=int(key[0]) % 1000000)
-        for sample in obs_samples:
-            buffer.add_observation(sample)
-        
-        # Intervention loop with tracking
-        for int_idx in range(self.max_interventions):
-            # Generate intervention using policy
-            key, int_key = random.split(key)
-            
-            # Get policy output (need to access internals)
-            from src.causal_bayes_opt.training.three_channel_converter import buffer_to_three_channel_tensor
-            from src.causal_bayes_opt.utils.variable_mapping import VariableMapper
-            
-            mapper = VariableMapper(variables, target_variable=target_var)
-            tensor, _ = buffer_to_three_channel_tensor(buffer, target_var, max_history_size=100, standardize=False)
-            
-            # Apply policy
-            key, policy_key = random.split(key)
-            policy_output = self.policy_fn.apply(
-                self.policy_params, policy_key, tensor, mapper.target_idx
-            )
-            
-            # Extract probabilities based on architecture
-            if 'quantile_scores' in policy_output:
-                # Quantile architecture
-                quantile_scores = policy_output['quantile_scores']
-                flat_scores = quantile_scores.flatten()
-                probabilities = jax.nn.softmax(flat_scores)
-                
-                # Sample intervention
-                key, sample_key = random.split(key)
-                flat_idx = random.categorical(sample_key, jnp.log(probabilities + 1e-8))
-                
-                # Convert flat index to (var, quantile)
-                num_vars = len(variables)
-                num_quantiles = flat_scores.shape[0] // num_vars
-                var_idx = int(flat_idx // num_quantiles)
-                quantile_idx = int(flat_idx % num_quantiles)
-                
-                # Get probability of selected intervention
-                selection_prob = float(probabilities[flat_idx])
-                
-                # Track intervention
-                self.current_episode_interventions.append({
-                    'var_idx': var_idx,
-                    'quantile_idx': quantile_idx,
-                    'probability': selection_prob,
-                    'var_name': variables[var_idx] if var_idx < len(variables) else 'unknown'
-                })
-                
-                # Check for convergence
-                if self._check_convergence(var_idx, quantile_idx, selection_prob):
-                    logger.info(f"   Early rotation triggered at intervention {int_idx + 1}")
-                    self.current_episode_data['convergence_triggered'] = True
-                    early_rotation_triggered = True
-                    break
-                
-                # Generate actual intervention value (simplified for now)
-                key, value_key = random.split(key)
-                if var_idx < len(variables) and variables[var_idx] != target_var:
-                    # Map quantile to value (simplified - use quantiles of standard normal)
-                    quantiles = jnp.array([0.25, 0.5, 0.75])  # 25%, 50%, 75% quantiles
-                    if quantile_idx < len(quantiles):
-                        intervention_value = float(random.normal(value_key) * 2.0)
-                    else:
-                        intervention_value = float(random.normal(value_key))
-                    
-                    # Create and apply intervention
-                    intervention = create_perfect_intervention(
-                        targets=frozenset([variables[var_idx]]),
-                        values={variables[var_idx]: intervention_value}
-                    )
-                    
-                    # Sample post-intervention
-                    post_data = sample_with_intervention(scm, intervention, 1, seed=int(value_key[0]) % 1000000)
-                    if post_data:
-                        buffer.add_intervention(intervention, post_data[0])
-                        
-                        # Track target value
-                        target_value = post_data[0].values[target_var]
-                        self.current_episode_data['target_values'].append(target_value)
-            else:
-                # Traditional architecture (simplified handling)
-                logger.debug("Traditional architecture intervention tracking not fully implemented")
-        
-        # Get surrogate parent probabilities for the last intervention
-        logger.info(f"\n🔍 CHECKING SURROGATE AVAILABILITY...")
-        if not hasattr(self, 'surrogate_predict_fn'):
-            logger.info("   ❌ No surrogate_predict_fn attribute")
-        elif self.surrogate_predict_fn is None:
-            logger.info("   ❌ surrogate_predict_fn is None")
-        else:
-            logger.info("   ✅ Surrogate is available")
-            
-        if buffer and hasattr(self, 'surrogate_predict_fn') and self.surrogate_predict_fn:
+        # Get surrogate parent probabilities analysis
+        logger.info(f"\n🔍 POST-EPISODE SURROGATE ANALYSIS...")
+        if hasattr(self, 'surrogate_predict_fn') and self.surrogate_predict_fn:
             try:
-                # Get final buffer state and create tensor
-                final_tensor, final_mapper = buffer_to_three_channel_tensor(
-                    buffer, target_var, max_history_size=100, standardize=False
-                )
+                # Create test buffer for surrogate analysis  
+                from src.causal_bayes_opt.data_structures.buffer import ExperienceBuffer
+                from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
+                from src.causal_bayes_opt.training.three_channel_converter import buffer_to_three_channel_tensor
+                
+                test_buffer = ExperienceBuffer()
+                test_samples = sample_from_linear_scm(scm, 20, seed=42)
+                for sample in test_samples:
+                    test_buffer.add_observation(sample)
                 
                 # Get surrogate predictions
-                key, surrogate_key = random.split(key)
-                surrogate_output = self.surrogate_predict_fn(
-                    final_tensor, target_var, variables
+                tensor_3ch, _ = buffer_to_three_channel_tensor(
+                    test_buffer, target_var, max_history_size=100, standardize=False
                 )
+                
+                surrogate_output = self.surrogate_predict_fn(tensor_3ch, target_var, variables)
                 
                 if 'parent_probs' in surrogate_output:
                     parent_probs = surrogate_output['parent_probs']
                     
-                    # Print surrogate parent probabilities
-                    logger.info(f"\n🔮 SURROGATE PARENT PROBABILITIES (Last Intervention):")
+                    logger.info(f"🔮 SURROGATE PARENT PROBABILITIES:")
                     logger.info(f"   Target: {target_var}, True Parents: {true_parents}")
                     
                     for i, var in enumerate(variables):
@@ -439,25 +344,9 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
                         discrimination = avg_true - avg_false
                         logger.info(f"   Discrimination Score: {discrimination:+.3f} "
                                   f"(True avg: {avg_true:.3f}, False avg: {avg_false:.3f})")
-                else:
-                    logger.info("   ⚠️ Surrogate output format unexpected")
+                        
             except Exception as e:
                 logger.debug(f"Could not get surrogate predictions: {e}")
-        
-        # Log episode summary
-        if self.current_episode_interventions:
-            avg_prob = np.mean([i['probability'] for i in self.current_episode_interventions])
-            logger.info(f"   Interventions: {len(self.current_episode_interventions)}, "
-                       f"Avg probability: {avg_prob:.3f}")
-            
-            # Check which variables were selected most
-            var_counts = {}
-            for intervention in self.current_episode_interventions:
-                var_name = intervention['var_name']
-                var_counts[var_name] = var_counts.get(var_name, 0) + 1
-            
-            top_vars = sorted(var_counts.items(), key=lambda x: x[1], reverse=True)[:3]
-            logger.info(f"   Top selected vars: {top_vars}")
         
         # Increment episode counter on current SCM
         self.episodes_on_current_scm += 1
@@ -466,10 +355,9 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         should_rotate = False
         rotation_reason = None
         
-        if early_rotation_triggered:
-            should_rotate = True
-            rotation_reason = "convergence"
-        elif self.rotate_every_episode:
+        # Check for early rotation based on result metrics (if available)
+        # For now, just use episode-end rotation
+        if self.rotate_every_episode:
             should_rotate = True
             rotation_reason = "episode_end"
         
@@ -483,15 +371,8 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         # Track episode performance
         self._track_episode_performance(episode_idx)
         
-        # Return episode metrics (no redundant parent call needed)
-        return {
-            'episode': episode_idx,
-            'mean_reward': 0.0,  # Could calculate from interventions if needed
-            'n_interventions': len(self.current_episode_interventions),
-            'target_values': self.current_episode_data['target_values'],
-            'best_target': min(self.current_episode_data['target_values']) if self.current_episode_data['target_values'] else 0.0,
-            'convergence_triggered': self.current_episode_data['convergence_triggered']
-        }
+        # Return the result from parent implementation
+        return result
     
     def _track_episode_performance(self, episode_idx):
         """Track performance metrics for analysis."""
@@ -584,10 +465,10 @@ def create_enhanced_config(
     """
     
     config = {
-        # Core episode settings
+        # Core episode settings - match working config
         'max_episodes': max_episodes,
-        'obs_per_episode': 20,
-        'max_interventions': 10,  # Per episode before rotation
+        'obs_per_episode': 10,      # Match working complex script
+        'max_interventions': 15,    # Match working complex script
         
         # Phase management (for JointACBOTrainer compatibility)
         'episodes_per_phase': 999999,  # Effectively disable phase switching
@@ -604,8 +485,8 @@ def create_enhanced_config(
         'use_fixed_std': True,
         'fixed_std': 1.0,
         
-        # Learning settings
-        'learning_rate': 1e-3,
+        # Learning settings - use proven stable rate
+        'learning_rate': 5e-4,
         
         # GRPO configuration
         'grpo_config': {
@@ -617,15 +498,15 @@ def create_enhanced_config(
             'normalize_advantages': True
         },
         
-        # Reward weights (with surrogate info gain)
+        # Reward weights (with surrogate info gain) - use working balanced structure
         'reward_weights': {
-            'target': 1.0,
-            'parent': 0.0,
-            'info_gain': 0  # From surrogate
+            'target': 0.7,     # Target optimization (primary signal)
+            'parent': 0.1,     # Parent selection bonus (causal guidance)
+            'info_gain': 0.2   # Information gain from surrogate (structure learning)
         },
         
-        # Composite reward for surrogate integration
-        'reward_type': 'composite',
+        # Binary reward for clear 0/+1 ranking signals  
+        'reward_type': 'binary',
         
         # NEW: Enhanced SCM rotation configuration  
         'rotate_after_episode': True,          # Rotate after each episode (for JointACBOTrainer)
@@ -720,6 +601,9 @@ def main():
                         help='Minimum number of variables in SCM')
     parser.add_argument('--max-vars', type=int, default=99,
                         help='Maximum number of variables in SCM')
+    parser.add_argument('--reward-type', type=str, default='binary',
+                        choices=['composite', 'binary', 'clean', 'better_clean'],
+                        help='Type of reward computation (binary uses 0/+1 group ranking)')
     
     args = parser.parse_args()
     
@@ -764,6 +648,10 @@ def main():
         config['max_interventions'] = args.max_interventions
     if args.obs_per_episode is not None:
         config['obs_per_episode'] = args.obs_per_episode
+    
+    # Override reward type if provided
+    if args.reward_type:
+        config['reward_type'] = args.reward_type
     
     # Set time limit if provided
     if args.max_time_minutes:

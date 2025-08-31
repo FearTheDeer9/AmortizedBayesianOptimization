@@ -555,8 +555,8 @@ def create_single_scm_config(
             'info_gain': 0.2   # Information gain from surrogate (structure learning)
         },
         
-        # Use composite reward for surrogate integration (includes info_gain)
-        'reward_type': 'composite',
+        # Use binary reward for clear 0/+1 ranking signals
+        'reward_type': 'binary',
         
         # Surrogate model configuration - load AVICI checkpoint
         'surrogate_checkpoint_path': 'experiments/surrogate-only-training/scripts/checkpoints/avici_runs/avici_style_20250822_213115/checkpoint_step_200.pkl',

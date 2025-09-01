@@ -30,9 +30,9 @@
       "scale_free"
     ],
     "reward_weights": {
-      "target": 0.0,
-      "parent": 0.3,
-      "info_gain": 0.7
+      "target": 0.6,
+      "parent": 0.4,
+      "info_gain": 0.0
     }
   }
 }

@@ -190,8 +190,8 @@ class JointTrainingOrchestrator:
         logger.info(f"{'='*60}")
         logger.info(f"Time limit: {time_limit_minutes} minutes")
         
-        # Build command
-        policy_script = Path(__file__).parent.parent / "policy-only-training/train_grpo_multi_scm_with_surrogate.py"
+        # Build command - using per-batch rotation script to prevent hyperspecialization
+        policy_script = Path(__file__).parent.parent / "policy-only-training/train_grpo_per_batch_rotation_simple.py"
         checkpoint_path = self.checkpoint_dir / f"policy_phase_{self.phase_count}.pkl"
         
         cmd = [
@@ -239,6 +239,10 @@ class JointTrainingOrchestrator:
         # Pass reward type if specified
         if 'reward_type' in policy_config:
             cmd.extend(["--reward-type", str(policy_config['reward_type'])])
+        
+        # Pass info gain type if specified
+        if 'info_gain_type' in policy_config:
+            cmd.extend(["--info-gain-type", str(policy_config['info_gain_type'])])
         
         # Pass surrogate checkpoint if available
         if self.checkpoints['surrogate']:

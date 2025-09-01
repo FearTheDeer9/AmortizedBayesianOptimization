@@ -158,6 +158,7 @@ class UnifiedGRPOTrainer:
             parent_weight=config.get('reward_weights', {}).get('parent', 0.1),
             optimization_direction=self.optimization_direction,
             reward_type=config.get('reward_type', 'continuous'),
+            info_gain_type=config.get('info_gain_type', 'entropy_reduction'),
             stats=self.reward_stats
         )
         

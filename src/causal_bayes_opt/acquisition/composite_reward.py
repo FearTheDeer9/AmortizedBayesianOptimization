@@ -31,6 +31,7 @@ class RewardConfig:
     parent_weight: float = 0.1
     optimization_direction: str = "MINIMIZE"
     reward_type: str = "continuous"
+    info_gain_type: str = "entropy_reduction"  # "entropy_reduction" or "probability_change"
     stats: Optional[Any] = None
     
     def __post_init__(self):
@@ -299,9 +300,12 @@ def compute_composite_reward(
         reward_type=reward_type, stats=stats
     )
     
+    # Get info gain type from config if available
+    info_gain_type = getattr(config, 'info_gain_type', 'entropy_reduction')
+    
     info_gain = compute_information_gain_reward(
         buffer, intervention, outcome_sample, surrogate_predict_fn, 
-        target_variable, variables, tensor_5ch, mapper
+        target_variable, variables, tensor_5ch, mapper, info_gain_type
     )
     
     parent_reward = compute_parent_reward(scm, intervention_variable, target_variable)

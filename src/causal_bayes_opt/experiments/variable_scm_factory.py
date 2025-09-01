@@ -58,6 +58,42 @@ class VariableSCMFactory:
         self.seed = seed
         self.key = random.PRNGKey(seed)
     
+    def _shuffle_variables(self, variables: List[str]) -> List[str]:
+        """Randomly permute variable list to eliminate positional bias."""
+        self.key, subkey = random.split(self.key)
+        indices = jnp.arange(len(variables))
+        shuffled_indices = random.permutation(subkey, indices)
+        return [variables[int(i)] for i in shuffled_indices]
+    
+    def _random_subset_selection(self, items: List[str], min_size: int, max_size: int) -> List[str]:
+        """Randomly select a subset of items."""
+        if not items:
+            return []
+        
+        self.key, subkey = random.split(self.key)
+        size = random.randint(subkey, (), min_size, min(max_size + 1, len(items) + 1))
+        
+        self.key, subkey = random.split(self.key)
+        indices = random.choice(subkey, len(items), shape=(size,), replace=False)
+        return [items[int(i)] for i in indices]
+    
+    def _random_target_from_non_roots(self, variables: List[str], edges: List[Tuple[str, str]]) -> str:
+        """Select random target from variables that have at least one parent."""
+        # Find variables that have at least one parent
+        children = {child for _, child in edges}
+        valid_targets = [v for v in variables if v in children]
+        
+        if not valid_targets:
+            # If no children exist yet, we need to ensure structure creates some
+            # For now, return a non-first variable and let structure creation handle it
+            self.key, subkey = random.split(self.key)
+            target_idx = random.randint(subkey, (), 1, len(variables))
+            return variables[target_idx]
+        
+        self.key, subkey = random.split(self.key)
+        target_idx = random.randint(subkey, (), 0, len(valid_targets))
+        return valid_targets[target_idx]
+    
     def create_variable_scm(self,
                            num_variables: int,
                            structure_type: str = "mixed",
@@ -92,8 +128,7 @@ class VariableSCMFactory:
         if structure_type == "fork":
             edges, coefficients = self._create_fork_structure(variables, target_variable)
         elif structure_type == "chain":
-            edges, coefficients = self._create_chain_structure(variables)
-            target_variable = variables[-1]  # Chain target is always last
+            edges, coefficients, target_variable = self._create_chain_structure(variables, target_variable)
         elif structure_type == "collider":
             edges, coefficients = self._create_collider_structure(variables, target_variable)
         elif structure_type == "mixed":
@@ -201,19 +236,20 @@ class VariableSCMFactory:
         return scm
     
     def _select_target(self, variables: List[str], structure_type: str) -> str:
-        """Select appropriate target variable based on structure type."""
-        if structure_type in ["fork", "collider"]:
-            # For fork/collider, target should be in the middle range
-            mid_idx = len(variables) // 2
-            return variables[mid_idx]
-        elif structure_type == "chain":
-            # For chain, target is always the last variable
-            return variables[-1]
-        else:
-            # For mixed/random, choose randomly from non-first variables
-            self.key, subkey = random.split(self.key)
-            target_idx = random.randint(subkey, (), 1, len(variables))
-            return variables[target_idx]
+        """Select appropriate target variable based on structure type.
+        
+        Target must have at least one parent (no root nodes as targets).
+        Selection is randomized to avoid positional bias.
+        """
+        # For structures where we need to pre-determine edges to find valid targets,
+        # we'll handle target selection within each structure method.
+        # This method now serves as a fallback for random selection.
+        
+        # Random selection from non-first variables (simple heuristic)
+        # Each structure method will override this with proper logic
+        self.key, subkey = random.split(self.key)
+        target_idx = random.randint(subkey, (), 1, len(variables))
+        return variables[target_idx]
     
     def _create_fork_structure(self, variables: List[str], target: str) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float]]:
         """
@@ -243,13 +279,27 @@ class VariableSCMFactory:
         
         return edges, coefficients
     
-    def _create_chain_structure(self, variables: List[str]) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float]]:
-        """Create chain structure: X0 → X1 → X2 → ... → Xn."""
+    def _create_chain_structure(self, variables: List[str], target_variable: Optional[str]) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float], str]:
+        """Create chain structure with randomized variable ordering and target selection."""
         edges = []
         coefficients = {}
         
-        for i in range(len(variables) - 1):
-            edge = (variables[i], variables[i + 1])
+        # Shuffle variables to eliminate positional bias
+        shuffled_vars = self._shuffle_variables(variables)
+        
+        # If no target specified, randomly select from non-root positions
+        if target_variable is None:
+            # Target can be any variable except the first in the shuffled chain
+            self.key, subkey = random.split(self.key)
+            target_idx = random.randint(subkey, (), 1, len(shuffled_vars))
+            target_variable = shuffled_vars[target_idx]
+        
+        # Find target position in shuffled variables
+        target_pos = shuffled_vars.index(target_variable)
+        
+        # Create chain up to target position
+        for i in range(target_pos):
+            edge = (shuffled_vars[i], shuffled_vars[i + 1])
             edges.append(edge)
             
             # Generate coefficient
@@ -259,7 +309,19 @@ class VariableSCMFactory:
                                  maxval=self.coefficient_range[1])
             coefficients[edge] = float(coeff)
         
-        return edges, coefficients
+        # If target is not at the end, continue chain after target
+        for i in range(target_pos, len(shuffled_vars) - 1):
+            edge = (shuffled_vars[i], shuffled_vars[i + 1])
+            edges.append(edge)
+            
+            # Generate coefficient
+            self.key, subkey = random.split(self.key)
+            coeff = random.uniform(subkey, (), 
+                                 minval=self.coefficient_range[0], 
+                                 maxval=self.coefficient_range[1])
+            coefficients[edge] = float(coeff)
+        
+        return edges, coefficients, target_variable
     
     def _create_collider_structure(self, variables: List[str], target: str) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float]]:
         """
@@ -276,8 +338,9 @@ class VariableSCMFactory:
         
         non_target_vars = [v for v in variables if v != target]
         
-        # Main collider: multiple vars → target
-        for var in non_target_vars[:min(3, len(non_target_vars))]:
+        # Main collider: randomly selected vars → target
+        collider_parents = self._random_subset_selection(non_target_vars, 1, min(3, len(non_target_vars)))
+        for var in collider_parents:
             edges.append((var, target))
             self.key, subkey = random.split(self.key)
             coeff = random.uniform(subkey, (), 
@@ -286,17 +349,23 @@ class VariableSCMFactory:
             coefficients[(var, target)] = float(coeff)
         
         # Add some additional edges for complexity
-        remaining_vars = non_target_vars[3:] if len(non_target_vars) > 3 else []
-        for i, var in enumerate(remaining_vars):
-            if i < len(non_target_vars) - 3:
-                # Connect to earlier variable
-                parent = non_target_vars[i % 3]
-                edges.append((parent, var))
+        remaining_vars = [v for v in non_target_vars if v not in collider_parents]
+        for var in remaining_vars:
+            # Connect to random available parent (could be collider parent or other remaining var)
+            possible_parents = [v for v in variables if v != var and v != target]
+            if possible_parents:
                 self.key, subkey = random.split(self.key)
-                coeff = random.uniform(subkey, (), 
-                                     minval=self.coefficient_range[0], 
-                                     maxval=self.coefficient_range[1])
-                coefficients[(parent, var)] = float(coeff)
+                parent_idx = random.randint(subkey, (), 0, len(possible_parents))
+                parent = possible_parents[parent_idx]
+                
+                # Check for cycles (simple check)
+                if not self._would_create_cycle(edges, parent, var):
+                    edges.append((parent, var))
+                    self.key, subkey = random.split(self.key)
+                    coeff = random.uniform(subkey, (), 
+                                         minval=self.coefficient_range[0], 
+                                         maxval=self.coefficient_range[1])
+                    coefficients[(parent, var)] = float(coeff)
         
         return edges, coefficients
     
@@ -308,8 +377,8 @@ class VariableSCMFactory:
         non_target_vars = [v for v in variables if v != target]
         n_vars = len(variables)
         
-        # Pattern 1: Some direct connections to target
-        direct_parents = non_target_vars[:min(2, len(non_target_vars))]
+        # Pattern 1: Randomly selected direct connections to target
+        direct_parents = self._random_subset_selection(non_target_vars, 1, min(2, len(non_target_vars)))
         for var in direct_parents:
             edges.append((var, target))
             self.key, subkey = random.split(self.key)
@@ -318,9 +387,15 @@ class VariableSCMFactory:
                                  maxval=self.coefficient_range[1])
             coefficients[(var, target)] = float(coeff)
         
-        # Pattern 2: Chain leading to target
-        if len(non_target_vars) > 2:
-            chain_vars = non_target_vars[2:min(4, len(non_target_vars))]
+        # Pattern 2: Chain leading to target (if enough variables)
+        available_for_chain = [v for v in non_target_vars if v not in direct_parents]
+        if len(available_for_chain) > 1:
+            chain_vars = self._random_subset_selection(available_for_chain, 2, min(3, len(available_for_chain)))
+            
+            # Randomly shuffle chain variables to avoid ordering bias
+            chain_vars = self._shuffle_variables(chain_vars)
+            
+            # Create chain connections
             for i in range(len(chain_vars) - 1):
                 edge = (chain_vars[i], chain_vars[i + 1])
                 edges.append(edge)
@@ -339,13 +414,14 @@ class VariableSCMFactory:
                                      maxval=self.coefficient_range[1])
                 coefficients[(chain_vars[-1], target)] = float(coeff)
         
-        # Pattern 3: Additional random connections
-        remaining_vars = non_target_vars[4:] if len(non_target_vars) > 4 else []
+        # Pattern 3: Additional random connections for remaining variables
+        used_vars = set(direct_parents + (chain_vars if 'chain_vars' in locals() else []))
+        remaining_vars = [v for v in non_target_vars if v not in used_vars]
         for var in remaining_vars:
-            # Connect to random earlier variable
-            self.key, subkey = random.split(self.key)
+            # Connect to random available parent
             possible_parents = [v for v in variables if v != var and v != target]
             if possible_parents:
+                self.key, subkey = random.split(self.key)
                 parent_idx = random.randint(subkey, (), 0, len(possible_parents))
                 parent = possible_parents[parent_idx]
                 
@@ -469,12 +545,18 @@ class VariableSCMFactory:
         in_degree = {var: 0 for var in variables}
         out_degree = {var: 0 for var in variables}
         
-        # Start with a small complete subgraph (seed)
-        seed_size = min(3, n_vars)
-        for i in range(seed_size):
-            for j in range(i + 1, seed_size):
+        # Start with a small complete subgraph (seed), excluding target
+        non_target_vars = [v for v in variables if v != target]
+        seed_size = min(3, len(non_target_vars))
+        
+        # Randomly select seed variables (excluding target to ensure target has parents)
+        seed_vars = self._random_subset_selection(non_target_vars, seed_size, seed_size)
+        
+        # Create complete subgraph among seed variables
+        for i in range(len(seed_vars)):
+            for j in range(i + 1, len(seed_vars)):
                 # Add forward edge to ensure DAG
-                edge = (variables[i], variables[j])
+                edge = (seed_vars[i], seed_vars[j])
                 edges.append(edge)
                 
                 self.key, subkey = random.split(self.key)
@@ -483,22 +565,24 @@ class VariableSCMFactory:
                                      maxval=self.coefficient_range[1])
                 coefficients[edge] = float(coeff)
                 
-                out_degree[variables[i]] += 1
-                in_degree[variables[j]] += 1
+                out_degree[seed_vars[i]] += 1
+                in_degree[seed_vars[j]] += 1
         
         # Add remaining nodes using preferential attachment
-        for i in range(seed_size, n_vars):
-            new_node = variables[i]
+        remaining_nodes = [v for v in variables if v not in seed_vars]
+        for new_node in remaining_nodes:
             
+            # Nodes that already exist (seed + previously added)
+            existing_nodes = [v for v in variables if v != new_node and (v in seed_vars or in_degree[v] > 0 or out_degree[v] > 0)]
+            
+            if not existing_nodes:
+                continue
+                
             # Determine number of edges to add (typically 1-3)
             self.key, subkey = random.split(self.key)
-            num_edges = int(random.uniform(subkey, (), minval=1, maxval=min(4, i)))
+            num_edges = int(random.uniform(subkey, (), minval=1, maxval=min(4, len(existing_nodes) + 1)))
             
-            # Select nodes to connect based on preferential attachment
-            # Higher degree nodes have higher probability of connection
-            existing_nodes = variables[:i]
-            
-            # Calculate attachment probabilities
+            # Calculate attachment probabilities based on degree
             total_degree = sum(in_degree[v] + out_degree[v] + 1 for v in existing_nodes)
             probs = [(in_degree[v] + out_degree[v] + 1) / total_degree for v in existing_nodes]
             
@@ -513,7 +597,7 @@ class VariableSCMFactory:
             )
             
             for idx in selected_indices:
-                parent = existing_nodes[idx]
+                parent = existing_nodes[int(idx)]
                 # Add edge parent -> new_node
                 edge = (parent, new_node)
                 edges.append(edge)
@@ -539,15 +623,23 @@ class VariableSCMFactory:
         coefficients = {}
         n_vars = len(variables)
         
-        # Split variables into two layers
-        layer1_size = n_vars // 2
-        layer1 = variables[:layer1_size]
-        layer2 = variables[layer1_size:]
+        # Randomly assign variables to two layers, ensuring target is in layer2
+        non_target_vars = [v for v in variables if v != target]
+        shuffled_non_target = self._shuffle_variables(non_target_vars)
+        
+        # Split shuffled non-target variables into two layers
+        layer1_size = len(shuffled_non_target) // 2
+        layer1 = shuffled_non_target[:layer1_size]
+        layer2_non_target = shuffled_non_target[layer1_size:]
+        
+        # Add target to layer2 to ensure it has parents
+        layer2 = layer2_non_target + [target]
         
         # Ensure we have at least one node in each layer
         if not layer1 or not layer2:
             # Fall back to chain for very small graphs
-            return self._create_chain_structure(variables)
+            edges, coefficients, _ = self._create_chain_structure(variables, target)
+            return edges, coefficients
         
         # Connect layer1 to layer2 with varying density
         for source in layer1:

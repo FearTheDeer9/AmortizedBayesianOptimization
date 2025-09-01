@@ -3,36 +3,36 @@
     "total_training_minutes": 120,
     "minutes_per_phase": 10,
     "start_phase": "surrogate",
-    "checkpoint_dir": "scale_free"
+    "checkpoint_dir": "fork_and_chain"
   },
   "surrogate_config": {
     "hidden_dim": 128,
     "num_layers": 8,
-    "lr": 0.001,
+    "lr": 0.0005,
     "batch_size": 2,
     "min_vars": 3,
     "max_vars": 100,
     "num_steps": 1000,
     "structure_types": [
-      "scale_free"
+      "fork"
     ]
   },
   "policy_config": {
     "episodes": 500,
     "patience": 5,
     "threshold": 0.9,
-    "learning_rate": 0.001,
+    "learning_rate": 0.0005,
     "max_interventions": 10,
     "obs_per_episode": 50,
     "min_vars": 3,
     "max_vars": 100,
     "structure_types": [
-      "scale_free"
+      "fork"
     ],
     "reward_weights": {
-      "target": 0.0,
-      "parent": 0.3,
-      "info_gain": 0.7
+      "target": 0.8,
+      "parent": 0.1,
+      "info_gain": 0.1
     }
   }
 }

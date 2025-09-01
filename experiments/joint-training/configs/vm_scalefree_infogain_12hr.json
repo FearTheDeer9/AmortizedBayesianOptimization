@@ -1,0 +1,38 @@
+{
+  "orchestration": {
+    "total_training_minutes": 720,
+    "minutes_per_phase": 20,
+    "start_phase": "policy",
+    "checkpoint_dir": "experiments/joint-training/checkpoints/vm_scalefree_infogain_12hr",
+    "initial_surrogate_checkpoint": "experiments/joint-training/checkpoints/production_12hr_10hr_trainingy/surrogate_phase_33.pkl"
+  },
+  "surrogate_config": {
+    "hidden_dim": 128,
+    "num_layers": 8,
+    "lr": 1e-3,
+    "batch_size": 32,
+    "min_vars": 10,
+    "max_vars": 100,
+    "num_steps": 3000,
+    "structure_types": ["scale_free"]
+  },
+  "policy_config": {
+    "episodes": 2000,
+    "patience": 5,
+    "threshold": 0.9,
+    "learning_rate": 5e-4,
+    "max_interventions": 15,
+    "obs_per_episode": 20,
+    "min_vars": 10,
+    "max_vars": 100,
+    "pool_size": 100,
+    "structure_types": ["scale_free"],
+    "reward_type": "binary",
+    "info_gain_type": "probability_change",
+    "reward_weights": {
+      "target": 0.0,
+      "parent": 0.3,
+      "info_gain": 0.7
+    }
+  }
+}

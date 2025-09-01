@@ -412,7 +412,7 @@ class UnifiedGRPOTrainer:
         grpo_config = self.config.get('grpo_config', {})
         
         self.grpo_config = GRPOConfig(
-            group_size=self.batch_size,
+            group_size=grpo_config.get('group_size', self.batch_size),  # Allow override, default to batch_size
             interventions_per_state=1,
             learning_rate=self.learning_rate,
             clip_ratio=grpo_config.get('clip_ratio', 0.2),

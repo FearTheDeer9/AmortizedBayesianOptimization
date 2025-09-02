@@ -392,7 +392,7 @@ if __name__ == "__main__":
     # add argparse for structure types
     parser = argparse.ArgumentParser()
     parser.add_argument('--structure-types', type=str, nargs='+',
-                        default=['fork', 'chain'],
+                        default=['random', 'chain', 'fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
                         choices=['random', 'chain', 'fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
                         help='SCM structure types to train on')
     parser.add_argument('--policy-path', type=Path, default = "",

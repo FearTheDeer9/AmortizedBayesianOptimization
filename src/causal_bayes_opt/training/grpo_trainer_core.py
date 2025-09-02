@@ -110,8 +110,9 @@ class GRPOTrainerCore:
         
         self.policy_fn = hk.transform(policy_fn)
         
-        # Initialize parameters
-        dummy_tensor = jnp.zeros((10, 5, 5))
+        # Initialize parameters - use correct number of channels
+        n_channels = 4 if self.config.policy_architecture in ['quantile', 'permutation_invariant'] else 5
+        dummy_tensor = jnp.zeros((10, 5, n_channels))
         self.rng_key, init_key = random.split(self.rng_key)
         self.policy_params = self.policy_fn.init(init_key, dummy_tensor, 0)
     
@@ -218,7 +219,7 @@ class GRPOTrainerCore:
                 # Convert buffer to tensor
                 if self.config.policy_architecture == "permutation_invariant":
                     tensor, mapper, _ = buffer_to_four_channel_tensor(
-                        buffer, target_var, max_history_size=100, standardize=False
+                        buffer, target_var, max_history_size=100, standardize=True
                     )
                 else:
                     tensor, mapper, _ = buffer_to_five_channel_tensor(

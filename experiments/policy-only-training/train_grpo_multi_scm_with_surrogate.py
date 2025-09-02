@@ -309,7 +309,7 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
                 
                 # Get surrogate predictions
                 tensor_3ch, _ = buffer_to_three_channel_tensor(
-                    test_buffer, target_var, max_history_size=100, standardize=False
+                    test_buffer, target_var, max_history_size=100, standardize=True
                 )
                 
                 surrogate_output = self.surrogate_predict_fn(tensor_3ch, target_var, variables)
@@ -510,6 +510,13 @@ def create_enhanced_config(
         
         # Use probability change info gain by default
         'info_gain_type': 'probability_change',
+        
+        # Buffer configuration for adaptive history sizing
+        'buffer_config': {
+            'max_history_size': 30,  # Reduced from 100 to minimize padding
+            'adaptive_history': True,
+            'min_history_size': 10
+        },
         
         # NEW: Enhanced SCM rotation configuration  
         'rotate_after_episode': True,          # Rotate after each episode (for JointACBOTrainer)

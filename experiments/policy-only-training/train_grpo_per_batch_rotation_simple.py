@@ -47,6 +47,7 @@ from src.causal_bayes_opt.training.utils.wandb_setup import WandBManager
 from src.causal_bayes_opt.data_structures.buffer import ExperienceBuffer
 from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm  
 from src.causal_bayes_opt.training.three_channel_converter import buffer_to_three_channel_tensor
+from src.causal_bayes_opt.training.four_channel_converter import buffer_to_four_channel_tensor
 from src.causal_bayes_opt.training.five_channel_converter import create_uniform_posterior
 from src.causal_bayes_opt.data_structures.sample import get_values
 import time
@@ -772,6 +773,13 @@ def create_enhanced_config(
         
         # Use probability change info gain by default
         'info_gain_type': 'probability_change',
+        
+        # Buffer configuration for adaptive history sizing
+        'buffer_config': {
+            'max_history_size': 30,  # Reduced from 100 to minimize padding
+            'adaptive_history': True,
+            'min_history_size': 10
+        },
         
         # NEW: Per-batch SCM rotation configuration  
         'rotate_after_episode': False,        # Changed: Don't rotate after episode

@@ -35,7 +35,6 @@ from ..data_structures.scm import get_variables, get_target, get_parents
 from ..mechanisms.linear import sample_from_linear_scm
 from ..interventions.handlers import create_perfect_intervention
 from ..environments.sampling import sample_with_intervention
-from .five_channel_converter import buffer_to_five_channel_tensor
 from .four_channel_converter import buffer_to_four_channel_tensor
 from .three_channel_converter import buffer_to_three_channel_tensor
 from ..acquisition.grpo import GRPOConfig, GRPOUpdate, create_grpo_trainer, _compute_grpo_loss
@@ -131,6 +130,12 @@ class UnifiedGRPOTrainer:
         self.learning_rate = config.get('learning_rate', 3e-4)
         self.optimization_direction = config.get('optimization_direction', 'MINIMIZE')
         self.use_surrogate = config.get('use_surrogate', True)
+        
+        # Adaptive history sizing configuration
+        buffer_config = config.get('buffer_config', {}) if config else {}
+        self.max_history_size = buffer_config.get('max_history_size', 30)  # Reduced from 100
+        self.adaptive_history = buffer_config.get('adaptive_history', True)
+        self.min_history_size = buffer_config.get('min_history_size', 10)
         
         # Reward weights
         self.reward_weights = config.get('reward_weights', {
@@ -234,8 +239,9 @@ class UnifiedGRPOTrainer:
             
         self.policy_fn = hk.transform(policy_fn)
         
-        # Initialize with dummy data
-        dummy_tensor = jnp.zeros((10, 5, 5))
+        # Initialize with dummy data - use correct number of channels
+        n_channels = 4 if policy_architecture in ['quantile', 'permutation_invariant'] else 5
+        dummy_tensor = jnp.zeros((10, 5, n_channels))
         self.rng_key, init_key = random.split(self.rng_key)
         self.policy_params = self.policy_fn.init(init_key, dummy_tensor, 0)
         
@@ -383,8 +389,12 @@ class UnifiedGRPOTrainer:
             
             # Convert to tensor for surrogate prediction
             from .three_channel_converter import buffer_to_three_channel_tensor
+            # Use adaptive history sizing
+            actual_buffer_size = len(temp_buffer.get_all_samples())
+            history_size = min(self.max_history_size, max(actual_buffer_size, self.min_history_size)) if self.adaptive_history else self.max_history_size
+            
             tensor_3ch, mapper = buffer_to_three_channel_tensor(
-                temp_buffer, target_var, max_history_size=100, standardize=False
+                temp_buffer, target_var, max_history_size=history_size, standardize=False
             )
             
             # Get posterior that surrogate would have had at this point
@@ -583,13 +593,23 @@ class UnifiedGRPOTrainer:
             # Convert buffer to tensor
             if self.use_surrogate and self.surrogate_predict_fn is not None:
                 # Use surrogate integration if available
-                tensor, mapper, diagnostics = buffer_to_five_channel_tensor(
-                    buffer, target_var, max_history_size=100, standardize=True
+                # Use adaptive history sizing
+                actual_buffer_size = len(buffer.get_all_samples())
+                history_size = min(self.max_history_size, max(actual_buffer_size, self.min_history_size)) if self.adaptive_history else self.max_history_size
+                
+                # Use 4-channel tensor with surrogate for quantile policy
+                surrogate_fn = self.surrogate_predict_fn if self.use_surrogate else None
+                tensor, mapper, diagnostics = buffer_to_four_channel_tensor(
+                    buffer, target_var, surrogate_fn=surrogate_fn, max_history_size=history_size, standardize=True
                 )
             else:
                 # No surrogate - use simpler tensor format
+                # Use adaptive history sizing
+                actual_buffer_size = len(buffer.get_all_samples())
+                history_size = min(self.max_history_size, max(actual_buffer_size, self.min_history_size)) if self.adaptive_history else self.max_history_size
+                
                 tensor_3ch, mapper = buffer_to_three_channel_tensor(
-                    buffer, target_var, max_history_size=100, standardize=True
+                    buffer, target_var, max_history_size=history_size, standardize=True
                 )
                 # Pad to 5 channels
                 T, n_vars, _ = tensor_3ch.shape
@@ -977,8 +997,12 @@ class UnifiedGRPOTrainer:
             # Convert buffer to 4-channel tensor with AVICI surrogate if available
             surrogate_fn = self.surrogate_predict_fn if (self.use_surrogate and hasattr(self, 'surrogate_predict_fn')) else None
             
+            # Use adaptive history sizing
+            actual_buffer_size = len(buffer.get_all_samples())
+            history_size = min(self.max_history_size, max(actual_buffer_size, self.min_history_size)) if self.adaptive_history else self.max_history_size
+            
             tensor, mapper, diagnostics = buffer_to_four_channel_tensor(
-                buffer, target_var, surrogate_fn=surrogate_fn, max_history_size=100, standardize=False
+                buffer, target_var, surrogate_fn=surrogate_fn, max_history_size=history_size, standardize=True
             )
             
             # Get policy output

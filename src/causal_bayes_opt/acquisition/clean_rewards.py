@@ -206,8 +206,6 @@ def compute_target_reward(
         # Flip sign if minimizing (above mean is bad for minimization)
         if optimization_direction == "MINIMIZE":
             reward = -reward
-            
-        logger.info(f"[BINARY TARGET REWARD] Value: {outcome_value:.3f}, Mean: {current_mean:.3f}, Binary reward: {reward:.1f}")
         
     else:
         

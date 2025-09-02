@@ -35,10 +35,8 @@ from ..environments.sampling import sample_with_intervention
 
 # Converters
 from .three_channel_converter import buffer_to_three_channel_tensor
-from .five_channel_converter import (
-    buffer_to_five_channel_tensor_with_posteriors,
-    create_uniform_posterior
-)
+from .four_channel_converter import buffer_to_four_channel_tensor
+from .five_channel_converter import create_uniform_posterior
 
 # Utilities
 from ..utils.checkpoint_utils import save_checkpoint
@@ -530,8 +528,16 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
     def _generate_single_intervention(self, buffer, target_var, variables, key):
         """Generate single intervention using policy (no gradients)."""
         # Convert buffer to tensor
-        tensor, mapper, _ = buffer_to_five_channel_tensor_with_posteriors(
-            buffer, target_var, max_history_size=100, standardize=True
+        # Use adaptive history sizing
+        actual_buffer_size = len(buffer.get_all_samples())
+        history_size = min(self.max_history_size, max(actual_buffer_size, self.min_history_size)) if self.adaptive_history else self.max_history_size
+        
+        # Use 4-channel tensor with surrogate for quantile policy
+        logger.info(f"[JOINT-ACBO] Using 4-CHANNEL tensor for QUANTILE policy (not 5-channel!)")
+        logger.info(f"[JOINT-ACBO] Adaptive history: {history_size} (not fixed 100)")
+        surrogate_fn = self.surrogate_predict_fn if self.use_surrogate else None
+        tensor, mapper, _ = buffer_to_four_channel_tensor(
+            buffer, target_var, surrogate_fn=surrogate_fn, max_history_size=history_size, standardize=True
         )
         
         # Get policy action (no gradients computed here)
@@ -750,8 +756,12 @@ class JointACBOTrainer(UnifiedGRPOTrainer):
         for sample in dummy_samples:
             dummy_buffer.add_observation(sample)
         
+        # Use adaptive history sizing even for dummy buffer
+        actual_buffer_size = len(dummy_buffer.get_all_samples())
+        history_size = min(self.max_history_size, max(actual_buffer_size, self.min_history_size)) if self.adaptive_history else self.max_history_size
+        
         tensor, mapper = buffer_to_three_channel_tensor(
-            dummy_buffer, target_var, max_history_size=100, standardize=True
+            dummy_buffer, target_var, max_history_size=history_size, standardize=True
         )
         
         print(f"  Dummy tensor shape: {tensor.shape}")

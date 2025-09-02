@@ -60,6 +60,40 @@ def buffer_to_four_channel_tensor(
     actual_size = min(len(all_samples), max_history_size)
     recent_samples = all_samples[-actual_size:]
     
+    # Get surrogate predictions for the entire buffer ONCE
+    if surrogate_fn is not None:
+        try:
+            from .three_channel_converter import buffer_to_three_channel_tensor
+            
+            # Convert buffer to 3-channel format (exactly like end-of-episode)
+            tensor_3ch, _ = buffer_to_three_channel_tensor(
+                buffer, target_variable, 
+                max_history_size=max_history_size, 
+                standardize=standardize
+            )
+            
+            # Call surrogate with the 3-channel tensor
+            surrogate_result = surrogate_fn(tensor_3ch, target_variable, variable_order)
+            
+            # Extract parent probabilities
+            if isinstance(surrogate_result, dict) and 'parent_probs' in surrogate_result:
+                surrogate_probs = jnp.array(surrogate_result['parent_probs'])
+                # Ensure correct shape
+                if surrogate_probs.shape[0] != n_vars:
+                    logger.warning(f"Surrogate returned wrong shape: {surrogate_probs.shape}, expected ({n_vars},)")
+                    surrogate_probs = jnp.full(n_vars, 0.5)
+                else:
+                    pass  # Got valid surrogate predictions
+            else:
+                logger.warning(f"Surrogate returned unexpected format: {type(surrogate_result)}")
+                surrogate_probs = jnp.full(n_vars, 0.5)
+        except Exception as e:
+            logger.warning(f"Surrogate prediction failed: {e}")
+            surrogate_probs = jnp.full(n_vars, 0.5)
+    else:
+        # Uniform probabilities (no surrogate information)
+        surrogate_probs = jnp.full(n_vars, 0.5)
+    
     # Initialize 4-channel tensor
     tensor = jnp.zeros((max_history_size, n_vars, 4))
     
@@ -77,13 +111,8 @@ def buffer_to_four_channel_tensor(
         intervention_targets = get_intervention_targets(sample)
         intervention_mask = jnp.array([1.0 if var in intervention_targets else 0.0 for var in variable_order])
         
-        # Channel 3: Parent probabilities
-        if surrogate_fn is not None:
-            # Use surrogate predictions (would need to implement)
-            parent_probs = jnp.full(n_vars, 0.5)  # Placeholder
-        else:
-            # Uniform probabilities (no surrogate information)
-            parent_probs = jnp.full(n_vars, 0.5)
+        # Channel 3: Parent probabilities (already computed above for entire buffer)
+        parent_probs = surrogate_probs  # Use the same probs for all timesteps
         
         # Set tensor values
         tensor = tensor.at[tensor_idx, :, 0].set(values)

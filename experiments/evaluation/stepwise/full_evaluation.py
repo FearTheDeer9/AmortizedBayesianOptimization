@@ -1,0 +1,778 @@
+#!/usr/bin/env python3
+"""
+Step 4: Full Evaluation with Metrics
+Comprehensive evaluation of trained models with metric calculation and extraction.
+This script evaluates GRPO models to understand why performance degrades with training.
+"""
+
+import sys
+import numpy as np
+import jax
+import jax.numpy as jnp
+import jax.random as random
+import haiku as hk
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Tuple
+import json
+import pandas as pd
+from collections import defaultdict
+from datetime import datetime
+
+# Add project root to path
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint
+from src.causal_bayes_opt.data_structures.buffer import ExperienceBuffer
+from src.causal_bayes_opt.training.four_channel_converter import buffer_to_four_channel_tensor
+from src.causal_bayes_opt.experiments.variable_scm_factory import VariableSCMFactory
+from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables, get_target
+from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
+from src.causal_bayes_opt.avici_integration.continuous.model import ContinuousParentSetPredictionModel
+from src.causal_bayes_opt.interventions.handlers import create_perfect_intervention
+from src.causal_bayes_opt.environments.sampling import sample_with_intervention
+from src.causal_bayes_opt.data_structures.sample import get_values
+
+# Import baselines - use absolute import when running as script
+try:
+    from .baselines import create_baseline
+except ImportError:
+    from baselines import create_baseline
+
+
+class MetricsTracker:
+    """Track and compute evaluation metrics."""
+    
+    def __init__(self):
+        self.reset()
+    
+    def reset(self):
+        """Reset all metrics."""
+        self.episodes = []
+        self.current_episode = None
+    
+    def start_episode(self, scm_info: Dict[str, Any]):
+        """Start tracking a new episode."""
+        self.current_episode = {
+            'scm_info': scm_info,
+            'interventions': [],
+            'parent_probabilities': [],
+            'target_values': [],
+            'f1_scores': [],
+            'precision_scores': [],
+            'recall_scores': [],
+            'parent_selections': [],
+            'cumulative_regret': [],
+            'simple_regret': [],
+            'best_target_so_far': float('inf')
+        }
+    
+    def add_intervention(self, intervention_info: Dict[str, Any]):
+        """Add intervention results to current episode."""
+        if self.current_episode is None:
+            raise ValueError("No episode started")
+        
+        self.current_episode['interventions'].append(intervention_info['intervention'])
+        self.current_episode['parent_probabilities'].append(intervention_info['parent_probs'])
+        self.current_episode['target_values'].append(intervention_info['target_value'])
+        self.current_episode['parent_selections'].append(intervention_info['is_parent'])
+        
+        # Update best target
+        if intervention_info['target_value'] < self.current_episode['best_target_so_far']:
+            self.current_episode['best_target_so_far'] = intervention_info['target_value']
+        
+        # Calculate structure learning metrics
+        true_parents = intervention_info['true_parents']
+        predicted_parents = {var for var, prob in intervention_info['parent_probs'].items() 
+                           if prob > 0.5}
+        
+        tp = len(true_parents & predicted_parents)
+        fp = len(predicted_parents - true_parents)
+        fn = len(true_parents - predicted_parents)
+        
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        
+        self.current_episode['f1_scores'].append(f1)
+        self.current_episode['precision_scores'].append(precision)
+        self.current_episode['recall_scores'].append(recall)
+        
+        # Calculate regret metrics
+        optimal_value = intervention_info.get('optimal_value', 0.0)
+        current_regret = intervention_info['target_value'] - optimal_value
+        
+        if len(self.current_episode['cumulative_regret']) == 0:
+            self.current_episode['cumulative_regret'].append(current_regret)
+        else:
+            self.current_episode['cumulative_regret'].append(
+                self.current_episode['cumulative_regret'][-1] + current_regret
+            )
+        
+        self.current_episode['simple_regret'].append(
+            self.current_episode['best_target_so_far'] - optimal_value
+        )
+    
+    def end_episode(self):
+        """Finalize current episode and add to episodes list."""
+        if self.current_episode is None:
+            raise ValueError("No episode to end")
+        
+        # Calculate episode summary statistics
+        self.current_episode['summary'] = {
+            'final_f1': self.current_episode['f1_scores'][-1] if self.current_episode['f1_scores'] else 0.0,
+            'best_f1': max(self.current_episode['f1_scores']) if self.current_episode['f1_scores'] else 0.0,
+            'mean_f1': np.mean(self.current_episode['f1_scores']) if self.current_episode['f1_scores'] else 0.0,
+            'parent_selection_rate': np.mean(self.current_episode['parent_selections']),
+            'final_target': self.current_episode['target_values'][-1] if self.current_episode['target_values'] else float('inf'),
+            'best_target': min(self.current_episode['target_values']) if self.current_episode['target_values'] else float('inf'),
+            'target_improvement': (self.current_episode['target_values'][0] - self.current_episode['target_values'][-1]) 
+                                 if len(self.current_episode['target_values']) > 1 else 0.0,
+            'final_cumulative_regret': self.current_episode['cumulative_regret'][-1] if self.current_episode['cumulative_regret'] else 0.0,
+            'final_simple_regret': self.current_episode['simple_regret'][-1] if self.current_episode['simple_regret'] else 0.0
+        }
+        
+        self.episodes.append(self.current_episode)
+        self.current_episode = None
+    
+    def get_aggregate_metrics(self) -> Dict[str, Any]:
+        """Get aggregate metrics across all episodes."""
+        if not self.episodes:
+            return {}
+        
+        aggregate = defaultdict(list)
+        
+        for episode in self.episodes:
+            for key, value in episode['summary'].items():
+                aggregate[key].append(value)
+        
+        # Calculate mean and std for each metric
+        result = {}
+        for key, values in aggregate.items():
+            result[f'{key}_mean'] = float(np.mean(values))
+            result[f'{key}_std'] = float(np.std(values))
+            result[f'{key}_min'] = float(np.min(values))
+            result[f'{key}_max'] = float(np.max(values))
+        
+        return result
+
+
+def load_models(policy_path: Path, surrogate_path: Path) -> Tuple[Any, Any, Any, Any, Dict]:
+    """Load both policy and surrogate models with metadata."""
+    
+    # Load surrogate
+    surrogate_checkpoint = load_checkpoint(surrogate_path)
+    surrogate_params = surrogate_checkpoint['params']
+    surrogate_architecture = surrogate_checkpoint.get('architecture', {})
+    
+    # Create surrogate network
+    def surrogate_fn(x, target_idx, is_training):
+        model = ContinuousParentSetPredictionModel(
+            hidden_dim=surrogate_architecture.get('hidden_dim', 128),
+            num_heads=surrogate_architecture.get('num_heads', 8),
+            num_layers=surrogate_architecture.get('num_layers', 8),
+            key_size=surrogate_architecture.get('key_size', 32),
+            dropout=surrogate_architecture.get('dropout', 0.1) if is_training else 0.0,
+            use_temperature_scaling=True,
+            temperature_init=0.0
+        )
+        return model(x, target_idx, is_training)
+    
+    surrogate_net = hk.transform(surrogate_fn)
+    
+    # Load policy
+    policy_checkpoint = load_checkpoint(policy_path)
+    policy_params = policy_checkpoint['params']
+    policy_architecture = policy_checkpoint.get('architecture', {})
+    
+    # Create policy network
+    from src.causal_bayes_opt.policies.clean_policy_factory import create_quantile_policy
+    
+    policy_fn = create_quantile_policy(
+        hidden_dim=policy_architecture.get('hidden_dim', 256)
+    )
+    policy_net = hk.without_apply_rng(hk.transform(policy_fn))
+    
+    # Extract training metadata
+    metadata = {
+        'policy_iteration': policy_checkpoint.get('iteration', -1),
+        'policy_architecture': policy_architecture,
+        'surrogate_architecture': surrogate_architecture,
+        'policy_path': str(policy_path),
+        'surrogate_path': str(surrogate_path)
+    }
+    
+    return policy_net, policy_params, surrogate_net, surrogate_params, metadata
+
+
+def evaluate_episode(
+    policy_net, policy_params,
+    surrogate_net, surrogate_params,
+    scm, metrics_tracker: MetricsTracker,
+    num_interventions: int = 30,
+    seed: int = 42,
+    verbose: bool = False,
+    baseline: Optional[Any] = None
+) -> Dict[str, Any]:
+    """
+    Evaluate one episode with comprehensive metrics tracking.
+    """
+    
+    # Get SCM information
+    variables = list(get_variables(scm))
+    target_var = get_target(scm)
+    true_parents = set(get_parents(scm, target_var))
+    variable_ranges = scm.get('metadata', {}).get('variable_ranges', {})
+    
+    # Log detailed SCM information for debugging
+    import logging
+    logger = logging.getLogger(__name__)
+    structure_type = scm.get('metadata', {}).get('structure_type', 'unknown')
+    logger.info(f"\n=== Episode Debug Info ===")
+    logger.info(f"Structure: {structure_type} with {len(variables)} variables")
+    logger.info(f"Variables: {variables}")
+    logger.info(f"Target: {target_var}")
+    logger.info(f"True parents of target: {true_parents}")
+    logger.info(f"Number of parents: {len(true_parents)}")
+    
+    # Validate that target is not a root node
+    if len(true_parents) == 0:
+        logger.error(f"ERROR: Target {target_var} has NO PARENTS (root node)!")
+        logger.error(f"This should not happen - targets must have at least one parent")
+        logger.error(f"SCM metadata: {scm.get('metadata', {})}")
+    
+    # Calculate optimal value (for regret calculation)
+    # This would require knowledge of the true SCM - simplified here
+    optimal_value = -5.0  # Placeholder - in reality would need to solve the SCM
+    
+    # Start episode tracking
+    metrics_tracker.start_episode({
+        'num_variables': len(variables),
+        'target': target_var,
+        'true_parents': list(true_parents),
+        'structure_type': scm.get('metadata', {}).get('structure_type', 'unknown')
+    })
+    
+    if verbose:
+        print(f"\n📊 Episode: {len(variables)} vars, target={target_var}, parents={true_parents}")
+    
+    # Initialize RNG
+    rng_key = random.PRNGKey(seed)
+    
+    # Initialize buffer with observations
+    buffer = ExperienceBuffer()
+    num_observations = 20
+    
+    rng_key, sample_key = random.split(rng_key)
+    samples = sample_from_linear_scm(scm, n_samples=num_observations, seed=int(sample_key[0]))
+    for sample in samples:
+        buffer.add_observation(sample)
+    
+    # Create surrogate wrapper
+    def surrogate_fn(tensor_3ch, target_var_name, variable_list):
+        """Wrapper for surrogate predictions."""
+        target_idx = list(variable_list).index(target_var_name)
+        rng_key_surrogate = random.PRNGKey(42)
+        predictions = surrogate_net.apply(surrogate_params, rng_key_surrogate, tensor_3ch, target_idx, False)
+        parent_probs = predictions.get('parent_probabilities', jnp.zeros(len(variable_list)))
+        return {'parent_probs': parent_probs}
+    
+    # Run interventions
+    for intervention_idx in range(num_interventions):
+        # Convert buffer to 4-channel tensor
+        tensor_4ch, mapper, _ = buffer_to_four_channel_tensor(
+            buffer, target_var, 
+            surrogate_fn=surrogate_fn,
+            max_history_size=100, 
+            standardize=True
+        )
+        
+        # Get current parent probability predictions
+        current_parent_probs = {}
+        for i, var in enumerate(mapper.variables):
+            if var != target_var:
+                prob = float(tensor_4ch[-1, i, 3])
+                current_parent_probs[var] = prob
+        
+        # Select intervention
+        if baseline is not None:
+            # Use baseline for intervention selection
+            selected_var, intervened_value = baseline.select_intervention(
+                buffer, target_var, variables, variable_ranges,
+                parent_probs=current_parent_probs
+            )
+        else:
+            # Use policy for intervention selection
+            # Get target index
+            target_idx = mapper.get_index(target_var)
+            
+            # Call policy
+            policy_output = policy_net.apply(policy_params, tensor_4ch, target_idx)
+            
+            # Decode quantile output
+            quantile_scores = policy_output['quantile_scores']
+            flat_scores = quantile_scores.flatten()
+            
+            # Sample from distribution
+            rng_key, sample_key = random.split(rng_key)
+            probs = jax.nn.softmax(flat_scores)
+            selected_flat_idx = random.choice(sample_key, len(flat_scores), p=probs)
+            
+            # Map back to variable and quantile
+            selected_var_idx = selected_flat_idx // 3
+            selected_quantile_idx = selected_flat_idx % 3
+            selected_var = mapper.variables[int(selected_var_idx)]
+            
+            # Map quantile to value
+            quantile_values = {0: 0.25, 1: 0.50, 2: 0.75}
+            percentile = quantile_values[int(selected_quantile_idx)]
+            var_range = variable_ranges.get(selected_var, (-2.0, 2.0))
+            intervened_value = var_range[0] + (var_range[1] - var_range[0]) * percentile
+            
+            # Add exploration noise
+            rng_key, noise_key = random.split(rng_key)
+            noise = random.normal(noise_key) * 0.1
+            intervened_value = float(jnp.clip(intervened_value + noise, var_range[0], var_range[1]))
+        
+        # Check if parent
+        is_parent = selected_var in true_parents
+        
+        # Apply intervention
+        intervention = create_perfect_intervention(
+            targets=frozenset([selected_var]),
+            values={selected_var: intervened_value}
+        )
+        
+        samples = sample_with_intervention(
+            scm, intervention, n_samples=1, 
+            seed=seed + intervention_idx + 1000
+        )
+        
+        # Get target value after intervention
+        for sample in samples:
+            target_value = float(get_values(sample)[target_var])
+            buffer.add_intervention({selected_var: intervened_value}, sample)
+        
+        # Track metrics
+        metrics_tracker.add_intervention({
+            'intervention': (selected_var, intervened_value),
+            'parent_probs': current_parent_probs,
+            'target_value': target_value,
+            'is_parent': is_parent,
+            'true_parents': true_parents,
+            'optimal_value': optimal_value
+        })
+        
+        if verbose and (intervention_idx + 1) % 10 == 0:
+            current_f1 = metrics_tracker.current_episode['f1_scores'][-1]
+            print(f"  Intervention {intervention_idx+1}: F1={current_f1:.3f}, "
+                  f"target={target_value:.2f}, parent_rate="
+                  f"{np.mean(metrics_tracker.current_episode['parent_selections']):.2%}")
+    
+    # End episode
+    metrics_tracker.end_episode()
+    
+    return metrics_tracker.episodes[-1]['summary']
+
+
+def evaluate_checkpoint_pair(
+    policy_path: Path,
+    surrogate_path: Path,
+    num_episodes: int = 10,
+    num_interventions: int = 30,
+    structure_types: List[str] = ['fork', 'chain', 'scale_free'],
+    num_vars_list: List[int] = [5, 8],
+    seed: int = 42,
+    verbose: bool = True,
+    include_baselines: bool = False
+) -> Dict[str, Any]:
+    """
+    Evaluate a policy-surrogate checkpoint pair across multiple SCMs.
+    """
+    
+    print(f"\n{'='*70}")
+    print(f"Evaluating Checkpoint Pair")
+    print(f"Policy: {policy_path.name}")
+    print(f"Surrogate: {surrogate_path.name}")
+    print(f"{'='*70}")
+    
+    # Load models
+    policy_net, policy_params, surrogate_net, surrogate_params, metadata = load_models(
+        policy_path, surrogate_path
+    )
+    
+    # Initialize metrics trackers
+    metrics_tracker = MetricsTracker()
+    random_tracker = MetricsTracker() if include_baselines else None
+    oracle_tracker = MetricsTracker() if include_baselines else None
+    
+    # Create SCM factory
+    factory = VariableSCMFactory(
+        seed=seed,
+        noise_scale=0.5,
+        coefficient_range=(-3.0, 3.0),
+        vary_intervention_ranges=True,
+        use_output_bounds=True
+    )
+    
+    # Evaluate across different SCM configurations
+    episode_count = 0
+    for structure_type in structure_types:
+        for num_vars in num_vars_list:
+            for episode_idx in range(num_episodes):
+                episode_count += 1
+                
+                if verbose:
+                    print(f"\n📊 Episode {episode_count}: {structure_type} with {num_vars} vars")
+                
+                # Create SCM
+                scm = factory.create_variable_scm(
+                    num_variables=num_vars,
+                    structure_type=structure_type
+                )
+                
+                # Evaluate episode with policy
+                summary = evaluate_episode(
+                    policy_net, policy_params,
+                    surrogate_net, surrogate_params,
+                    scm, metrics_tracker,
+                    num_interventions=num_interventions,
+                    seed=seed + episode_count * 1000,
+                    verbose=False
+                )
+                
+                if verbose:
+                    print(f"  Policy: F1={summary['final_f1']:.3f}, "
+                          f"Parent Rate={summary['parent_selection_rate']:.2%}, "
+                          f"Target={summary['best_target']:.2f}")
+                
+                # Run baselines if requested
+                if include_baselines:
+                    # Random baseline - uses random intervention selection
+                    # F1 score comes from surrogate predictions on the randomly collected data
+                    random_baseline = create_baseline('random', seed=seed + episode_count * 2000)
+                    random_summary = evaluate_episode(
+                        policy_net, policy_params,
+                        surrogate_net, surrogate_params,
+                        scm, random_tracker,
+                        num_interventions=num_interventions,
+                        seed=seed + episode_count * 1000,
+                        verbose=False,
+                        baseline=random_baseline
+                    )
+                    
+                    # Oracle baseline - uses perfect knowledge for intervention selection
+                    # F1 score comes from surrogate predictions on the optimally collected data
+                    oracle_baseline = create_baseline('oracle', scm=scm)
+                    oracle_summary = evaluate_episode(
+                        policy_net, policy_params,
+                        surrogate_net, surrogate_params,
+                        scm, oracle_tracker,
+                        num_interventions=num_interventions,
+                        seed=seed + episode_count * 1000,
+                        verbose=False,
+                        baseline=oracle_baseline
+                    )
+                    
+                    if verbose:
+                        print(f"  Random: F1={random_summary['final_f1']:.3f} (surrogate predictions), "
+                              f"Parent Rate={random_summary['parent_selection_rate']:.2%} (actual selections)")
+                        print(f"  Oracle: F1={oracle_summary['final_f1']:.3f} (surrogate predictions), "
+                              f"Parent Rate={oracle_summary['parent_selection_rate']:.2%} (actual selections)")
+    
+    # Get aggregate metrics
+    aggregate_metrics = metrics_tracker.get_aggregate_metrics()
+    
+    # Add metadata
+    result = {
+        'metadata': metadata,
+        'evaluation_config': {
+            'num_episodes': episode_count,
+            'num_interventions': num_interventions,
+            'structure_types': structure_types,
+            'num_vars_list': num_vars_list
+        },
+        'aggregate_metrics': aggregate_metrics,
+        'episodes': metrics_tracker.episodes
+    }
+    
+    # Add baseline results if computed
+    if include_baselines:
+        result['baselines'] = {
+            'random': {
+                'aggregate_metrics': random_tracker.get_aggregate_metrics(),
+                'episodes': random_tracker.episodes
+            },
+            'oracle': {
+                'aggregate_metrics': oracle_tracker.get_aggregate_metrics(),
+                'episodes': oracle_tracker.episodes
+            }
+        }
+    
+    return result
+
+
+def evaluate_training_progression(
+    checkpoint_dir: Path,
+    surrogate_path: Path,
+    checkpoint_iterations: Optional[List[int]] = None,
+    **eval_kwargs
+) -> pd.DataFrame:
+    """
+    Evaluate multiple checkpoints from training to understand performance progression.
+    """
+    
+    results = []
+    
+    # Find all checkpoints
+    if checkpoint_iterations is None:
+        checkpoint_files = sorted(checkpoint_dir.glob("checkpoint_*.pkl"))
+        checkpoint_iterations = []
+        for ckpt_file in checkpoint_files:
+            try:
+                iteration = int(ckpt_file.stem.split('_')[-1])
+                checkpoint_iterations.append(iteration)
+            except:
+                continue
+    
+    print(f"\n📈 Evaluating training progression across {len(checkpoint_iterations)} checkpoints")
+    
+    for iteration in checkpoint_iterations:
+        policy_path = checkpoint_dir / f"checkpoint_{iteration}.pkl"
+        
+        if not policy_path.exists():
+            print(f"⚠️  Checkpoint not found: {policy_path}")
+            continue
+        
+        print(f"\n🔄 Evaluating iteration {iteration}")
+        
+        # Evaluate this checkpoint
+        eval_result = evaluate_checkpoint_pair(
+            policy_path=policy_path,
+            surrogate_path=surrogate_path,
+            verbose=False,
+            **eval_kwargs
+        )
+        
+        # Extract key metrics
+        metrics = eval_result['aggregate_metrics']
+        row = {
+            'iteration': iteration,
+            'final_f1_mean': metrics.get('final_f1_mean', 0.0),
+            'final_f1_std': metrics.get('final_f1_std', 0.0),
+            'parent_selection_rate_mean': metrics.get('parent_selection_rate_mean', 0.0),
+            'parent_selection_rate_std': metrics.get('parent_selection_rate_std', 0.0),
+            'best_target_mean': metrics.get('best_target_mean', float('inf')),
+            'best_target_std': metrics.get('best_target_std', 0.0),
+            'final_cumulative_regret_mean': metrics.get('final_cumulative_regret_mean', 0.0),
+            'final_simple_regret_mean': metrics.get('final_simple_regret_mean', 0.0)
+        }
+        results.append(row)
+        
+        # Print summary
+        print(f"  F1: {row['final_f1_mean']:.3f} ± {row['final_f1_std']:.3f}")
+        print(f"  Parent Rate: {row['parent_selection_rate_mean']:.2%} ± "
+              f"{row['parent_selection_rate_std']:.2%}")
+    
+    # Create DataFrame
+    df = pd.DataFrame(results)
+    df = df.sort_values('iteration')
+    
+    # Analyze progression
+    print(f"\n📊 Training Progression Analysis:")
+    print(f"{'='*60}")
+    
+    if len(df) > 1:
+        # Check for performance degradation
+        early_f1 = df.iloc[0]['final_f1_mean']
+        late_f1 = df.iloc[-1]['final_f1_mean']
+        
+        print(f"F1 Score:")
+        print(f"  Early (iter {df.iloc[0]['iteration']}): {early_f1:.3f}")
+        print(f"  Late (iter {df.iloc[-1]['iteration']}): {late_f1:.3f}")
+        print(f"  Change: {late_f1 - early_f1:+.3f}")
+        
+        if late_f1 < early_f1 - 0.1:
+            print("  ⚠️ SIGNIFICANT PERFORMANCE DEGRADATION DETECTED!")
+        
+        # Parent selection analysis
+        early_parent = df.iloc[0]['parent_selection_rate_mean']
+        late_parent = df.iloc[-1]['parent_selection_rate_mean']
+        
+        print(f"\nParent Selection Rate:")
+        print(f"  Early: {early_parent:.2%}")
+        print(f"  Late: {late_parent:.2%}")
+        print(f"  Change: {late_parent - early_parent:+.2%}")
+    
+    return df
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Full evaluation with metrics")
+    
+    # Model paths
+    parser.add_argument('--policy-path', type=Path,
+                       help='Path to single policy checkpoint')
+    parser.add_argument('--checkpoint-dir', type=Path,
+                       help='Path to directory with multiple checkpoints')
+    parser.add_argument('--surrogate-path', type=Path, required=True,
+                       help='Path to surrogate checkpoint')
+    
+    # Evaluation config
+    parser.add_argument('--num-episodes', type=int, default=5,
+                       help='Number of episodes per configuration')
+    parser.add_argument('--num-interventions', type=int, default=30,
+                       help='Number of interventions per episode')
+    parser.add_argument('--structures', nargs='+', default=['fork', 'chain'],
+                       help='SCM structure types to test')
+    parser.add_argument('--num-vars', nargs='+', type=int, default=[5, 8],
+                       help='Number of variables to test')
+    
+    # Output
+    parser.add_argument('--output-dir', type=Path, default=Path('evaluation_results'),
+                       help='Directory to save results')
+    parser.add_argument('--seed', type=int, default=42,
+                       help='Random seed')
+    parser.add_argument('--plot', action='store_true',
+                       help='Generate trajectory plots')
+    parser.add_argument('--baselines', action='store_true',
+                       help='Include random and oracle baselines')
+    
+    args = parser.parse_args()
+    
+    print("="*70)
+    print("FULL EVALUATION WITH METRICS")
+    print("="*70)
+    
+    # Create output directory
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    if args.checkpoint_dir:
+        # Evaluate training progression
+        print(f"\n📊 Evaluating training progression from: {args.checkpoint_dir}")
+        
+        df = evaluate_training_progression(
+            checkpoint_dir=args.checkpoint_dir,
+            surrogate_path=args.surrogate_path,
+            num_episodes=args.num_episodes,
+            num_interventions=args.num_interventions,
+            structure_types=args.structures,
+            num_vars_list=args.num_vars,
+            seed=args.seed
+        )
+        
+        # Save results
+        csv_path = args.output_dir / f"progression_{timestamp}.csv"
+        df.to_csv(csv_path, index=False)
+        print(f"\n💾 Results saved to: {csv_path}")
+        
+        # Display summary
+        print(f"\n📋 Summary Table:")
+        print(df[['iteration', 'final_f1_mean', 'parent_selection_rate_mean', 
+                 'best_target_mean']].to_string(index=False))
+        
+        # Generate plots if requested
+        if args.plot:
+            from plotting_utils import plot_training_progression
+            plot_training_progression(csv_path, args.output_dir, show_plots=True)
+        
+    elif args.policy_path:
+        # Evaluate single checkpoint
+        print(f"\n📊 Evaluating single checkpoint: {args.policy_path}")
+        
+        result = evaluate_checkpoint_pair(
+            policy_path=args.policy_path,
+            surrogate_path=args.surrogate_path,
+            num_episodes=args.num_episodes,
+            num_interventions=args.num_interventions,
+            structure_types=args.structures,
+            num_vars_list=args.num_vars,
+            seed=args.seed,
+            include_baselines=args.baselines
+        )
+        
+        # Save results
+        json_path = args.output_dir / f"evaluation_{timestamp}.json"
+        
+        # Convert to serializable format
+        def convert_to_serializable(obj):
+            if isinstance(obj, (np.ndarray, jnp.ndarray)):
+                return obj.tolist()
+            elif isinstance(obj, set):
+                return list(obj)
+            elif isinstance(obj, dict):
+                return {k: convert_to_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_serializable(v) for v in obj]
+            else:
+                return obj
+        
+        with open(json_path, 'w') as f:
+            json.dump(convert_to_serializable(result), f, indent=2)
+        print(f"\n💾 Results saved to: {json_path}")
+        
+        # Display summary with clear explanations
+        metrics = result['aggregate_metrics']
+        print(f"\n📋 Evaluation Summary:")
+        print(f"\n  Policy (using trained GRPO model for intervention selection):")
+        print(f"    F1 Score: {metrics.get('final_f1_mean', 0):.3f} ± "
+              f"{metrics.get('final_f1_std', 0):.3f}  [Surrogate's structure prediction accuracy]")
+        print(f"    Parent Selection: {metrics.get('parent_selection_rate_mean', 0):.2%} ± "
+              f"{metrics.get('parent_selection_rate_std', 0):.2%}  [% of interventions on true parents]")
+        print(f"    Best Target: {metrics.get('best_target_mean', 0):.2f} ± "
+              f"{metrics.get('best_target_std', 0):.2f}  [Best target value achieved]")
+        
+        if args.baselines and 'baselines' in result:
+            print(f"\n  📊 Baseline Comparisons:")
+            print(f"  (Note: F1 scores measure surrogate's predictions on data collected by each method)")
+            
+            # Get typical SCM info from first episode
+            if result['episodes'] and result['episodes'][0]:
+                scm_info = result['episodes'][0].get('scm_info', {})
+                num_parents = len(scm_info.get('true_parents', []))
+                num_vars = scm_info.get('num_variables', 0)
+                # Random selection from non-target variables
+                # If there are P parents among (N-1) non-target variables
+                # The probability of selecting a parent is P/(N-1)
+                if num_vars > 1 and num_parents > 0:
+                    expected_random_rate = num_parents / (num_vars - 1)
+                elif num_parents == 0:
+                    expected_random_rate = 0.0  # No parents to select
+                else:
+                    expected_random_rate = 0.33  # Default estimate
+            else:
+                expected_random_rate = 0.33  # Default estimate
+            
+            print(f"\n  Random Baseline (uniform random intervention selection):")
+            random_metrics = result['baselines']['random']['aggregate_metrics']
+            print(f"    F1 Score: {random_metrics.get('final_f1_mean', 0):.3f} ± "
+                  f"{random_metrics.get('final_f1_std', 0):.3f}  [Surrogate accuracy on random data]")
+            print(f"    Parent Selection: {random_metrics.get('parent_selection_rate_mean', 0):.2%}  "
+                  f"[Expected: ~{expected_random_rate:.1%} for uniform random]")
+            print(f"    Best Target: {random_metrics.get('best_target_mean', 0):.2f}")
+            
+            print(f"\n  Oracle Baseline (perfect knowledge of causal structure):")
+            oracle_metrics = result['baselines']['oracle']['aggregate_metrics']
+            print(f"    F1 Score: {oracle_metrics.get('final_f1_mean', 0):.3f} ± "
+                  f"{oracle_metrics.get('final_f1_std', 0):.3f}  [Surrogate accuracy on optimal data]")
+            print(f"    Parent Selection: {oracle_metrics.get('parent_selection_rate_mean', 0):.2%}  "
+                  f"[Should be 100% - oracle always selects parents]")
+            print(f"    Best Target: {oracle_metrics.get('best_target_mean', 0):.2f}  [Oracle's optimization result]")
+        
+        # Generate plots if requested
+        if args.plot:
+            from plotting_utils import plot_evaluation_trajectories
+            plot_evaluation_trajectories(json_path, args.output_dir, show_plots=True)
+    
+    else:
+        print("❌ Please provide either --policy-path or --checkpoint-dir")
+        return 1
+    
+    print(f"\n✅ Evaluation complete!")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

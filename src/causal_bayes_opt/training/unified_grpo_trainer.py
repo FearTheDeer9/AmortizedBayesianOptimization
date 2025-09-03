@@ -28,7 +28,7 @@ from .grpo_logger import GRPOLogger
 # Import original components we still need
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import create_sample, get_values
-from ..acquisition.better_rewards import RunningStats
+from ..acquisition.better_rewards import compute_better_clean_reward
 from ..acquisition.composite_reward import RewardConfig, compute_composite_reward
 from ..policies.clean_policy_factory import create_clean_grpo_policy
 from ..data_structures.scm import get_variables, get_target, get_parents
@@ -153,8 +153,7 @@ class UnifiedGRPOTrainer:
             # Only set default if not explicitly provided
             self.reward_weights['info_gain'] = 0.3
         
-        # Initialize running stats FIRST (before reward config)
-        self.reward_stats = RunningStats(window_size=1000)
+        # Group-based rewards - no running stats needed
         
         # Initialize composite reward configuration
         self.reward_config = RewardConfig(
@@ -164,7 +163,7 @@ class UnifiedGRPOTrainer:
             optimization_direction=self.optimization_direction,
             reward_type=config.get('reward_type', 'continuous'),
             info_gain_type=config.get('info_gain_type', 'entropy_reduction'),
-            stats=self.reward_stats
+            stats=None
         )
         
         # Convergence config
@@ -518,6 +517,10 @@ class UnifiedGRPOTrainer:
         # Save final checkpoint
         self._save_checkpoint(is_final=True)
         
+        # Export convergence metrics before returning
+        if hasattr(self, 'convergence_metrics'):
+            self.export_convergence_metrics()
+        
         # Prepare results (same format as original)
         training_time = time.time() - start_time
         final_metrics = episode_metrics[-1] if episode_metrics else {}
@@ -576,14 +579,20 @@ class UnifiedGRPOTrainer:
         # Each sample gets posterior based on data available up to that point
         self._assign_progressive_posteriors(buffer, target_var)
         
-        # Collect GRPO batch
+        # Collect GRPO batch - TWO PASS APPROACH for group-based rewards
         grpo_batch_data = {
             'states': [],
             'actions': [],
-            'rewards': [],
+            'rewards': [],  # Will be filled in second pass
             'old_log_probs': [],
             'target_idx': target_idx,
-            'intervention_details': []
+            'intervention_details': [],
+            # FIRST PASS: Collect raw values for group statistics
+            'raw_target_values': [],
+            'raw_info_gains': [],
+            'parent_flags': [],
+            'selected_vars': [],
+            'outcomes': []
         }
         
         # Generate batch of interventions for GRPO
@@ -657,39 +666,101 @@ class UnifiedGRPOTrainer:
                 scm, intervention, n_samples=10, seed=int(sample_key[0])
             )
             
-            # Compute reward using modular reward computer
+            # FIRST PASS: Collect raw values (don't compute reward yet)
             outcome_sample = intervention_samples[0] if intervention_samples else None
             if outcome_sample:
-                # Use modular reward computation
-                reward_info = self.reward_computer.compute_reward(
-                    intervention=intervention,
-                    outcome_sample=outcome_sample,
-                    buffer=buffer,
-                    scm=scm,
-                    target_variable=target_var,
-                    variables=mapper.variables,  # Use mapper.variables for consistency
-                    tensor_5ch=tensor,
-                    mapper=mapper
-                )
-                reward = reward_info['total']
+                # Get raw target value
+                from ..data_structures.sample import get_values
+                target_value = float(get_values(outcome_sample).get(target_var, 0.0))
+                grpo_batch_data['raw_target_values'].append(target_value)
+                
+                # Compute raw info gain if surrogate available
+                info_gain = 0.0
+                if self.surrogate_predict_fn:
+                    try:
+                        # Compute info gain as probability change
+                        from ..acquisition.composite_reward import compute_information_gain_reward
+                        info_gain = compute_information_gain_reward(
+                            buffer, intervention, outcome_sample, self.surrogate_predict_fn,
+                            target_var, mapper.variables, tensor, mapper, 'probability_change'
+                        )
+                    except:
+                        info_gain = 0.0
+                grpo_batch_data['raw_info_gains'].append(info_gain)
+                
+                # Check if parent
+                is_parent = selected_var in true_parents
+                grpo_batch_data['parent_flags'].append(is_parent)
+                grpo_batch_data['selected_vars'].append(selected_var)
+                grpo_batch_data['outcomes'].append(outcome_sample)
             else:
-                reward = 0.0
+                # Fallback values
+                grpo_batch_data['raw_target_values'].append(0.0)
+                grpo_batch_data['raw_info_gains'].append(0.0)
+                grpo_batch_data['parent_flags'].append(False)
+                grpo_batch_data['selected_vars'].append(selected_var)
+                grpo_batch_data['outcomes'].append(None)
             
-            # Store for GRPO batch
+            # Store state and action for batch (no reward yet)
             grpo_batch_data['states'].append(tensor)
             grpo_batch_data['actions'].append({
                 'variable': selected_var_idx,
                 'value': float(intervention_value)
             })
-            grpo_batch_data['rewards'].append(reward)
             grpo_batch_data['old_log_probs'].append(float(log_prob))
             grpo_batch_data['intervention_details'].append({
                 'intervention': intervention,
                 'samples': intervention_samples
             })
         
+        # SECOND PASS: Compute group-based binary rewards
+        # Calculate group means
+        group_target_mean = np.mean(grpo_batch_data['raw_target_values'])
+        group_info_mean = np.mean(grpo_batch_data['raw_info_gains'])
+        
+        # Get reward weights from config
+        target_weight = self.config.get('reward_weights', {}).get('target', 0.7)
+        info_weight = self.config.get('reward_weights', {}).get('info_gain', 0.2)
+        parent_weight = self.config.get('reward_weights', {}).get('parent', 0.1)
+        
+        # Assign binary rewards based on group comparison
+        rewards = []
+        for i in range(len(grpo_batch_data['raw_target_values'])):
+            # Binary target: 1 if better than group mean, 0 otherwise
+            if self.optimization_direction == "MINIMIZE":
+                target_binary = 1.0 if grpo_batch_data['raw_target_values'][i] < group_target_mean else 0.0
+            else:
+                target_binary = 1.0 if grpo_batch_data['raw_target_values'][i] > group_target_mean else 0.0
+            
+            # Binary info gain: 1 if above group mean, 0 otherwise
+            info_binary = 1.0 if grpo_batch_data['raw_info_gains'][i] > group_info_mean else 0.0
+            
+            # Binary parent: 1 if true parent, 0 otherwise
+            parent_binary = 1.0 if grpo_batch_data['parent_flags'][i] else 0.0
+            
+            # Weighted combination
+            total_reward = (target_weight * target_binary + 
+                          info_weight * info_binary + 
+                          parent_weight * parent_binary)
+            
+            rewards.append(total_reward)
+            
+            # Log individual reward
+            if i < 5:  # Log first few for visibility
+                logger.info(f"[REWARD #{i}] Var={grpo_batch_data['selected_vars'][i]}: "
+                           f"Target={target_binary:.0f}({grpo_batch_data['raw_target_values'][i]:.3f}) "
+                           f"Info={info_binary:.0f}({grpo_batch_data['raw_info_gains'][i]:.3f}) "
+                           f"Parent={parent_binary:.0f} "
+                           f"→ Total={total_reward:.3f}")
+        
+        # Log group statistics
+        logger.info(f"[GROUP STATS] Size={len(rewards)}, "
+                   f"Target mean={group_target_mean:.3f}, "
+                   f"Info mean={group_info_mean:.3f}, "
+                   f"Reward range=[{min(rewards):.3f}, {max(rewards):.3f}]")
+        
         # Convert to arrays
-        grpo_batch_data['rewards'] = jnp.array(grpo_batch_data['rewards'])
+        grpo_batch_data['rewards'] = jnp.array(rewards)
         grpo_batch_data['old_log_probs'] = jnp.array(grpo_batch_data['old_log_probs'])
         
         # Create GRPO batch
@@ -786,6 +857,12 @@ class UnifiedGRPOTrainer:
         group_baseline = jnp.mean(rewards)
         advantages = rewards - group_baseline
         advantages = advantages / (jnp.std(advantages) + 1e-8)
+        
+        # Log advantage distribution
+        logger.info(f"[ADVANTAGES] Baseline={group_baseline:.3f}, "
+                   f"Raw range=[{jnp.min(rewards - group_baseline):.3f}, {jnp.max(rewards - group_baseline):.3f}], "
+                   f"Normalized range=[{jnp.min(advantages):.3f}, {jnp.max(advantages):.3f}], "
+                   f"Std={jnp.std(rewards):.3f}")
         
         # Forward pass
         batch_size = states.shape[0]
@@ -977,6 +1054,65 @@ class UnifiedGRPOTrainer:
         
         4-channel tensor format: Values, Target, Intervention, Posterior (no Recency)
         """
+        # Compute optimal action for this SCM
+        from ..data_structures.scm import get_parents, get_mechanisms
+        true_parents = list(get_parents(scm, target_var)) if hasattr(scm, 'edges') else []
+        
+        # Find parent with best coefficient × range product (optimal for minimization)
+        optimal_var = None
+        optimal_coefficient = 0.0
+        optimal_score = 0.0
+        optimal_range = (-10, 10)  # default
+        
+        # Get coefficients from target's mechanism (LinearMechanism)
+        mechanisms = get_mechanisms(scm)
+        target_mechanism = mechanisms.get(target_var)
+        coefficients = {}
+        if target_mechanism and hasattr(target_mechanism, 'coefficients'):
+            # Mechanism stores coefficients as {parent: coeff}
+            for parent, coeff in target_mechanism.coefficients.items():
+                coefficients[(parent, target_var)] = coeff
+        
+        # Get variable ranges (may be stored in SCM or in metadata)
+        variable_ranges = scm.get('variable_ranges', {})
+        if not variable_ranges:
+            # Check metadata for variable_ranges
+            metadata = scm.get('metadata', {})
+            variable_ranges = metadata.get('variable_ranges', {})
+        
+        for parent in true_parents:
+            coeff = coefficients.get((parent, target_var), 0.0)
+            parent_range = variable_ranges.get(parent, (-10, 10))
+            range_size = parent_range[1] - parent_range[0]
+            
+            # Optimal score = coefficient magnitude × range size
+            score = abs(coeff) * range_size
+            
+            if score > optimal_score:
+                optimal_score = score
+                optimal_coefficient = coeff
+                optimal_var = parent
+                optimal_range = parent_range
+        
+        # Initialize convergence tracking if not present
+        if not hasattr(self, 'convergence_metrics'):
+            self.convergence_metrics = {
+                'selections': [],  # (episode, intervention, var, is_optimal, probability)
+                'consecutive_optimal': 0,
+                'total_optimal': 0,
+                'total_selections': 0
+            }
+        
+        # Ensure all keys exist (in case of partial initialization)
+        if 'total_selections' not in self.convergence_metrics:
+            self.convergence_metrics['total_selections'] = 0
+        if 'total_optimal' not in self.convergence_metrics:
+            self.convergence_metrics['total_optimal'] = 0
+        if 'consecutive_optimal' not in self.convergence_metrics:
+            self.convergence_metrics['consecutive_optimal'] = 0
+        if 'selections' not in self.convergence_metrics:
+            self.convergence_metrics['selections'] = []
+        
         # Store old params for change tracking
         old_params = self.policy_params
         
@@ -984,10 +1120,15 @@ class UnifiedGRPOTrainer:
         grpo_batch_data = {
             'states': [],
             'actions': [],
-            'rewards': [],
+            'rewards': [],  # Will be filled in second pass
             'old_log_probs': [],
             'target_idx': None,
-            'intervention_details': []
+            'intervention_details': [],
+            # NEW: Store raw values for group-based binary rewards
+            'raw_target_values': [],
+            'raw_info_gains': [],
+            'parent_flags': [],
+            'selected_vars': []  # For logging
         }
         
         # Generate batch of candidates
@@ -1070,22 +1211,38 @@ class UnifiedGRPOTrainer:
                 scm, intervention, n_samples=1, seed=int(sample_key[0])
             )
             
-            # Compute reward using modular reward computer
+            # First pass: Collect raw values (not computing binary rewards yet)
             outcome_sample = intervention_samples[0] if intervention_samples else None
             if outcome_sample:
-                reward_info = self.reward_computer.compute_reward(
-                    intervention=intervention,
-                    outcome_sample=outcome_sample,
-                    buffer=buffer,
-                    scm=scm,
-                    target_variable=target_var,
-                    variables=mapper.variables,  # Use mapper.variables for consistency
-                    tensor_5ch=tensor,  # Pass 4-channel tensor
-                    mapper=mapper
-                )
-                reward = reward_info['total']
+                # Get raw target value
+                from ..data_structures.sample import get_values
+                target_value = float(get_values(outcome_sample).get(target_var, 0.0))
+                grpo_batch_data['raw_target_values'].append(target_value)
+                
+                # Compute raw info gain if surrogate available
+                info_gain = 0.0
+                if self.surrogate_predict_fn and hasattr(self, 'surrogate_predict_fn'):
+                    try:
+                        # Compute info gain as probability change
+                        from ..acquisition.composite_reward import compute_information_gain_reward
+                        info_gain = compute_information_gain_reward(
+                            buffer, intervention, outcome_sample, self.surrogate_predict_fn,
+                            target_var, mapper.variables, tensor, mapper, 'probability_change'
+                        )
+                    except:
+                        info_gain = 0.0
+                grpo_batch_data['raw_info_gains'].append(info_gain)
+                
+                # Check if parent
+                is_parent = selected_var in true_parents
+                grpo_batch_data['parent_flags'].append(is_parent)
+                grpo_batch_data['selected_vars'].append(selected_var)
             else:
-                reward = 0.0
+                # Fallback if no sample
+                grpo_batch_data['raw_target_values'].append(0.0)
+                grpo_batch_data['raw_info_gains'].append(0.0)
+                grpo_batch_data['parent_flags'].append(False)
+                grpo_batch_data['selected_vars'].append(selected_var)
             
             # Store for GRPO batch (log_prob already computed above)
             grpo_batch_data['states'].append(tensor)
@@ -1103,7 +1260,7 @@ class UnifiedGRPOTrainer:
                 action_data['flat_quantile_idx'] = debug_info['winner_idx']
             
             grpo_batch_data['actions'].append(action_data)
-            grpo_batch_data['rewards'].append(reward)
+            # Don't append reward yet - will compute in second pass
             grpo_batch_data['old_log_probs'].append(float(log_prob))
             
             # Store intervention details including debug info for convergence detection
@@ -1113,12 +1270,64 @@ class UnifiedGRPOTrainer:
                 'posterior': None  # 4-channel includes posterior in tensor
             }
             
+            # Track convergence to optimal action
+            is_parent = selected_var in true_parents
+            is_optimal = (selected_var == optimal_var) if optimal_var else False
+            selection_prob = float(jnp.exp(log_prob))
+            
+            # Log selection details for first candidate only
+            if step == 0:
+                self.convergence_metrics['total_selections'] += 1
+                if is_optimal:
+                    self.convergence_metrics['total_optimal'] += 1
+                    self.convergence_metrics['consecutive_optimal'] += 1
+                else:
+                    self.convergence_metrics['consecutive_optimal'] = 0
+                
+                # Compute optimal intervention value for minimization
+                # For minimization: negative coeff → use upper bound, positive coeff → use lower bound
+                optimal_value = None
+                if optimal_var and optimal_coefficient != 0:
+                    if optimal_coefficient < 0:
+                        # Negative coefficient: increase variable to decrease target
+                        optimal_value = optimal_range[1]  # upper bound
+                    else:
+                        # Positive coefficient: decrease variable to decrease target
+                        optimal_value = optimal_range[0]  # lower bound
+                
+                # Store detailed selection info
+                selection_info = {
+                    'episode': getattr(self, 'episode_count', 0),
+                    'selected_var': selected_var,
+                    'selected_value': float(intervention_value),
+                    'optimal_var': optimal_var if optimal_var else 'None',
+                    'optimal_value': optimal_value if optimal_value is not None else 'N/A',
+                    'is_parent': is_parent,
+                    'is_optimal': is_optimal,
+                    'probability': selection_prob,
+                    'true_parents': true_parents,
+                    'coefficient': optimal_coefficient if optimal_var else 0.0,
+                    'optimal_score': optimal_score if optimal_var else 0.0
+                }
+                self.convergence_metrics['selections'].append(selection_info)
+                
+                # Log convergence status with score details
+                optimality_rate = self.convergence_metrics['total_optimal'] / max(self.convergence_metrics['total_selections'], 1)
+                if optimal_var:
+                    logger.info(f"  Convergence: Selected={selected_var}({intervention_value:.2f}), "
+                              f"Optimal={optimal_var}(val={optimal_value:.2f}, score={optimal_score:.2f}), "
+                              f"IsOptimal={is_optimal}, Rate={optimality_rate:.1%}")
+                else:
+                    logger.info(f"  Convergence: Selected={selected_var}, No optimal parent found")
+            
             # Add debug_info for quantile architecture (needed for convergence detection)
             if 'quantile_scores' in policy_output and debug_info:
                 intervention_detail['debug_info'] = {
                     'selected_var_idx': selected_var_idx,
                     'selected_quantile': debug_info.get('selected_quantile_idx'),
-                    'selection_probability': float(jnp.exp(debug_info.get('log_prob', -10.0)))
+                    'selection_probability': selection_prob,
+                    'is_optimal': is_optimal,
+                    'optimal_var': optimal_var
                 }
             
             grpo_batch_data['intervention_details'].append(intervention_detail)
@@ -1126,8 +1335,54 @@ class UnifiedGRPOTrainer:
             if grpo_batch_data['target_idx'] is None:
                 grpo_batch_data['target_idx'] = mapper.target_idx
         
+        # SECOND PASS: Compute group-based binary rewards
+        # Calculate group means
+        group_target_mean = np.mean(grpo_batch_data['raw_target_values'])
+        group_info_mean = np.mean(grpo_batch_data['raw_info_gains'])
+        
+        # Get reward weights from config
+        target_weight = self.config.get('reward_weights', {}).get('target', 0.7)
+        info_weight = self.config.get('reward_weights', {}).get('info_gain', 0.2)
+        parent_weight = self.config.get('reward_weights', {}).get('parent', 0.1)
+        
+        # Assign binary rewards based on group comparison
+        rewards = []
+        for i in range(len(grpo_batch_data['raw_target_values'])):
+            # Binary target: 1 if better than group mean, 0 otherwise
+            if self.optimization_direction == "MINIMIZE":
+                target_binary = 1.0 if grpo_batch_data['raw_target_values'][i] < group_target_mean else 0.0
+            else:
+                target_binary = 1.0 if grpo_batch_data['raw_target_values'][i] > group_target_mean else 0.0
+            
+            # Binary info gain: 1 if above group mean, 0 otherwise
+            info_binary = 1.0 if grpo_batch_data['raw_info_gains'][i] > group_info_mean else 0.0
+            
+            # Binary parent: 1 if true parent, 0 otherwise
+            parent_binary = 1.0 if grpo_batch_data['parent_flags'][i] else 0.0
+            
+            # Weighted combination
+            total_reward = (target_weight * target_binary + 
+                          info_weight * info_binary + 
+                          parent_weight * parent_binary)
+            
+            rewards.append(total_reward)
+            
+            # Log individual reward (replacing old BINARY TARGET REWARD)
+            if i < 5:  # Log first few for visibility
+                logger.info(f"[REWARD #{i}] Var={grpo_batch_data['selected_vars'][i]}: "
+                           f"Target={target_binary:.0f}({grpo_batch_data['raw_target_values'][i]:.3f}) "
+                           f"Info={info_binary:.0f}({grpo_batch_data['raw_info_gains'][i]:.3f}) "
+                           f"Parent={parent_binary:.0f} "
+                           f"→ Total={total_reward:.3f}")
+        
+        # Log group statistics
+        logger.info(f"[GROUP STATS] Size={len(rewards)}, "
+                   f"Target mean={group_target_mean:.3f}, "
+                   f"Info mean={group_info_mean:.3f}, "
+                   f"Reward range=[{min(rewards):.3f}, {max(rewards):.3f}]")
+        
         # Convert to arrays
-        grpo_batch_data['rewards'] = jnp.array(grpo_batch_data['rewards'])
+        grpo_batch_data['rewards'] = jnp.array(rewards)
         grpo_batch_data['old_log_probs'] = jnp.array(grpo_batch_data['old_log_probs'])
         
         # Log batch intervention statistics
@@ -1251,6 +1506,54 @@ class UnifiedGRPOTrainer:
                 'selection_advantage': selected_reward - best_reward
             }
         }
+
+
+    def export_convergence_metrics(self, output_dir: Path = None) -> None:
+        """Export convergence metrics to CSV for analysis."""
+        import csv
+        from pathlib import Path
+        
+        if not hasattr(self, 'convergence_metrics') or not self.convergence_metrics['selections']:
+            logger.info("No convergence metrics to export")
+            return
+        
+        # Use checkpoint dir if no output dir specified
+        if output_dir is None:
+            output_dir = Path(self.checkpoint_dir) if hasattr(self, 'checkpoint_dir') else Path('.')
+        
+        output_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = output_dir / 'convergence_metrics.csv'
+        
+        # Write CSV
+        with open(csv_path, 'w', newline='') as f:
+            fieldnames = ['episode', 'selected_var', 'optimal_var', 'is_parent', 
+                         'is_optimal', 'probability', 'coefficient', 'parents']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            for selection in self.convergence_metrics['selections']:
+                writer.writerow({
+                    'episode': selection['episode'],
+                    'selected_var': selection['selected_var'],
+                    'optimal_var': selection['optimal_var'],
+                    'is_parent': selection['is_parent'],
+                    'is_optimal': selection['is_optimal'],
+                    'probability': f"{selection['probability']:.4f}",
+                    'coefficient': f"{selection['coefficient']:.3f}",
+                    'parents': ','.join(selection['true_parents']) if selection['true_parents'] else 'None'
+                })
+        
+        # Print summary statistics
+        total = self.convergence_metrics['total_selections']
+        optimal = self.convergence_metrics['total_optimal']
+        rate = optimal / max(total, 1)
+        
+        logger.info(f"\n📊 CONVERGENCE METRICS SUMMARY:")
+        logger.info(f"  Total selections: {total}")
+        logger.info(f"  Optimal selections: {optimal}")
+        logger.info(f"  Optimality rate: {rate:.1%}")
+        logger.info(f"  Max consecutive optimal: {self.convergence_metrics['consecutive_optimal']}")
+        logger.info(f"  Metrics saved to: {csv_path}")
 
 
 # Factory function for backward compatibility

@@ -18,7 +18,7 @@ import numpy as np
 
 from ..acquisition.composite_reward import compute_composite_reward, RewardConfig
 from ..acquisition.clean_rewards import compute_clean_reward
-from ..acquisition.better_rewards import compute_better_clean_reward, RunningStats
+from ..acquisition.better_rewards import compute_better_clean_reward
 from ..data_structures.buffer import ExperienceBuffer
 from ..data_structures.sample import get_values
 
@@ -69,11 +69,8 @@ class GRPORewardComputer:
     def __init__(self, config: GRPORewardConfig):
         self.config = config
         
-        # Initialize running stats for binary rewards
-        if config.use_running_stats:
-            self.stats = RunningStats(window_size=config.stats_window_size)
-        else:
-            self.stats = None
+        # No longer using RunningStats - we use group-based statistics
+        self.stats = None
         
         # Create legacy RewardConfig for composite rewards
         self.legacy_reward_config = RewardConfig(
@@ -82,7 +79,7 @@ class GRPORewardComputer:
             info_gain_weight=config.info_gain_weight,
             optimization_direction=config.optimization_direction,
             reward_type=config.reward_type,
-            stats=self.stats
+            stats=None
         )
         
         logger.info(f"Initialized GRPORewardComputer with reward_type={config.reward_type}")
@@ -127,7 +124,7 @@ class GRPORewardComputer:
                 tensor_5ch=tensor_5ch,
                 mapper=mapper,
                 reward_type=self.config.reward_type,
-                stats=self.stats
+                stats=None
             )
         
         elif self.config.reward_type == "clean":
@@ -154,8 +151,7 @@ class GRPORewardComputer:
                 intervention=intervention,
                 outcome=outcome_sample,
                 target_variable=target_variable,
-                config=self.config.to_legacy_config(),
-                stats=self.stats
+                config=self.config.to_legacy_config()
             )
         
         else:
@@ -176,9 +172,9 @@ class GRPORewardComputer:
                 stats=self.stats
             )
     
-    def get_stats(self) -> Optional[RunningStats]:
-        """Get running statistics for external access."""
-        return self.stats
+    def get_stats(self) -> Optional[Any]:
+        """Get running statistics for external access (deprecated - returns None)."""
+        return None
     
     def _compute_binary_reward(self, intervention: Dict[str, Any], outcome_sample: Any, 
                               target_variable: str, current_group_rewards: list = None) -> Dict[str, Any]:
@@ -214,25 +210,15 @@ class GRPORewardComputer:
                 # For maximization: above median is good (+1), below median is bad (0)
                 binary_reward = 1.0 if target_value > group_median else 0.0
             
-            logger.info(f"[BINARY TARGET REWARD] Value: {target_value:.3f}, Median: {group_median:.3f}, Binary reward: {binary_reward:.1f}")
+            # Group-based binary reward computed
         
         else:
-            # Fall back to running stats if no group provided
-            if self.stats is not None:
-                self.stats.update(target_value)
-                current_mean = self.stats.mean
-                if self.config.optimization_direction == "MINIMIZE":
-                    binary_reward = 1.0 if target_value < current_mean else 0.0
-                else:
-                    binary_reward = 1.0 if target_value > current_mean else 0.0
-                logger.info(f"[BINARY TARGET REWARD] Value: {target_value:.3f}, Mean: {current_mean:.3f}, Binary reward: {binary_reward:.1f}")
+            # Fall back to simple sign check if no group provided
+            if self.config.optimization_direction == "MINIMIZE":
+                binary_reward = 1.0 if target_value < 0.0 else 0.0
             else:
-                # Last resort: use sign check
-                if self.config.optimization_direction == "MINIMIZE":
-                    binary_reward = 1.0 if target_value < 0.0 else 0.0
-                else:
-                    binary_reward = 1.0 if target_value > 0.0 else 0.0
-                logger.info(f"[BINARY TARGET REWARD] Value: {target_value:.3f}, Binary reward: {binary_reward:.1f} (sign fallback)")
+                binary_reward = 1.0 if target_value > 0.0 else 0.0
+            logger.debug(f"No group provided for binary reward, using sign check: {binary_reward}")
         
         return {
             'total': binary_reward,

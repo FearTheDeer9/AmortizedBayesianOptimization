@@ -230,8 +230,44 @@ class VariableSCMFactory:
         
         scm = scm.update({'metadata': metadata})
         
+        # CRITICAL VALIDATION: Ensure target has parents
+        target_parents = [parent for parent, child in edges if child == target_variable]
+        if not target_parents:
+            logger.error(f"ERROR: Generated SCM has target {target_variable} with NO PARENTS!")
+            logger.error(f"  Structure type: {structure_type}")
+            logger.error(f"  Variables: {variables}")
+            logger.error(f"  Edges: {edges}")
+            # Try to fix by making target the last variable in a chain
+            if len(variables) > 1:
+                logger.warning("Attempting to fix by creating a simple chain to target...")
+                edges = []
+                coefficients = {}
+                for i in range(len(variables) - 1):
+                    if variables[i + 1] == target_variable or variables[i] == target_variable:
+                        # Create edge to target
+                        if variables[i] != target_variable:
+                            edges.append((variables[i], target_variable))
+                            self.key, subkey = random.split(self.key)
+                            coefficients[(variables[i], target_variable)] = float(
+                                random.uniform(subkey, (), self.coefficient_range[0], self.coefficient_range[1])
+                            )
+                            break
+                # Rebuild SCM with fixed edges
+                scm = create_simple_linear_scm(
+                    variables=variables,
+                    edges=edges,
+                    coefficients=coefficients,
+                    noise_scales=noise_scales,
+                    target=target_variable,
+                    variable_ranges=variable_ranges,
+                    output_bounds=None
+                )
+                scm = scm.update({'metadata': metadata})
+                logger.info(f"Fixed SCM now has edges: {edges}")
+        
         logger.info(f"Generated {structure_type} SCM: {num_variables} vars, "
-                   f"{len(edges)} edges, target={target_variable}")
+                   f"{len(edges)} edges, target={target_variable}, "
+                   f"target_parents={len(target_parents)}")
         
         return scm
     
@@ -296,6 +332,16 @@ class VariableSCMFactory:
         
         # Find target position in shuffled variables
         target_pos = shuffled_vars.index(target_variable)
+        
+        # IMPORTANT: Ensure target is not at position 0 (which would make it a root)
+        if target_pos == 0:
+            # Move target to at least position 1
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Target {target_variable} was at root position in chain, moving to position 1")
+            # Swap with position 1
+            shuffled_vars[0], shuffled_vars[1] = shuffled_vars[1], shuffled_vars[0]
+            target_pos = 1
         
         # Create chain up to target position
         for i in range(target_pos):

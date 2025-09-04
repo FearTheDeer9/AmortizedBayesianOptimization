@@ -74,3 +74,5 @@ debugging-bc-training/
 **/analyze_*.py
 **/check_*.py
 **/quick_*.py
+evaluation_results/
+thesis_results/

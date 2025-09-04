@@ -620,7 +620,8 @@ def main():
                         help='Number of interventions on single SCM')
     parser.add_argument('--scm-type', type=str, default='fork',
                         choices=['fork', 'true_fork', 'chain', 'collider', 'mixed', 'random', 'hardcoded_collider',
-                                 "scale_free", "two_layer"],
+                                 "scale_free", "two_layer", "fixed_fork", "fixed_true_fork", 
+                                 "fixed_chain", "fixed_scale_free", "fixed_random"],
                         help='Type of SCM structure')
     parser.add_argument('--num-vars', type=int, default=4,
                         help='Number of variables in SCM')
@@ -648,6 +649,11 @@ def main():
                         help='Number of consecutive high-probability selections for convergence (default: 3)')
     parser.add_argument('--convergence-threshold', type=float, default=0.9,
                         help='Probability threshold for considering a selection high-confidence (default: 0.9)')
+    parser.add_argument('--fixed-coefficients', action='store_true',
+                        help='Use fixed coefficients instead of random')
+    parser.add_argument('--coefficient-pattern', type=str, default=None,
+                        choices=['decreasing', 'alternating', 'strong', 'mixed'],
+                        help='Pattern for fixed coefficients')
     
     args = parser.parse_args()
     
@@ -733,27 +739,87 @@ def main():
         logger.info("Using hardcoded collider SCM...")
         single_scm = create_hardcoded_collider_scm()
         scm_name = 'hardcoded_collider_4var'
-    else:
-        # Create SCM factory
-        logger.info("Setting up SCM factory...")
-        scm_factory = VariableSCMFactory(
-            seed=args.seed,
-            noise_scale=0.5,
-            coefficient_range=(-3.0, 3.0),
-            vary_intervention_ranges=True,
-            use_output_bounds=True
+    elif args.scm_type.startswith('fixed_'):
+        # Import fixed graph creators
+        logger.info(f"Using fixed {args.scm_type} SCM...")
+        from test_fixed_graph_convergence import (
+            create_fixed_fork_scm,
+            create_fixed_true_fork_scm,
+            create_fixed_chain_scm,
+            create_fixed_scale_free_scm,
+            create_fixed_random_scm
         )
         
-        # Create specific SCM for training
-        sampling_config = {
-            'variable_counts': [args.num_vars],
-            'structure_types': [args.scm_type],
-            'edge_density_range': (0.3, 0.5),
-            'name_prefix': 'single_scm'
+        # Map SCM type to creator function
+        fixed_creators = {
+            'fixed_fork': create_fixed_fork_scm,
+            'fixed_true_fork': create_fixed_true_fork_scm,
+            'fixed_chain': create_fixed_chain_scm,
+            'fixed_scale_free': create_fixed_scale_free_scm,
+            'fixed_random': create_fixed_random_scm
         }
         
-        logger.info(f"Generating {args.scm_type} SCM with {args.num_vars} variables...")
-        scm_name, single_scm = scm_factory.get_random_scm(**sampling_config)
+        if args.scm_type in fixed_creators:
+            single_scm, scm_name = fixed_creators[args.scm_type]()
+            logger.info(f"Created {scm_name} SCM with zero noise")
+        else:
+            raise ValueError(f"Unknown fixed SCM type: {args.scm_type}")
+    else:
+        # Choose factory based on fixed coefficients flag
+        if args.fixed_coefficients:
+            logger.info("Setting up Fixed Coefficient SCM factory...")
+            from create_fixed_coefficient_scms import FixedCoefficientSCMFactory
+            
+            # Default coefficient values
+            coefficient_values = None
+            if args.coefficient_pattern == 'decreasing':
+                coefficient_values = [2.0, 1.5, 1.0, 0.5, 0.3]
+            elif args.coefficient_pattern == 'alternating':
+                coefficient_values = [2.0, -1.5, 1.0, -0.5]
+            elif args.coefficient_pattern == 'strong':
+                coefficient_values = [2.0, 2.0, 2.0, 2.0]
+            elif args.coefficient_pattern == 'mixed':
+                coefficient_values = [2.0, 0.5, 1.5, 0.3, 1.0]
+            
+            scm_factory = FixedCoefficientSCMFactory(
+                coefficient_values=coefficient_values,
+                noise_scale=0.0,  # Zero noise for deterministic behavior
+                intervention_range=(-5.0, 5.0),
+                use_target_bounds=False,  # Allow target to reach full range
+                target_range_multiplier=10.0,  # Expand target range 10x
+                seed=args.seed
+            )
+            
+            # Create fixed SCM
+            single_scm, scm_name = scm_factory.create_fixed_scm(
+                num_variables=args.num_vars,
+                structure_type=args.scm_type,
+                coefficient_pattern=args.coefficient_pattern
+            )
+            
+            logger.info(f"Generated FIXED {args.scm_type} SCM with {args.num_vars} variables (zero noise)")
+            
+        else:
+            # Create standard SCM factory
+            logger.info("Setting up SCM factory...")
+            scm_factory = VariableSCMFactory(
+                seed=args.seed,
+                noise_scale=0.5,
+                coefficient_range=(-3.0, 3.0),
+                vary_intervention_ranges=True,
+                use_output_bounds=True
+            )
+            
+            # Create specific SCM for training
+            sampling_config = {
+                'variable_counts': [args.num_vars],
+                'structure_types': [args.scm_type],
+                'edge_density_range': (0.3, 0.5),
+                'name_prefix': 'single_scm'
+            }
+            
+            logger.info(f"Generating {args.scm_type} SCM with {args.num_vars} variables...")
+            scm_name, single_scm = scm_factory.get_random_scm(**sampling_config)
     
     # Log SCM details and extract full information
     target_var = get_target(single_scm)

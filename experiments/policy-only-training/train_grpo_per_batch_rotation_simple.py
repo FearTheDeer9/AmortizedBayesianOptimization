@@ -872,7 +872,7 @@ def main():
     parser.add_argument('--obs-per-episode', type=int, default=None,
                         help='Observations per episode')
     parser.add_argument('--structure-types', type=str, nargs='+',
-                        default=['fork', 'chain', 'collider', 'mixed', 'random'],
+                        default=['fork', 'chain', 'collider', 'mixed', 'random', 'true_fork'],
                         choices=['random', 'chain', 'fork', 'true_fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
                         help='SCM structure types to train on')
     parser.add_argument('--min-vars', type=int, default=3,

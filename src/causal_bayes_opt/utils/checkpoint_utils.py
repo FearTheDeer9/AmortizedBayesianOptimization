@@ -30,7 +30,8 @@ def save_checkpoint(
     model_subtype: str,
     training_config: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
-    metrics: Optional[Dict[str, Any]] = None
+    metrics: Optional[Dict[str, Any]] = None,
+    optimizer_state: Optional[Any] = None
 ) -> None:
     """
     Save model checkpoint in standardized format.
@@ -44,6 +45,7 @@ def save_checkpoint(
         training_config: Optional training configuration
         metadata: Optional metadata about training
         metrics: Optional training metrics
+        optimizer_state: Optional optimizer state for continual learning
     """
     # Validate inputs
     if model_type not in ['policy', 'surrogate']:
@@ -73,7 +75,8 @@ def save_checkpoint(
         'training_config': training_config or {},
         'metadata': metadata or {},
         'metrics': metrics or {},
-        'timestamp': datetime.now().isoformat()
+        'timestamp': datetime.now().isoformat(),
+        'optimizer_state': optimizer_state  # Include optimizer state for continual learning
     }
     
     # Save

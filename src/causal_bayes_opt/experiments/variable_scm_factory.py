@@ -24,6 +24,7 @@ class VariableSCMFactory:
     
     STRUCTURE_TYPES = {
         "fork": "Common effect structure (multiple causes → one effect)",
+        "true_fork": "Common cause structure (one cause → multiple effects)",
         "chain": "Sequential causal chain (X1 → X2 → ... → Xn)",
         "collider": "Multiple causes with shared effect",
         "mixed": "Mixed structure with multiple patterns",
@@ -35,6 +36,7 @@ class VariableSCMFactory:
     def __init__(self, 
                  noise_scale: float = 1.0,
                  coefficient_range: Tuple[float, float] = (-2.0, 2.0),
+                 min_parent_coefficient: Optional[float] = None,
                  intervention_range: Optional[Tuple[float, float]] = None,
                  vary_intervention_ranges: bool = True,
                  use_output_bounds: bool = True,
@@ -45,6 +47,9 @@ class VariableSCMFactory:
         Args:
             noise_scale: Standard deviation for noise terms
             coefficient_range: Range for edge coefficients
+            min_parent_coefficient: Minimum absolute coefficient value for parent edges to target.
+                                   If set, ensures |coefficient| >= threshold for detectability.
+                                   None means no filtering (backward compatible).
             intervention_range: Default range for intervention values (if None, will vary)
             vary_intervention_ranges: If True, randomly vary ranges per node and SCM
             use_output_bounds: If True, apply size-dependent bounds to mechanism outputs
@@ -52,12 +57,64 @@ class VariableSCMFactory:
         """
         self.noise_scale = noise_scale
         self.coefficient_range = coefficient_range
+        self.min_parent_coefficient = min_parent_coefficient
         self.intervention_range = intervention_range
         self.vary_intervention_ranges = vary_intervention_ranges
         self.use_output_bounds = use_output_bounds
         self.seed = seed
         self.key = random.PRNGKey(seed)
     
+    def _generate_coefficient(self) -> float:
+        """
+        Generate a coefficient, avoiding the dead zone if min_parent_coefficient is set.
+        
+        When min_parent_coefficient is set, samples from split ranges to ensure
+        all coefficients have meaningful effect sizes (no weak edges).
+        
+        Returns:
+            Coefficient value from appropriate range
+        """
+        self.key, subkey = random.split(self.key)
+        
+        if self.min_parent_coefficient is None:
+            # No filtering - use full range
+            coeff = random.uniform(subkey, (), 
+                                 minval=self.coefficient_range[0], 
+                                 maxval=self.coefficient_range[1])
+            return float(coeff)
+        
+        # Split range sampling: avoid dead zone (-threshold, threshold)
+        # Sample from [-max, -threshold] ∪ [threshold, max]
+        min_val, max_val = self.coefficient_range
+        threshold = self.min_parent_coefficient
+        
+        # Ensure threshold is not larger than the range allows
+        if threshold > max_val or threshold > abs(min_val):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"min_parent_coefficient {threshold} is too large for range {self.coefficient_range}")
+            # Fall back to regular sampling
+            coeff = random.uniform(subkey, (), minval=min_val, maxval=max_val)
+            return float(coeff)
+        
+        # Calculate range sizes for weighted sampling
+        negative_range_size = abs(min_val - (-threshold))  # Size of [-max, -threshold]
+        positive_range_size = max_val - threshold          # Size of [threshold, max]
+        total_range_size = negative_range_size + positive_range_size
+        
+        # Randomly choose negative or positive range based on their relative sizes
+        self.key, choice_key = random.split(self.key)
+        use_negative = random.uniform(choice_key) < (negative_range_size / total_range_size)
+        
+        if use_negative:
+            # Sample from [-max, -threshold]
+            coeff = random.uniform(subkey, (), minval=min_val, maxval=-threshold)
+        else:
+            # Sample from [threshold, max]
+            coeff = random.uniform(subkey, (), minval=threshold, maxval=max_val)
+        
+        return float(coeff)
+
     def _shuffle_variables(self, variables: List[str]) -> List[str]:
         """Randomly permute variable list to eliminate positional bias."""
         self.key, subkey = random.split(self.key)
@@ -127,6 +184,8 @@ class VariableSCMFactory:
         # Generate structure based on type
         if structure_type == "fork":
             edges, coefficients = self._create_fork_structure(variables, target_variable)
+        elif structure_type == "true_fork":
+            edges, coefficients = self._create_true_fork_structure(variables, target_variable)
         elif structure_type == "chain":
             edges, coefficients, target_variable = self._create_chain_structure(variables, target_variable)
         elif structure_type == "collider":
@@ -134,7 +193,7 @@ class VariableSCMFactory:
         elif structure_type == "mixed":
             edges, coefficients = self._create_mixed_structure(variables, target_variable)
         elif structure_type == "random":
-            edges, coefficients = self._create_random_structure(variables, target_variable, edge_density)
+            edges, coefficients, target_variable = self._create_random_structure(variables, target_variable, edge_density)
         elif structure_type == "scale_free":
             edges, coefficients = self._create_scale_free_structure(variables, target_variable)
         elif structure_type == "two_layer":
@@ -247,10 +306,9 @@ class VariableSCMFactory:
                         # Create edge to target
                         if variables[i] != target_variable:
                             edges.append((variables[i], target_variable))
-                            self.key, subkey = random.split(self.key)
-                            coefficients[(variables[i], target_variable)] = float(
-                                random.uniform(subkey, (), self.coefficient_range[0], self.coefficient_range[1])
-                            )
+                            # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+                            coeff = self._generate_coefficient()
+                            coefficients[(variables[i], target_variable)] = coeff
                             break
                 # Rebuild SCM with fixed edges
                 scm = create_simple_linear_scm(
@@ -306,12 +364,56 @@ class VariableSCMFactory:
         # Connect all non-target variables to target
         for var in non_target_vars:
             edges.append((var, target))
-            # Generate random coefficient
-            self.key, subkey = random.split(self.key)
-            coeff = random.uniform(subkey, (), 
-                                 minval=self.coefficient_range[0], 
-                                 maxval=self.coefficient_range[1])
-            coefficients[(var, target)] = float(coeff)
+            # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+            coeff = self._generate_coefficient()
+            coefficients[(var, target)] = coeff
+        
+        return edges, coefficients
+    
+    def _create_true_fork_structure(self, variables: List[str], target: str) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float]]:
+        """
+        Create true fork structure: one source → multiple effects.
+        
+        In causal terminology, a fork (common cause) has one variable causing multiple others.
+        Structure: X → Y, X → Z, X → W (where X is the source/hub)
+        
+        If the target is specified, it will be one of the effect variables (not the source).
+        This ensures the target has exactly one parent (the hub variable).
+        """
+        edges = []
+        coefficients = {}
+        
+        # Select hub variable (the common cause)
+        # Make sure hub is NOT the target
+        non_target_vars = [v for v in variables if v != target]
+        if not non_target_vars:
+            # Edge case: only one variable
+            return edges, coefficients
+        
+        # Use first non-target variable as hub
+        hub = non_target_vars[0]
+        
+        # All other variables (including target) are effects
+        effect_vars = [v for v in variables if v != hub]
+        
+        # Connect hub to all effect variables
+        for var in effect_vars:
+            edges.append((hub, var))
+            # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+            coeff = self._generate_coefficient()
+            coefficients[(hub, var)] = coeff
+        
+        # Optional: Add a few edges between effect variables for complexity
+        # (but not too many to maintain fork structure)
+        if len(effect_vars) > 3:
+            # Add 1-2 edges between effects
+            for i in range(min(2, len(effect_vars) - 1)):
+                # Avoid edges to/from target to keep it simple
+                if effect_vars[i] != target and effect_vars[i+1] != target:
+                    edge = (effect_vars[i], effect_vars[i+1])
+                    edges.append(edge)
+                    coeff = self._generate_coefficient()
+                    coefficients[edge] = coeff
         
         return edges, coefficients
     
@@ -348,12 +450,9 @@ class VariableSCMFactory:
             edge = (shuffled_vars[i], shuffled_vars[i + 1])
             edges.append(edge)
             
-            # Generate coefficient
-            self.key, subkey = random.split(self.key)
-            coeff = random.uniform(subkey, (), 
-                                 minval=self.coefficient_range[0], 
-                                 maxval=self.coefficient_range[1])
-            coefficients[edge] = float(coeff)
+            # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+            coeff = self._generate_coefficient()
+            coefficients[edge] = coeff
         
         # If target is not at the end, continue chain after target
         for i in range(target_pos, len(shuffled_vars) - 1):
@@ -388,11 +487,9 @@ class VariableSCMFactory:
         collider_parents = self._random_subset_selection(non_target_vars, 1, min(3, len(non_target_vars)))
         for var in collider_parents:
             edges.append((var, target))
-            self.key, subkey = random.split(self.key)
-            coeff = random.uniform(subkey, (), 
-                                 minval=self.coefficient_range[0], 
-                                 maxval=self.coefficient_range[1])
-            coefficients[(var, target)] = float(coeff)
+            # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+            coeff = self._generate_coefficient()
+            coefficients[(var, target)] = coeff
         
         # Add some additional edges for complexity
         remaining_vars = [v for v in non_target_vars if v not in collider_parents]
@@ -427,11 +524,9 @@ class VariableSCMFactory:
         direct_parents = self._random_subset_selection(non_target_vars, 1, min(2, len(non_target_vars)))
         for var in direct_parents:
             edges.append((var, target))
-            self.key, subkey = random.split(self.key)
-            coeff = random.uniform(subkey, (), 
-                                 minval=self.coefficient_range[0], 
-                                 maxval=self.coefficient_range[1])
-            coefficients[(var, target)] = float(coeff)
+            # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+            coeff = self._generate_coefficient()
+            coefficients[(var, target)] = coeff
         
         # Pattern 2: Chain leading to target (if enough variables)
         available_for_chain = [v for v in non_target_vars if v not in direct_parents]
@@ -445,20 +540,16 @@ class VariableSCMFactory:
             for i in range(len(chain_vars) - 1):
                 edge = (chain_vars[i], chain_vars[i + 1])
                 edges.append(edge)
-                self.key, subkey = random.split(self.key)
-                coeff = random.uniform(subkey, (), 
-                                     minval=self.coefficient_range[0], 
-                                     maxval=self.coefficient_range[1])
-                coefficients[edge] = float(coeff)
+                # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+                coeff = self._generate_coefficient()
+                coefficients[edge] = coeff
             
             # Connect chain end to target
             if chain_vars:
                 edges.append((chain_vars[-1], target))
-                self.key, subkey = random.split(self.key)
-                coeff = random.uniform(subkey, (), 
-                                     minval=self.coefficient_range[0], 
-                                     maxval=self.coefficient_range[1])
-                coefficients[(chain_vars[-1], target)] = float(coeff)
+                # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+                coeff = self._generate_coefficient()
+                coefficients[(chain_vars[-1], target)] = coeff
         
         # Pattern 3: Additional random connections for remaining variables
         used_vars = set(direct_parents + (chain_vars if 'chain_vars' in locals() else []))
@@ -482,8 +573,12 @@ class VariableSCMFactory:
         
         return edges, coefficients
     
-    def _create_random_structure(self, variables: List[str], target: str, edge_density: float) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float]]:
-        """Create random DAG structure with specified edge density."""
+    def _create_random_structure(self, variables: List[str], target: Optional[str], edge_density: float) -> Tuple[List[Tuple[str, str]], Dict[Tuple[str, str], float], str]:
+        """
+        Create random DAG structure with specified edge density.
+        
+        If target is None, will select a target from non-root nodes after generating the DAG.
+        """
         edges = []
         coefficients = {}
         
@@ -491,18 +586,17 @@ class VariableSCMFactory:
         max_edges = n_vars * (n_vars - 1) // 2
         target_edges = int(max_edges * edge_density)
         
-        # Ensure target has at least one parent
-        non_target_vars = [v for v in variables if v != target]
-        self.key, subkey = random.split(self.key)
-        parent_idx = random.randint(subkey, (), 0, len(non_target_vars))
-        parent = non_target_vars[parent_idx]
-        edges.append((parent, target))
-        
-        self.key, subkey = random.split(self.key)
-        coeff = random.uniform(subkey, (), 
-                             minval=self.coefficient_range[0], 
-                             maxval=self.coefficient_range[1])
-        coefficients[(parent, target)] = float(coeff)
+        # If target specified, ensure it has at least one parent (original behavior)
+        if target is not None:
+            non_target_vars = [v for v in variables if v != target]
+            self.key, subkey = random.split(self.key)
+            parent_idx = random.randint(subkey, (), 0, len(non_target_vars))
+            parent = non_target_vars[parent_idx]
+            edges.append((parent, target))
+            
+            # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+            coeff = self._generate_coefficient()
+            coefficients[(parent, target)] = coeff
         
         # Add random edges
         attempts = 0
@@ -523,15 +617,43 @@ class VariableSCMFactory:
                 not self._would_create_cycle(edges, from_var, to_var)):
                 
                 edges.append(edge)
-                self.key, subkey = random.split(self.key)
-                coeff = random.uniform(subkey, (), 
-                                     minval=self.coefficient_range[0], 
-                                     maxval=self.coefficient_range[1])
-                coefficients[edge] = float(coeff)
+                # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+                coeff = self._generate_coefficient()
+                coefficients[edge] = coeff
             
             attempts += 1
         
-        return edges, coefficients
+        # If no target was specified, select one from non-root nodes
+        if target is None:
+            # Find all nodes with at least one incoming edge (non-roots)
+            non_root_nodes = {to_var for from_var, to_var in edges}
+            
+            if not non_root_nodes:
+                # Edge case: no edges created or all nodes are roots
+                # Create one edge to ensure we have a non-root target
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning("Random DAG has no non-root nodes, creating one edge")
+                
+                self.key, subkey1, subkey2 = random.split(self.key, 3)
+                from_idx = random.randint(subkey1, (), 0, n_vars)
+                to_idx = random.randint(subkey2, (), 0, n_vars)
+                while from_idx == to_idx:
+                    to_idx = random.randint(subkey2, (), 0, n_vars)
+                
+                edge = (variables[from_idx], variables[to_idx])
+                edges.append(edge)
+                coeff = self._generate_coefficient()
+                coefficients[edge] = coeff
+                non_root_nodes = {variables[to_idx]}
+            
+            # Randomly select target from non-root nodes
+            non_root_list = list(non_root_nodes)
+            self.key, subkey = random.split(self.key)
+            target_idx = random.randint(subkey, (), 0, len(non_root_list))
+            target = non_root_list[target_idx]
+        
+        return edges, coefficients, target
     
     def _add_output_bounds_to_scm(self, scm: pyr.PMap, edges: List[Tuple[str, str]], 
                                   coefficients: Dict[Tuple[str, str], float],
@@ -605,11 +727,9 @@ class VariableSCMFactory:
                 edge = (seed_vars[i], seed_vars[j])
                 edges.append(edge)
                 
-                self.key, subkey = random.split(self.key)
-                coeff = random.uniform(subkey, (), 
-                                     minval=self.coefficient_range[0], 
-                                     maxval=self.coefficient_range[1])
-                coefficients[edge] = float(coeff)
+                # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+                coeff = self._generate_coefficient()
+                coefficients[edge] = coeff
                 
                 out_degree[seed_vars[i]] += 1
                 in_degree[seed_vars[j]] += 1
@@ -648,11 +768,9 @@ class VariableSCMFactory:
                 edge = (parent, new_node)
                 edges.append(edge)
                 
-                self.key, subkey = random.split(self.key)
-                coeff = random.uniform(subkey, (), 
-                                     minval=self.coefficient_range[0], 
-                                     maxval=self.coefficient_range[1])
-                coefficients[edge] = float(coeff)
+                # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+                coeff = self._generate_coefficient()
+                coefficients[edge] = coeff
                 
                 out_degree[parent] += 1
                 in_degree[new_node] += 1
@@ -707,11 +825,9 @@ class VariableSCMFactory:
                 edge = (source, sink)
                 edges.append(edge)
                 
-                self.key, subkey = random.split(self.key)
-                coeff = random.uniform(subkey, (), 
-                                     minval=self.coefficient_range[0], 
-                                     maxval=self.coefficient_range[1])
-                coefficients[edge] = float(coeff)
+                # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+                coeff = self._generate_coefficient()
+                coefficients[edge] = coeff
         
         # Optionally add some connections within layer2 for complexity
         if len(layer2) > 2:
@@ -722,11 +838,9 @@ class VariableSCMFactory:
                     edge = (layer2[i], layer2[i + 1])
                     edges.append(edge)
                     
-                    self.key, subkey = random.split(self.key)
-                    coeff = random.uniform(subkey, (), 
-                                         minval=self.coefficient_range[0], 
-                                         maxval=self.coefficient_range[1])
-                    coefficients[edge] = float(coeff)
+                    # Generate coefficient (will use split ranges if min_parent_coefficient is set)
+                    coeff = self._generate_coefficient()
+                    coefficients[edge] = coeff
         
         return edges, coefficients
     
@@ -869,6 +983,18 @@ def create_variable_fork_scm(num_variables: int, noise_scale: float = 1.0,
     return factory.create_variable_scm(
         num_variables=num_variables,
         structure_type="fork",
+        target_variable=target
+    )
+
+
+def create_variable_true_fork_scm(num_variables: int, noise_scale: float = 1.0, 
+                                  intervention_range: Tuple[float, float] = (-2.0, 2.0),
+                                  target: Optional[str] = None) -> pyr.PMap:
+    """Create true fork SCM with variable number of variables (common cause structure)."""
+    factory = VariableSCMFactory(noise_scale=noise_scale, intervention_range=intervention_range)
+    return factory.create_variable_scm(
+        num_variables=num_variables,
+        structure_type="true_fork",
         target_variable=target
     )
 

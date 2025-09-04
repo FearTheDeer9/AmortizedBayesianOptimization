@@ -718,7 +718,7 @@ def main():
                        help='Explicit path for final checkpoint output')
     parser.add_argument('--structure-types', type=str, nargs='+', 
                        default=['random', 'chain', 'fork', 'collider', 'mixed'],
-                       choices=['random', 'chain', 'fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
+                       choices=['random', 'chain', 'fork', 'true_fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
                        help='SCM structure types to train on')
     
     args = parser.parse_args()
@@ -776,11 +776,20 @@ def main():
     
     # Determine starting step (checkpoint-based approach)
     start_step = 0
+    loaded_opt_state = None  # Track if we have a saved optimizer state
     if args.checkpoint and Path(args.checkpoint).exists():
         print(f"\nLoading checkpoint from: {args.checkpoint}")
         from src.causal_bayes_opt.utils.checkpoint_utils import load_checkpoint
         checkpoint = load_checkpoint(Path(args.checkpoint))
         surrogate_params = checkpoint['params']  # Override with loaded params
+        
+        
+        # Check if optimizer state is available
+        if 'optimizer_state' in checkpoint and checkpoint['optimizer_state'] is not None:
+            loaded_opt_state = checkpoint['optimizer_state']
+            print(f"  Loaded optimizer state for continual learning")
+        else:
+            print(f"  No optimizer state found, will reinitialize optimizer")
         
         # Simple checkpoint-based continuation
         last_step = checkpoint.get('metadata', {}).get('step', 0)
@@ -798,7 +807,14 @@ def main():
         optax.clip_by_global_norm(1.0),  # AVICI uses gradient clipping
         optax.lamb(learning_rate)        # AVICI uses LAMB optimizer
     )
-    opt_state = optimizer.init(surrogate_params)
+    
+    # Use loaded optimizer state if available, otherwise initialize fresh
+    if loaded_opt_state is not None:
+        opt_state = loaded_opt_state
+        print(f"  Resuming optimizer from saved state")
+    else:
+        opt_state = optimizer.init(surrogate_params)
+        print(f"  Initialized fresh optimizer state")
     
     print(f"Using AVICI optimizer settings:")
     print(f"  Base LR: {args.lr} -> Scaled LR: {learning_rate:.6f}")
@@ -901,6 +917,7 @@ def main():
             else:
                 checkpoint_path = checkpoint_dir / f'checkpoint_step_{step}.pkl'
             
+            
             # Save using standardized checkpoint format
             save_checkpoint(
                 path=checkpoint_path,
@@ -928,7 +945,8 @@ def main():
                     'best_f1': float(best_f1),
                     'dataset': 'avici_style_diverse'
                 },
-                metrics=batch_metrics
+                metrics=batch_metrics,
+                optimizer_state=opt_state  # Save optimizer state for continual learning
             )
         
         metrics_history.append({
@@ -943,6 +961,8 @@ def main():
     # Save final checkpoint if explicit path specified
     if args.checkpoint_output:
         final_checkpoint_path = Path(args.checkpoint_output)
+        
+        
         save_checkpoint(
             path=final_checkpoint_path,
             params=surrogate_params,
@@ -968,7 +988,8 @@ def main():
                 'avg_f1': float(avg_f1) if 'avg_f1' in locals() else 0.0,
                 'best_f1': float(best_f1),
                 'dataset': 'avici_style_diverse'
-            }
+            },
+            optimizer_state=opt_state  # Save optimizer state for continual learning
         )
         print(f"Saved final checkpoint to: {final_checkpoint_path}")
     

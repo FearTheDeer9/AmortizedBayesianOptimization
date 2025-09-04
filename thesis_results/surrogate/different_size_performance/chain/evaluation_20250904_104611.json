@@ -1,0 +1,3130 @@
+{
+  "metadata": {
+    "policy_iteration": -1,
+    "policy_architecture": {
+      "hidden_dim": 256,
+      "num_layers": 4,
+      "num_heads": 8,
+      "key_size": 32,
+      "dropout": 0.1,
+      "policy_architecture": "quantile",
+      "architecture_type": "quantile"
+    },
+    "surrogate_architecture": {
+      "hidden_dim": 128,
+      "num_layers": 8,
+      "num_heads": 8,
+      "key_size": 32,
+      "dropout": 0.1,
+      "encoder_type": "node_feature"
+    },
+    "policy_path": "local_simple_10hr/fork_and_chain/policy_phase_30.pkl",
+    "surrogate_path": "checkpoints/avici_runs/avici_style_20250903_154909/checkpoint_step_1000.pkl"
+  },
+  "evaluation_config": {
+    "num_episodes": 15,
+    "num_interventions": 1,
+    "structure_types": [
+      "chain"
+    ],
+    "num_vars_list": [
+      8
+    ]
+  },
+  "aggregate_metrics": {
+    "final_f1_mean": 0.8,
+    "final_f1_std": 0.4,
+    "final_f1_min": 0.0,
+    "final_f1_max": 1.0,
+    "best_f1_mean": 0.8,
+    "best_f1_std": 0.4,
+    "best_f1_min": 0.0,
+    "best_f1_max": 1.0,
+    "mean_f1_mean": 0.8,
+    "mean_f1_std": 0.4,
+    "mean_f1_min": 0.0,
+    "mean_f1_max": 1.0,
+    "parent_selection_rate_mean": 0.6666666666666666,
+    "parent_selection_rate_std": 0.47140452079103173,
+    "parent_selection_rate_min": 0.0,
+    "parent_selection_rate_max": 1.0,
+    "final_target_mean": 0.4943666934967041,
+    "final_target_std": 1.7285698094847264,
+    "final_target_min": -2.0887293815612793,
+    "final_target_max": 3.5789520740509033,
+    "best_target_mean": 0.4943666934967041,
+    "best_target_std": 1.7285698094847264,
+    "best_target_min": -2.0887293815612793,
+    "best_target_max": 3.5789520740509033,
+    "target_improvement_mean": 0.0,
+    "target_improvement_std": 0.0,
+    "target_improvement_min": 0.0,
+    "target_improvement_max": 0.0,
+    "final_cumulative_regret_mean": 5.494366693496704,
+    "final_cumulative_regret_std": 1.7285698094847264,
+    "final_cumulative_regret_min": 2.9112706184387207,
+    "final_cumulative_regret_max": 8.578952074050903,
+    "final_simple_regret_mean": 5.494366693496704,
+    "final_simple_regret_std": 1.7285698094847264,
+    "final_simple_regret_min": 2.9112706184387207,
+    "final_simple_regret_max": 8.578952074050903
+  },
+  "episodes": [
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X5",
+        "true_parents": [
+          "X6"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 2.333904266357422,
+        "max_coefficient": 2.333904266357422,
+        "mean_coefficient": 2.333904266357422,
+        "parent_coefficients": {
+          "X6": 2.333904266357422
+        }
+      },
+      "interventions": [
+        [
+          "X0",
+          0.12798835337162018
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.020033685490489006,
+          "X1": 0.3797493875026703,
+          "X2": 0.34313327074050903,
+          "X3": 0.001917172339744866,
+          "X4": 0.0019432571716606617,
+          "X6": 0.8013139367103577,
+          "X7": 0.004376174416393042
+        }
+      ],
+      "target_values": [
+        -2.082458257675171
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        false
+      ],
+      "cumulative_regret": [
+        2.917541742324829
+      ],
+      "simple_regret": [
+        2.917541742324829
+      ],
+      "best_target_so_far": -2.082458257675171,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 0.0,
+        "final_target": -2.082458257675171,
+        "best_target": -2.082458257675171,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 2.917541742324829,
+        "final_simple_regret": 2.917541742324829
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X4",
+        "true_parents": [
+          "X7"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 2.919848918914795,
+        "max_coefficient": 2.919848918914795,
+        "mean_coefficient": 2.919848918914795,
+        "parent_coefficients": {
+          "X7": 2.919848918914795
+        }
+      },
+      "interventions": [
+        [
+          "X7",
+          0.39630407094955444
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.0014102946734055877,
+          "X1": 0.0011968075996264815,
+          "X2": 0.0011663234326988459,
+          "X3": 0.0010135512566193938,
+          "X5": 0.0014066187432035804,
+          "X6": 0.0011124812299385667,
+          "X7": 0.9919460415840149
+        }
+      ],
+      "target_values": [
+        0.980742335319519
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        5.980742335319519
+      ],
+      "simple_regret": [
+        5.980742335319519
+      ],
+      "best_target_so_far": 0.980742335319519,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": 0.980742335319519,
+        "best_target": 0.980742335319519,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 5.980742335319519,
+        "final_simple_regret": 5.980742335319519
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X6",
+        "true_parents": [
+          "X5"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 2.3515312671661377,
+        "max_coefficient": 2.3515312671661377,
+        "mean_coefficient": 2.3515312671661377,
+        "parent_coefficients": {
+          "X5": -2.3515312671661377
+        }
+      },
+      "interventions": [
+        [
+          "X5",
+          -0.4886506199836731
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.0009377362439408898,
+          "X1": 0.0009864033199846745,
+          "X2": 0.0009620412020012736,
+          "X3": 0.0008521178970113397,
+          "X4": 0.0011824769899249077,
+          "X5": 0.9863583445549011,
+          "X7": 0.0008132821531035006
+        }
+      ],
+      "target_values": [
+        0.9404492378234863
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        5.940449237823486
+      ],
+      "simple_regret": [
+        5.940449237823486
+      ],
+      "best_target_so_far": 0.9404492378234863,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": 0.9404492378234863,
+        "best_target": 0.9404492378234863,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 5.940449237823486,
+        "final_simple_regret": 5.940449237823486
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X5",
+        "true_parents": [
+          "X4"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 0.759806215763092,
+        "max_coefficient": 0.759806215763092,
+        "mean_coefficient": 0.759806215763092,
+        "parent_coefficients": {
+          "X4": -0.759806215763092
+        }
+      },
+      "interventions": [
+        [
+          "X4",
+          -5.0448384284973145
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.053038835525512695,
+          "X1": 0.17201344668865204,
+          "X2": 0.12364274263381958,
+          "X3": 0.3785513937473297,
+          "X4": 0.8960167169570923,
+          "X6": 0.3743201792240143,
+          "X7": 0.12577760219573975
+        }
+      ],
+      "target_values": [
+        1.8919967412948608
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        6.891996741294861
+      ],
+      "simple_regret": [
+        6.891996741294861
+      ],
+      "best_target_so_far": 1.8919967412948608,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": 1.8919967412948608,
+        "best_target": 1.8919967412948608,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 6.891996741294861,
+        "final_simple_regret": 6.891996741294861
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X3",
+        "true_parents": [
+          "X5"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 0.7164903283119202,
+        "max_coefficient": 0.7164903283119202,
+        "mean_coefficient": 0.7164903283119202,
+        "parent_coefficients": {
+          "X5": -0.7164903283119202
+        }
+      },
+      "interventions": [
+        [
+          "X5",
+          -2.515892505645752
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.008485423400998116,
+          "X1": 0.2192918211221695,
+          "X2": 0.22261559963226318,
+          "X4": 0.004748256877064705,
+          "X5": 0.813356876373291,
+          "X6": 0.0035824906080961227,
+          "X7": 0.0037724606227129698
+        }
+      ],
+      "target_values": [
+        0.7387181520462036
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        5.738718152046204
+      ],
+      "simple_regret": [
+        5.738718152046204
+      ],
+      "best_target_so_far": 0.7387181520462036,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": 0.7387181520462036,
+        "best_target": 0.7387181520462036,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 5.738718152046204,
+        "final_simple_regret": 5.738718152046204
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X2",
+        "true_parents": [
+          "X4"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 0.816600501537323,
+        "max_coefficient": 0.816600501537323,
+        "mean_coefficient": 0.816600501537323,
+        "parent_coefficients": {
+          "X4": 0.816600501537323
+        }
+      },
+      "interventions": [
+        [
+          "X4",
+          -2.335662603378296
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.050425950437784195,
+          "X1": 0.0037765935994684696,
+          "X3": 0.03175786882638931,
+          "X4": 0.7536864876747131,
+          "X5": 0.1946740746498108,
+          "X6": 0.31547483801841736,
+          "X7": 0.011543270200490952
+        }
+      ],
+      "target_values": [
+        -1.3282266855239868
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        3.671773314476013
+      ],
+      "simple_regret": [
+        3.671773314476013
+      ],
+      "best_target_so_far": -1.3282266855239868,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": -1.3282266855239868,
+        "best_target": -1.3282266855239868,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 3.671773314476013,
+        "final_simple_regret": 3.671773314476013
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X6",
+        "true_parents": [
+          "X7"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 0.816295325756073,
+        "max_coefficient": 0.816295325756073,
+        "mean_coefficient": 0.816295325756073,
+        "parent_coefficients": {
+          "X7": 0.816295325756073
+        }
+      },
+      "interventions": [
+        [
+          "X7",
+          -0.7314576506614685
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.0035659943241626024,
+          "X1": 0.010841736570000648,
+          "X2": 0.0061320532113313675,
+          "X3": 0.005731553770601749,
+          "X4": 0.005689793266355991,
+          "X5": 0.013851084746420383,
+          "X7": 0.9421084523200989
+        }
+      ],
+      "target_values": [
+        -1.0007364749908447
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        3.9992635250091553
+      ],
+      "simple_regret": [
+        3.9992635250091553
+      ],
+      "best_target_so_far": -1.0007364749908447,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": -1.0007364749908447,
+        "best_target": -1.0007364749908447,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 3.9992635250091553,
+        "final_simple_regret": 3.9992635250091553
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X4",
+        "true_parents": [
+          "X0"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 0.9304918646812439,
+        "max_coefficient": 0.9304918646812439,
+        "mean_coefficient": 0.9304918646812439,
+        "parent_coefficients": {
+          "X0": 0.9304918646812439
+        }
+      },
+      "interventions": [
+        [
+          "X5",
+          -1.6334896087646484
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.5594800114631653,
+          "X1": 0.0039485786110162735,
+          "X2": 0.00488941790536046,
+          "X3": 0.05396408960223198,
+          "X5": 0.34721168875694275,
+          "X6": 0.21311238408088684,
+          "X7": 0.48598504066467285
+        }
+      ],
+      "target_values": [
+        1.8014792203903198
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        false
+      ],
+      "cumulative_regret": [
+        6.80147922039032
+      ],
+      "simple_regret": [
+        6.80147922039032
+      ],
+      "best_target_so_far": 1.8014792203903198,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 0.0,
+        "final_target": 1.8014792203903198,
+        "best_target": 1.8014792203903198,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 6.80147922039032,
+        "final_simple_regret": 6.80147922039032
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X7",
+        "true_parents": [
+          "X1"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 0.8564995527267456,
+        "max_coefficient": 0.8564995527267456,
+        "mean_coefficient": 0.8564995527267456,
+        "parent_coefficients": {
+          "X1": -0.8564995527267456
+        }
+      },
+      "interventions": [
+        [
+          "X1",
+          -0.6155151724815369
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.015413888730108738,
+          "X1": 0.8738580346107483,
+          "X2": 0.18967673182487488,
+          "X3": 0.07476828247308731,
+          "X4": 0.007330525666475296,
+          "X5": 0.008095728233456612,
+          "X6": 0.03522836044430733
+        }
+      ],
+      "target_values": [
+        1.137608289718628
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        6.137608289718628
+      ],
+      "simple_regret": [
+        6.137608289718628
+      ],
+      "best_target_so_far": 1.137608289718628,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": 1.137608289718628,
+        "best_target": 1.137608289718628,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 6.137608289718628,
+        "final_simple_regret": 6.137608289718628
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X1",
+        "true_parents": [
+          "X3"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 2.502328395843506,
+        "max_coefficient": 2.502328395843506,
+        "mean_coefficient": 2.502328395843506,
+        "parent_coefficients": {
+          "X3": 2.502328395843506
+        }
+      },
+      "interventions": [
+        [
+          "X3",
+          -1.1364961862564087
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.0010293870000168681,
+          "X2": 0.0009856390533968806,
+          "X3": 0.9908317923545837,
+          "X4": 0.0010407273657619953,
+          "X5": 0.0009808195754885674,
+          "X6": 0.0009866293985396624,
+          "X7": 0.001195088610984385
+        }
+      ],
+      "target_values": [
+        -2.0887293815612793
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        2.9112706184387207
+      ],
+      "simple_regret": [
+        2.9112706184387207
+      ],
+      "best_target_so_far": -2.0887293815612793,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": -2.0887293815612793,
+        "best_target": -2.0887293815612793,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 2.9112706184387207,
+        "final_simple_regret": 2.9112706184387207
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X7",
+        "true_parents": [
+          "X2"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 1.7895601987838745,
+        "max_coefficient": 1.7895601987838745,
+        "mean_coefficient": 1.7895601987838745,
+        "parent_coefficients": {
+          "X2": -1.7895601987838745
+        }
+      },
+      "interventions": [
+        [
+          "X6",
+          -0.10356327891349792
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.13266634941101074,
+          "X1": 0.01119769737124443,
+          "X2": 0.4273664653301239,
+          "X3": 0.005761784501373768,
+          "X4": 0.021264787763357162,
+          "X5": 0.30850502848625183,
+          "X6": 0.872776210308075
+        }
+      ],
+      "target_values": [
+        1.0205942392349243
+      ],
+      "f1_scores": [
+        0.0
+      ],
+      "precision_scores": [
+        0.0
+      ],
+      "recall_scores": [
+        0.0
+      ],
+      "parent_selections": [
+        false
+      ],
+      "cumulative_regret": [
+        6.020594239234924
+      ],
+      "simple_regret": [
+        6.020594239234924
+      ],
+      "best_target_so_far": 1.0205942392349243,
+      "summary": {
+        "final_f1": 0.0,
+        "best_f1": 0.0,
+        "mean_f1": 0.0,
+        "parent_selection_rate": 0.0,
+        "final_target": 1.0205942392349243,
+        "best_target": 1.0205942392349243,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 6.020594239234924,
+        "final_simple_regret": 6.020594239234924
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X1",
+        "true_parents": [
+          "X2"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 2.8461880683898926,
+        "max_coefficient": 2.8461880683898926,
+        "mean_coefficient": 2.8461880683898926,
+        "parent_coefficients": {
+          "X2": 2.8461880683898926
+        }
+      },
+      "interventions": [
+        [
+          "X2",
+          -2.9296555519104004
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.151620551943779,
+          "X2": 0.6970839500427246,
+          "X3": 0.06378885358572006,
+          "X4": 0.006637901533395052,
+          "X5": 0.010884115472435951,
+          "X6": 0.35745659470558167,
+          "X7": 0.06832706183195114
+        }
+      ],
+      "target_values": [
+        -2.071852445602417
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        2.928147554397583
+      ],
+      "simple_regret": [
+        2.928147554397583
+      ],
+      "best_target_so_far": -2.071852445602417,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": -2.071852445602417,
+        "best_target": -2.071852445602417,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 2.928147554397583,
+        "final_simple_regret": 2.928147554397583
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X5",
+        "true_parents": [
+          "X1"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 2.9324779510498047,
+        "max_coefficient": 2.9324779510498047,
+        "mean_coefficient": 2.9324779510498047,
+        "parent_coefficients": {
+          "X1": -2.9324779510498047
+        }
+      },
+      "interventions": [
+        [
+          "X1",
+          -1.2128709554672241
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.0020818926859647036,
+          "X1": 0.9849945902824402,
+          "X2": 0.0014863130636513233,
+          "X3": 0.0022391844540834427,
+          "X4": 0.0012996973237022758,
+          "X6": 0.0032154221553355455,
+          "X7": 0.0017039199592545629
+        }
+      ],
+      "target_values": [
+        3.5789520740509033
+      ],
+      "f1_scores": [
+        1.0
+      ],
+      "precision_scores": [
+        1.0
+      ],
+      "recall_scores": [
+        1.0
+      ],
+      "parent_selections": [
+        true
+      ],
+      "cumulative_regret": [
+        8.578952074050903
+      ],
+      "simple_regret": [
+        8.578952074050903
+      ],
+      "best_target_so_far": 3.5789520740509033,
+      "summary": {
+        "final_f1": 1.0,
+        "best_f1": 1.0,
+        "mean_f1": 1.0,
+        "parent_selection_rate": 1.0,
+        "final_target": 3.5789520740509033,
+        "best_target": 3.5789520740509033,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 8.578952074050903,
+        "final_simple_regret": 8.578952074050903
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X3",
+        "true_parents": [
+          "X6"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 1.7739744186401367,
+        "max_coefficient": 1.7739744186401367,
+        "mean_coefficient": 1.7739744186401367,
+        "parent_coefficients": {
+          "X6": -1.7739744186401367
+        }
+      },
+      "interventions": [
+        [
+          "X1",
+          -0.5692840218544006
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.09029282629489899,
+          "X1": 0.7665151953697205,
+          "X2": 0.28215551376342773,
+          "X4": 0.04848833754658699,
+          "X5": 0.11813327670097351,
+          "X6": 0.18295451998710632,
+          "X7": 0.05870158225297928
+        }
+      ],
+      "target_values": [
+        1.326864242553711
+      ],
+      "f1_scores": [
+        0.0
+      ],
+      "precision_scores": [
+        0.0
+      ],
+      "recall_scores": [
+        0.0
+      ],
+      "parent_selections": [
+        false
+      ],
+      "cumulative_regret": [
+        6.326864242553711
+      ],
+      "simple_regret": [
+        6.326864242553711
+      ],
+      "best_target_so_far": 1.326864242553711,
+      "summary": {
+        "final_f1": 0.0,
+        "best_f1": 0.0,
+        "mean_f1": 0.0,
+        "parent_selection_rate": 0.0,
+        "final_target": 1.326864242553711,
+        "best_target": 1.326864242553711,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 6.326864242553711,
+        "final_simple_regret": 6.326864242553711
+      }
+    },
+    {
+      "scm_info": {
+        "num_variables": 8,
+        "target": "X6",
+        "true_parents": [
+          "X4"
+        ],
+        "structure_type": "chain",
+        "min_coefficient": 0.5222063064575195,
+        "max_coefficient": 0.5222063064575195,
+        "mean_coefficient": 0.5222063064575195,
+        "parent_coefficients": {
+          "X4": 0.5222063064575195
+        }
+      },
+      "interventions": [
+        [
+          "X1",
+          -2.309267282485962
+        ]
+      ],
+      "parent_probabilities": [
+        {
+          "X0": 0.005028108600527048,
+          "X1": 0.9302875995635986,
+          "X2": 0.005727063398808241,
+          "X3": 0.0019226163858547807,
+          "X4": 0.0879158154129982,
+          "X5": 0.025536127388477325,
+          "X7": 0.006247102748602629
+        }
+      ],
+      "target_values": [
+        2.570099115371704
+      ],
+      "f1_scores": [
+        0.0
+      ],
+      "precision_scores": [
+        0.0
+      ],
+      "recall_scores": [
+        0.0
+      ],
+      "parent_selections": [
+        false
+      ],
+      "cumulative_regret": [
+        7.570099115371704
+      ],
+      "simple_regret": [
+        7.570099115371704
+      ],
+      "best_target_so_far": 2.570099115371704,
+      "summary": {
+        "final_f1": 0.0,
+        "best_f1": 0.0,
+        "mean_f1": 0.0,
+        "parent_selection_rate": 0.0,
+        "final_target": 2.570099115371704,
+        "best_target": 2.570099115371704,
+        "target_improvement": 0.0,
+        "final_cumulative_regret": 7.570099115371704,
+        "final_simple_regret": 7.570099115371704
+      }
+    }
+  ],
+  "baselines": {
+    "random": {
+      "aggregate_metrics": {
+        "final_f1_mean": 0.8,
+        "final_f1_std": 0.4,
+        "final_f1_min": 0.0,
+        "final_f1_max": 1.0,
+        "best_f1_mean": 0.8,
+        "best_f1_std": 0.4,
+        "best_f1_min": 0.0,
+        "best_f1_max": 1.0,
+        "mean_f1_mean": 0.8,
+        "mean_f1_std": 0.4,
+        "mean_f1_min": 0.0,
+        "mean_f1_max": 1.0,
+        "parent_selection_rate_mean": 0.26666666666666666,
+        "parent_selection_rate_std": 0.44221663871405337,
+        "parent_selection_rate_min": 0.0,
+        "parent_selection_rate_max": 1.0,
+        "final_target_mean": 0.40431790351867675,
+        "final_target_std": 3.2272650548821,
+        "final_target_min": -9.752042770385742,
+        "final_target_max": 4.994123935699463,
+        "best_target_mean": 0.40431790351867675,
+        "best_target_std": 3.2272650548821,
+        "best_target_min": -9.752042770385742,
+        "best_target_max": 4.994123935699463,
+        "target_improvement_mean": 0.0,
+        "target_improvement_std": 0.0,
+        "target_improvement_min": 0.0,
+        "target_improvement_max": 0.0,
+        "final_cumulative_regret_mean": 5.404317903518677,
+        "final_cumulative_regret_std": 3.2272650548821,
+        "final_cumulative_regret_min": -4.752042770385742,
+        "final_cumulative_regret_max": 9.994123935699463,
+        "final_simple_regret_mean": 5.404317903518677,
+        "final_simple_regret_std": 3.2272650548821,
+        "final_simple_regret_min": -4.752042770385742,
+        "final_simple_regret_max": 9.994123935699463
+      },
+      "episodes": [
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X5",
+            "true_parents": [
+              "X6"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.333904266357422,
+            "max_coefficient": 2.333904266357422,
+            "mean_coefficient": 2.333904266357422,
+            "parent_coefficients": {
+              "X6": 2.333904266357422
+            }
+          },
+          "interventions": [
+            [
+              "X6",
+              2.6783484404549105
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.020033685490489006,
+              "X1": 0.3797493875026703,
+              "X2": 0.34313327074050903,
+              "X3": 0.001917172339744866,
+              "X4": 0.0019432571716606617,
+              "X6": 0.8013139367103577,
+              "X7": 0.004376174416393042
+            }
+          ],
+          "target_values": [
+            3.0932555198669434
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            8.093255519866943
+          ],
+          "simple_regret": [
+            8.093255519866943
+          ],
+          "best_target_so_far": 3.0932555198669434,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": 3.0932555198669434,
+            "best_target": 3.0932555198669434,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 8.093255519866943,
+            "final_simple_regret": 8.093255519866943
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X4",
+            "true_parents": [
+              "X7"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.919848918914795,
+            "max_coefficient": 2.919848918914795,
+            "mean_coefficient": 2.919848918914795,
+            "parent_coefficients": {
+              "X7": 2.919848918914795
+            }
+          },
+          "interventions": [
+            [
+              "X3",
+              0.424437574622166
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0014102946734055877,
+              "X1": 0.0011968075996264815,
+              "X2": 0.0011663234326988459,
+              "X3": 0.0010135512566193938,
+              "X5": 0.0014066187432035804,
+              "X6": 0.0011124812299385667,
+              "X7": 0.9919460415840149
+            }
+          ],
+          "target_values": [
+            1.6022233963012695
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            6.6022233963012695
+          ],
+          "simple_regret": [
+            6.6022233963012695
+          ],
+          "best_target_so_far": 1.6022233963012695,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 0.0,
+            "final_target": 1.6022233963012695,
+            "best_target": 1.6022233963012695,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 6.6022233963012695,
+            "final_simple_regret": 6.6022233963012695
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X6",
+            "true_parents": [
+              "X5"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.3515312671661377,
+            "max_coefficient": 2.3515312671661377,
+            "mean_coefficient": 2.3515312671661377,
+            "parent_coefficients": {
+              "X5": -2.3515312671661377
+            }
+          },
+          "interventions": [
+            [
+              "X7",
+              0.9294196822245102
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0009377362439408898,
+              "X1": 0.0009864033199846745,
+              "X2": 0.0009620412020012736,
+              "X3": 0.0008521178970113397,
+              "X4": 0.0011824769899249077,
+              "X5": 0.9863583445549011,
+              "X7": 0.0008132821531035006
+            }
+          ],
+          "target_values": [
+            4.994123935699463
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            9.994123935699463
+          ],
+          "simple_regret": [
+            9.994123935699463
+          ],
+          "best_target_so_far": 4.994123935699463,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 0.0,
+            "final_target": 4.994123935699463,
+            "best_target": 4.994123935699463,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 9.994123935699463,
+            "final_simple_regret": 9.994123935699463
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X5",
+            "true_parents": [
+              "X4"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.759806215763092,
+            "max_coefficient": 0.759806215763092,
+            "mean_coefficient": 0.759806215763092,
+            "parent_coefficients": {
+              "X4": -0.759806215763092
+            }
+          },
+          "interventions": [
+            [
+              "X4",
+              -7.869252808282907
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.053038835525512695,
+              "X1": 0.17201344668865204,
+              "X2": 0.12364274263381958,
+              "X3": 0.3785513937473297,
+              "X4": 0.8960167169570923,
+              "X6": 0.3743201792240143,
+              "X7": 0.12577760219573975
+            }
+          ],
+          "target_values": [
+            1.8919967412948608
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            6.891996741294861
+          ],
+          "simple_regret": [
+            6.891996741294861
+          ],
+          "best_target_so_far": 1.8919967412948608,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": 1.8919967412948608,
+            "best_target": 1.8919967412948608,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 6.891996741294861,
+            "final_simple_regret": 6.891996741294861
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X3",
+            "true_parents": [
+              "X5"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.7164903283119202,
+            "max_coefficient": 0.7164903283119202,
+            "mean_coefficient": 0.7164903283119202,
+            "parent_coefficients": {
+              "X5": -0.7164903283119202
+            }
+          },
+          "interventions": [
+            [
+              "X4",
+              1.1891268150962415
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.008485423400998116,
+              "X1": 0.2192918211221695,
+              "X2": 0.22261559963226318,
+              "X4": 0.004748256877064705,
+              "X5": 0.813356876373291,
+              "X6": 0.0035824906080961227,
+              "X7": 0.0037724606227129698
+            }
+          ],
+          "target_values": [
+            -0.002017378807067871
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            4.997982621192932
+          ],
+          "simple_regret": [
+            4.997982621192932
+          ],
+          "best_target_so_far": -0.002017378807067871,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 0.0,
+            "final_target": -0.002017378807067871,
+            "best_target": -0.002017378807067871,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 4.997982621192932,
+            "final_simple_regret": 4.997982621192932
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X2",
+            "true_parents": [
+              "X4"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.816600501537323,
+            "max_coefficient": 0.816600501537323,
+            "mean_coefficient": 0.816600501537323,
+            "parent_coefficients": {
+              "X4": 0.816600501537323
+            }
+          },
+          "interventions": [
+            [
+              "X7",
+              2.1308170800326787
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.050425950437784195,
+              "X1": 0.0037765935994684696,
+              "X3": 0.03175786882638931,
+              "X4": 0.7536864876747131,
+              "X5": 0.1946740746498108,
+              "X6": 0.31547483801841736,
+              "X7": 0.011543270200490952
+            }
+          ],
+          "target_values": [
+            1.5979259014129639
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            6.597925901412964
+          ],
+          "simple_regret": [
+            6.597925901412964
+          ],
+          "best_target_so_far": 1.5979259014129639,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 0.0,
+            "final_target": 1.5979259014129639,
+            "best_target": 1.5979259014129639,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 6.597925901412964,
+            "final_simple_regret": 6.597925901412964
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X6",
+            "true_parents": [
+              "X7"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.816295325756073,
+            "max_coefficient": 0.816295325756073,
+            "mean_coefficient": 0.816295325756073,
+            "parent_coefficients": {
+              "X7": 0.816295325756073
+            }
+          },
+          "interventions": [
+            [
+              "X5",
+              0.7985306290423373
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0035659943241626024,
+              "X1": 0.010841736570000648,
+              "X2": 0.0061320532113313675,
+              "X3": 0.005731553770601749,
+              "X4": 0.005689793266355991,
+              "X5": 0.013851084746420383,
+              "X7": 0.9421084523200989
+            }
+          ],
+          "target_values": [
+            -1.331934928894043
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            3.668065071105957
+          ],
+          "simple_regret": [
+            3.668065071105957
+          ],
+          "best_target_so_far": -1.331934928894043,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 0.0,
+            "final_target": -1.331934928894043,
+            "best_target": -1.331934928894043,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 3.668065071105957,
+            "final_simple_regret": 3.668065071105957
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X4",
+            "true_parents": [
+              "X0"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.9304918646812439,
+            "max_coefficient": 0.9304918646812439,
+            "mean_coefficient": 0.9304918646812439,
+            "parent_coefficients": {
+              "X0": 0.9304918646812439
+            }
+          },
+          "interventions": [
+            [
+              "X6",
+              -0.15274474332637977
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.5594800114631653,
+              "X1": 0.0039485786110162735,
+              "X2": 0.00488941790536046,
+              "X3": 0.05396408960223198,
+              "X5": 0.34721168875694275,
+              "X6": 0.21311238408088684,
+              "X7": 0.48598504066467285
+            }
+          ],
+          "target_values": [
+            1.2813987731933594
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            6.281398773193359
+          ],
+          "simple_regret": [
+            6.281398773193359
+          ],
+          "best_target_so_far": 1.2813987731933594,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 0.0,
+            "final_target": 1.2813987731933594,
+            "best_target": 1.2813987731933594,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 6.281398773193359,
+            "final_simple_regret": 6.281398773193359
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X7",
+            "true_parents": [
+              "X1"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.8564995527267456,
+            "max_coefficient": 0.8564995527267456,
+            "mean_coefficient": 0.8564995527267456,
+            "parent_coefficients": {
+              "X1": -0.8564995527267456
+            }
+          },
+          "interventions": [
+            [
+              "X4",
+              -1.8418142437436593
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.015413888730108738,
+              "X1": 0.8738580346107483,
+              "X2": 0.18967673182487488,
+              "X3": 0.07476828247308731,
+              "X4": 0.007330525666475296,
+              "X5": 0.008095728233456612,
+              "X6": 0.03522836044430733
+            }
+          ],
+          "target_values": [
+            -0.49774444103240967
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            4.50225555896759
+          ],
+          "simple_regret": [
+            4.50225555896759
+          ],
+          "best_target_so_far": -0.49774444103240967,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 0.0,
+            "final_target": -0.49774444103240967,
+            "best_target": -0.49774444103240967,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 4.50225555896759,
+            "final_simple_regret": 4.50225555896759
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X1",
+            "true_parents": [
+              "X3"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.502328395843506,
+            "max_coefficient": 2.502328395843506,
+            "mean_coefficient": 2.502328395843506,
+            "parent_coefficients": {
+              "X3": 2.502328395843506
+            }
+          },
+          "interventions": [
+            [
+              "X7",
+              -2.819587465656789
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0010293870000168681,
+              "X2": 0.0009856390533968806,
+              "X3": 0.9908317923545837,
+              "X4": 0.0010407273657619953,
+              "X5": 0.0009808195754885674,
+              "X6": 0.0009866293985396624,
+              "X7": 0.001195088610984385
+            }
+          ],
+          "target_values": [
+            2.9103641510009766
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            7.910364151000977
+          ],
+          "simple_regret": [
+            7.910364151000977
+          ],
+          "best_target_so_far": 2.9103641510009766,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 0.0,
+            "final_target": 2.9103641510009766,
+            "best_target": 2.9103641510009766,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 7.910364151000977,
+            "final_simple_regret": 7.910364151000977
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X7",
+            "true_parents": [
+              "X2"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 1.7895601987838745,
+            "max_coefficient": 1.7895601987838745,
+            "mean_coefficient": 1.7895601987838745,
+            "parent_coefficients": {
+              "X2": -1.7895601987838745
+            }
+          },
+          "interventions": [
+            [
+              "X5",
+              -3.596079539795692
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.13266634941101074,
+              "X1": 0.01119769737124443,
+              "X2": 0.4273664653301239,
+              "X3": 0.005761784501373768,
+              "X4": 0.021264787763357162,
+              "X5": 0.30850502848625183,
+              "X6": 0.872776210308075
+            }
+          ],
+          "target_values": [
+            1.4219024181365967
+          ],
+          "f1_scores": [
+            0.0
+          ],
+          "precision_scores": [
+            0.0
+          ],
+          "recall_scores": [
+            0.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            6.421902418136597
+          ],
+          "simple_regret": [
+            6.421902418136597
+          ],
+          "best_target_so_far": 1.4219024181365967,
+          "summary": {
+            "final_f1": 0.0,
+            "best_f1": 0.0,
+            "mean_f1": 0.0,
+            "parent_selection_rate": 0.0,
+            "final_target": 1.4219024181365967,
+            "best_target": 1.4219024181365967,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 6.421902418136597,
+            "final_simple_regret": 6.421902418136597
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X1",
+            "true_parents": [
+              "X2"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.8461880683898926,
+            "max_coefficient": 2.8461880683898926,
+            "mean_coefficient": 2.8461880683898926,
+            "parent_coefficients": {
+              "X2": 2.8461880683898926
+            }
+          },
+          "interventions": [
+            [
+              "X2",
+              -3.0238542296023043
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.151620551943779,
+              "X2": 0.6970839500427246,
+              "X3": 0.06378885358572006,
+              "X4": 0.006637901533395052,
+              "X5": 0.010884115472435951,
+              "X6": 0.35745659470558167,
+              "X7": 0.06832706183195114
+            }
+          ],
+          "target_values": [
+            -2.071852445602417
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            2.928147554397583
+          ],
+          "simple_regret": [
+            2.928147554397583
+          ],
+          "best_target_so_far": -2.071852445602417,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -2.071852445602417,
+            "best_target": -2.071852445602417,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 2.928147554397583,
+            "final_simple_regret": 2.928147554397583
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X5",
+            "true_parents": [
+              "X1"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.9324779510498047,
+            "max_coefficient": 2.9324779510498047,
+            "mean_coefficient": 2.9324779510498047,
+            "parent_coefficients": {
+              "X1": -2.9324779510498047
+            }
+          },
+          "interventions": [
+            [
+              "X1",
+              3.333112217364167
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0020818926859647036,
+              "X1": 0.9849945902824402,
+              "X2": 0.0014863130636513233,
+              "X3": 0.0022391844540834427,
+              "X4": 0.0012996973237022758,
+              "X6": 0.0032154221553355455,
+              "X7": 0.0017039199592545629
+            }
+          ],
+          "target_values": [
+            -9.752042770385742
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            -4.752042770385742
+          ],
+          "simple_regret": [
+            -4.752042770385742
+          ],
+          "best_target_so_far": -9.752042770385742,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -9.752042770385742,
+            "best_target": -9.752042770385742,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": -4.752042770385742,
+            "final_simple_regret": -4.752042770385742
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X3",
+            "true_parents": [
+              "X6"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 1.7739744186401367,
+            "max_coefficient": 1.7739744186401367,
+            "mean_coefficient": 1.7739744186401367,
+            "parent_coefficients": {
+              "X6": -1.7739744186401367
+            }
+          },
+          "interventions": [
+            [
+              "X0",
+              -0.9489680703866463
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.09029282629489899,
+              "X1": 0.7665151953697205,
+              "X2": 0.28215551376342773,
+              "X4": 0.04848833754658699,
+              "X5": 0.11813327670097351,
+              "X6": 0.18295451998710632,
+              "X7": 0.05870158225297928
+            }
+          ],
+          "target_values": [
+            1.326864242553711
+          ],
+          "f1_scores": [
+            0.0
+          ],
+          "precision_scores": [
+            0.0
+          ],
+          "recall_scores": [
+            0.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            6.326864242553711
+          ],
+          "simple_regret": [
+            6.326864242553711
+          ],
+          "best_target_so_far": 1.326864242553711,
+          "summary": {
+            "final_f1": 0.0,
+            "best_f1": 0.0,
+            "mean_f1": 0.0,
+            "parent_selection_rate": 0.0,
+            "final_target": 1.326864242553711,
+            "best_target": 1.326864242553711,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 6.326864242553711,
+            "final_simple_regret": 6.326864242553711
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X6",
+            "true_parents": [
+              "X4"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.5222063064575195,
+            "max_coefficient": 0.5222063064575195,
+            "mean_coefficient": 0.5222063064575195,
+            "parent_coefficients": {
+              "X4": 0.5222063064575195
+            }
+          },
+          "interventions": [
+            [
+              "X7",
+              2.092631608737375
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.005028108600527048,
+              "X1": 0.9302875995635986,
+              "X2": 0.005727063398808241,
+              "X3": 0.0019226163858547807,
+              "X4": 0.0879158154129982,
+              "X5": 0.025536127388477325,
+              "X7": 0.006247102748602629
+            }
+          ],
+          "target_values": [
+            -0.399694561958313
+          ],
+          "f1_scores": [
+            0.0
+          ],
+          "precision_scores": [
+            0.0
+          ],
+          "recall_scores": [
+            0.0
+          ],
+          "parent_selections": [
+            false
+          ],
+          "cumulative_regret": [
+            4.600305438041687
+          ],
+          "simple_regret": [
+            4.600305438041687
+          ],
+          "best_target_so_far": -0.399694561958313,
+          "summary": {
+            "final_f1": 0.0,
+            "best_f1": 0.0,
+            "mean_f1": 0.0,
+            "parent_selection_rate": 0.0,
+            "final_target": -0.399694561958313,
+            "best_target": -0.399694561958313,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 4.600305438041687,
+            "final_simple_regret": 4.600305438041687
+          }
+        }
+      ]
+    },
+    "oracle": {
+      "aggregate_metrics": {
+        "final_f1_mean": 0.8,
+        "final_f1_std": 0.4,
+        "final_f1_min": 0.0,
+        "final_f1_max": 1.0,
+        "best_f1_mean": 0.8,
+        "best_f1_std": 0.4,
+        "best_f1_min": 0.0,
+        "best_f1_max": 1.0,
+        "mean_f1_mean": 0.8,
+        "mean_f1_std": 0.4,
+        "mean_f1_min": 0.0,
+        "mean_f1_max": 1.0,
+        "parent_selection_rate_mean": 1.0,
+        "parent_selection_rate_std": 0.0,
+        "parent_selection_rate_min": 1.0,
+        "parent_selection_rate_max": 1.0,
+        "final_target_mean": -3.040232461690903,
+        "final_target_std": 2.75205920748868,
+        "final_target_min": -11.253771781921387,
+        "final_target_max": -0.4955870807170868,
+        "best_target_mean": -3.040232461690903,
+        "best_target_std": 2.75205920748868,
+        "best_target_min": -11.253771781921387,
+        "best_target_max": -0.4955870807170868,
+        "target_improvement_mean": 0.0,
+        "target_improvement_std": 0.0,
+        "target_improvement_min": 0.0,
+        "target_improvement_max": 0.0,
+        "final_cumulative_regret_mean": 1.9597675383090973,
+        "final_cumulative_regret_std": 2.75205920748868,
+        "final_cumulative_regret_min": -6.253771781921387,
+        "final_cumulative_regret_max": 4.504412919282913,
+        "final_simple_regret_mean": 1.9597675383090973,
+        "final_simple_regret_std": 2.75205920748868,
+        "final_simple_regret_min": -6.253771781921387,
+        "final_simple_regret_max": 4.504412919282913
+      },
+      "episodes": [
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X5",
+            "true_parents": [
+              "X6"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.333904266357422,
+            "max_coefficient": 2.333904266357422,
+            "mean_coefficient": 2.333904266357422,
+            "parent_coefficients": {
+              "X6": 2.333904266357422
+            }
+          },
+          "interventions": [
+            [
+              "X6",
+              -2.2066024200543266
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.020033685490489006,
+              "X1": 0.3797493875026703,
+              "X2": 0.34313327074050903,
+              "X3": 0.001917172339744866,
+              "X4": 0.0019432571716606617,
+              "X6": 0.8013139367103577,
+              "X7": 0.004376174416393042
+            }
+          ],
+          "target_values": [
+            -2.082458257675171
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            2.917541742324829
+          ],
+          "simple_regret": [
+            2.917541742324829
+          ],
+          "best_target_so_far": -2.082458257675171,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -2.082458257675171,
+            "best_target": -2.082458257675171,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 2.917541742324829,
+            "final_simple_regret": 2.917541742324829
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X4",
+            "true_parents": [
+              "X7"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.919848918914795,
+            "max_coefficient": 2.919848918914795,
+            "mean_coefficient": 2.919848918914795,
+            "parent_coefficients": {
+              "X7": 2.919848918914795
+            }
+          },
+          "interventions": [
+            [
+              "X7",
+              -1.6272575406061185
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0014102946734055877,
+              "X1": 0.0011968075996264815,
+              "X2": 0.0011663234326988459,
+              "X3": 0.0010135512566193938,
+              "X5": 0.0014066187432035804,
+              "X6": 0.0011124812299385667,
+              "X7": 0.9919460415840149
+            }
+          ],
+          "target_values": [
+            -4.9277520179748535
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            0.07224798202514648
+          ],
+          "simple_regret": [
+            0.07224798202514648
+          ],
+          "best_target_so_far": -4.9277520179748535,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -4.9277520179748535,
+            "best_target": -4.9277520179748535,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 0.07224798202514648,
+            "final_simple_regret": 0.07224798202514648
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X6",
+            "true_parents": [
+              "X5"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.3515312671661377,
+            "max_coefficient": 2.3515312671661377,
+            "mean_coefficient": 2.3515312671661377,
+            "parent_coefficients": {
+              "X5": -2.3515312671661377
+            }
+          },
+          "interventions": [
+            [
+              "X5",
+              6.10679769406063
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0009377362439408898,
+              "X1": 0.0009864033199846745,
+              "X2": 0.0009620412020012736,
+              "X3": 0.0008521178970113397,
+              "X4": 0.0011824769899249077,
+              "X5": 0.9863583445549011,
+              "X7": 0.0008132821531035006
+            }
+          ],
+          "target_values": [
+            -5.058066368103027
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            -0.058066368103027344
+          ],
+          "simple_regret": [
+            -0.058066368103027344
+          ],
+          "best_target_so_far": -5.058066368103027,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -5.058066368103027,
+            "best_target": -5.058066368103027,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": -0.058066368103027344,
+            "final_simple_regret": -0.058066368103027344
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X5",
+            "true_parents": [
+              "X4"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.759806215763092,
+            "max_coefficient": 0.759806215763092,
+            "mean_coefficient": 0.759806215763092,
+            "parent_coefficients": {
+              "X4": -0.759806215763092
+            }
+          },
+          "interventions": [
+            [
+              "X4",
+              6.063057983947087
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.053038835525512695,
+              "X1": 0.17201344668865204,
+              "X2": 0.12364274263381958,
+              "X3": 0.3785513937473297,
+              "X4": 0.8960167169570923,
+              "X6": 0.3743201792240143,
+              "X7": 0.12577760219573975
+            }
+          ],
+          "target_values": [
+            -1.5136991739273071
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            3.486300826072693
+          ],
+          "simple_regret": [
+            3.486300826072693
+          ],
+          "best_target_so_far": -1.5136991739273071,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -1.5136991739273071,
+            "best_target": -1.5136991739273071,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 3.486300826072693,
+            "final_simple_regret": 3.486300826072693
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X3",
+            "true_parents": [
+              "X5"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.7164903283119202,
+            "max_coefficient": 0.7164903283119202,
+            "mean_coefficient": 0.7164903283119202,
+            "parent_coefficients": {
+              "X5": -0.7164903283119202
+            }
+          },
+          "interventions": [
+            [
+              "X5",
+              5.353224095219125
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.008485423400998116,
+              "X1": 0.2192918211221695,
+              "X2": 0.22261559963226318,
+              "X4": 0.004748256877064705,
+              "X5": 0.813356876373291,
+              "X6": 0.0035824906080961227,
+              "X7": 0.0037724606227129698
+            }
+          ],
+          "target_values": [
+            -4.899427890777588
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            0.10057210922241211
+          ],
+          "simple_regret": [
+            0.10057210922241211
+          ],
+          "best_target_so_far": -4.899427890777588,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -4.899427890777588,
+            "best_target": -4.899427890777588,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 0.10057210922241211,
+            "final_simple_regret": 0.10057210922241211
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X2",
+            "true_parents": [
+              "X4"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.816600501537323,
+            "max_coefficient": 0.816600501537323,
+            "mean_coefficient": 0.816600501537323,
+            "parent_coefficients": {
+              "X4": 0.816600501537323
+            }
+          },
+          "interventions": [
+            [
+              "X4",
+              -3.679719070157582
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.050425950437784195,
+              "X1": 0.0037765935994684696,
+              "X3": 0.03175786882638931,
+              "X4": 0.7536864876747131,
+              "X5": 0.1946740746498108,
+              "X6": 0.31547483801841736,
+              "X7": 0.011543270200490952
+            }
+          ],
+          "target_values": [
+            -1.3282266855239868
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            3.671773314476013
+          ],
+          "simple_regret": [
+            3.671773314476013
+          ],
+          "best_target_so_far": -1.3282266855239868,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -1.3282266855239868,
+            "best_target": -1.3282266855239868,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 3.671773314476013,
+            "final_simple_regret": 3.671773314476013
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X6",
+            "true_parents": [
+              "X7"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.816295325756073,
+            "max_coefficient": 0.816295325756073,
+            "mean_coefficient": 0.816295325756073,
+            "parent_coefficients": {
+              "X7": 0.816295325756073
+            }
+          },
+          "interventions": [
+            [
+              "X7",
+              -1.2576587845375595
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0035659943241626024,
+              "X1": 0.010841736570000648,
+              "X2": 0.0061320532113313675,
+              "X3": 0.005731553770601749,
+              "X4": 0.005689793266355991,
+              "X5": 0.013851084746420383,
+              "X7": 0.9421084523200989
+            }
+          ],
+          "target_values": [
+            -1.430271863937378
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            3.569728136062622
+          ],
+          "simple_regret": [
+            3.569728136062622
+          ],
+          "best_target_so_far": -1.430271863937378,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -1.430271863937378,
+            "best_target": -1.430271863937378,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 3.569728136062622,
+            "final_simple_regret": 3.569728136062622
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X4",
+            "true_parents": [
+              "X0"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.9304918646812439,
+            "max_coefficient": 0.9304918646812439,
+            "mean_coefficient": 0.9304918646812439,
+            "parent_coefficients": {
+              "X0": 0.9304918646812439
+            }
+          },
+          "interventions": [
+            [
+              "X0",
+              -0.9972885216442741
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.5594800114631653,
+              "X1": 0.0039485786110162735,
+              "X2": 0.00488941790536046,
+              "X3": 0.05396408960223198,
+              "X5": 0.34721168875694275,
+              "X6": 0.21311238408088684,
+              "X7": 0.48598504066467285
+            }
+          ],
+          "target_values": [
+            -0.4955870807170868
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            4.504412919282913
+          ],
+          "simple_regret": [
+            4.504412919282913
+          ],
+          "best_target_so_far": -0.4955870807170868,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -0.4955870807170868,
+            "best_target": -0.4955870807170868,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 4.504412919282913,
+            "final_simple_regret": 4.504412919282913
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X7",
+            "true_parents": [
+              "X1"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.8564995527267456,
+            "max_coefficient": 0.8564995527267456,
+            "mean_coefficient": 0.8564995527267456,
+            "parent_coefficients": {
+              "X1": -0.8564995527267456
+            }
+          },
+          "interventions": [
+            [
+              "X1",
+              1.2938294071186467
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.015413888730108738,
+              "X1": 0.8738580346107483,
+              "X2": 0.18967673182487488,
+              "X3": 0.07476828247308731,
+              "X4": 0.007330525666475296,
+              "X5": 0.008095728233456612,
+              "X6": 0.03522836044430733
+            }
+          ],
+          "target_values": [
+            -0.49774444103240967
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            4.50225555896759
+          ],
+          "simple_regret": [
+            4.50225555896759
+          ],
+          "best_target_so_far": -0.49774444103240967,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -0.49774444103240967,
+            "best_target": -0.49774444103240967,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 4.50225555896759,
+            "final_simple_regret": 4.50225555896759
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X1",
+            "true_parents": [
+              "X3"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.502328395843506,
+            "max_coefficient": 2.502328395843506,
+            "mean_coefficient": 2.502328395843506,
+            "parent_coefficients": {
+              "X3": 2.502328395843506
+            }
+          },
+          "interventions": [
+            [
+              "X3",
+              -2.2436746863536077
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0010293870000168681,
+              "X2": 0.0009856390533968806,
+              "X3": 0.9908317923545837,
+              "X4": 0.0010407273657619953,
+              "X5": 0.0009808195754885674,
+              "X6": 0.0009866293985396624,
+              "X7": 0.001195088610984385
+            }
+          ],
+          "target_values": [
+            -4.859253883361816
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            0.1407461166381836
+          ],
+          "simple_regret": [
+            0.1407461166381836
+          ],
+          "best_target_so_far": -4.859253883361816,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -4.859253883361816,
+            "best_target": -4.859253883361816,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 0.1407461166381836,
+            "final_simple_regret": 0.1407461166381836
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X7",
+            "true_parents": [
+              "X2"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 1.7895601987838745,
+            "max_coefficient": 1.7895601987838745,
+            "mean_coefficient": 1.7895601987838745,
+            "parent_coefficients": {
+              "X2": -1.7895601987838745
+            }
+          },
+          "interventions": [
+            [
+              "X2",
+              2.9827824789468966
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.13266634941101074,
+              "X1": 0.01119769737124443,
+              "X2": 0.4273664653301239,
+              "X3": 0.005761784501373768,
+              "X4": 0.021264787763357162,
+              "X5": 0.30850502848625183,
+              "X6": 0.872776210308075
+            }
+          ],
+          "target_values": [
+            -1.0241358280181885
+          ],
+          "f1_scores": [
+            0.0
+          ],
+          "precision_scores": [
+            0.0
+          ],
+          "recall_scores": [
+            0.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            3.9758641719818115
+          ],
+          "simple_regret": [
+            3.9758641719818115
+          ],
+          "best_target_so_far": -1.0241358280181885,
+          "summary": {
+            "final_f1": 0.0,
+            "best_f1": 0.0,
+            "mean_f1": 0.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -1.0241358280181885,
+            "best_target": -1.0241358280181885,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 3.9758641719818115,
+            "final_simple_regret": 3.9758641719818115
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X1",
+            "true_parents": [
+              "X2"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.8461880683898926,
+            "max_coefficient": 2.8461880683898926,
+            "mean_coefficient": 2.8461880683898926,
+            "parent_coefficients": {
+              "X2": 2.8461880683898926
+            }
+          },
+          "interventions": [
+            [
+              "X2",
+              -5.927497332420033
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.151620551943779,
+              "X2": 0.6970839500427246,
+              "X3": 0.06378885358572006,
+              "X4": 0.006637901533395052,
+              "X5": 0.010884115472435951,
+              "X6": 0.35745659470558167,
+              "X7": 0.06832706183195114
+            }
+          ],
+          "target_values": [
+            -2.071852445602417
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            2.928147554397583
+          ],
+          "simple_regret": [
+            2.928147554397583
+          ],
+          "best_target_so_far": -2.071852445602417,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -2.071852445602417,
+            "best_target": -2.071852445602417,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 2.928147554397583,
+            "final_simple_regret": 2.928147554397583
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X5",
+            "true_parents": [
+              "X1"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 2.9324779510498047,
+            "max_coefficient": 2.9324779510498047,
+            "mean_coefficient": 2.9324779510498047,
+            "parent_coefficients": {
+              "X1": -2.9324779510498047
+            }
+          },
+          "interventions": [
+            [
+              "X1",
+              4.336645268495024
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.0020818926859647036,
+              "X1": 0.9849945902824402,
+              "X2": 0.0014863130636513233,
+              "X3": 0.0022391844540834427,
+              "X4": 0.0012996973237022758,
+              "X6": 0.0032154221553355455,
+              "X7": 0.0017039199592545629
+            }
+          ],
+          "target_values": [
+            -11.253771781921387
+          ],
+          "f1_scores": [
+            1.0
+          ],
+          "precision_scores": [
+            1.0
+          ],
+          "recall_scores": [
+            1.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            -6.253771781921387
+          ],
+          "simple_regret": [
+            -6.253771781921387
+          ],
+          "best_target_so_far": -11.253771781921387,
+          "summary": {
+            "final_f1": 1.0,
+            "best_f1": 1.0,
+            "mean_f1": 1.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -11.253771781921387,
+            "best_target": -11.253771781921387,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": -6.253771781921387,
+            "final_simple_regret": -6.253771781921387
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X3",
+            "true_parents": [
+              "X6"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 1.7739744186401367,
+            "max_coefficient": 1.7739744186401367,
+            "mean_coefficient": 1.7739744186401367,
+            "parent_coefficients": {
+              "X6": -1.7739744186401367
+            }
+          },
+          "interventions": [
+            [
+              "X6",
+              5.005240737517907
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.09029282629489899,
+              "X1": 0.7665151953697205,
+              "X2": 0.28215551376342773,
+              "X4": 0.04848833754658699,
+              "X5": 0.11813327670097351,
+              "X6": 0.18295451998710632,
+              "X7": 0.05870158225297928
+            }
+          ],
+          "target_values": [
+            -0.8174424767494202
+          ],
+          "f1_scores": [
+            0.0
+          ],
+          "precision_scores": [
+            0.0
+          ],
+          "recall_scores": [
+            0.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            4.18255752325058
+          ],
+          "simple_regret": [
+            4.18255752325058
+          ],
+          "best_target_so_far": -0.8174424767494202,
+          "summary": {
+            "final_f1": 0.0,
+            "best_f1": 0.0,
+            "mean_f1": 0.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -0.8174424767494202,
+            "best_target": -0.8174424767494202,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 4.18255752325058,
+            "final_simple_regret": 4.18255752325058
+          }
+        },
+        {
+          "scm_info": {
+            "num_variables": 8,
+            "target": "X6",
+            "true_parents": [
+              "X4"
+            ],
+            "structure_type": "chain",
+            "min_coefficient": 0.5222063064575195,
+            "max_coefficient": 0.5222063064575195,
+            "mean_coefficient": 0.5222063064575195,
+            "parent_coefficients": {
+              "X4": 0.5222063064575195
+            }
+          },
+          "interventions": [
+            [
+              "X4",
+              -9.03571708256709
+            ]
+          ],
+          "parent_probabilities": [
+            {
+              "X0": 0.005028108600527048,
+              "X1": 0.9302875995635986,
+              "X2": 0.005727063398808241,
+              "X3": 0.0019226163858547807,
+              "X4": 0.0879158154129982,
+              "X5": 0.025536127388477325,
+              "X7": 0.006247102748602629
+            }
+          ],
+          "target_values": [
+            -3.343796730041504
+          ],
+          "f1_scores": [
+            0.0
+          ],
+          "precision_scores": [
+            0.0
+          ],
+          "recall_scores": [
+            0.0
+          ],
+          "parent_selections": [
+            true
+          ],
+          "cumulative_regret": [
+            1.656203269958496
+          ],
+          "simple_regret": [
+            1.656203269958496
+          ],
+          "best_target_so_far": -3.343796730041504,
+          "summary": {
+            "final_f1": 0.0,
+            "best_f1": 0.0,
+            "mean_f1": 0.0,
+            "parent_selection_rate": 1.0,
+            "final_target": -3.343796730041504,
+            "best_target": -3.343796730041504,
+            "target_improvement": 0.0,
+            "final_cumulative_regret": 1.656203269958496,
+            "final_simple_regret": 1.656203269958496
+          }
+        }
+      ]
+    }
+  }
+}

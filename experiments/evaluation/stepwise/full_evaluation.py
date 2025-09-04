@@ -210,12 +210,19 @@ def evaluate_episode(
     surrogate_net, surrogate_params,
     scm, metrics_tracker: MetricsTracker,
     num_interventions: int = 30,
+    initial_observations: int = 20,
+    initial_interventions: int = 10,
     seed: int = 42,
     verbose: bool = False,
     baseline: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
     Evaluate one episode with comprehensive metrics tracking.
+    
+    Args:
+        initial_observations: Number of observational samples to start with
+        initial_interventions: Number of random interventional samples to start with
+        num_interventions: Number of policy-driven interventions to perform
     """
     
     # Get SCM information
@@ -223,6 +230,24 @@ def evaluate_episode(
     target_var = get_target(scm)
     true_parents = set(get_parents(scm, target_var))
     variable_ranges = scm.get('metadata', {}).get('variable_ranges', {})
+    
+    # Extract parent coefficients from metadata
+    all_coefficients = scm.get('metadata', {}).get('coefficients', {})
+    parent_coefficients = {}
+    for edge_str, coeff in all_coefficients.items():
+        # Parse edge string (could be tuple string representation)
+        if isinstance(edge_str, str) and ',' in edge_str:
+            # Handle string representation of tuple like "('X1', 'X2')"
+            edge_str = edge_str.strip('()')
+            parts = [p.strip().strip("'").strip('"') for p in edge_str.split(',')]
+            if len(parts) == 2:
+                from_var, to_var = parts
+                if to_var == target_var and from_var in true_parents:
+                    parent_coefficients[from_var] = coeff
+        elif isinstance(edge_str, tuple) and len(edge_str) == 2:
+            from_var, to_var = edge_str
+            if to_var == target_var and from_var in true_parents:
+                parent_coefficients[from_var] = coeff
     
     # Log detailed SCM information for debugging
     import logging
@@ -235,6 +260,14 @@ def evaluate_episode(
     logger.info(f"True parents of target: {true_parents}")
     logger.info(f"Number of parents: {len(true_parents)}")
     
+    # Log coefficient information
+    if parent_coefficients:
+        logger.info(f"Parent coefficients: {parent_coefficients}")
+        coeff_magnitudes = [abs(c) for c in parent_coefficients.values()]
+        logger.info(f"Coefficient magnitudes - Min: {min(coeff_magnitudes):.3f}, "
+                   f"Max: {max(coeff_magnitudes):.3f}, "
+                   f"Mean: {np.mean(coeff_magnitudes):.3f}")
+    
     # Validate that target is not a root node
     if len(true_parents) == 0:
         logger.error(f"ERROR: Target {target_var} has NO PARENTS (root node)!")
@@ -246,27 +279,76 @@ def evaluate_episode(
     optimal_value = -5.0  # Placeholder - in reality would need to solve the SCM
     
     # Start episode tracking
+    coeff_stats = {}
+    if parent_coefficients:
+        coeff_magnitudes = [abs(c) for c in parent_coefficients.values()]
+        coeff_stats = {
+            'min_coefficient': min(coeff_magnitudes),
+            'max_coefficient': max(coeff_magnitudes),
+            'mean_coefficient': float(np.mean(coeff_magnitudes)),
+            'parent_coefficients': parent_coefficients
+        }
+    
     metrics_tracker.start_episode({
         'num_variables': len(variables),
         'target': target_var,
         'true_parents': list(true_parents),
-        'structure_type': scm.get('metadata', {}).get('structure_type', 'unknown')
+        'structure_type': scm.get('metadata', {}).get('structure_type', 'unknown'),
+        **coeff_stats
     })
     
     if verbose:
         print(f"\n📊 Episode: {len(variables)} vars, target={target_var}, parents={true_parents}")
+        if parent_coefficients:
+            coeff_magnitudes = [abs(c) for c in parent_coefficients.values()]
+            print(f"   Parent coefficients - Min: {min(coeff_magnitudes):.3f}, "
+                  f"Max: {max(coeff_magnitudes):.3f}, Mean: {np.mean(coeff_magnitudes):.3f}")
     
     # Initialize RNG
     rng_key = random.PRNGKey(seed)
     
     # Initialize buffer with observations
     buffer = ExperienceBuffer()
-    num_observations = 20
     
+    # Add observational samples
     rng_key, sample_key = random.split(rng_key)
-    samples = sample_from_linear_scm(scm, n_samples=num_observations, seed=int(sample_key[0]))
+    samples = sample_from_linear_scm(scm, n_samples=initial_observations, seed=int(sample_key[0]))
     for sample in samples:
         buffer.add_observation(sample)
+    
+    # Add initial random interventions if specified
+    if initial_interventions > 0:
+        # Get non-target variables for intervention
+        non_target_vars = [v for v in variables if v != target_var]
+        
+        for i in range(initial_interventions):
+            # Randomly select a variable to intervene on
+            rng_key, var_key = random.split(rng_key)
+            selected_var_idx = random.choice(var_key, len(non_target_vars))
+            selected_var = non_target_vars[int(selected_var_idx)]
+            
+            # Sample intervention value from variable's range
+            var_range = variable_ranges.get(selected_var, (-2.0, 2.0))
+            rng_key, value_key = random.split(rng_key)
+            # Use uniform distribution across the range
+            intervened_value = float(random.uniform(value_key, 
+                                                   minval=var_range[0], 
+                                                   maxval=var_range[1]))
+            
+            # Apply intervention and sample
+            intervention = create_perfect_intervention(
+                targets=frozenset([selected_var]),
+                values={selected_var: intervened_value}
+            )
+            
+            samples = sample_with_intervention(
+                scm, intervention, n_samples=1,
+                seed=seed + i + 5000  # Different seed offset for initial interventions
+            )
+            
+            # Add to buffer
+            for sample in samples:
+                buffer.add_intervention({selected_var: intervened_value}, sample)
     
     # Create surrogate wrapper
     def surrogate_fn(tensor_3ch, target_var_name, variable_list):
@@ -380,6 +462,9 @@ def evaluate_checkpoint_pair(
     surrogate_path: Path,
     num_episodes: int = 10,
     num_interventions: int = 30,
+    initial_observations: int = 20,
+    initial_interventions: int = 10,
+    min_parent_coefficient: Optional[float] = None,
     structure_types: List[str] = ['fork', 'chain', 'scale_free'],
     num_vars_list: List[int] = [5, 8],
     seed: int = 42,
@@ -406,11 +491,12 @@ def evaluate_checkpoint_pair(
     random_tracker = MetricsTracker() if include_baselines else None
     oracle_tracker = MetricsTracker() if include_baselines else None
     
-    # Create SCM factory
+    # Create SCM factory with optional coefficient filtering
     factory = VariableSCMFactory(
         seed=seed,
         noise_scale=0.5,
         coefficient_range=(-3.0, 3.0),
+        min_parent_coefficient=min_parent_coefficient,
         vary_intervention_ranges=True,
         use_output_bounds=True
     )
@@ -437,6 +523,8 @@ def evaluate_checkpoint_pair(
                     surrogate_net, surrogate_params,
                     scm, metrics_tracker,
                     num_interventions=num_interventions,
+                    initial_observations=initial_observations,
+                    initial_interventions=initial_interventions,
                     seed=seed + episode_count * 1000,
                     verbose=False
                 )
@@ -456,6 +544,8 @@ def evaluate_checkpoint_pair(
                         surrogate_net, surrogate_params,
                         scm, random_tracker,
                         num_interventions=num_interventions,
+                        initial_observations=initial_observations,
+                        initial_interventions=initial_interventions,
                         seed=seed + episode_count * 1000,
                         verbose=False,
                         baseline=random_baseline
@@ -469,6 +559,8 @@ def evaluate_checkpoint_pair(
                         surrogate_net, surrogate_params,
                         scm, oracle_tracker,
                         num_interventions=num_interventions,
+                        initial_observations=initial_observations,
+                        initial_interventions=initial_interventions,
                         seed=seed + episode_count * 1000,
                         verbose=False,
                         baseline=oracle_baseline
@@ -516,6 +608,9 @@ def evaluate_training_progression(
     checkpoint_dir: Path,
     surrogate_path: Path,
     checkpoint_iterations: Optional[List[int]] = None,
+    initial_observations: int = 20,
+    initial_interventions: int = 10,
+    min_parent_coefficient: Optional[float] = None,
     **eval_kwargs
 ) -> pd.DataFrame:
     """
@@ -550,6 +645,9 @@ def evaluate_training_progression(
         eval_result = evaluate_checkpoint_pair(
             policy_path=policy_path,
             surrogate_path=surrogate_path,
+            initial_observations=initial_observations,
+            initial_interventions=initial_interventions,
+            min_parent_coefficient=min_parent_coefficient,
             verbose=False,
             **eval_kwargs
         )
@@ -620,12 +718,20 @@ def main():
                        help='Path to surrogate checkpoint')
     
     # Evaluation config
-    parser.add_argument('--num-episodes', type=int, default=5,
+    parser.add_argument('--num-episodes', type=int, default=30,
                        help='Number of episodes per configuration')
     parser.add_argument('--num-interventions', type=int, default=30,
                        help='Number of interventions per episode')
-    parser.add_argument('--structures', nargs='+', default=['fork', 'chain'],
-                       help='SCM structure types to test')
+    parser.add_argument('--initial-observations', type=int, default=20,
+                       help='Number of initial observational samples')
+    parser.add_argument('--initial-interventions', type=int, default=10,
+                       help='Number of initial random interventional samples')
+    parser.add_argument('--min-parent-coefficient', type=float, default=None,
+                       help='Minimum absolute coefficient value for parent edges (e.g., 0.5 to filter weak effects)')
+    parser.add_argument('--structures', nargs='+', 
+                       default=['fork', 'chain'],
+                       choices=['fork', 'true_fork', 'chain', 'collider', 'mixed', 'random', 'scale_free', 'two_layer'],
+                       help='SCM structure types to test (fork, true_fork, chain, collider, mixed, random, scale_free, two_layer)')
     parser.add_argument('--num-vars', nargs='+', type=int, default=[5, 8],
                        help='Number of variables to test')
     
@@ -658,6 +764,9 @@ def main():
             surrogate_path=args.surrogate_path,
             num_episodes=args.num_episodes,
             num_interventions=args.num_interventions,
+            initial_observations=args.initial_observations,
+            initial_interventions=args.initial_interventions,
+            min_parent_coefficient=args.min_parent_coefficient,
             structure_types=args.structures,
             num_vars_list=args.num_vars,
             seed=args.seed
@@ -687,6 +796,9 @@ def main():
             surrogate_path=args.surrogate_path,
             num_episodes=args.num_episodes,
             num_interventions=args.num_interventions,
+            initial_observations=args.initial_observations,
+            initial_interventions=args.initial_interventions,
+            min_parent_coefficient=args.min_parent_coefficient,
             structure_types=args.structures,
             num_vars_list=args.num_vars,
             seed=args.seed,

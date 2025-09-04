@@ -1,0 +1,136 @@
+{
+  "args": {
+    "interventions": 30,
+    "scm_type": "hardcoded_collider",
+    "num_vars": 4,
+    "verbose": true,
+    "seed": 42,
+    "wandb": false,
+    "learning_rate": null,
+    "entropy": null,
+    "target_weight": 1.0,
+    "parent_weight": 0.0,
+    "info_gain_weight": 0.0
+  },
+  "config": {
+    "max_episodes": 1,
+    "obs_per_episode": 20,
+    "max_interventions": 30,
+    "episodes_per_phase": 999999,
+    "initial_phase": "policy",
+    "policy_architecture": "quantile",
+    "use_surrogate": true,
+    "use_grpo_rewards": true,
+    "use_fixed_std": true,
+    "fixed_std": 1.0,
+    "learning_rate": 0.0005,
+    "grpo_config": {
+      "group_size": 32,
+      "entropy_coefficient": 0.001,
+      "clip_ratio": 1.0,
+      "gradient_clip": 10.0,
+      "ppo_epochs": 4,
+      "normalize_advantages": true
+    },
+    "reward_weights": {
+      "target": 1.0,
+      "parent": 0.0,
+      "info_gain": 0.0
+    },
+    "reward_type": "binary",
+    "info_gain_type": "probability_change",
+    "buffer_config": {
+      "max_history_size": 30,
+      "adaptive_history": true,
+      "min_history_size": 10
+    },
+    "rotate_after_episode": false,
+    "surrogate_checkpoint_path": "experiments/surrogate-only-training/scripts/checkpoints/avici_runs/avici_style_20250822_213115/checkpoint_step_200.pkl",
+    "batch_size": 32,
+    "seed": 42,
+    "verbose": true,
+    "checkpoint_dir": "checkpoints/grpo_single_scm/single_scm_hardcoded_collider_4vars_20250903_211450",
+    "logging": {
+      "wandb": {
+        "enabled": false,
+        "project": "causal-bayes-opt-single-scm",
+        "name": "single_scm_30int",
+        "tags": [
+          "single_scm",
+          "grpo",
+          "convergence_analysis"
+        ],
+        "log_frequency": 1
+      }
+    }
+  },
+  "run_name": "single_scm_hardcoded_collider_4vars_20250903_211450",
+  "scm_info": {
+    "name": "hardcoded_collider_4var",
+    "type": "hardcoded_collider",
+    "variables": [
+      "X2",
+      "X1",
+      "X3",
+      "X0"
+    ],
+    "target": "X3",
+    "parents": [
+      "X2",
+      "X1"
+    ],
+    "coefficients": {
+      "X0->X1": 2.0,
+      "X0->X2": 2.0,
+      "X2->X3": 2.0,
+      "X1->X3": 2.0
+    },
+    "variable_ranges": {
+      "X0": [
+        -3.0,
+        3.0
+      ],
+      "X1": [
+        -3.0,
+        3.0
+      ],
+      "X2": [
+        -3.0,
+        3.0
+      ],
+      "X3": [
+        -12.0,
+        12.0
+      ]
+    },
+    "metadata": {
+      "description": "Hardcoded collider: X0->X1, X0->X2, X2->X3, X1->X3",
+      "structure_type": "hardcoded_collider",
+      "mechanism_type": "linear",
+      "variable_ranges": {
+        "X0": [
+          -3.0,
+          3.0
+        ],
+        "X1": [
+          -3.0,
+          3.0
+        ],
+        "X2": [
+          -3.0,
+          3.0
+        ],
+        "X3": [
+          -12.0,
+          12.0
+        ]
+      },
+      "num_variables": 4,
+      "target_variable": "X3",
+      "created_by": "test_factory",
+      "num_edges": 4,
+      "noise_scale": 0.1,
+      "edge_density": 0.6666666666666666
+    }
+  }
+}

@@ -1,34 +1,34 @@
 {
   "orchestration": {
-    "total_training_minutes": 240,
-    "minutes_per_phase": 15,
+    "total_training_minutes": 3,
+    "minutes_per_phase": 1,
     "start_phase": "surrogate",
-    "checkpoint_dir": "local_simple_4hr/scale_free"
+    "checkpoint_dir": "debug_checkpoints"
   },
   "surrogate_config": {
     "hidden_dim": 128,
     "num_layers": 8,
-    "lr": 5e-4,
+    "lr": 0.001,
     "batch_size": 4,
     "min_vars": 3,
-    "max_vars": 30,
-    "num_steps": 1000,
+    "max_vars": 10,
+    "num_steps": 50,
     "structure_types": [
-      "scale_free"
+      "chain"
     ]
   },
   "policy_config": {
-    "episodes": 1000,
+    "episodes": 10,
     "patience": 5,
     "threshold": 0.9,
-    "learning_rate": 5e-4,
-    "max_interventions": 10,
-    "obs_per_episode": 10,
+    "learning_rate": 0.001,
+    "max_interventions": 5,
+    "obs_per_episode": 5,
     "min_vars": 3,
-    "max_vars": 30,
-    "pool_size": 50,
+    "max_vars": 10,
+    "pool_size": 5,
     "structure_types": [
-      "scale_free"
+      "chain"
     ],
     "reward_type": "binary",
     "info_gain_type": "probability_change",

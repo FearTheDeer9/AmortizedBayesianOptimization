@@ -1,0 +1,2669 @@
+{
+  "scm_details": {
+    "name": "single_scm_scale_free_30var",
+    "variables": [
+      "X22",
+      "X17",
+      "X10",
+      "X0",
+      "X20",
+      "X21",
+      "X25",
+      "X27",
+      "X18",
+      "X15",
+      "X2",
+      "X24",
+      "X16",
+      "X26",
+      "X5",
+      "X28",
+      "X8",
+      "X9",
+      "X3",
+      "X7",
+      "X4",
+      "X6",
+      "X14",
+      "X1",
+      "X23",
+      "X13",
+      "X11",
+      "X29",
+      "X19",
+      "X12"
+    ],
+    "target": "X2",
+    "true_parents": [
+      "X10",
+      "X1"
+    ],
+    "coefficients": {
+      "X10->X7": 1.4978992938995361,
+      "X10->X3": 2.330531358718872,
+      "X7->X3": 1.7570092678070068,
+      "X10->X0": 1.4013705253601074,
+      "X7->X1": 2.3868649005889893,
+      "X10->X1": 2.02549409866333,
+      "X10->X2": 1.954087257385254,
+      "X1->X2": -0.8397037982940674,
+      "X1->X4": 1.4578235149383545,
+      "X10->X5": 1.3866677284240723,
+      "X7->X5": -1.6419625282287598,
+      "X3->X6": 2.530059814453125,
+      "X5->X6": -0.7589278221130371,
+      "X7->X8": 0.535442590713501,
+      "X10->X8": 0.3260178565979004,
+      "X6->X9": -1.4142301082611084,
+      "X10->X9": 2.443847894668579,
+      "X2->X9": 2.807210683822632,
+      "X10->X11": 2.8076376914978027,
+      "X5->X11": 1.947936773300171,
+      "X9->X11": 0.7960503101348877,
+      "X7->X12": -2.703878402709961,
+      "X3->X12": -0.0015392303466796875,
+      "X5->X12": -1.3250799179077148,
+      "X3->X13": 1.4923231601715088,
+      "X8->X13": 0.9305734634399414,
+      "X1->X14": -1.787919044494629,
+      "X3->X14": 0.008682489395141602,
+      "X10->X14": -2.4968011379241943,
+      "X5->X15": -0.4699981212615967,
+      "X2->X16": -1.5195257663726807,
+      "X10->X16": 2.573276996612549,
+      "X5->X16": -0.49635887145996094,
+      "X10->X17": 0.08288168907165527,
+      "X1->X17": 1.8564541339874268,
+      "X7->X18": -1.9058253765106201,
+      "X0->X18": 1.8072867393493652,
+      "X11->X18": 0.3508028984069824,
+      "X10->X19": -2.8463408946990967,
+      "X1->X19": -2.5542855262756348,
+      "X5->X19": 1.185072898864746,
+      "X4->X20": -2.1678829193115234,
+      "X15->X20": -1.4436750411987305,
+      "X10->X21": -2.2815563678741455,
+      "X3->X22": -1.6965408325195312,
+      "X7->X23": 0.5028676986694336,
+      "X19->X23": -1.9670004844665527,
+      "X11->X23": 0.08423852920532227,
+      "X10->X24": 1.938277244567871,
+      "X6->X25": -0.45932507514953613,
+      "X1->X25": 0.5677013397216797,
+      "X3->X25": 2.7417712211608887,
+      "X25->X26": 1.422302484512329,
+      "X10->X26": -2.1570489406585693,
+      "X20->X26": -2.9231786727905273,
+      "X3->X27": 0.5075805187225342,
+      "X10->X28": 2.376465082168579,
+      "X26->X28": -2.6416118144989014,
+      "X9->X28": -2.6558539867401123,
+      "X16->X29": 1.2668023109436035,
+      "X0->X29": 2.5225675106048584
+    },
+    "parent_coefficients": {
+      "X10": 1.954087257385254,
+      "X1": -0.8397037982940674
+    },
+    "variable_ranges": {
+      "X0": [
+        -3.2553686467935297,
+        3.810458187483263
+      ],
+      "X1": [
+        -4.396072734138387,
+        4.406471506940739
+      ],
+      "X2": [
+        -3.904794959652283,
+        4.25769301856401
+      ],
+      "X3": [
+        -14.03896232727138,
+        9.828574789698955
+      ],
+      "X4": [
+        -2.0230476392752577,
+        12.139871698144233
+      ],
+      "X5": [
+        -11.496195487330407,
+        6.935363583080843
+      ],
+      "X6": [
+        -4.344147490580646,
+        9.304675435375705
+      ],
+      "X7": [
+        -1.8852158653262765,
+        4.196150691375878
+      ],
+      "X8": [
+        -7.50005619130823,
+        6.968553690679589
+      ],
+      "X9": [
+        -15.660272686495503,
+        8.11705101758757
+      ],
+      "X10": [
+        -3.6540587406832885,
+        8.618922914168534
+      ],
+      "X11": [
+        -6.196768056243657,
+        6.66814560706209
+      ],
+      "X12": [
+        -1.8897636494161967,
+        3.184486637810406
+      ],
+      "X13": [
+        -6.072544010328733,
+        3.9747244583332253
+      ],
+      "X14": [
+        -9.213926490945159,
+        12.244789160319241
+      ],
+      "X15": [
+        -4.457782670435487,
+        5.617831009769489
+      ],
+      "X16": [
+        -10.11761115007668,
+        5.63091853636169
+      ],
+      "X17": [
+        -6.295234611736941,
+        8.3185300146515
+      ],
+      "X18": [
+        -9.824806796768437,
+        10.366473884649968
+      ],
+      "X19": [
+        -6.348123169668348,
+        7.283221980648197
+      ],
+      "X20": [
+        -5.348810797826438,
+        3.367924587507702
+      ],
+      "X21": [
+        -2.0084789328829924,
+        11.645771724985359
+      ],
+      "X22": [
+        -5.822616052707512,
+        4.12150098146417
+      ],
+      "X23": [
+        -8.443348576499975,
+        5.93179732709357
+      ],
+      "X24": [
+        -6.242375838002599,
+        5.355663499166593
+      ],
+      "X25": [
+        -9.134883319964592,
+        8.108074878197918
+      ],
+      "X26": [
+        -6.03097169527002,
+        9.927746821859948
+      ],
+      "X27": [
+        -2.0824526583221226,
+        2.801121973319688
+      ],
+      "X28": [
+        -4.743973179983949,
+        5.672871037935865
+      ],
+      "X29": [
+        -5.645793114777724,
+        3.7643148741810357
+      ]
+    },
+    "metadata": {
+      "generation_seed": 42,
+      "num_variables": 30,
+      "structure_type": "scale_free",
+      "target_variable": "X2",
+      "factory_version": "1.0",
+      "created_by": "test_factory",
+      "variable_ranges": {
+        "X0": [
+          -3.2553686467935297,
+          3.810458187483263
+        ],
+        "X1": [
+          -4.396072734138387,
+          4.406471506940739
+        ],
+        "X2": [
+          -3.904794959652283,
+          4.25769301856401
+        ],
+        "X3": [
+          -14.03896232727138,
+          9.828574789698955
+        ],
+        "X4": [
+          -2.0230476392752577,
+          12.139871698144233
+        ],
+        "X5": [
+          -11.496195487330407,
+          6.935363583080843
+        ],
+        "X6": [
+          -4.344147490580646,
+          9.304675435375705
+        ],
+        "X7": [
+          -1.8852158653262765,
+          4.196150691375878
+        ],
+        "X8": [
+          -7.50005619130823,
+          6.968553690679589
+        ],
+        "X9": [
+          -15.660272686495503,
+          8.11705101758757
+        ],
+        "X10": [
+          -3.6540587406832885,
+          8.618922914168534
+        ],
+        "X11": [
+          -6.196768056243657,
+          6.66814560706209
+        ],
+        "X12": [
+          -1.8897636494161967,
+          3.184486637810406
+        ],
+        "X13": [
+          -6.072544010328733,
+          3.9747244583332253
+        ],
+        "X14": [
+          -9.213926490945159,
+          12.244789160319241
+        ],
+        "X15": [
+          -4.457782670435487,
+          5.617831009769489
+        ],
+        "X16": [
+          -10.11761115007668,
+          5.63091853636169
+        ],
+        "X17": [
+          -6.295234611736941,
+          8.3185300146515
+        ],
+        "X18": [
+          -9.824806796768437,
+          10.366473884649968
+        ],
+        "X19": [
+          -6.348123169668348,
+          7.283221980648197
+        ],
+        "X20": [
+          -5.348810797826438,
+          3.367924587507702
+        ],
+        "X21": [
+          -2.0084789328829924,
+          11.645771724985359
+        ],
+        "X22": [
+          -5.822616052707512,
+          4.12150098146417
+        ],
+        "X23": [
+          -8.443348576499975,
+          5.93179732709357
+        ],
+        "X24": [
+          -6.242375838002599,
+          5.355663499166593
+        ],
+        "X25": [
+          -9.134883319964592,
+          8.108074878197918
+        ],
+        "X26": [
+          -6.03097169527002,
+          9.927746821859948
+        ],
+        "X27": [
+          -2.0824526583221226,
+          2.801121973319688
+        ],
+        "X28": [
+          -4.743973179983949,
+          5.672871037935865
+        ],
+        "X29": [
+          -5.645793114777724,
+          3.7643148741810357
+        ]
+      },
+      "mechanism_type": "linear",
+      "edge_density": 0.14022988505747128,
+      "num_edges": 61
+    },
+    "noise_scale": 0.5,
+    "structure_type": "scale_free"
+  },
+  "convergence_data": [
+    {
+      "intervention_idx": 0,
+      "selected_var": "X17",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.013090752065181732,
+      "target_outcome": -2.2028610706329346,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 1,
+      "selected_var": "X10",
+      "selected_value": -2.255309581756592,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.03290423005819321,
+      "target_outcome": -1.5452806949615479,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 2,
+      "selected_var": "X18",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.03427862375974655,
+      "target_outcome": -2.5497047901153564,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 3,
+      "selected_var": "X18",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.03175695985555649,
+      "target_outcome": -1.0963406562805176,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 4,
+      "selected_var": "X10",
+      "selected_value": -2.3810229301452637,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.03420950472354889,
+      "target_outcome": -1.26751708984375,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 5,
+      "selected_var": "X10",
+      "selected_value": -2.3079328536987305,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.034608762711286545,
+      "target_outcome": -1.3864006996154785,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 6,
+      "selected_var": "X10",
+      "selected_value": -3.936073064804077,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.03587481752038002,
+      "target_outcome": -2.734846353530884,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 7,
+      "selected_var": "X5",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.038688790053129196,
+      "target_outcome": -2.112539529800415,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 8,
+      "selected_var": "X17",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.036029476672410965,
+      "target_outcome": -0.3648754954338074,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 9,
+      "selected_var": "X10",
+      "selected_value": -1.5026240348815918,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.04403657466173172,
+      "target_outcome": -0.12442430853843689,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 10,
+      "selected_var": "X24",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.024747544899582863,
+      "target_outcome": -0.12459439039230347,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 11,
+      "selected_var": "X10",
+      "selected_value": -2.101595401763916,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.06651312112808228,
+      "target_outcome": -0.3447876572608948,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 12,
+      "selected_var": "X10",
+      "selected_value": -2.8693084716796875,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.08022226393222809,
+      "target_outcome": -0.9615944027900696,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 13,
+      "selected_var": "X10",
+      "selected_value": -2.0941362380981445,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.10603620111942291,
+      "target_outcome": 0.028688132762908936,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 14,
+      "selected_var": "X10",
+      "selected_value": -3.770622730255127,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.20156249403953552,
+      "target_outcome": -3.493638277053833,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 15,
+      "selected_var": "X10",
+      "selected_value": -2.947136640548706,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.6234750747680664,
+      "target_outcome": -1.739465355873108,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 16,
+      "selected_var": "X10",
+      "selected_value": 0.22649502754211426,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.8213768005371094,
+      "target_outcome": -0.5343085527420044,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 17,
+      "selected_var": "X10",
+      "selected_value": -2.1043989658355713,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9723691344261169,
+      "target_outcome": 0.04219257831573486,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 18,
+      "selected_var": "X10",
+      "selected_value": -2.5003252029418945,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9871547222137451,
+      "target_outcome": -0.6168641448020935,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 19,
+      "selected_var": "X10",
+      "selected_value": -2.0137085914611816,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9897145628929138,
+      "target_outcome": -1.1501500606536865,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 20,
+      "selected_var": "X10",
+      "selected_value": -2.3721046447753906,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9920721650123596,
+      "target_outcome": 0.09448635578155518,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 21,
+      "selected_var": "X10",
+      "selected_value": -3.1432533264160156,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.99314945936203,
+      "target_outcome": -2.076486349105835,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 22,
+      "selected_var": "X10",
+      "selected_value": 0.18944180011749268,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9932894110679626,
+      "target_outcome": -0.7707067728042603,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 23,
+      "selected_var": "X10",
+      "selected_value": -4.454610824584961,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9932135343551636,
+      "target_outcome": -3.128129005432129,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 24,
+      "selected_var": "X10",
+      "selected_value": -1.986433506011963,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9932491779327393,
+      "target_outcome": -1.3365437984466553,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 25,
+      "selected_var": "X10",
+      "selected_value": -2.4932987689971924,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9926753640174866,
+      "target_outcome": -0.5513951182365417,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 26,
+      "selected_var": "X10",
+      "selected_value": -2.9423139095306396,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.992377758026123,
+      "target_outcome": -1.8067377805709839,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 27,
+      "selected_var": "X10",
+      "selected_value": 1.455456018447876,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9921294450759888,
+      "target_outcome": -0.9131719470024109,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 28,
+      "selected_var": "X10",
+      "selected_value": -0.28385472297668457,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9924005270004272,
+      "target_outcome": -1.2620166540145874,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 29,
+      "selected_var": "X10",
+      "selected_value": -2.8297500610351562,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9967854022979736,
+      "target_outcome": -0.4804331064224243,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 30,
+      "selected_var": "X10",
+      "selected_value": -2.5819449424743652,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9978577494621277,
+      "target_outcome": -0.812589168548584,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 31,
+      "selected_var": "X10",
+      "selected_value": -2.780348300933838,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9983921647071838,
+      "target_outcome": -1.9503068923950195,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 32,
+      "selected_var": "X10",
+      "selected_value": -2.2391302585601807,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9987326264381409,
+      "target_outcome": -1.1033051013946533,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 33,
+      "selected_var": "X10",
+      "selected_value": -2.5603694915771484,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9989074468612671,
+      "target_outcome": -0.4138280153274536,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 34,
+      "selected_var": "X10",
+      "selected_value": 0.06149601936340332,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9990646243095398,
+      "target_outcome": -2.5294642448425293,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 35,
+      "selected_var": "X10",
+      "selected_value": -2.0730252265930176,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9991948008537292,
+      "target_outcome": -0.31933820247650146,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 36,
+      "selected_var": "X10",
+      "selected_value": -4.473223686218262,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9992855191230774,
+      "target_outcome": -3.0975403785705566,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 37,
+      "selected_var": "X10",
+      "selected_value": -2.603471517562866,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9993983507156372,
+      "target_outcome": -1.4749414920806885,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 38,
+      "selected_var": "X10",
+      "selected_value": -2.4668478965759277,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9994657635688782,
+      "target_outcome": -0.6991882920265198,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 39,
+      "selected_var": "X10",
+      "selected_value": -2.9929285049438477,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9995275735855103,
+      "target_outcome": -2.7326176166534424,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 40,
+      "selected_var": "X10",
+      "selected_value": -2.658127784729004,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9995792508125305,
+      "target_outcome": -1.3648879528045654,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 41,
+      "selected_var": "X10",
+      "selected_value": -2.294036865234375,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996032118797302,
+      "target_outcome": -1.125730037689209,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 42,
+      "selected_var": "X10",
+      "selected_value": 0.2804534435272217,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996398687362671,
+      "target_outcome": -3.0379059314727783,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 43,
+      "selected_var": "X10",
+      "selected_value": -1.673851490020752,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996694326400757,
+      "target_outcome": 0.18493172526359558,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 44,
+      "selected_var": "X10",
+      "selected_value": -3.0913238525390625,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996938705444336,
+      "target_outcome": -2.000884532928467,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 45,
+      "selected_var": "X10",
+      "selected_value": -1.999399185180664,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.999713122844696,
+      "target_outcome": -1.1534559726715088,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 46,
+      "selected_var": "X10",
+      "selected_value": -0.029750585556030273,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997312426567078,
+      "target_outcome": -0.6427735686302185,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 47,
+      "selected_var": "X10",
+      "selected_value": -2.369953155517578,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997455477714539,
+      "target_outcome": -0.9666209816932678,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 48,
+      "selected_var": "X10",
+      "selected_value": -2.606639862060547,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997569918632507,
+      "target_outcome": -0.920191764831543,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 49,
+      "selected_var": "X10",
+      "selected_value": -3.186016798019409,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997674822807312,
+      "target_outcome": -2.864600658416748,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 50,
+      "selected_var": "X10",
+      "selected_value": -2.2099006175994873,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997760653495789,
+      "target_outcome": -0.6624357104301453,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 51,
+      "selected_var": "X10",
+      "selected_value": -2.3363261222839355,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997828602790833,
+      "target_outcome": -0.8492398858070374,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 52,
+      "selected_var": "X10",
+      "selected_value": -0.27933430671691895,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997897744178772,
+      "target_outcome": -1.3377834558486938,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 53,
+      "selected_var": "X10",
+      "selected_value": -2.8276944160461426,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997956156730652,
+      "target_outcome": -1.3161211013793945,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 54,
+      "selected_var": "X10",
+      "selected_value": -3.224173069000244,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997995495796204,
+      "target_outcome": -2.7378432750701904,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 55,
+      "selected_var": "X10",
+      "selected_value": -1.4812510013580322,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998051524162292,
+      "target_outcome": -0.3747580051422119,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 56,
+      "selected_var": "X10",
+      "selected_value": -1.4514131546020508,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998101592063904,
+      "target_outcome": -0.16711652278900146,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 57,
+      "selected_var": "X10",
+      "selected_value": -2.7807741165161133,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.99981290102005,
+      "target_outcome": -2.2180519104003906,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 58,
+      "selected_var": "X10",
+      "selected_value": -1.7222388982772827,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998151659965515,
+      "target_outcome": -0.8191537857055664,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 59,
+      "selected_var": "X10",
+      "selected_value": -0.3066980838775635,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998186230659485,
+      "target_outcome": -0.4009697437286377,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 60,
+      "selected_var": "X10",
+      "selected_value": -1.5566074848175049,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.999821126461029,
+      "target_outcome": -0.04778563976287842,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 61,
+      "selected_var": "X10",
+      "selected_value": -1.8079984188079834,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998237490653992,
+      "target_outcome": -0.5616960525512695,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 62,
+      "selected_var": "X10",
+      "selected_value": -1.992461919784546,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998263716697693,
+      "target_outcome": 0.0792323648929596,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 63,
+      "selected_var": "X10",
+      "selected_value": -0.29041802883148193,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998281002044678,
+      "target_outcome": -0.7630524635314941,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 64,
+      "selected_var": "X10",
+      "selected_value": -1.7764497995376587,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998282194137573,
+      "target_outcome": -0.0887891948223114,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 65,
+      "selected_var": "X10",
+      "selected_value": -2.4336140155792236,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998335838317871,
+      "target_outcome": -1.9198678731918335,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 66,
+      "selected_var": "X10",
+      "selected_value": -3.615208864212036,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998348951339722,
+      "target_outcome": -3.763199806213379,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 67,
+      "selected_var": "X10",
+      "selected_value": -3.475839614868164,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998369216918945,
+      "target_outcome": -2.636590003967285,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 68,
+      "selected_var": "X10",
+      "selected_value": -2.0749714374542236,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998378753662109,
+      "target_outcome": -0.4896559715270996,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 69,
+      "selected_var": "X10",
+      "selected_value": -3.0640063285827637,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998389482498169,
+      "target_outcome": -2.3081164360046387,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 70,
+      "selected_var": "X10",
+      "selected_value": -4.44940185546875,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998396635055542,
+      "target_outcome": -3.904794931411743,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 71,
+      "selected_var": "X10",
+      "selected_value": -2.779280185699463,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998409748077393,
+      "target_outcome": -1.797973871231079,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 72,
+      "selected_var": "X10",
+      "selected_value": 0.2575260400772095,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998409748077393,
+      "target_outcome": -2.3550286293029785,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 73,
+      "selected_var": "X10",
+      "selected_value": -2.1905274391174316,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998433589935303,
+      "target_outcome": -0.5111217498779297,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 74,
+      "selected_var": "X10",
+      "selected_value": -2.0519232749938965,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998433589935303,
+      "target_outcome": -0.45688626170158386,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 75,
+      "selected_var": "X10",
+      "selected_value": -2.2913804054260254,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998444318771362,
+      "target_outcome": -0.04991716146469116,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 76,
+      "selected_var": "X10",
+      "selected_value": -2.248311758041382,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.999845027923584,
+      "target_outcome": -0.6442020535469055,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 77,
+      "selected_var": "X10",
+      "selected_value": -2.3186802864074707,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998420476913452,
+      "target_outcome": -0.6844062805175781,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 78,
+      "selected_var": "X10",
+      "selected_value": 0.06499147415161133,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998422861099243,
+      "target_outcome": -0.41883498430252075,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 79,
+      "selected_var": "X10",
+      "selected_value": -1.8837625980377197,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998456239700317,
+      "target_outcome": -0.6156432032585144,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    }
+  ],
+  "intervention_history": [
+    {
+      "intervention_idx": 0,
+      "selected_var": "X17",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.013090752065181732,
+      "target_outcome": -2.2028610706329346,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 1,
+      "selected_var": "X10",
+      "selected_value": -2.255309581756592,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.03290423005819321,
+      "target_outcome": -1.5452806949615479,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 2,
+      "selected_var": "X18",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.03427862375974655,
+      "target_outcome": -2.5497047901153564,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 3,
+      "selected_var": "X18",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.03175695985555649,
+      "target_outcome": -1.0963406562805176,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 4,
+      "selected_var": "X10",
+      "selected_value": -2.3810229301452637,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.03420950472354889,
+      "target_outcome": -1.26751708984375,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 5,
+      "selected_var": "X10",
+      "selected_value": -2.3079328536987305,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.034608762711286545,
+      "target_outcome": -1.3864006996154785,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 6,
+      "selected_var": "X10",
+      "selected_value": -3.936073064804077,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.03587481752038002,
+      "target_outcome": -2.734846353530884,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 7,
+      "selected_var": "X5",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.038688790053129196,
+      "target_outcome": -2.112539529800415,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 8,
+      "selected_var": "X17",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.036029476672410965,
+      "target_outcome": -0.3648754954338074,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 9,
+      "selected_var": "X10",
+      "selected_value": -1.5026240348815918,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.04403657466173172,
+      "target_outcome": -0.12442430853843689,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 10,
+      "selected_var": "X24",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.024747544899582863,
+      "target_outcome": -0.12459439039230347,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 11,
+      "selected_var": "X10",
+      "selected_value": -2.101595401763916,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.06651312112808228,
+      "target_outcome": -0.3447876572608948,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 12,
+      "selected_var": "X10",
+      "selected_value": -2.8693084716796875,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.08022226393222809,
+      "target_outcome": -0.9615944027900696,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 13,
+      "selected_var": "X10",
+      "selected_value": -2.0941362380981445,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.10603620111942291,
+      "target_outcome": 0.028688132762908936,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 14,
+      "selected_var": "X10",
+      "selected_value": -3.770622730255127,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.20156249403953552,
+      "target_outcome": -3.493638277053833,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 15,
+      "selected_var": "X10",
+      "selected_value": -2.947136640548706,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.6234750747680664,
+      "target_outcome": -1.739465355873108,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 16,
+      "selected_var": "X10",
+      "selected_value": 0.22649502754211426,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.8213768005371094,
+      "target_outcome": -0.5343085527420044,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 17,
+      "selected_var": "X10",
+      "selected_value": -2.1043989658355713,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9723691344261169,
+      "target_outcome": 0.04219257831573486,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 18,
+      "selected_var": "X10",
+      "selected_value": -2.5003252029418945,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9871547222137451,
+      "target_outcome": -0.6168641448020935,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 19,
+      "selected_var": "X10",
+      "selected_value": -2.0137085914611816,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9897145628929138,
+      "target_outcome": -1.1501500606536865,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 20,
+      "selected_var": "X10",
+      "selected_value": -2.3721046447753906,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9920721650123596,
+      "target_outcome": 0.09448635578155518,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 21,
+      "selected_var": "X10",
+      "selected_value": -3.1432533264160156,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.99314945936203,
+      "target_outcome": -2.076486349105835,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 22,
+      "selected_var": "X10",
+      "selected_value": 0.18944180011749268,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9932894110679626,
+      "target_outcome": -0.7707067728042603,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 23,
+      "selected_var": "X10",
+      "selected_value": -4.454610824584961,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9932135343551636,
+      "target_outcome": -3.128129005432129,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 24,
+      "selected_var": "X10",
+      "selected_value": -1.986433506011963,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9932491779327393,
+      "target_outcome": -1.3365437984466553,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 25,
+      "selected_var": "X10",
+      "selected_value": -2.4932987689971924,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9926753640174866,
+      "target_outcome": -0.5513951182365417,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 26,
+      "selected_var": "X10",
+      "selected_value": -2.9423139095306396,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.992377758026123,
+      "target_outcome": -1.8067377805709839,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 27,
+      "selected_var": "X10",
+      "selected_value": 1.455456018447876,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9921294450759888,
+      "target_outcome": -0.9131719470024109,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 28,
+      "selected_var": "X10",
+      "selected_value": -0.28385472297668457,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9924005270004272,
+      "target_outcome": -1.2620166540145874,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 29,
+      "selected_var": "X10",
+      "selected_value": -2.8297500610351562,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9967854022979736,
+      "target_outcome": -0.4804331064224243,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 30,
+      "selected_var": "X10",
+      "selected_value": -2.5819449424743652,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9978577494621277,
+      "target_outcome": -0.812589168548584,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 31,
+      "selected_var": "X10",
+      "selected_value": -2.780348300933838,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9983921647071838,
+      "target_outcome": -1.9503068923950195,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 32,
+      "selected_var": "X10",
+      "selected_value": -2.2391302585601807,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9987326264381409,
+      "target_outcome": -1.1033051013946533,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 33,
+      "selected_var": "X10",
+      "selected_value": -2.5603694915771484,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9989074468612671,
+      "target_outcome": -0.4138280153274536,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 34,
+      "selected_var": "X10",
+      "selected_value": 0.06149601936340332,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9990646243095398,
+      "target_outcome": -2.5294642448425293,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 35,
+      "selected_var": "X10",
+      "selected_value": -2.0730252265930176,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9991948008537292,
+      "target_outcome": -0.31933820247650146,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 36,
+      "selected_var": "X10",
+      "selected_value": -4.473223686218262,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9992855191230774,
+      "target_outcome": -3.0975403785705566,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 37,
+      "selected_var": "X10",
+      "selected_value": -2.603471517562866,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9993983507156372,
+      "target_outcome": -1.4749414920806885,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 38,
+      "selected_var": "X10",
+      "selected_value": -2.4668478965759277,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9994657635688782,
+      "target_outcome": -0.6991882920265198,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 39,
+      "selected_var": "X10",
+      "selected_value": -2.9929285049438477,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9995275735855103,
+      "target_outcome": -2.7326176166534424,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 40,
+      "selected_var": "X10",
+      "selected_value": -2.658127784729004,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9995792508125305,
+      "target_outcome": -1.3648879528045654,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 41,
+      "selected_var": "X10",
+      "selected_value": -2.294036865234375,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996032118797302,
+      "target_outcome": -1.125730037689209,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 42,
+      "selected_var": "X10",
+      "selected_value": 0.2804534435272217,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996398687362671,
+      "target_outcome": -3.0379059314727783,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 43,
+      "selected_var": "X10",
+      "selected_value": -1.673851490020752,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996694326400757,
+      "target_outcome": 0.18493172526359558,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 44,
+      "selected_var": "X10",
+      "selected_value": -3.0913238525390625,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996938705444336,
+      "target_outcome": -2.000884532928467,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 45,
+      "selected_var": "X10",
+      "selected_value": -1.999399185180664,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.999713122844696,
+      "target_outcome": -1.1534559726715088,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 46,
+      "selected_var": "X10",
+      "selected_value": -0.029750585556030273,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997312426567078,
+      "target_outcome": -0.6427735686302185,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 47,
+      "selected_var": "X10",
+      "selected_value": -2.369953155517578,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997455477714539,
+      "target_outcome": -0.9666209816932678,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 48,
+      "selected_var": "X10",
+      "selected_value": -2.606639862060547,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997569918632507,
+      "target_outcome": -0.920191764831543,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 49,
+      "selected_var": "X10",
+      "selected_value": -3.186016798019409,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997674822807312,
+      "target_outcome": -2.864600658416748,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 50,
+      "selected_var": "X10",
+      "selected_value": -2.2099006175994873,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997760653495789,
+      "target_outcome": -0.6624357104301453,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 51,
+      "selected_var": "X10",
+      "selected_value": -2.3363261222839355,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997828602790833,
+      "target_outcome": -0.8492398858070374,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 52,
+      "selected_var": "X10",
+      "selected_value": -0.27933430671691895,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997897744178772,
+      "target_outcome": -1.3377834558486938,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 53,
+      "selected_var": "X10",
+      "selected_value": -2.8276944160461426,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997956156730652,
+      "target_outcome": -1.3161211013793945,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 54,
+      "selected_var": "X10",
+      "selected_value": -3.224173069000244,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9997995495796204,
+      "target_outcome": -2.7378432750701904,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 55,
+      "selected_var": "X10",
+      "selected_value": -1.4812510013580322,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998051524162292,
+      "target_outcome": -0.3747580051422119,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 56,
+      "selected_var": "X10",
+      "selected_value": -1.4514131546020508,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998101592063904,
+      "target_outcome": -0.16711652278900146,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 57,
+      "selected_var": "X10",
+      "selected_value": -2.7807741165161133,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.99981290102005,
+      "target_outcome": -2.2180519104003906,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 58,
+      "selected_var": "X10",
+      "selected_value": -1.7222388982772827,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998151659965515,
+      "target_outcome": -0.8191537857055664,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 59,
+      "selected_var": "X10",
+      "selected_value": -0.3066980838775635,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998186230659485,
+      "target_outcome": -0.4009697437286377,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 60,
+      "selected_var": "X10",
+      "selected_value": -1.5566074848175049,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.999821126461029,
+      "target_outcome": -0.04778563976287842,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 61,
+      "selected_var": "X10",
+      "selected_value": -1.8079984188079834,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998237490653992,
+      "target_outcome": -0.5616960525512695,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 62,
+      "selected_var": "X10",
+      "selected_value": -1.992461919784546,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998263716697693,
+      "target_outcome": 0.0792323648929596,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 63,
+      "selected_var": "X10",
+      "selected_value": -0.29041802883148193,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998281002044678,
+      "target_outcome": -0.7630524635314941,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 64,
+      "selected_var": "X10",
+      "selected_value": -1.7764497995376587,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998282194137573,
+      "target_outcome": -0.0887891948223114,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 65,
+      "selected_var": "X10",
+      "selected_value": -2.4336140155792236,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998335838317871,
+      "target_outcome": -1.9198678731918335,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 66,
+      "selected_var": "X10",
+      "selected_value": -3.615208864212036,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998348951339722,
+      "target_outcome": -3.763199806213379,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 67,
+      "selected_var": "X10",
+      "selected_value": -3.475839614868164,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998369216918945,
+      "target_outcome": -2.636590003967285,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 68,
+      "selected_var": "X10",
+      "selected_value": -2.0749714374542236,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998378753662109,
+      "target_outcome": -0.4896559715270996,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 69,
+      "selected_var": "X10",
+      "selected_value": -3.0640063285827637,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998389482498169,
+      "target_outcome": -2.3081164360046387,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 70,
+      "selected_var": "X10",
+      "selected_value": -4.44940185546875,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998396635055542,
+      "target_outcome": -3.904794931411743,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 71,
+      "selected_var": "X10",
+      "selected_value": -2.779280185699463,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998409748077393,
+      "target_outcome": -1.797973871231079,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 72,
+      "selected_var": "X10",
+      "selected_value": 0.2575260400772095,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998409748077393,
+      "target_outcome": -2.3550286293029785,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 73,
+      "selected_var": "X10",
+      "selected_value": -2.1905274391174316,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998433589935303,
+      "target_outcome": -0.5111217498779297,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 74,
+      "selected_var": "X10",
+      "selected_value": -2.0519232749938965,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998433589935303,
+      "target_outcome": -0.45688626170158386,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 75,
+      "selected_var": "X10",
+      "selected_value": -2.2913804054260254,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998444318771362,
+      "target_outcome": -0.04991716146469116,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 76,
+      "selected_var": "X10",
+      "selected_value": -2.248311758041382,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.999845027923584,
+      "target_outcome": -0.6442020535469055,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 77,
+      "selected_var": "X10",
+      "selected_value": -2.3186802864074707,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998420476913452,
+      "target_outcome": -0.6844062805175781,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 78,
+      "selected_var": "X10",
+      "selected_value": 0.06499147415161133,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998422861099243,
+      "target_outcome": -0.41883498430252075,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 79,
+      "selected_var": "X10",
+      "selected_value": -1.8837625980377197,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9998456239700317,
+      "target_outcome": -0.6156432032585144,
+      "optimal_parent": "X10",
+      "true_parents": [
+        "X10",
+        "X1"
+      ]
+    }
+  ],
+  "training_config": {
+    "max_episodes": 1,
+    "obs_per_episode": 20,
+    "max_interventions": 80,
+    "episodes_per_phase": 999999,
+    "initial_phase": "policy",
+    "policy_architecture": "quantile",
+    "use_surrogate": true,
+    "use_grpo_rewards": true,
+    "use_fixed_std": true,
+    "fixed_std": 1.0,
+    "learning_rate": 0.0005,
+    "grpo_config": {
+      "group_size": 32,
+      "entropy_coefficient": 0.001,
+      "clip_ratio": 1.0,
+      "gradient_clip": 10.0,
+      "ppo_epochs": 4,
+      "normalize_advantages": true
+    },
+    "reward_weights": {
+      "target": 0.6,
+      "parent": 0.4,
+      "info_gain": 0.0
+    },
+    "reward_type": "binary",
+    "info_gain_type": "probability_change",
+    "buffer_config": {
+      "max_history_size": 30,
+      "adaptive_history": true,
+      "min_history_size": 10
+    },
+    "rotate_after_episode": false,
+    "surrogate_checkpoint_path": "experiments/surrogate-only-training/scripts/checkpoints/avici_runs/avici_style_20250822_213115/checkpoint_step_200.pkl",
+    "batch_size": 32,
+    "seed": 42,
+    "verbose": true,
+    "checkpoint_dir": "checkpoints/grpo_single_scm/single_scm_scale_free_30vars_20250904_095412",
+    "logging": {
+      "wandb": {
+        "enabled": false,
+        "project": "causal-bayes-opt-single-scm",
+        "name": "single_scm_80int",
+        "tags": [
+          "single_scm",
+          "grpo",
+          "convergence_analysis"
+        ],
+        "log_frequency": 1
+      }
+    }
+  },
+  "experiment_info": {
+    "scm_type": "scale_free",
+    "num_vars": 30,
+    "total_interventions": 80,
+    "seed": 42,
+    "convergence_metrics_found": true
+  }
+}

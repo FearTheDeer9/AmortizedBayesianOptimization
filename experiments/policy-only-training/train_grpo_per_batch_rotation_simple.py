@@ -461,6 +461,7 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         # Save using checkpoint_utils
         from src.causal_bayes_opt.utils.checkpoint_utils import save_checkpoint
         
+        
         architecture = {
             'hidden_dim': self.hidden_dim,
             'num_layers': self.config.get('architecture', {}).get('num_layers', 4),
@@ -489,7 +490,8 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
                 'convergence_events': len(self.convergence_metrics['convergence_events']),
                 'scm_diversity': len(self.scm_history),
                 'trainer': 'EnhancedGRPOTrainer'
-            }
+            },
+            optimizer_state=self.optimizer_state  # Save optimizer state for continual learning
         )
         
         logger.info(f"  💾 Saved checkpoint at episode {episode_idx}")
@@ -871,7 +873,7 @@ def main():
                         help='Observations per episode')
     parser.add_argument('--structure-types', type=str, nargs='+',
                         default=['fork', 'chain', 'collider', 'mixed', 'random'],
-                        choices=['random', 'chain', 'fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
+                        choices=['random', 'chain', 'fork', 'true_fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
                         help='SCM structure types to train on')
     parser.add_argument('--min-vars', type=int, default=3,
                         help='Minimum number of variables in SCM')
@@ -1031,6 +1033,14 @@ def main():
         checkpoint = load_checkpoint(Path(args.policy_checkpoint))
         trainer.policy_params = checkpoint['params']
         
+        
+        # Load optimizer state if available for continual learning
+        if 'optimizer_state' in checkpoint and checkpoint['optimizer_state'] is not None:
+            trainer.optimizer_state = checkpoint['optimizer_state']
+            logger.info(f"  Loaded optimizer state for continual learning")
+        else:
+            logger.info(f"  No optimizer state found in checkpoint, will reinitialize")
+        
         # Set starting episode for continuation (simple checkpoint-based approach)
         trainer.start_episode = 1  # Resume from episode 1 (any non-zero value)
         logger.info(f"  Policy checkpoint exists - will continue training from episode 1")
@@ -1076,6 +1086,7 @@ def main():
         
         from src.causal_bayes_opt.utils.checkpoint_utils import save_checkpoint
         
+        
         # Use explicit output path if provided
         if args.checkpoint_output:
             final_checkpoint_path = Path(args.checkpoint_output)
@@ -1107,7 +1118,8 @@ def main():
                 'convergence_events': len(trainer.convergence_metrics['convergence_events']),
                 'scm_diversity': len(trainer.scm_history),
                 'trainer_class': 'EnhancedGRPOTrainer'
-            }
+            },
+            optimizer_state=trainer.optimizer_state  # Save optimizer state for continual learning
         )
         
         # Save detailed results

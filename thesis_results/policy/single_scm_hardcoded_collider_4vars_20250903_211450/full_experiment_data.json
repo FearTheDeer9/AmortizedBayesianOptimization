@@ -1,0 +1,978 @@
+{
+  "scm_details": {
+    "name": "hardcoded_collider_4var",
+    "variables": [
+      "X2",
+      "X1",
+      "X3",
+      "X0"
+    ],
+    "target": "X3",
+    "true_parents": [
+      "X2",
+      "X1"
+    ],
+    "coefficients": {
+      "X0->X1": 2.0,
+      "X0->X2": 2.0,
+      "X2->X3": 2.0,
+      "X1->X3": 2.0
+    },
+    "parent_coefficients": {
+      "X2": 2.0,
+      "X1": 2.0
+    },
+    "variable_ranges": {
+      "X0": [
+        -3.0,
+        3.0
+      ],
+      "X1": [
+        -3.0,
+        3.0
+      ],
+      "X2": [
+        -3.0,
+        3.0
+      ],
+      "X3": [
+        -12.0,
+        12.0
+      ]
+    },
+    "metadata": {
+      "description": "Hardcoded collider: X0->X1, X0->X2, X2->X3, X1->X3",
+      "structure_type": "hardcoded_collider",
+      "mechanism_type": "linear",
+      "variable_ranges": {
+        "X0": [
+          -3.0,
+          3.0
+        ],
+        "X1": [
+          -3.0,
+          3.0
+        ],
+        "X2": [
+          -3.0,
+          3.0
+        ],
+        "X3": [
+          -12.0,
+          12.0
+        ]
+      },
+      "num_variables": 4,
+      "target_variable": "X3",
+      "created_by": "test_factory",
+      "num_edges": 4,
+      "noise_scale": 0.1,
+      "edge_density": 0.6666666666666666
+    },
+    "noise_scale": 0.1,
+    "structure_type": "hardcoded_collider"
+  },
+  "convergence_data": [
+    {
+      "intervention_idx": 0,
+      "selected_var": "X1",
+      "selected_value": -1.5380727052688599,
+      "is_optimal": false,
+      "is_parent": true,
+      "probability": 0.13310441374778748,
+      "target_outcome": -3.2621073722839355,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 1,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.2960345149040222,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 2,
+      "selected_var": "X3",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.3083072006702423,
+      "target_outcome": -5.5332136154174805,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 3,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.25192850828170776,
+      "target_outcome": -4.418576240539551,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 4,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.2793848216533661,
+      "target_outcome": -7.121358394622803,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 5,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.33053097128868103,
+      "target_outcome": -11.849165916442871,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 6,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.3910597860813141,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 7,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.4311875104904175,
+      "target_outcome": -11.512625694274902,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 8,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.49151113629341125,
+      "target_outcome": -9.04343032836914,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 9,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.5748459696769714,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 10,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.6723200678825378,
+      "target_outcome": -9.694807052612305,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 11,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.8444209098815918,
+      "target_outcome": -11.526700019836426,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 12,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9752601981163025,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 13,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9948857426643372,
+      "target_outcome": -11.985633850097656,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 14,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9990649819374084,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 15,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.999470055103302,
+      "target_outcome": -11.994874000549316,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 16,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9991644620895386,
+      "target_outcome": -11.93992805480957,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 17,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.997108519077301,
+      "target_outcome": -11.865410804748535,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 18,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9811239838600159,
+      "target_outcome": -11.907426834106445,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 19,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996125102043152,
+      "target_outcome": -11.90139102935791,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 20,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9994077682495117,
+      "target_outcome": -11.888343811035156,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 21,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9992832541465759,
+      "target_outcome": -11.91723346710205,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 22,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9991604089736938,
+      "target_outcome": -11.850296020507812,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 23,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9990076422691345,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 24,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9987310767173767,
+      "target_outcome": -11.919598579406738,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 25,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9981516003608704,
+      "target_outcome": -11.803300857543945,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 26,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9966413974761963,
+      "target_outcome": -11.020696640014648,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 27,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9935246706008911,
+      "target_outcome": -9.680408477783203,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 28,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9831734299659729,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 29,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9866471290588379,
+      "target_outcome": -11.974921226501465,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    }
+  ],
+  "intervention_history": [
+    {
+      "intervention_idx": 0,
+      "selected_var": "X1",
+      "selected_value": -1.5380727052688599,
+      "is_optimal": false,
+      "is_parent": true,
+      "probability": 0.13310441374778748,
+      "target_outcome": -3.2621073722839355,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 1,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.2960345149040222,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 2,
+      "selected_var": "X3",
+      "selected_value": 0.0,
+      "is_optimal": false,
+      "is_parent": false,
+      "probability": 0.3083072006702423,
+      "target_outcome": -5.5332136154174805,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 3,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.25192850828170776,
+      "target_outcome": -4.418576240539551,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 4,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.2793848216533661,
+      "target_outcome": -7.121358394622803,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 5,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.33053097128868103,
+      "target_outcome": -11.849165916442871,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 6,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.3910597860813141,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 7,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.4311875104904175,
+      "target_outcome": -11.512625694274902,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 8,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.49151113629341125,
+      "target_outcome": -9.04343032836914,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 9,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.5748459696769714,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 10,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.6723200678825378,
+      "target_outcome": -9.694807052612305,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 11,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.8444209098815918,
+      "target_outcome": -11.526700019836426,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 12,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9752601981163025,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 13,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9948857426643372,
+      "target_outcome": -11.985633850097656,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 14,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9990649819374084,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 15,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.999470055103302,
+      "target_outcome": -11.994874000549316,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 16,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9991644620895386,
+      "target_outcome": -11.93992805480957,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 17,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.997108519077301,
+      "target_outcome": -11.865410804748535,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 18,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9811239838600159,
+      "target_outcome": -11.907426834106445,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 19,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9996125102043152,
+      "target_outcome": -11.90139102935791,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 20,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9994077682495117,
+      "target_outcome": -11.888343811035156,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 21,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9992832541465759,
+      "target_outcome": -11.91723346710205,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 22,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9991604089736938,
+      "target_outcome": -11.850296020507812,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 23,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9990076422691345,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 24,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9987310767173767,
+      "target_outcome": -11.919598579406738,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 25,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9981516003608704,
+      "target_outcome": -11.803300857543945,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 26,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9966413974761963,
+      "target_outcome": -11.020696640014648,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 27,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9935246706008911,
+      "target_outcome": -9.680408477783203,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 28,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9831734299659729,
+      "target_outcome": -12.0,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    },
+    {
+      "intervention_idx": 29,
+      "selected_var": "X2",
+      "selected_value": 0.0,
+      "is_optimal": true,
+      "is_parent": true,
+      "probability": 0.9866471290588379,
+      "target_outcome": -11.974921226501465,
+      "optimal_parent": "X2",
+      "true_parents": [
+        "X2",
+        "X1"
+      ]
+    }
+  ],
+  "training_config": {
+    "max_episodes": 1,
+    "obs_per_episode": 20,
+    "max_interventions": 30,
+    "episodes_per_phase": 999999,
+    "initial_phase": "policy",
+    "policy_architecture": "quantile",
+    "use_surrogate": true,
+    "use_grpo_rewards": true,
+    "use_fixed_std": true,
+    "fixed_std": 1.0,
+    "learning_rate": 0.0005,
+    "grpo_config": {
+      "group_size": 32,
+      "entropy_coefficient": 0.001,
+      "clip_ratio": 1.0,
+      "gradient_clip": 10.0,
+      "ppo_epochs": 4,
+      "normalize_advantages": true
+    },
+    "reward_weights": {
+      "target": 1.0,
+      "parent": 0.0,
+      "info_gain": 0.0
+    },
+    "reward_type": "binary",
+    "info_gain_type": "probability_change",
+    "buffer_config": {
+      "max_history_size": 30,
+      "adaptive_history": true,
+      "min_history_size": 10
+    },
+    "rotate_after_episode": false,
+    "surrogate_checkpoint_path": "experiments/surrogate-only-training/scripts/checkpoints/avici_runs/avici_style_20250822_213115/checkpoint_step_200.pkl",
+    "batch_size": 32,
+    "seed": 42,
+    "verbose": true,
+    "checkpoint_dir": "checkpoints/grpo_single_scm/single_scm_hardcoded_collider_4vars_20250903_211450",
+    "logging": {
+      "wandb": {
+        "enabled": false,
+        "project": "causal-bayes-opt-single-scm",
+        "name": "single_scm_30int",
+        "tags": [
+          "single_scm",
+          "grpo",
+          "convergence_analysis"
+        ],
+        "log_frequency": 1
+      }
+    }
+  },
+  "experiment_info": {
+    "scm_type": "hardcoded_collider",
+    "num_vars": 4,
+    "total_interventions": 30,
+    "seed": 42,
+    "convergence_metrics_found": true
+  }
+}

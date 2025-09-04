@@ -1,0 +1,36 @@
+#!/bin/bash
+#PBS -l select=1:ncpus=8:mem=32gb:ngpus=1
+#PBS -l walltime=4:00:00
+#PBS -N avici_style_training
+#PBS -j oe
+
+cd $PBS_O_WORKDIR
+
+# Use our standardized environment setup
+source setup_gpu_environment.sh
+export XLA_PYTHON_CLIENT_MEM_FRACTION=0.8
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export JAX_MEMORY_FRACTION=0.95
+export XLA_FLAGS="--xla_gpu_enable_triton_softmax_fusion=false"
+
+echo "=== Starting AVICI-Style Training ==="
+python3 experiments/surrogate-only-training/scripts/train_avici_style.py \
+    --hidden-dim 128 \
+    --num-layers 8 \
+    --num-heads 8 \
+    --batch-size 32 \
+    --min-datapoints 100 \
+    --max-datapoints 1000 \
+    --min-obs-ratio 0.5 \
+    --max-obs-ratio 0.9 \
+    --lr 1e-3 \
+    --num-steps 10000 \
+    --min-vars 3 \
+    --max-vars 100 \
+    --save-freq 500 \
+    --log-freq 100 \
+    --max-time-minutes 230 \
+    --structure-types scale_free
+
+echo "=== Job Complete ==="
+date

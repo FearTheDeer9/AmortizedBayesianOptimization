@@ -17,7 +17,8 @@ from ..mechanisms.linear import create_linear_mechanism, create_root_mechanism
 logger = logging.getLogger(__name__)
 
 
-def create_fork_scm(noise_scale: float = 1.0, target: str = "Y") -> pyr.PMap:
+def create_fork_scm(noise_scale: float = 1.0, target: str = "Y", 
+                    variable_ranges: Optional[Dict[str, Tuple[float, float]]] = None) -> pyr.PMap:
     """
     Create a simple fork structure: X → Y ← Z
     
@@ -38,7 +39,8 @@ def create_fork_scm(noise_scale: float = 1.0, target: str = "Y") -> pyr.PMap:
         edges=[('X', 'Y'), ('Z', 'Y')],
         coefficients={('X', 'Y'): 2.0, ('Z', 'Y'): -1.5},
         noise_scales={'X': noise_scale, 'Y': noise_scale, 'Z': noise_scale},
-        target=target
+        target=target,
+        variable_ranges=variable_ranges
     )
     
     # Add metadata for identification
@@ -109,7 +111,8 @@ def create_chain_scm(chain_length: int = 3, coefficient: float = 1.5,
     return scm
 
 
-def create_collider_scm(noise_scale: float = 1.0) -> pyr.PMap:
+def create_collider_scm(noise_scale: float = 1.0,
+                        variable_ranges: Optional[Dict[str, Tuple[float, float]]] = None) -> pyr.PMap:
     """
     Create a collider structure: X → Z ← Y
     
@@ -129,7 +132,8 @@ def create_collider_scm(noise_scale: float = 1.0) -> pyr.PMap:
         edges=[('X', 'Z'), ('Y', 'Z')],
         coefficients={('X', 'Z'): 1.2, ('Y', 'Z'): 0.8},
         noise_scales={'X': noise_scale, 'Y': noise_scale, 'Z': noise_scale},
-        target='Z'
+        target='Z',
+        variable_ranges=variable_ranges
     )
     
     # Add metadata
@@ -147,7 +151,8 @@ def create_collider_scm(noise_scale: float = 1.0) -> pyr.PMap:
     return scm
 
 
-def create_diamond_scm(noise_scale: float = 1.0) -> pyr.PMap:
+def create_diamond_scm(noise_scale: float = 1.0,
+                       variable_ranges: Optional[Dict[str, Tuple[float, float]]] = None) -> pyr.PMap:
     """
     Create a diamond structure: X → Y → W ← Z ← X
     
@@ -175,7 +180,8 @@ def create_diamond_scm(noise_scale: float = 1.0) -> pyr.PMap:
             ('Z', 'W'): 1.0
         },
         noise_scales={'X': noise_scale, 'Y': noise_scale, 'Z': noise_scale, 'W': noise_scale},
-        target='W'
+        target='W',
+        variable_ranges=variable_ranges
     )
     
     # Add metadata
@@ -228,7 +234,8 @@ def create_butterfly_scm(noise_scale: float = 1.0) -> pyr.PMap:
         },
         noise_scales={'A': noise_scale, 'B': noise_scale, 'C': noise_scale, 
                      'D': noise_scale, 'E': noise_scale},
-        target='E'
+        target='E',
+        variable_ranges=variable_ranges
     )
     
     # Add metadata
@@ -327,7 +334,8 @@ def create_sparse_scm(num_vars: int = 5, edge_prob: float = 0.2,
     return scm
 
 
-def create_mixed_coeff_scm(noise_scale: float = 1.0) -> pyr.PMap:
+def create_mixed_coeff_scm(noise_scale: float = 1.0,
+                           variable_ranges: Optional[Dict[str, Tuple[float, float]]] = None) -> pyr.PMap:
     """
     Create SCM with mixed positive/negative coefficients.
     
@@ -349,7 +357,8 @@ def create_mixed_coeff_scm(noise_scale: float = 1.0) -> pyr.PMap:
         edges=[('A', 'D'), ('B', 'D'), ('C', 'D')],
         coefficients={('A', 'D'): 2.0, ('B', 'D'): -1.5, ('C', 'D'): 0.5},
         noise_scales={'A': noise_scale, 'B': noise_scale, 'C': noise_scale, 'D': noise_scale},
-        target='D'
+        target='D',
+        variable_ranges=variable_ranges
     )
     
     # Add metadata

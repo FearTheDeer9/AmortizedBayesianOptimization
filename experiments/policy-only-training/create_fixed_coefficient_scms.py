@@ -79,6 +79,73 @@ class FixedCoefficientSCMFactory(VariableSCMFactory):
         """Reset coefficient index for reproducible generation."""
         self.coefficient_index = 0
     
+    def create_variable_scm(self,
+                           num_variables: int,
+                           structure_type: str = "mixed",
+                           target_variable: Optional[str] = None,
+                           edge_density: float = 0.5) -> pyr.PMap:
+        """
+        Override parent's create_variable_scm to handle target ranges properly.
+        
+        This ensures the target variable gets the expanded range BEFORE mechanism creation,
+        while keeping the parent's intervention_range for non-target variables.
+        """
+        # Call parent's method to create the SCM structure
+        # Keep intervention_range so parents get consistent ranges
+        scm = super().create_variable_scm(
+            num_variables=num_variables,
+            structure_type=structure_type,
+            target_variable=target_variable,
+            edge_density=edge_density
+        )
+        
+        # Now rebuild the SCM with expanded target range only
+        if not self.use_target_bounds and self.intervention_range:
+            from src.causal_bayes_opt.experiments.test_scms import create_simple_linear_scm
+            from src.causal_bayes_opt.data_structures.scm import get_variables, get_edges
+            
+            # Extract structure from created SCM
+            variables = list(get_variables(scm))
+            edges = list(get_edges(scm))
+            target = scm.get('target')
+            metadata = scm.get('metadata', pyr.pmap({}))
+            
+            # Get coefficients from metadata
+            coefficients = metadata.get('coefficients', {})
+            
+            # Get existing variable ranges from metadata
+            existing_ranges = metadata.get('variable_ranges', {})
+            
+            # Set up variable ranges: keep existing for parents, expand for target
+            variable_ranges = {}
+            for var in variables:
+                if var == target:
+                    # Expanded range for target only
+                    variable_ranges[var] = (-1000.0, 1000.0)
+                else:
+                    # Keep the existing range (should be intervention_range)
+                    variable_ranges[var] = existing_ranges.get(var, self.intervention_range)
+            
+            # Set noise scales (zero for deterministic)
+            noise_scales = {var: self.noise_scale for var in variables}
+            
+            # Recreate the SCM with proper ranges
+            scm = create_simple_linear_scm(
+                variables=variables,
+                edges=edges,
+                coefficients=coefficients,
+                noise_scales=noise_scales,
+                target=target,
+                variable_ranges=variable_ranges,
+                output_bounds=None
+            )
+            
+            # Update metadata with correct ranges
+            updated_metadata = metadata.update({'variable_ranges': variable_ranges})
+            scm = scm.update({'metadata': updated_metadata})
+        
+        return scm
+    
     def create_fixed_scm(self,
                         num_variables: int,
                         structure_type: str,
@@ -116,31 +183,13 @@ class FixedCoefficientSCMFactory(VariableSCMFactory):
             self.coefficient_values = [2.0, 0.5, 1.5, 0.3, 1.0]
         # else use default or provided values
         
-        # Create SCM using parent's structure generation
+        # Create SCM using our overridden method that handles ranges properly
         scm = self.create_variable_scm(
             num_variables=num_variables,
             structure_type=structure_type,
             target_variable=target_variable,
             edge_density=edge_density
         )
-        
-        # Adjust target variable range if needed
-        if not self.use_target_bounds:
-            # Get the target variable
-            target = scm.get('target')
-            if target:
-                # Get current metadata including variable ranges
-                metadata = scm.get('metadata', pyr.pmap({}))
-                variable_ranges = dict(metadata.get('variable_ranges', {}))
-                
-                if variable_ranges and target in variable_ranges:
-                    # Set target range to unbounded so it won't be clipped
-                    # Using very large values instead of inf for better numerical stability
-                    variable_ranges[target] = (-1000.0, 1000.0)
-                    
-                    # Update metadata with new ranges
-                    metadata = metadata.update({'variable_ranges': variable_ranges})
-                    scm = scm.update({'metadata': metadata})
         
         # Update metadata to indicate fixed coefficients
         metadata = scm.get('metadata', pyr.pmap({}))
@@ -236,6 +285,95 @@ def create_large_scale_free(num_variables: int = 50) -> Tuple[pyr.PMap, str]:
         structure_type='scale_free',
         coefficient_pattern='decreasing'
     )
+    
+    return scm, name
+
+
+def create_star_graph_scm(num_nodes: int, max_coefficient: float, seed: int = 42) -> Tuple[pyr.PMap, str]:
+    """
+    Create a star graph SCM with equally spaced coefficients.
+    
+    In a star graph, the target variable is the hub connected to all other nodes,
+    which are not connected to each other. This creates a pure collider structure
+    where all parents directly influence the target.
+    
+    Args:
+        num_nodes: Total number of nodes (including target)
+        max_coefficient: Maximum coefficient value (L)
+        seed: Random seed for consistency
+        
+    Returns:
+        Tuple of (SCM, name)
+    """
+    from src.causal_bayes_opt.experiments.test_scms import create_simple_linear_scm
+    
+    # Create equally spaced coefficients from 0 to max_coefficient
+    num_parents = num_nodes - 1
+    if num_parents == 1:
+        coefficients_list = [max_coefficient]
+    else:
+        # Equally spaced including endpoints
+        coefficients_list = [
+            i * max_coefficient / (num_parents - 1) 
+            for i in range(num_parents)
+        ]
+    
+    # Variable names
+    variables = [f'X{i}' for i in range(num_nodes)]
+    target = variables[-1]  # Last variable is target
+    parent_vars = variables[:-1]
+    
+    # Create edges (all parents point to target)
+    edges = [(parent, target) for parent in parent_vars]
+    
+    # Create coefficient dictionary with parent-target pairs
+    coefficients = {}
+    for i, (parent, tgt) in enumerate(edges):
+        coefficients[(parent, tgt)] = coefficients_list[i]
+    
+    # Zero noise for deterministic behavior
+    noise_scales = {var: 0.0 for var in variables}
+    
+    # Variable ranges: expanded for all to allow proper testing of coefficient magnitudes
+    # Parent variables need wider ranges for interventions to explore full effect space
+    variable_ranges = {}
+    for var in variables:
+        if var == target:
+            variable_ranges[var] = (-1000.0, 1000.0)  # Expanded range for target
+        else:
+            variable_ranges[var] = (-10.0, 10.0)  # Wider range for parents to test full coefficient effects
+    
+    # Create the SCM
+    scm = create_simple_linear_scm(
+        variables=variables,
+        edges=edges,
+        coefficients=coefficients,
+        noise_scales=noise_scales,
+        target=target,
+        variable_ranges=variable_ranges,
+        output_bounds=None
+    )
+    
+    # Add comprehensive metadata
+    metadata = scm.get('metadata', pyr.pmap({}))
+    metadata = metadata.update({
+        'structure_type': 'star',
+        'num_variables': num_nodes,
+        'num_edges': len(edges),
+        'num_parents': num_parents,
+        'target_variable': target,
+        'coefficients': coefficients,
+        'coefficient_spacing': 'equally_spaced',
+        'max_coefficient': max_coefficient,
+        'optimal_parent': parent_vars[-1],  # Highest coefficient parent
+        'variable_ranges': variable_ranges,
+        'description': f'Star graph: {num_parents} parents → {target}',
+        'deterministic': True,
+        'noise_scale': 0.0
+    })
+    
+    scm = scm.update({'metadata': metadata})
+    name = f'star_{num_nodes}nodes_L{max_coefficient}'
     
     return scm, name
 

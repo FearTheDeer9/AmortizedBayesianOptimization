@@ -165,6 +165,28 @@ def select_quantile_intervention(
         'var_p75': var_stats.get('p75', 0.0)
     }
     
+    debug_info.update({
+        # Full scores and probabilities for ALL variables
+        'full_quantile_scores': quantile_scores.tolist(),  # [n_vars, 3] matrix
+        'full_flat_scores': flat_scores.tolist(),  # [n_vars * 3] flattened
+        'full_flat_probs': flat_probs.tolist(),  # [n_vars * 3] probabilities
+        'variable_max_probs': {},  # Max probability per variable
+        'variable_best_quantiles': {},  # Best quantile per variable
+    })
+    
+    # Compute per-variable max probabilities and best quantiles
+    probs_matrix = flat_probs.reshape(len(variables), 3)
+    scores_matrix = flat_scores.reshape(len(variables), 3)
+    quantile_names_list = ['25%', '50%', '75%']
+    
+    for i, var in enumerate(variables):
+        var_probs = probs_matrix[i]
+        var_scores = scores_matrix[i]
+        max_prob = float(jnp.max(var_probs))
+        best_q_idx = int(jnp.argmax(var_scores))
+        debug_info['variable_max_probs'][var] = max_prob
+        debug_info['variable_best_quantiles'][var] = quantile_names_list[best_q_idx]
+    
     return selected_var, float(intervention_value), log_prob, debug_info
 
 

@@ -59,7 +59,7 @@ class SingleSCMTrainer(JointACBOTrainer):
         self.intervention_history = []  # Full intervention details
         self.target_var = None
         self.true_parents = []
-        self.optimal_parent = None
+        self.optimal_parents = []  # Changed to list to handle multiple equally optimal parents
         self.scm_details = {}  # Full SCM specification
         
         # Initialize convergence metrics like parent class
@@ -135,9 +135,9 @@ class SingleSCMTrainer(JointACBOTrainer):
             'structure_type': metadata.get('structure_type', 'unknown')
         }
         
-        # Determine optimal parent (with largest coefficient * range effect)
-        optimal_score = 0
-        self.optimal_parent = None
+        # Determine ALL optimal parents (those with largest coefficient * range effect)
+        max_score = 0
+        parent_scores = {}
         
         for parent in self.true_parents:
             coeff = parent_coeffs.get(parent, 0.0)
@@ -146,12 +146,14 @@ class SingleSCMTrainer(JointACBOTrainer):
             
             # Score = coefficient magnitude × range size
             score = abs(coeff) * range_size
+            parent_scores[parent] = (score, coeff, parent_range)
             
-            if score > optimal_score:
-                optimal_score = score
-                self.optimal_parent = parent
-                self.optimal_coefficient = coeff
-                self.optimal_range = parent_range
+            if score > max_score:
+                max_score = score
+        
+        # Find ALL parents with the maximum score (there may be multiple)
+        self.optimal_parents = [parent for parent, (score, _, _) in parent_scores.items() 
+                               if abs(score - max_score) < 1e-6]  # Use small epsilon for float comparison
         
         # Print detailed SCM info
         logger.info(f"\n" + "="*60)
@@ -159,12 +161,12 @@ class SingleSCMTrainer(JointACBOTrainer):
         logger.info(f"   Variables: {variables}")
         logger.info(f"   Target: {self.target_var}")
         logger.info(f"   True Parents: {self.true_parents}")
-        logger.info(f"   Optimal Parent: {self.optimal_parent}")
+        logger.info(f"   Optimal Parents: {self.optimal_parents} {'(multiple equally optimal!)' if len(self.optimal_parents) > 1 else ''}")
         if parent_coeffs:
             logger.info(f"   Parent Coefficients:")
             for parent, coeff in parent_coeffs.items():
                 parent_range = variable_ranges.get(parent, (-10, 10))
-                marker = " ← OPTIMAL" if parent == self.optimal_parent else ""
+                marker = " ← OPTIMAL" if parent in self.optimal_parents else ""
                 logger.info(f"      {parent} → {self.target_var}: {coeff:.3f}, range={parent_range}{marker}")
         logger.info(f"   Variable Ranges:")
         for var, range_vals in variable_ranges.items():
@@ -244,72 +246,103 @@ class SingleSCMTrainer(JointACBOTrainer):
                     debug_info = best_int.get('debug_info', {})
                     
                     # Get selected variable from debug_info
-                    if 'selected_var_idx' in debug_info:
+                    # Use the variable name directly to avoid indexing issues
+                    if 'selected_var_name' in debug_info:
+                        selected_var = debug_info['selected_var_name']
+                        probability = debug_info.get('selection_probability', 0.0)
+                    elif 'selected_var_idx' in debug_info:
+                        # Fallback for backward compatibility (may have ordering issues)
                         var_idx = debug_info['selected_var_idx']
                         selected_var = list(get_variables(scm))[var_idx]
                         probability = debug_info.get('selection_probability', 0.0)
-                        
-                        # Get intervention value from the intervention object
-                        intervention = best_int['intervention']
-                        # The intervention is a pyr.PMap, extract values using get()
-                        intervention_values = intervention.get('values', {})
-                        intervention_value = float(intervention_values.get(selected_var, 0.0))
-                        
-                        # Get target outcome
-                        target_outcome = float(get_values(outcome).get(self.target_var, 0.0))
-                        all_target_values.append(target_outcome)
-                        
-                        # Check optimality
-                        is_optimal = (selected_var == self.optimal_parent) if self.optimal_parent else False
-                        is_parent = selected_var in self.true_parents
-                        
-                        # Update optimality metrics (for reporting)
-                        if is_optimal:
-                            self.convergence_metrics['consecutive_optimal'] += 1
-                            self.convergence_metrics['total_optimal'] += 1
+                    else:
+                        continue  # Skip if no variable info
+                    
+                    # Get intervention value from the intervention object
+                    intervention = best_int['intervention']
+                    # The intervention is a pyr.PMap, extract values using get()
+                    intervention_values = intervention.get('values', {})
+                    intervention_value = float(intervention_values.get(selected_var, 0.0))
+                    
+                    # Get target outcome
+                    target_outcome = float(get_values(outcome).get(self.target_var, 0.0))
+                    all_target_values.append(target_outcome)
+                    
+                    # Check optimality - now checks if selected var is in the list of optimal parents
+                    is_optimal = selected_var in self.optimal_parents
+                    is_parent = selected_var in self.true_parents
+                    
+                    # Update optimality metrics (for reporting)
+                    if is_optimal:
+                        self.convergence_metrics['consecutive_optimal'] += 1
+                        self.convergence_metrics['total_optimal'] += 1
+                    else:
+                        self.convergence_metrics['consecutive_optimal'] = 0
+                    self.convergence_metrics['total_selections'] += 1
+                    
+                    # Check probability-based convergence
+                    if probability >= self.convergence_probability_threshold:
+                        if self.last_selected_var == selected_var:
+                            self.consecutive_high_prob_count += 1
+                            logger.info(f"    🎯 Same variable with high prob! Count: {self.consecutive_high_prob_count}/{self.convergence_patience}")
                         else:
-                            self.convergence_metrics['consecutive_optimal'] = 0
-                        self.convergence_metrics['total_selections'] += 1
+                            # Different variable, reset counter
+                            self.consecutive_high_prob_count = 1
+                            self.last_selected_var = selected_var
+                            logger.info(f"    🔄 New high-prob variable: {selected_var}")
+                    else:
+                        # Low probability, reset tracking
+                        if probability > 0:
+                            logger.info(f"    ⚠️ Low probability ({probability:.3f} < {self.convergence_probability_threshold}), resetting")
+                        self.consecutive_high_prob_count = 0
+                        self.last_selected_var = None
+                    
+                    # Create intervention record
+                    intervention_record = {
+                        'intervention_idx': len(self.convergence_data),
+                        'selected_var': selected_var,
+                        'selected_value': float(intervention_value),
+                        'is_optimal': is_optimal,
+                        'is_parent': is_parent,
+                        'probability': float(probability),
+                        'target_outcome': target_outcome,
+                        'optimal_parents': ','.join(self.optimal_parents),  # Store as comma-separated string
+                        'true_parents': self.true_parents
+                    }
+                    
+                    # NEW: Extract and record ground truth probabilities if available
+                    full_var_probs = debug_info.get('variable_max_probs', {})
+                    if full_var_probs:
+                        # Calculate convergence rate: sum of probabilities for optimal variables
+                        optimal_prob_sum = sum(full_var_probs.get(var, 0.0) for var in self.optimal_parents)
                         
-                        # Check probability-based convergence
-                        if probability >= self.convergence_probability_threshold:
-                            if self.last_selected_var == selected_var:
-                                self.consecutive_high_prob_count += 1
-                                logger.info(f"    🎯 Same variable with high prob! Count: {self.consecutive_high_prob_count}/{self.convergence_patience}")
-                            else:
-                                # Different variable, reset counter
-                                self.consecutive_high_prob_count = 1
-                                self.last_selected_var = selected_var
-                                logger.info(f"    🔄 New high-prob variable: {selected_var}")
-                        else:
-                            # Low probability, reset tracking
-                            if probability > 0:
-                                logger.info(f"    ⚠️ Low probability ({probability:.3f} < {self.convergence_probability_threshold}), resetting")
-                            self.consecutive_high_prob_count = 0
-                            self.last_selected_var = None
+                        # Find which variable has highest probability (deterministic best)
+                        best_var = max(full_var_probs.items(), key=lambda x: x[1])[0] if full_var_probs else selected_var
+                        best_prob = full_var_probs.get(best_var, 0.0)
                         
-                        # Create intervention record
-                        intervention_record = {
-                            'intervention_idx': len(self.convergence_data),
-                            'selected_var': selected_var,
-                            'selected_value': float(intervention_value),
-                            'is_optimal': is_optimal,
-                            'is_parent': is_parent,
-                            'probability': float(probability),
-                            'target_outcome': target_outcome,
-                            'optimal_parent': self.optimal_parent,
-                            'true_parents': self.true_parents
-                        }
+                        # Add ground truth fields to record
+                        intervention_record['ground_truth_probs'] = full_var_probs
+                        intervention_record['optimal_convergence_rate'] = optimal_prob_sum
+                        intervention_record['deterministic_best_var'] = best_var
+                        intervention_record['deterministic_best_prob'] = best_prob
                         
-                        self.convergence_data.append(intervention_record)
-                        self.intervention_history.append(intervention_record)
+                        # Log ground truth convergence info
+                        logger.info(f"    🎯 GROUND TRUTH: Best={best_var}(p={best_prob:.3f}), "
+                                   f"Optimal sum={optimal_prob_sum:.3f}")
                         
-                        # Log the actual selection
-                        logger.info(f"\n📊 CAPTURED INTERVENTION {len(self.convergence_data)}: "
-                                   f"Selected={selected_var} (prob={probability:.3f}), "
-                                   f"IsOptimal={is_optimal}, IsParent={is_parent}, "
-                                   f"Value={intervention_value:.3f}, "
-                                   f"Outcome={target_outcome:.3f}")
+                        # Log if selection differs from deterministic best
+                        if selected_var != best_var:
+                            logger.info(f"    📍 Note: Selected {selected_var} but deterministic best is {best_var}")
+                    
+                    self.convergence_data.append(intervention_record)
+                    self.intervention_history.append(intervention_record)
+                    
+                    # Log the actual selection
+                    logger.info(f"\n📊 CAPTURED INTERVENTION {len(self.convergence_data)}: "
+                               f"Selected={selected_var} (prob={probability:.3f}), "
+                               f"IsOptimal={is_optimal}, IsParent={is_parent}, "
+                               f"Value={intervention_value:.3f}, "
+                               f"Outcome={target_outcome:.3f}")
                     
                     # Add best intervention to buffer (from parent code)
                     buffer.add_intervention(
@@ -619,10 +652,7 @@ def main():
     parser.add_argument('--interventions', type=int, default=100,
                         help='Number of interventions on single SCM')
     parser.add_argument('--scm-type', type=str, default='fork',
-                        choices=['fork', 'true_fork', 'chain', 'collider', 'mixed', 'random', 'hardcoded_collider',
-                                 "scale_free", "two_layer", "fixed_fork", "fixed_true_fork", 
-                                 "fixed_chain", "fixed_scale_free", "fixed_random"],
-                        help='Type of SCM structure')
+                        help='Type of SCM structure (fork, chain, star_N_L, etc.)')
     parser.add_argument('--num-vars', type=int, default=4,
                         help='Number of variables in SCM')
     parser.add_argument('--verbose', action='store_true', default=True,
@@ -654,8 +684,22 @@ def main():
     parser.add_argument('--coefficient-pattern', type=str, default=None,
                         choices=['decreasing', 'alternating', 'strong', 'mixed'],
                         help='Pattern for fixed coefficients')
+    parser.add_argument('--output-dir', type=str, default=None,
+                        help='Directory to save convergence data (overrides default checkpoint dir)')
+    parser.add_argument('--save-convergence-data', action='store_true',
+                        help='Save convergence data to CSV for analysis')
+    parser.add_argument('--convergence-probability-threshold', type=float, default=None,
+                        help='Override convergence probability threshold')
+    parser.add_argument('--info-weight', type=float, default=None,
+                        help='Shorthand for --info-gain-weight')
     
     args = parser.parse_args()
+    
+    # Handle shorthand arguments
+    if args.info_weight is not None:
+        args.info_gain_weight = args.info_weight
+    if args.convergence_probability_threshold is not None:
+        args.convergence_threshold = args.convergence_probability_threshold
     
     # Print configuration
     logger.info("\n" + "="*70)
@@ -669,11 +713,14 @@ def main():
     logger.info(f"  Verbose: {args.verbose}")
     logger.info("="*70 + "\n")
     
-    # Create timestamped run directory
+    # Create run name and output directory
     run_name = f"single_scm_{args.scm_type}_{args.num_vars}vars_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    checkpoint_dir = Path("checkpoints/grpo_single_scm") / run_name
+    if args.output_dir:
+        checkpoint_dir = Path(args.output_dir)
+    else:
+        checkpoint_dir = Path("checkpoints/grpo_single_scm") / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Checkpoint dir: {checkpoint_dir}")
+    logger.info(f"Output dir: {checkpoint_dir}")
     
     # Create configuration
     config = create_single_scm_config(
@@ -739,6 +786,21 @@ def main():
         logger.info("Using hardcoded collider SCM...")
         single_scm = create_hardcoded_collider_scm()
         scm_name = 'hardcoded_collider_4var'
+    elif args.scm_type.startswith('star_'):
+        # Handle star graph SCMs from benchmark
+        logger.info(f"Using star graph SCM: {args.scm_type}")
+        from create_fixed_coefficient_scms import create_star_graph_scm
+        
+        # Parse star graph parameters from scm_type
+        # Format: star_<nodes>_<max_coeff> (e.g., "star_5_2.0")
+        parts = args.scm_type.split('_')
+        if len(parts) >= 3:
+            num_nodes = int(parts[1])
+            max_coefficient = float(parts[2])
+            single_scm, scm_name = create_star_graph_scm(num_nodes, max_coefficient, seed=args.seed)
+            logger.info(f"Created star graph SCM with {num_nodes} nodes and L={max_coefficient}")
+        else:
+            raise ValueError(f"Invalid star graph SCM type format: {args.scm_type}")
     elif args.scm_type.startswith('fixed_'):
         # Import fixed graph creators
         logger.info(f"Using fixed {args.scm_type} SCM...")
@@ -923,8 +985,32 @@ def main():
                 'convergence_data': trainer.convergence_data,
                 'target': trainer.target_var,
                 'true_parents': trainer.true_parents,
-                'optimal_parent': trainer.optimal_parent
+                'optimal_parents': trainer.optimal_parents
             }, f, indent=2, default=str)
+        
+        # Save as CSV if requested
+        if args.save_convergence_data and trainer.convergence_data:
+            import pandas as pd
+            
+            # Prepare data for CSV - flatten dict fields that won't serialize well
+            csv_data = []
+            for record in trainer.convergence_data:
+                csv_record = record.copy()
+                
+                # Remove dict fields that don't serialize well to CSV
+                ground_truth_probs = csv_record.pop('ground_truth_probs', {})
+                
+                # Add flattened ground truth fields if available
+                if ground_truth_probs:
+                    # Just keep the aggregated metrics for CSV
+                    pass  # optimal_convergence_rate and deterministic_best_var are already scalar fields
+                
+                csv_data.append(csv_record)
+            
+            df = pd.DataFrame(csv_data)
+            csv_file = checkpoint_dir / 'convergence_data.csv'
+            df.to_csv(csv_file, index=False)
+            logger.info(f"📊 Convergence data saved to CSV: {csv_file}")
         
         # Save comprehensive SCM and intervention data
         full_data_file = checkpoint_dir / 'full_experiment_data.json'
@@ -964,6 +1050,25 @@ def main():
         
         logger.info(f"📊 Convergence data saved to: {convergence_file}")
         logger.info(f"📊 Full experiment data saved to: {full_data_file}")
+        
+        # Save summary for visualization
+        if args.save_convergence_data:
+            summary_file = checkpoint_dir / 'convergence_summary.json'
+            summary_data = {
+                'graph_type': args.scm_type,
+                'num_variables': args.num_vars,
+                'total_interventions': len(trainer.convergence_data),
+                'optimal_parents': trainer.optimal_parents,
+                'convergence_achieved': trainer.convergence_triggered if hasattr(trainer, 'convergence_triggered') else False,
+                'target_weight': args.target_weight,
+                'parent_weight': args.parent_weight,
+                'info_weight': args.info_gain_weight,
+                'fixed_coefficients': args.fixed_coefficients,
+                'coefficient_pattern': args.coefficient_pattern
+            }
+            with open(summary_file, 'w') as f:
+                json.dump(summary_data, f, indent=2)
+            logger.info(f"📊 Summary saved to: {summary_file}")
         
     except Exception as e:
         logger.error(f"Training failed: {e}")

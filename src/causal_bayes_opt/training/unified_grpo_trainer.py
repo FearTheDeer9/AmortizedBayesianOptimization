@@ -1322,13 +1322,17 @@ class UnifiedGRPOTrainer:
             
             # Add debug_info for quantile architecture (needed for convergence detection)
             if 'quantile_scores' in policy_output and debug_info:
-                intervention_detail['debug_info'] = {
+
+                intervention_detail['debug_info'] = debug_info.copy()
+
+                intervention_detail['debug_info'].update({
                     'selected_var_idx': selected_var_idx,
+                    'selected_var_name': selected_var,  # Add actual variable name to avoid indexing issues
                     'selected_quantile': debug_info.get('selected_quantile_idx'),
                     'selection_probability': selection_prob,
                     'is_optimal': is_optimal,
                     'optimal_var': optimal_var
-                }
+                })
             
             grpo_batch_data['intervention_details'].append(intervention_detail)
             

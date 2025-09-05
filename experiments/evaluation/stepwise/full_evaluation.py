@@ -77,9 +77,10 @@ class MetricsTracker:
         self.current_episode['target_values'].append(intervention_info['target_value'])
         self.current_episode['parent_selections'].append(intervention_info['is_parent'])
         
-        # Update best target
-        if intervention_info['target_value'] < self.current_episode['best_target_so_far']:
-            self.current_episode['best_target_so_far'] = intervention_info['target_value']
+        # Update best target (skip if inf for data-only evaluation)
+        if intervention_info['target_value'] != float('inf'):
+            if intervention_info['target_value'] < self.current_episode['best_target_so_far']:
+                self.current_episode['best_target_so_far'] = intervention_info['target_value']
         
         # Calculate structure learning metrics
         true_parents = intervention_info['true_parents']
@@ -98,20 +99,25 @@ class MetricsTracker:
         self.current_episode['precision_scores'].append(precision)
         self.current_episode['recall_scores'].append(recall)
         
-        # Calculate regret metrics
-        optimal_value = intervention_info.get('optimal_value', 0.0)
-        current_regret = intervention_info['target_value'] - optimal_value
-        
-        if len(self.current_episode['cumulative_regret']) == 0:
-            self.current_episode['cumulative_regret'].append(current_regret)
-        else:
-            self.current_episode['cumulative_regret'].append(
-                self.current_episode['cumulative_regret'][-1] + current_regret
+        # Calculate regret metrics (skip if inf for data-only evaluation)
+        if intervention_info['target_value'] != float('inf'):
+            optimal_value = intervention_info.get('optimal_value', 0.0)
+            current_regret = intervention_info['target_value'] - optimal_value
+            
+            if len(self.current_episode['cumulative_regret']) == 0:
+                self.current_episode['cumulative_regret'].append(current_regret)
+            else:
+                self.current_episode['cumulative_regret'].append(
+                    self.current_episode['cumulative_regret'][-1] + current_regret
+                )
+            
+            self.current_episode['simple_regret'].append(
+                self.current_episode['best_target_so_far'] - optimal_value
             )
-        
-        self.current_episode['simple_regret'].append(
-            self.current_episode['best_target_so_far'] - optimal_value
-        )
+        else:
+            # For data-only evaluation, skip regret calculations
+            self.current_episode['cumulative_regret'].append(0.0)
+            self.current_episode['simple_regret'].append(0.0)
     
     def end_episode(self):
         """Finalize current episode and add to episodes list."""
@@ -119,15 +125,19 @@ class MetricsTracker:
             raise ValueError("No episode to end")
         
         # Calculate episode summary statistics
+        # Handle data-only evaluation (no interventions performed)
+        valid_targets = [t for t in self.current_episode['target_values'] if t != float('inf')]
+        valid_selections = [s for i, s in enumerate(self.current_episode['parent_selections']) 
+                          if self.current_episode['interventions'][i] != (None, None)]
+        
         self.current_episode['summary'] = {
             'final_f1': self.current_episode['f1_scores'][-1] if self.current_episode['f1_scores'] else 0.0,
             'best_f1': max(self.current_episode['f1_scores']) if self.current_episode['f1_scores'] else 0.0,
             'mean_f1': np.mean(self.current_episode['f1_scores']) if self.current_episode['f1_scores'] else 0.0,
-            'parent_selection_rate': np.mean(self.current_episode['parent_selections']),
-            'final_target': self.current_episode['target_values'][-1] if self.current_episode['target_values'] else float('inf'),
-            'best_target': min(self.current_episode['target_values']) if self.current_episode['target_values'] else float('inf'),
-            'target_improvement': (self.current_episode['target_values'][0] - self.current_episode['target_values'][-1]) 
-                                 if len(self.current_episode['target_values']) > 1 else 0.0,
+            'parent_selection_rate': np.mean(valid_selections) if valid_selections else 0.0,
+            'final_target': valid_targets[-1] if valid_targets else float('inf'),
+            'best_target': min(valid_targets) if valid_targets else float('inf'),
+            'target_improvement': (valid_targets[0] - valid_targets[-1]) if len(valid_targets) > 1 else 0.0,
             'final_cumulative_regret': self.current_episode['cumulative_regret'][-1] if self.current_episode['cumulative_regret'] else 0.0,
             'final_simple_regret': self.current_episode['simple_regret'][-1] if self.current_episode['simple_regret'] else 0.0
         }
@@ -356,8 +366,48 @@ def evaluate_episode(
         target_idx = list(variable_list).index(target_var_name)
         rng_key_surrogate = random.PRNGKey(42)
         predictions = surrogate_net.apply(surrogate_params, rng_key_surrogate, tensor_3ch, target_idx, False)
-        parent_probs = predictions.get('parent_probabilities', jnp.zeros(len(variable_list)))
+        parent_probs = predictions.get('parent_probabilities', jnp.full(len(variable_list), 0.5))
         return {'parent_probs': parent_probs}
+    
+    # Special case: data-only evaluation (no interventions)
+    if num_interventions == 0:
+        # Get final buffer state and make predictions
+        tensor_4ch, mapper, _ = buffer_to_four_channel_tensor(
+            buffer, target_var, 
+            surrogate_fn=surrogate_fn,
+            max_history_size=100, 
+            standardize=True
+        )
+        
+        # Get parent probability predictions
+        current_parent_probs = {}
+        for i, var in enumerate(mapper.variables):
+            if var != target_var:
+                prob = float(tensor_4ch[-1, i, 3])
+                current_parent_probs[var] = prob
+        
+        # Calculate F1 score for structure learning
+        predicted_parents = {var for var, prob in current_parent_probs.items() if prob > 0.5}
+        tp = len(true_parents & predicted_parents)
+        fp = len(predicted_parents - true_parents)
+        fn = len(true_parents - predicted_parents)
+        
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        
+        # Add single "evaluation" entry to tracker
+        metrics_tracker.add_intervention({
+            'intervention': (None, None),  # No intervention
+            'parent_probs': current_parent_probs,
+            'target_value': float('inf'),  # No target update  
+            'is_parent': False,  # Not applicable
+            'true_parents': true_parents,
+            'optimal_value': optimal_value
+        })
+        
+        if verbose:
+            print(f"  Data-only eval: F1={f1:.3f}, Predicted parents: {predicted_parents}, True: {true_parents}")
     
     # Run interventions
     for intervention_idx in range(num_interventions):

@@ -220,7 +220,6 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
                 min_int = getattr(self, 'min_int', 5) if hasattr(self, 'min_int') else 5
                 max_int = getattr(self, 'max_int', 20) if hasattr(self, 'max_int') else 20
                 n_interventions = np.random.randint(min_int, max_int + 1)
-                print(f"  📦 Pre-populating SCM {i} with {n_interventions} interventions")
                 logger.info(f"  Pre-populating SCM {i} with {n_interventions} interventions")
                 
                 # Get valid intervention variables (exclude target)
@@ -250,10 +249,7 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
                 try:
                     scm_info = get_scm_info(scm)
                     coeffs = scm_info.get('coefficients', {})
-                    print(f"  📊 SCM #{i} setup:")
-                    print(f"     Target: {target_var}, Parents: {list(get_parents(scm, target_var))}")
-                    print(f"     Coefficients: {coeffs}")
-                    print(f"     Buffer: {stats.num_observations} obs, {stats.num_interventions} int (pre-populated)")
+                    logger.debug(f"  SCM #{i}: Target: {target_var}, Parents: {list(get_parents(scm, target_var))}, Coefficients: {coeffs}, Buffer: {stats.num_observations} obs, {stats.num_interventions} int")
                 except:
                     pass
                 
@@ -297,15 +293,15 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         # Move to next SCM
         self.current_pool_index = (self.current_pool_index + 1) % len(self.scm_pool)
         
-        # Print prominent rotation message
-        print(f"\n🔄🔄🔄 ROTATING SCM: #{old_index} → #{self.current_pool_index} 🔄🔄🔄")
+        # Log rotation message
+        logger.info(f"\nROTATING SCM: #{old_index} → #{self.current_pool_index}")
         try:
             scm_info = get_scm_info(scm)
-            print(f"  New SCM coefficients: {scm_info.get('coefficients', {})}")
+            logger.debug(f"  New SCM coefficients: {scm_info.get('coefficients', {})}")
         except:
             pass
-        print(f"  Buffer from pool: {buffer.num_observations()} obs, {buffer.num_interventions()} int")
-        print(f"  Total rotations so far: {self.batch_rotation_count}")
+        logger.debug(f"  Buffer from pool: {buffer.num_observations()} obs, {buffer.num_interventions()} int")
+        logger.debug(f"  Total rotations so far: {self.batch_rotation_count}")
         
         return scm_name, scm, buffer
     
@@ -348,34 +344,31 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
     
     def train(self, scms):
         """
-        Override train method for per-batch SCM rotation.
+        Override train method for per-intervention random SCM sampling.
         Uses SCM pool if available, otherwise falls back to original behavior.
         """
-        logger.info("🎯 EnhancedGRPOTrainer.train() called - per-batch rotation version active!")
+        logger.info("🎯 EnhancedGRPOTrainer.train() called - per-intervention random sampling active!")
         
         # If we have a pool, use it; otherwise use original generator approach
-        if self.scm_pool and self.rotate_after_batch:
+        if self.scm_pool:
             logger.info(f"Using pre-generated SCM pool with {len(self.scm_pool)} SCMs")
             
             # Create generator that uses our pool but only returns SCM name and SCM
             def scm_pool_generator():
                 if self.scm_pool:
-                    scm_name, scm, buffer = self._get_next_scm_from_pool()
-                    # Store buffer in instance variable for later access
-                    self.current_scm_buffer = buffer
+                    # Just return first SCM - actual selection happens per-intervention
+                    scm_name, scm, _ = self.scm_pool[0]
                     return scm_name, scm
                 else:
                     # Fallback to original generator
                     return scms()
             
-            # Use per-batch rotation episode runner
-            self._run_grpo_episode = self._run_grpo_episode_with_batch_rotation
+            # Train with per-intervention random sampling
             result = super().train(scm_pool_generator)
             return result
         else:
             # Fallback to original behavior
-            logger.info("Using original per-episode rotation")
-            self._run_grpo_episode = self._run_grpo_episode_with_tracking
+            logger.info("Using original behavior without SCM pool")
             result = super().train(scms)
             return result
     
@@ -445,135 +438,6 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         
         # Reset episode counter
         self.episodes_on_current_scm = 0
-    
-    def _run_grpo_episode_with_tracking(self, episode_idx, scm, scm_name, key):
-        """
-        Enhanced episode runner with intervention tracking and early rotation.
-        
-        This wraps the parent's _run_grpo_episode to add:
-        1. Intervention probability tracking
-        2. Convergence detection
-        3. Early rotation triggering
-        """
-        # Track episode data
-        self.current_episode_data['num_vars'] = len(get_variables(scm))
-        
-        # Get SCM details for logging
-        target_var = get_target(scm)
-        variables = list(get_variables(scm))
-        true_parents = list(get_parents(scm, target_var))
-        
-        # Print SCM info at start of episode
-        logger.info(f"\n" + "="*60)
-        logger.info(f"📊 EPISODE {episode_idx} SCM DETAILS:")
-        logger.info(f"   Variables: {variables}")
-        logger.info(f"   Target: {target_var}")
-        logger.info(f"   True Parents: {true_parents}")
-        
-        # Extract coefficients
-        coefficients = {}
-        if hasattr(scm, 'mechanisms') and target_var in scm['mechanisms']:
-            target_mechanism = scm['mechanisms'][target_var]
-            if hasattr(target_mechanism, 'coefficients'):
-                coefficients = dict(target_mechanism['coefficients'])
-        
-        if coefficients:
-            logger.info(f"   Parent Coefficients:")
-            for parent, coeff in coefficients.items():
-                logger.info(f"      {parent} → {target_var}: {coeff:.3f}")
-        else:
-            logger.info(f"   Parent Coefficients: Not available")
-        logger.info(f"="*60)
-        
-        logger.info(f"\nEpisode {episode_idx}: SCM with {len(variables)} vars, "
-                   f"target={target_var}, parents={true_parents}")
-        
-        # Call parent's proven GRPO implementation
-        result = super()._run_grpo_episode(episode_idx, scm, scm_name, key)
-        
-        # Post-episode tracking and analysis
-        
-        # Get surrogate parent probabilities analysis
-        logger.info(f"\n🔍 POST-EPISODE SURROGATE ANALYSIS...")
-        if hasattr(self, 'surrogate_predict_fn') and self.surrogate_predict_fn:
-            try:
-                # Create test buffer for surrogate analysis  
-                from src.causal_bayes_opt.data_structures.buffer import ExperienceBuffer
-                from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
-                from src.causal_bayes_opt.training.three_channel_converter import buffer_to_three_channel_tensor
-                
-                test_buffer = ExperienceBuffer()
-                test_samples = sample_from_linear_scm(scm, 20, seed=42)
-                for sample in test_samples:
-                    test_buffer.add_observation(sample)
-                
-                # Get surrogate predictions
-                tensor_3ch, _ = buffer_to_three_channel_tensor(
-                    test_buffer, target_var, max_history_size=100, standardize=False
-                )
-                
-                surrogate_output = self.surrogate_predict_fn(tensor_3ch, target_var, variables)
-                
-                if 'parent_probs' in surrogate_output:
-                    parent_probs = surrogate_output['parent_probs']
-                    
-                    logger.info(f"🔮 SURROGATE PARENT PROBABILITIES:")
-                    logger.info(f"   Target: {target_var}, True Parents: {true_parents}")
-                    
-                    for i, var in enumerate(variables):
-                        if var != target_var and i < len(parent_probs):
-                            prob = float(parent_probs[i])
-                            is_parent = var in true_parents
-                            marker = "✅" if is_parent else ""
-                            logger.info(f"     {var}: {prob:.3f} {marker}")
-                    
-                    # Calculate discrimination score
-                    true_parent_probs = []
-                    false_parent_probs = []
-                    for i, var in enumerate(variables):
-                        if var != target_var and i < len(parent_probs):
-                            prob = float(parent_probs[i])
-                            if var in true_parents:
-                                true_parent_probs.append(prob)
-                            else:
-                                false_parent_probs.append(prob)
-                    
-                    if true_parent_probs and false_parent_probs:
-                        avg_true = np.mean(true_parent_probs)
-                        avg_false = np.mean(false_parent_probs)
-                        discrimination = avg_true - avg_false
-                        logger.info(f"   Discrimination Score: {discrimination:+.3f} "
-                                  f"(True avg: {avg_true:.3f}, False avg: {avg_false:.3f})")
-                        
-            except Exception as e:
-                logger.debug(f"Could not get surrogate predictions: {e}")
-        
-        # Increment episode counter on current SCM
-        self.episodes_on_current_scm += 1
-        
-        # Determine if rotation needed
-        should_rotate = False
-        rotation_reason = None
-        
-        # Check for early rotation based on result metrics (if available)
-        # For now, just use episode-end rotation
-        if self.rotate_every_episode:
-            should_rotate = True
-            rotation_reason = "episode_end"
-        
-        # Perform rotation if needed
-        if should_rotate:
-            logger.info(f"\n🔄 ROTATION TRIGGERED: {rotation_reason}")
-            self._rotate_scm(rotation_reason)
-        else:
-            logger.info(f"\n📍 NO ROTATION: Staying on same SCM (episode {self.episodes_on_current_scm})")
-        
-        # Track episode performance
-        self._track_episode_performance(episode_idx)
-        
-        # Return the result from parent implementation
-        return result
-    
     def _track_episode_performance(self, episode_idx):
         """Track performance metrics for analysis."""
         # Calculate metrics from episode data
@@ -650,294 +514,7 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         )
         
         logger.info(f"  💾 Saved checkpoint at episode {episode_idx}")
-    
-    def _run_grpo_episode_with_batch_rotation(self, episode_idx, scm, scm_name, key) -> Dict[str, Any]:
-        """
-        Run policy episode with multiple interventions, rotating SCM for each intervention.
-        
-        This is copied from JointACBOTrainer._run_policy_episode_with_interventions
-        with minimal modifications to rotate SCMs per intervention.
-        """
-        # TIMING DEBUG: Track episode components
-        component_times = {}
-        component_start = time.time()
-        
-        # Get SCM info for initial observations
-        variables = list(get_variables(scm))
-        target_var = get_target(scm)
-        true_parents = list(get_parents(scm, target_var))
-        component_times['scm_setup'] = time.time() - component_start
-        
-        # DEBUG: Print SCM details at episode start
-        print(f"\n{'='*70}")
-        print(f"📊 EPISODE {episode_idx} - PER-INTERVENTION SCM ROTATION")
-        print(f"{'='*70}")
-        print(f"  Initial Target: {target_var}")
-        print(f"  Initial Parents: {true_parents if true_parents else 'None (root variable)'}")
-        print(f"  Initial Variables: {variables}")
-        print(f"  Pool size: {len(self.scm_pool) if self.scm_pool else 0}")
-        print(f"  Will use different SCM for each intervention")
-        
-        # Try to get coefficients if available
-        try:
-            from src.causal_bayes_opt.experiments.variable_scm_factory import get_scm_info
-            scm_info = get_scm_info(scm)
-            if 'coefficients' in scm_info:
-                print(f"  Initial Coefficients: {scm_info['coefficients']}")
-        except:
-            pass
-        print(f"{'='*70}\n")
-        
-        # Initialize buffer variable (may not be used if using pool)
-        buffer = None
-        
-        # When using ground truth with pool, buffers are already pre-populated
-        if self.use_ground_truth_channel and self.scm_pool:
-            # Buffers are managed per-SCM in the pool
-            logger.info(f"\nEpisode {episode_idx} starting with pre-populated SCM pool")
-            logger.info(f"  Ground truth channel active")
-            logger.info(f"  Each SCM has its own persistent buffer")
-            initial_buffer_size = 0  # Not used with pool
-        else:
-            # Original initialization for non-ground-truth mode
-            buffer = ExperienceBuffer()
-            key, obs_key = random.split(key)
-            obs_samples = sample_from_linear_scm(scm, self.obs_per_episode, seed=int(obs_key[0]))
-            
-            # Add initial posterior for observations
-            if self.use_surrogate and hasattr(self, '_get_surrogate_predictions'):
-                # Get initial posterior
-                temp_buffer = ExperienceBuffer()
-                for sample in obs_samples:
-                    temp_buffer.add_observation(sample)
-                initial_tensor, mapper = buffer_to_three_channel_tensor(
-                    temp_buffer, target_var, max_history_size=100, standardize=True
-                )
-                initial_posterior = self._get_surrogate_predictions(temp_buffer, target_var, variables)
-            else:
-                initial_posterior = create_uniform_posterior(variables, target_var)
-            
-            # Add observations with posterior
-            for sample in obs_samples:
-                buffer.add_observation(sample, posterior=initial_posterior)
-            
-            initial_buffer_size = buffer.size()
-            logger.info(f"\nEpisode {episode_idx} starting: buffer initialized with {initial_buffer_size} observations")
-        
-        # INTERVENTION LOOP - with per-intervention SCM rotation
-        intervention_metrics = []
-        all_rewards = []
-        all_target_values = []  # Track target progression
-        
-        for intervention_idx in range(self.max_interventions):
-            intervention_start = time.time()
-            print(f"\n{'='*50}")
-            print(f"INTERVENTION {intervention_idx+1}/{self.max_interventions}")
-            print(f"{'='*50}")
-            
-            # NEW: Get next SCM with its persistent buffer from pool
-            if self.scm_pool:
-                current_scm_name, current_scm, current_buffer = self._get_next_scm_from_pool()
-                # Update variables for this new SCM
-                current_variables = list(get_variables(current_scm))
-                current_target_var = get_target(current_scm)
-                current_true_parents = list(get_parents(current_scm, current_target_var))
-                
-                print(f"🔄 Using SCM: {current_scm_name}")
-                print(f"  Target: {current_target_var}") 
-                print(f"  Buffer state: {current_buffer.size()} samples")
-                
-                # Print parent coefficients
-                if current_true_parents:
-                    parent_info = []
-                    if hasattr(current_scm, 'linear_model') and hasattr(current_scm.linear_model, 'theta_w'):
-                        theta_w = current_scm.linear_model.theta_w
-                        for parent in current_true_parents:
-                            # Find coefficient from parent to target
-                            for (src, tgt), coeff in theta_w.items():
-                                if src == parent and tgt == current_target_var:
-                                    parent_info.append(f"{parent}({coeff:.2f})")
-                                    break
-                    if parent_info:
-                        print(f"  Parents: {', '.join(parent_info)}")
-                    else:
-                        print(f"  Parents: {current_true_parents}")
-                else:
-                    print(f"  Parents: None (no parents)")
-            else:
-                # Fallback to original SCM and buffer
-                current_scm_name, current_scm = scm_name, scm
-                current_buffer = buffer
-                current_variables = variables
-                current_target_var = target_var
-                current_true_parents = true_parents
-            
-            # Use parent's proven GRPO implementation for single intervention
-            key, intervention_key = random.split(key)
-            
-            # Run single GRPO intervention - buffer tensor conversion happens inside
-            buffer_to_use = current_buffer if self.scm_pool else buffer
-            single_result = self._run_single_grpo_intervention(
-                buffer_to_use,
-                current_scm,
-                current_target_var,
-                current_variables,
-                intervention_key
-            )
-            
-            # Debug output for intervention selection
-            if 'best_intervention' in single_result and 'debug_info' in single_result['best_intervention']:
-                debug_info = single_result['best_intervention']['debug_info']
-                if 'selected_var_idx' in debug_info and 'selected_quantile' in debug_info:
-                    var_idx = debug_info['selected_var_idx']
-                    quantile_idx = debug_info['selected_quantile']
-                    probability = debug_info.get('selection_probability', 0.0)
-                    print(f"  📊 Selected: var_idx={var_idx}, quantile={quantile_idx}, prob={probability:.3f}")
-            
-            # Add best intervention to the persistent buffer
-            if 'best_intervention' in single_result and single_result['best_intervention']['outcome'] is not None:
-                # Add to the correct buffer (persistent buffer for this SCM)
-                if self.scm_pool:
-                    current_buffer.add_intervention(
-                        single_result['best_intervention']['intervention'],
-                        single_result['best_intervention']['outcome'],
-                        posterior=single_result['best_intervention'].get('posterior')
-                    )
-                    
-                    # Log buffer growth
-                    current_size = current_buffer.size()
-                    print(f"Persistent buffer progression: {current_size-1} -> {current_size}")
-                else:
-                    buffer.add_intervention(
-                        single_result['best_intervention']['intervention'],
-                        single_result['best_intervention']['outcome'],
-                        posterior=single_result['best_intervention'].get('posterior')
-                    )
-                    
-                    # Log buffer growth
-                    current_size = buffer.size()
-                    print(f"Buffer progression: {current_size-1} -> {current_size}")
-                
-                # Track target value for this intervention (use current_target_var!)
-                outcome = single_result['best_intervention']['outcome']
-                if outcome:
-                    target_value = get_values(outcome).get(current_target_var, 0.0)
-                    all_target_values.append(target_value)
-                    print(f"Selected intervention TARGET: {target_value:.3f}")
-                
-                # Track metrics
-                intervention_metrics.append(single_result)
-                all_rewards.extend(single_result.get('candidate_rewards', []))
-                
-                # Log intervention timing
-                intervention_duration = time.time() - intervention_start
-                logger.info(f"⏱️ Intervention {intervention_idx+1} completed in {intervention_duration:.1f} seconds")
-        
-        # Episode summary
-        final_buffer_size = buffer.size()
-        total_interventions_added = final_buffer_size - initial_buffer_size
-        
-        print(f"\n{'='*60}")
-        print(f"EPISODE {episode_idx} COMPLETE")
-        print(f"{'='*60}")
-        print(f"Total interventions: {len(intervention_metrics)}")
-        print(f"Buffer growth: {initial_buffer_size} -> {final_buffer_size} (+{total_interventions_added})")
-        print(f"Mean reward across all interventions: {np.mean(all_rewards) if all_rewards else 0:.3f}")
-        
-        # TARGET PROGRESSION ANALYSIS within episode
-        if all_target_values:
-            print(f"\n📈 TARGET PROGRESSION (within episode):")
-            print(f"  Values: {[f'{v:.3f}' for v in all_target_values]}")
-            print(f"  Best (lowest): {min(all_target_values):.3f}")
-            print(f"  Worst (highest): {max(all_target_values):.3f}")
-            print(f"  Trend: {all_target_values[0]:.3f} → {all_target_values[-1]:.3f} ({all_target_values[-1] - all_target_values[0]:+.3f})")
-            
-            # Check if improving within episode (for minimization)
-            improvement = all_target_values[0] - all_target_values[-1]
-            if improvement > 0.1:
-                print(f"  ✅ IMPROVING within episode! ({improvement:+.3f})")
-            elif improvement < -0.1:
-                print(f"  ⚠️ Getting worse within episode ({improvement:+.3f})")
-            else:
-                print(f"  ➖ No clear trend within episode ({improvement:+.3f})")
-        
-        # DEBUG: Print surrogate predictions at end of episode
-        if self.use_surrogate and buffer:
-            try:
-                final_tensor, mapper = buffer_to_three_channel_tensor(
-                    buffer, target_var, max_history_size=100, standardize=True
-                )
-                surrogate_out = self.surrogate_predict_fn(final_tensor, target_var, variables)
-                
-                if 'parent_probs' in surrogate_out:
-                    print(f"\n🔮 SURROGATE PREDICTIONS (End of Episode):")
-                    probs = surrogate_out['parent_probs']
-                    for i, var in enumerate(variables):
-                        if var != target_var and i < len(probs):
-                            prob = float(probs[i])
-                            is_parent = "✓" if var in true_parents else ""
-                            print(f"  {var}: {prob:.3f} {is_parent}")
-                    print()
-            except Exception as e:
-                print(f"  Could not get surrogate predictions: {e}")
-        
-        # Check if we should rotate SCM at episode end
-        if self.scm_pool and hasattr(self, 'current_pool_index'):
-            self.episodes_on_current_scm += 1
-            
-            # Rotate if we've spent enough episodes on this SCM or convergence was detected
-            if self.episodes_on_current_scm >= self.episodes_per_scm or self.convergence_detected:
-                old_index = self.current_pool_index
-                old_n_obs = buffer.num_observations() if buffer else 0
-                old_n_int = buffer.num_interventions() if buffer else 0
-                
-                print(f"\n{'='*60}")
-                print(f"🔄 EPISODE END ROTATION TRIGGERED")
-                print(f"{'='*60}")
-                
-                # Get next SCM and its pre-populated buffer
-                scm_name, self.current_scm, self.current_scm_buffer = self._get_next_scm_from_pool()
-                self.scm = self.current_scm  # Update the active SCM
-                
-                # Log rotation details
-                new_n_obs = self.current_scm_buffer.num_observations() if self.current_scm_buffer else 0
-                new_n_int = self.current_scm_buffer.num_interventions() if self.current_scm_buffer else 0
-                
-                rotation_reason = "convergence" if self.convergence_detected else f"episodes limit ({self.episodes_per_scm})"
-                logger.info(f"  🔄 EPISODE END ROTATION: SCM {old_index} → {self.current_pool_index} (reason: {rotation_reason})")
-                logger.info(f"     Old buffer: {old_n_obs} obs, {old_n_int} int")
-                logger.info(f"     New buffer: {new_n_obs} obs, {new_n_int} int (pre-populated)")
-                print(f"  Reason: {rotation_reason}")
-                print(f"  Old SCM #{old_index}: buffer had {old_n_obs} obs, {old_n_int} interventions")
-                print(f"  New SCM #{self.current_pool_index}: buffer has {new_n_obs} obs, {new_n_int} interventions")
-                print(f"  ✅ Rotation successful! Total rotations: {self.total_rotations + 1}")
-                print(f"{'='*60}\n")
-                
-                # Update tracking
-                if self.convergence_detected:
-                    self.early_rotations += 1
-                    self.convergence_detected = False  # Reset flag
-                else:
-                    self.scheduled_rotations += 1
-                self.total_rotations += 1
-                self.episodes_on_current_scm = 0
-            else:
-                print(f"\n📍 NO ROTATION: Episode {self.episodes_on_current_scm}/{self.episodes_per_scm} on current SCM")
-        
-        return {
-            'episode': episode_idx,
-            'mean_reward': float(np.mean(all_rewards)) if all_rewards else 0.0,
-            'n_interventions': len(intervention_metrics),
-            'buffer_growth': total_interventions_added,
-            'intervention_metrics': intervention_metrics,
-            'structure_metrics': {},  # Could compute if needed
-            'n_variables': len(variables),
-            'scm_type': scm_name,
-            'target_values': all_target_values,  # Store for cross-episode analysis
-            'best_target': min(all_target_values) if all_target_values else 0.0,
-            'target_improvement': (all_target_values[0] - all_target_values[-1]) if len(all_target_values) >= 2 else 0.0
-        }
-    
+         
     def _run_policy_episode_with_interventions(self, episode_idx: int, scm: Any, scm_name: str, key) -> Dict[str, Any]:
         """
         Override to use random SCM sampling for each intervention.
@@ -952,17 +529,13 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         import time
         
         # Print episode header
-        print(f"\n{'='*70}")
-        print(f"📊 EPISODE {episode_idx} - RANDOM SCM SAMPLING")
-        print(f"{'='*70}")
+        logger.debug(f"EPISODE {episode_idx} - RANDOM SCM SAMPLING")
         
         if self.scm_pool:
-            print(f"  🎲 Will randomly sample from pool of {len(self.scm_pool)} SCMs")
-            print(f"  Each SCM has its own persistent buffer")
-            print(f"  Buffers grow as interventions are added")
+            logger.debug(f"  Will randomly sample from pool of {len(self.scm_pool)} SCMs with persistent buffers")
         else:
             # Fallback if no pool - shouldn't happen in our use case
-            print(f"  ⚠️ ERROR: No SCM pool available!")
+            logger.error(f"  ERROR: No SCM pool available!")
             return {}
         
         # Track metrics across all interventions
@@ -987,12 +560,7 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
             true_parents = list(get_parents(scm, target_var))
             
             # Print intervention header with SCM info
-            print(f"\n{'='*50}")
-            print(f"INTERVENTION {intervention_idx+1}/{self.max_interventions}")
-            print(f"{'='*50}")
-            print(f"🎲 RANDOMLY SELECTED: SCM #{scm_idx}/{len(self.scm_pool)}")
-            print(f"   Target: {target_var}, Parents: {true_parents}")
-            print(f"   Buffer: {buffer.num_observations()} obs, {buffer.num_interventions()} int")
+            logger.debug(f"INTERVENTION {intervention_idx+1}/{self.max_interventions} - SCM #{scm_idx}/{len(self.scm_pool)}, Target: {target_var}, Parents: {true_parents}, Buffer: {buffer.num_observations()} obs/{buffer.num_interventions()} int")
             
             # Track usage
             scm_usage_counts[scm_idx] = scm_usage_counts.get(scm_idx, 0) + 1
@@ -1002,7 +570,7 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
                 from src.causal_bayes_opt.experiments.variable_scm_factory import get_scm_info
                 scm_info = get_scm_info(scm)
                 if 'coefficients' in scm_info:
-                    print(f"   Coefficients: {scm_info['coefficients']}")
+                    logger.debug(f"   Coefficients: {scm_info['coefficients']}")
             except:
                 pass
             
@@ -1027,44 +595,36 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
                 outcome = single_result['best_intervention']['outcome']
                 target_value = get_values(outcome).get(target_var, 0.0)
                 all_target_values.append(target_value)
-                print(f"   Target value: {target_value:.3f}")
-                print(f"   Buffer after: {buffer.num_observations()} obs, {buffer.num_interventions()} int")
+                logger.debug(f"   Target value: {target_value:.3f}, Buffer after: {buffer.num_observations()} obs/{buffer.num_interventions()} int")
             
             intervention_metrics.append(single_result)
             all_rewards.extend(single_result.get('candidate_rewards', []))
             
             # Log timing
             intervention_duration = time.time() - intervention_start
-            print(f"   Duration: {intervention_duration:.1f}s")
+            logger.debug(f"   Duration: {intervention_duration:.1f}s")
         
         # Episode summary
-        print(f"\n{'='*60}")
-        print(f"EPISODE {episode_idx} COMPLETE")
-        print(f"{'='*60}")
-        print(f"Total interventions: {len(intervention_metrics)}")
-        print(f"Mean reward: {np.mean(all_rewards) if all_rewards else 0:.3f}")
+        logger.info(f"EPISODE {episode_idx} COMPLETE - Total interventions: {len(intervention_metrics)}, Mean reward: {np.mean(all_rewards) if all_rewards else 0:.3f}")
         
         # Show SCM usage distribution and buffer growth
-        print(f"\n📊 SCM USAGE & BUFFER GROWTH:")
+        logger.debug(f"SCM USAGE & BUFFER GROWTH:")
         final_buffer_sizes = {i: self.scm_pool[i][2].size() for i in range(len(self.scm_pool))}
         
         for scm_idx in sorted(scm_usage_counts.keys()):
             count = scm_usage_counts[scm_idx]
             growth = final_buffer_sizes[scm_idx] - initial_buffer_sizes[scm_idx]
-            print(f"   SCM #{scm_idx}: used {count} times, buffer grew by {growth} samples")
+            logger.debug(f"   SCM #{scm_idx}: used {count} times, buffer grew by {growth} samples")
             if growth != count:
-                print(f"      ⚠️ WARNING: Expected growth {count}, actual growth {growth}")
+                logger.warning(f"      WARNING: Expected growth {count}, actual growth {growth}")
         
         unused = set(range(len(self.scm_pool))) - set(scm_usage_counts.keys())
         if unused:
-            print(f"   Unused SCMs: {sorted(unused)}")
+            logger.debug(f"   Unused SCMs: {sorted(unused)}")
         
         # Target progression
         if all_target_values:
-            print(f"\n📈 TARGET PROGRESSION:")
-            print(f"   Best: {min(all_target_values):.3f}")
-            print(f"   Worst: {max(all_target_values):.3f}")
-            print(f"   Mean: {np.mean(all_target_values):.3f}")
+            logger.debug(f"TARGET PROGRESSION - Best: {min(all_target_values):.3f}, Worst: {max(all_target_values):.3f}, Mean: {np.mean(all_target_values):.3f}")
         
         # Return metrics for compatibility with parent class
         return {
@@ -1398,8 +958,9 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         }
     
     def _run_grpo_episode(self, episode_idx, scm, scm_name, key):
-        """Override to use our enhanced tracking version."""
-        return self._run_grpo_episode_with_tracking(episode_idx, scm, scm_name, key)
+        """Override to use per-intervention random SCM sampling."""
+        # Use our custom implementation with per-intervention random sampling
+        return self._run_policy_episode_with_interventions(episode_idx, scm, scm_name, key)
 
 
 def create_enhanced_config(

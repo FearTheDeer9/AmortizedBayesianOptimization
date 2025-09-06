@@ -289,7 +289,7 @@ def create_large_scale_free(num_variables: int = 50) -> Tuple[pyr.PMap, str]:
     return scm, name
 
 
-def create_star_graph_scm(num_nodes: int, max_coefficient: float, seed: int = 42) -> Tuple[pyr.PMap, str]:
+def create_star_graph_scm(num_nodes: int, max_coefficient: float, noise_std: float = 0.0, seed: int = 42) -> Tuple[pyr.PMap, str]:
     """
     Create a star graph SCM with equally spaced coefficients.
     
@@ -300,6 +300,7 @@ def create_star_graph_scm(num_nodes: int, max_coefficient: float, seed: int = 42
     Args:
         num_nodes: Total number of nodes (including target)
         max_coefficient: Maximum coefficient value (L)
+        noise_std: Standard deviation of Gaussian noise (0 for deterministic)
         seed: Random seed for consistency
         
     Returns:
@@ -331,8 +332,8 @@ def create_star_graph_scm(num_nodes: int, max_coefficient: float, seed: int = 42
     for i, (parent, tgt) in enumerate(edges):
         coefficients[(parent, tgt)] = coefficients_list[i]
     
-    # Zero noise for deterministic behavior
-    noise_scales = {var: 0.0 for var in variables}
+    # Set noise scales based on noise_std parameter
+    noise_scales = {var: noise_std for var in variables}
     
     # Variable ranges: expanded for all to allow proper testing of coefficient magnitudes
     # Parent variables need wider ranges for interventions to explore full effect space
@@ -368,12 +369,17 @@ def create_star_graph_scm(num_nodes: int, max_coefficient: float, seed: int = 42
         'optimal_parent': parent_vars[-1],  # Highest coefficient parent
         'variable_ranges': variable_ranges,
         'description': f'Star graph: {num_parents} parents → {target}',
-        'deterministic': True,
-        'noise_scale': 0.0
+        'deterministic': noise_std == 0.0,
+        'noise_std': noise_std
     })
     
     scm = scm.update({'metadata': metadata})
-    name = f'star_{num_nodes}nodes_L{max_coefficient}'
+    
+    # Include noise in name if non-zero
+    if noise_std > 0:
+        name = f'star_{num_nodes}nodes_L{max_coefficient}_noise{noise_std}'
+    else:
+        name = f'star_{num_nodes}nodes_L{max_coefficient}'
     
     return scm, name
 

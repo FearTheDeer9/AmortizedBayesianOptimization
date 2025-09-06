@@ -222,6 +222,7 @@ def evaluate_episode(
     num_interventions: int = 30,
     initial_observations: int = 20,
     initial_interventions: int = 10,
+    max_history_size: Optional[int] = None,
     seed: int = 42,
     verbose: bool = False,
     baseline: Optional[Any] = None
@@ -233,6 +234,7 @@ def evaluate_episode(
         initial_observations: Number of observational samples to start with
         initial_interventions: Number of random interventional samples to start with
         num_interventions: Number of policy-driven interventions to perform
+        max_history_size: Maximum number of samples for surrogate (None = use all)
     """
     
     # Get SCM information
@@ -372,10 +374,11 @@ def evaluate_episode(
     # Special case: data-only evaluation (no interventions)
     if num_interventions == 0:
         # Get final buffer state and make predictions
+        # Use all available data (no artificial limit)
         tensor_4ch, mapper, _ = buffer_to_four_channel_tensor(
             buffer, target_var, 
             surrogate_fn=surrogate_fn,
-            max_history_size=100, 
+            max_history_size=max_history_size,  # Use provided limit or all data
             standardize=True
         )
         
@@ -412,10 +415,11 @@ def evaluate_episode(
     # Run interventions
     for intervention_idx in range(num_interventions):
         # Convert buffer to 4-channel tensor
+        # Use all available data (no artificial limit)
         tensor_4ch, mapper, _ = buffer_to_four_channel_tensor(
             buffer, target_var, 
             surrogate_fn=surrogate_fn,
-            max_history_size=100, 
+            max_history_size=max_history_size,  # Use provided limit or all data
             standardize=True
         )
         
@@ -514,6 +518,7 @@ def evaluate_checkpoint_pair(
     num_interventions: int = 30,
     initial_observations: int = 20,
     initial_interventions: int = 10,
+    max_history_size: Optional[int] = None,
     min_parent_coefficient: Optional[float] = None,
     structure_types: List[str] = ['fork', 'chain', 'scale_free'],
     num_vars_list: List[int] = [5, 8],
@@ -575,6 +580,7 @@ def evaluate_checkpoint_pair(
                     num_interventions=num_interventions,
                     initial_observations=initial_observations,
                     initial_interventions=initial_interventions,
+                    max_history_size=max_history_size,
                     seed=seed + episode_count * 1000,
                     verbose=False
                 )
@@ -596,6 +602,7 @@ def evaluate_checkpoint_pair(
                         num_interventions=num_interventions,
                         initial_observations=initial_observations,
                         initial_interventions=initial_interventions,
+                        max_history_size=max_history_size,
                         seed=seed + episode_count * 1000,
                         verbose=False,
                         baseline=random_baseline
@@ -611,6 +618,7 @@ def evaluate_checkpoint_pair(
                         num_interventions=num_interventions,
                         initial_observations=initial_observations,
                         initial_interventions=initial_interventions,
+                        max_history_size=max_history_size,
                         seed=seed + episode_count * 1000,
                         verbose=False,
                         baseline=oracle_baseline
@@ -660,6 +668,7 @@ def evaluate_training_progression(
     checkpoint_iterations: Optional[List[int]] = None,
     initial_observations: int = 20,
     initial_interventions: int = 10,
+    max_history_size: Optional[int] = None,
     min_parent_coefficient: Optional[float] = None,
     **eval_kwargs
 ) -> pd.DataFrame:
@@ -697,6 +706,7 @@ def evaluate_training_progression(
             surrogate_path=surrogate_path,
             initial_observations=initial_observations,
             initial_interventions=initial_interventions,
+            max_history_size=max_history_size,
             min_parent_coefficient=min_parent_coefficient,
             verbose=False,
             **eval_kwargs
@@ -776,6 +786,8 @@ def main():
                        help='Number of initial observational samples')
     parser.add_argument('--initial-interventions', type=int, default=10,
                        help='Number of initial random interventional samples')
+    parser.add_argument('--max-history-size', type=int, default=None,
+                       help='Maximum number of samples for surrogate (None = use all available data)')
     parser.add_argument('--min-parent-coefficient', type=float, default=None,
                        help='Minimum absolute coefficient value for parent edges (e.g., 0.5 to filter weak effects)')
     parser.add_argument('--structures', nargs='+', 
@@ -816,6 +828,7 @@ def main():
             num_interventions=args.num_interventions,
             initial_observations=args.initial_observations,
             initial_interventions=args.initial_interventions,
+            max_history_size=args.max_history_size,
             min_parent_coefficient=args.min_parent_coefficient,
             structure_types=args.structures,
             num_vars_list=args.num_vars,
@@ -848,6 +861,7 @@ def main():
             num_interventions=args.num_interventions,
             initial_observations=args.initial_observations,
             initial_interventions=args.initial_interventions,
+            max_history_size=args.max_history_size,
             min_parent_coefficient=args.min_parent_coefficient,
             structure_types=args.structures,
             num_vars_list=args.num_vars,

@@ -38,7 +38,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.causal_bayes_opt.training.joint_acbo_trainer import JointACBOTrainer
 from src.causal_bayes_opt.experiments.variable_scm_factory import VariableSCMFactory, get_scm_info
-from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables, get_target, get_mechanisms
+from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables, get_target
 from src.causal_bayes_opt.interventions.handlers import create_perfect_intervention
 from src.causal_bayes_opt.environments.sampling import sample_with_intervention
 from src.causal_bayes_opt.training.utils.wandb_setup import WandBManager
@@ -1076,7 +1076,6 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
             'scm_usage': scm_usage_counts,
             'target_values': all_target_values,
             'best_target': min(all_target_values) if all_target_values else 0.0,
-            'target_improvement': (all_target_values[0] - all_target_values[-1]) if len(all_target_values) >= 2 else 0.0,
         }
     
     def _run_single_grpo_intervention(self, buffer, scm, target_var, variables, key):
@@ -1084,8 +1083,317 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         Override to use ground truth channel instead of surrogate.
         This is copied from UnifiedGRPOTrainer with modifications for ground truth.
         """
-        # Get true parents for the target variable
-        true_parents = list(get_parents(scm, target_var))
+        
+        # Compute optimal action for this SCM
+        from src.causal_bayes_opt.data_structures.scm import get_parents, get_mechanisms
+        true_parents = list(get_parents(scm, target_var)) if hasattr(scm, 'edges') else []
+        
+        # Find parent with best coefficient × range product (optimal for minimization)
+        optimal_var = None
+        optimal_coefficient = 0.0
+        optimal_score = 0.0
+        optimal_range = (-10, 10)
+        
+        # Get coefficients from target's mechanism
+        mechanisms = get_mechanisms(scm)
+        target_mechanism = mechanisms.get(target_var)
+        coefficients = {}
+        if target_mechanism and hasattr(target_mechanism, 'coefficients'):
+            for parent, coeff in target_mechanism.coefficients.items():
+                coefficients[(parent, target_var)] = coeff
+        
+        # Get variable ranges
+        variable_ranges = scm.get('variable_ranges', {})
+        if not variable_ranges:
+            metadata = scm.get('metadata', {})
+            variable_ranges = metadata.get('variable_ranges', {})
+        
+        for parent in true_parents:
+            coeff = coefficients.get((parent, target_var), 0.0)
+            parent_range = variable_ranges.get(parent, (-10, 10))
+            range_size = parent_range[1] - parent_range[0]
+            score = abs(coeff) * range_size
+            
+            if score > optimal_score:
+                optimal_score = score
+                optimal_coefficient = coeff
+                optimal_var = parent
+                optimal_range = parent_range
+        
+        # With per-intervention rotation, we don't need detailed convergence tracking
+        
+        # Store old params for change tracking
+        old_params = self.policy_params
+        
+        # Collect GRPO batch of candidates
+        grpo_batch_data = {
+            'states': [],
+            'actions': [],
+            'rewards': [],
+            'old_log_probs': [],
+            'target_idx': None,
+            'intervention_details': [],
+            'raw_target_values': [],
+            'raw_info_gains': [],
+            'parent_flags': [],
+            'selected_vars': []
+        }
+        
+        # Generate batch of candidates
+        for step in range(self.grpo_config.group_size):
+            key, step_key = random.split(key)
+            
+            # CRITICAL CHANGE: Use ground truth channel if configured
+            if self.use_ground_truth_channel:
+                # Use ground truth four-channel tensor
+                actual_buffer_size = len(buffer.get_all_samples())
+                history_size = min(self.max_history_size, max(actual_buffer_size, self.min_history_size)) if self.adaptive_history else self.max_history_size
+                
+                tensor, mapper, diagnostics = buffer_to_ground_truth_four_channel_tensor(
+                    buffer, target_var, scm,
+                    max_history_size=history_size,
+                    standardize=True,
+                    convergence_rate_factor=self.convergence_rate_factor
+                )
+            if 'coefficients' in scm_info:
+                print(f"  🔍 COEFFICIENTS (should change each rotation): {scm_info['coefficients']}")
+            else:
+                print(f"  ⚠️ No coefficients found in SCM info")
+        except Exception as e:
+            print(f"  ⚠️ Could not get SCM info: {e}")
+        print(f"{'='*70}\n")
+        
+        # Check if we should use pool buffer or create new one
+        if self.use_ground_truth_channel and self.scm_pool and hasattr(self, 'current_scm_buffer'):
+            # Use the buffer that corresponds to the current SCM from the pool
+            buffer = self.current_scm_buffer
+            # Don't add more observations - buffer is already pre-populated
+            obs_samples = []  # Empty list to skip observation addition below
+            
+            # Log buffer statistics
+            print(f"\n  📦 USING PRE-POPULATED BUFFER:")
+            print(f"     Observations: {buffer.num_observations()}")
+            print(f"     Interventions: {buffer.num_interventions()}")
+            print(f"     Total size: {buffer.size()}")
+        else:
+            # Initialize buffer with observations (original behavior)
+            buffer = ExperienceBuffer()
+            key, obs_key = random.split(key)
+            obs_samples = sample_from_linear_scm(scm, self.obs_per_episode, seed=int(obs_key[0]))
+        
+        # Add initial posterior for observations (only if we have new observations)
+        if obs_samples:
+            if self.use_surrogate and hasattr(self, '_get_surrogate_predictions'):
+                # Get initial posterior
+                temp_buffer = ExperienceBuffer()
+                for sample in obs_samples:
+                    temp_buffer.add_observation(sample)
+                initial_tensor, mapper = buffer_to_three_channel_tensor(
+                    temp_buffer, target_var, max_history_size=100, standardize=True
+                )
+                initial_posterior = self._get_surrogate_predictions(temp_buffer, target_var, variables)
+            else:
+                initial_posterior = create_uniform_posterior(variables, target_var)
+            
+            # Add observations with posterior
+            for sample in obs_samples:
+                buffer.add_observation(sample, posterior=initial_posterior)
+        
+        initial_buffer_size = buffer.size()
+        logger.info(f"\nEpisode {episode_idx} starting: buffer initialized with {initial_buffer_size} observations")
+        
+        # INTERVENTION LOOP - this is what was missing!
+        intervention_metrics = []
+        all_rewards = []
+        all_target_values = []  # Track target progression
+        
+        for intervention_idx in range(self.max_interventions):
+            intervention_start = time.time()
+            print(f"\n{'='*50}")
+            print(f"INTERVENTION {intervention_idx+1}/{self.max_interventions}")
+            print(f"{'='*50}")
+            
+            # Use parent's proven GRPO implementation for single intervention
+            key, intervention_key = random.split(key)
+            
+            # CRITICAL CHANGE: Use self instead of super() to get our overridden method
+            single_result = self._run_single_grpo_intervention(
+                buffer, scm, target_var, variables, intervention_key
+            )
+            
+            # Check for convergence if we have quantile architecture info
+            
+            if 'best_intervention' in single_result:
+                best_int = single_result['best_intervention']
+                
+                if 'debug_info' in best_int and best_int['debug_info']:
+                    debug_info = best_int['debug_info']
+                    
+                    if 'selected_var_idx' in debug_info and 'selected_quantile' in debug_info:
+                        var_idx = debug_info['selected_var_idx']
+                        quantile_idx = debug_info['selected_quantile']
+                        probability = debug_info.get('selection_probability', 0.0)
+                        
+                        # Convergence tracking info available: var_idx, quantile_idx, probability
+                        
+                        # Check for convergence
+                        if self._check_convergence(var_idx, quantile_idx, probability):
+                            self.convergence_detected = True
+                            print(f"\n⚡⚡⚡ CONVERGENCE DETECTED at intervention {i} ⚡⚡⚡")
+                            print(f"  Variable index: {var_idx}, Quantile: {quantile_idx}")
+                            print(f"  Probability: {probability:.3f}")
+                            logger.info(f"  ⚡ Convergence detected - setting flag for early rotation")
+                            
+                            # Immediately rotate if we have a pool
+                            if self.scm_pool and hasattr(self, 'current_pool_index'):
+                                old_index = self.current_pool_index
+                                print(f"  🔄 IMMEDIATE ROTATION DUE TO CONVERGENCE!")
+                                scm_name, self.current_scm, self.current_scm_buffer = self._get_next_scm_from_pool()
+                                self.scm = self.current_scm  # Update the active SCM
+                                logger.info(f"  🔄 ROTATED: SCM {old_index} → {self.current_pool_index} due to convergence")
+                                self.early_rotations += 1
+                                self.total_rotations += 1
+                                self.episodes_on_current_scm = 0
+                            
+                            break  # Exit intervention loop early
+                    else:
+                        pass  # Missing required keys in debug_info
+                else:
+                    pass  # No debug_info in best_intervention
+            else:
+                pass  # No best_intervention in single_result
+            
+            # Add best intervention to buffer
+            if 'best_intervention' in single_result and single_result['best_intervention']['outcome'] is not None:
+                buffer.add_intervention(
+                    single_result['best_intervention']['intervention'],
+                    single_result['best_intervention']['outcome'],
+                    posterior=single_result['best_intervention'].get('posterior')
+                )
+                
+                # Buffer now contains the new intervention
+                
+                # Track target value for this intervention
+                outcome = single_result['best_intervention']['outcome']
+                if outcome:
+                    target_value = get_values(outcome).get(target_var, 0.0)
+                    all_target_values.append(target_value)
+                    print(f"Selected intervention TARGET: {target_value:.3f}")
+                
+                # Track metrics
+                intervention_metrics.append(single_result)
+                all_rewards.extend(single_result.get('candidate_rewards', []))
+                
+                # Log intervention timing
+                intervention_duration = time.time() - intervention_start
+                logger.info(f"⏱️ Intervention {intervention_idx+1} completed in {intervention_duration:.1f} seconds")
+        
+        # Episode summary
+        final_buffer_size = buffer.size()
+        total_interventions_added = final_buffer_size - initial_buffer_size
+        
+        print(f"\n{'='*60}")
+        print(f"EPISODE {episode_idx} COMPLETE")
+        print(f"{'='*60}")
+        print(f"Total interventions: {len(intervention_metrics)}")
+        print(f"Buffer growth: {initial_buffer_size} -> {final_buffer_size} (+{total_interventions_added})")
+        print(f"Mean reward across all interventions: {np.mean(all_rewards) if all_rewards else 0:.3f}")
+        
+        # TARGET PROGRESSION ANALYSIS within episode
+        if all_target_values:
+            print(f"\n📈 TARGET PROGRESSION (within episode):")
+            print(f"  Values: {[f'{v:.3f}' for v in all_target_values]}")
+            print(f"  Best (lowest): {min(all_target_values):.3f}")
+            print(f"  Worst (highest): {max(all_target_values):.3f}")
+            print(f"  Trend: {all_target_values[0]:.3f} → {all_target_values[-1]:.3f} ({all_target_values[-1] - all_target_values[0]:+.3f})")
+            
+            # Check if improving within episode (for minimization)
+            improvement = all_target_values[0] - all_target_values[-1]
+            if improvement > 0.1:
+                print(f"  ✅ IMPROVING within episode! ({improvement:+.3f})")
+            elif improvement < -0.1:
+                print(f"  ⚠️ Getting worse within episode ({improvement:+.3f})")
+            else:
+                print(f"  ➖ No clear trend within episode ({improvement:+.3f})")
+        
+        # DEBUG: Print surrogate predictions at end of episode
+        if self.use_surrogate and buffer:
+            try:
+                final_tensor, mapper = buffer_to_three_channel_tensor(
+                    buffer, target_var, max_history_size=100, standardize=True
+                )
+                surrogate_out = self.surrogate_predict_fn(final_tensor, target_var, variables)
+                
+                if 'parent_probs' in surrogate_out:
+                    print(f"\n🔮 SURROGATE PREDICTIONS (End of Episode):")
+                    probs = surrogate_out['parent_probs']
+                    for i, var in enumerate(variables):
+                        if var != target_var and i < len(probs):
+                            prob = float(probs[i])
+                            is_parent = "✓" if var in true_parents else ""
+                            print(f"  {var}: {prob:.3f} {is_parent}")
+                    print()
+            except Exception as e:
+                print(f"  Could not get surrogate predictions: {e}")
+        
+        # Check if we should rotate SCM at episode end
+        if self.scm_pool and hasattr(self, 'current_pool_index'):
+            self.episodes_on_current_scm += 1
+            
+            # Rotate if we've spent enough episodes on this SCM or convergence was detected
+            if self.episodes_on_current_scm >= self.episodes_per_scm or self.convergence_detected:
+                old_index = self.current_pool_index
+                old_n_obs = buffer.num_observations() if buffer else 0
+                old_n_int = buffer.num_interventions() if buffer else 0
+                
+                print(f"\n{'='*60}")
+                print(f"🔄 EPISODE END ROTATION TRIGGERED")
+                print(f"{'='*60}")
+                
+                # Get next SCM and its pre-populated buffer
+                scm_name, self.current_scm, self.current_scm_buffer = self._get_next_scm_from_pool()
+                self.scm = self.current_scm  # Update the active SCM
+                
+                # Log rotation details
+                new_n_obs = self.current_scm_buffer.num_observations() if self.current_scm_buffer else 0
+                new_n_int = self.current_scm_buffer.num_interventions() if self.current_scm_buffer else 0
+                
+                rotation_reason = "convergence" if self.convergence_detected else f"episodes limit ({self.episodes_per_scm})"
+                logger.info(f"  🔄 EPISODE END ROTATION: SCM {old_index} → {self.current_pool_index} (reason: {rotation_reason})")
+                logger.info(f"     Old buffer: {old_n_obs} obs, {old_n_int} int")
+                logger.info(f"     New buffer: {new_n_obs} obs, {new_n_int} int (pre-populated)")
+                print(f"  Reason: {rotation_reason}")
+                print(f"  Old SCM #{old_index}: buffer had {old_n_obs} obs, {old_n_int} interventions")
+                print(f"  New SCM #{self.current_pool_index}: buffer has {new_n_obs} obs, {new_n_int} interventions")
+                print(f"  ✅ Rotation successful! Total rotations: {self.total_rotations + 1}")
+                print(f"{'='*60}\n")
+                
+                # Update tracking
+                if self.convergence_detected:
+                    self.early_rotations += 1
+                    self.convergence_detected = False  # Reset flag
+                else:
+                    self.scheduled_rotations += 1
+                self.total_rotations += 1
+                self.episodes_on_current_scm = 0
+            else:
+                print(f"\n📍 NO ROTATION: Episode {self.episodes_on_current_scm}/{self.episodes_per_scm} on current SCM")
+        
+        return {
+            'episode': episode_idx,
+            'mean_reward': float(np.mean(all_rewards)) if all_rewards else 0.0,
+            'n_interventions': len(intervention_metrics),
+            'buffer_growth': total_interventions_added,
+            'intervention_metrics': intervention_metrics,
+            'structure_metrics': {},  # Could compute if needed
+            'n_variables': len(variables),
+            'scm_type': scm_name,
+            'target_values': all_target_values,  # Store for cross-episode analysis
+            'best_target': min(all_target_values) if all_target_values else 0.0,
+            'target_improvement': (all_target_values[0] - all_target_values[-1]) if len(all_target_values) >= 2 else 0.0
+        }
+        
+        # DUPLICATE METHOD REMOVED - implementation continues in first definition above
         
         # Find parent with best coefficient × range product (optimal for minimization)
         optimal_var = None

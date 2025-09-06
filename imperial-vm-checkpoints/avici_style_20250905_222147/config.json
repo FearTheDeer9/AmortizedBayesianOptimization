@@ -1,0 +1,28 @@
+{
+  "hidden_dim": 128,
+  "num_layers": 8,
+  "num_heads": 8,
+  "key_size": 32,
+  "dropout": 0.1,
+  "batch_size": 4,
+  "num_observations": 200,
+  "min_datapoints": 100,
+  "max_datapoints": 1000,
+  "min_obs_ratio": 0.5,
+  "max_obs_ratio": 0.9,
+  "lr": 0.0003,
+  "num_steps": 10000,
+  "min_vars": 3,
+  "max_vars": 100,
+  "seed": 42,
+  "use_weighted_loss": false,
+  "save_freq": 500,
+  "log_freq": 100,
+  "max_time_minutes": 710,
+  "checkpoint": "/rds/general/user/hl1824/ephemeral/AmortizedBayesianOptimization/checkpoints/avici_runs/avici_style_20250905_041416/best_model.pkl",
+  "checkpoint_output": null,
+  "structure_types": [
+    "random"
+  ],
+  "run_name": "avici_style_20250905_222147"
+}

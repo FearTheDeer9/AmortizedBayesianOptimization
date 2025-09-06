@@ -20,7 +20,7 @@ def buffer_to_four_channel_tensor(
     buffer: ExperienceBuffer,
     target_variable: str,
     surrogate_fn: Optional[Callable] = None,
-    max_history_size: int = 100,
+    max_history_size: Optional[int] = 100,
     standardize: bool = True
 ) -> Tuple[jnp.ndarray, VariableMapper, Dict[str, Any]]:
     """
@@ -36,7 +36,7 @@ def buffer_to_four_channel_tensor(
         buffer: Experience buffer with samples
         target_variable: Name of target variable
         surrogate_fn: Optional function for parent probability predictions
-        max_history_size: Maximum number of historical samples
+        max_history_size: Maximum number of historical samples (None = use all)
         standardize: Whether to standardize values per-variable
         
     Returns:
@@ -57,8 +57,16 @@ def buffer_to_four_channel_tensor(
     target_idx = mapper.get_index(target_variable)
     
     # Determine actual history size
-    actual_size = min(len(all_samples), max_history_size)
-    recent_samples = all_samples[-actual_size:]
+    if max_history_size is None:
+        # Use all available samples
+        actual_size = len(all_samples)
+        recent_samples = all_samples
+        tensor_size = actual_size
+    else:
+        # Limit to max_history_size
+        actual_size = min(len(all_samples), max_history_size)
+        recent_samples = all_samples[-actual_size:]
+        tensor_size = max_history_size
     
     # Get surrogate predictions for the entire buffer ONCE
     if surrogate_fn is not None:
@@ -68,7 +76,7 @@ def buffer_to_four_channel_tensor(
             # Convert buffer to 3-channel format (exactly like end-of-episode)
             tensor_3ch, _ = buffer_to_three_channel_tensor(
                 buffer, target_variable, 
-                max_history_size=max_history_size, 
+                max_history_size=max_history_size,  # Pass through the same limit
                 standardize=standardize
             )
             
@@ -95,11 +103,14 @@ def buffer_to_four_channel_tensor(
         surrogate_probs = jnp.full(n_vars, 0.5)
     
     # Initialize 4-channel tensor
-    tensor = jnp.zeros((max_history_size, n_vars, 4))
+    tensor = jnp.zeros((tensor_size, n_vars, 4))
     
     # Fill tensor with recent samples
     for t, sample in enumerate(recent_samples):
-        tensor_idx = max_history_size - actual_size + t
+        if max_history_size is None:
+            tensor_idx = t  # Direct indexing when using all data
+        else:
+            tensor_idx = max_history_size - actual_size + t  # Place at end when limited
         
         # Channel 0: Values
         values = _extract_values_vector(sample, variable_order)

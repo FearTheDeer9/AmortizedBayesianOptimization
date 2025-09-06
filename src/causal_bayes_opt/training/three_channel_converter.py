@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def buffer_to_three_channel_tensor(
     buffer: ExperienceBuffer,
     target_variable: str,
-    max_history_size: int = 100,
+    max_history_size: Optional[int] = 100,
     standardize: bool = True
 ) -> Tuple[jnp.ndarray, VariableMapper]:
     """
@@ -37,7 +37,7 @@ def buffer_to_three_channel_tensor(
     Args:
         buffer: Experience buffer with samples
         target_variable: Name of target variable
-        max_history_size: Maximum number of historical samples to include
+        max_history_size: Maximum number of historical samples (None = use all)
         standardize: Whether to standardize values using global statistics
         
     Returns:
@@ -67,17 +67,28 @@ def buffer_to_three_channel_tensor(
     logger.debug(f"[3-Channel Converter] Created VariableMapper with variables: {mapper.variables}")
     logger.debug(f"[3-Channel Converter] Target index: {mapper.get_index(target_variable)}")
     
-    # Limit to max history size (most recent samples)
-    samples = all_samples[-max_history_size:] if len(all_samples) > max_history_size else all_samples
-    actual_history_size = len(samples)
+    # Determine samples to use and tensor size
+    if max_history_size is None:
+        # Use all available samples
+        samples = all_samples
+        actual_history_size = len(samples)
+        tensor_size = actual_history_size
+    else:
+        # Limit to max history size (most recent samples)
+        samples = all_samples[-max_history_size:] if len(all_samples) > max_history_size else all_samples
+        actual_history_size = len(samples)
+        tensor_size = max_history_size
     
-    # Initialize tensor with zeros (padding for short histories)
-    tensor = jnp.zeros((max_history_size, n_vars, 3))
+    # Initialize tensor with zeros (padding for short histories when limited)
+    tensor = jnp.zeros((tensor_size, n_vars, 3))
     
     # Fill tensor with sample data
     for t, sample in enumerate(samples):
-        # Adjust index to place recent samples at the end
-        tensor_idx = max_history_size - actual_history_size + t
+        # Adjust index based on whether we're using all data or limited
+        if max_history_size is None:
+            tensor_idx = t  # Direct indexing when using all data
+        else:
+            tensor_idx = max_history_size - actual_history_size + t  # Place at end when limited
         
         # Channel 0: Variable values
         values = _extract_values_vector(sample, variable_order)

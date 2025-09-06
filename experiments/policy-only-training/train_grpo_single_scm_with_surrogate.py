@@ -792,13 +792,24 @@ def main():
         from create_fixed_coefficient_scms import create_star_graph_scm
         
         # Parse star graph parameters from scm_type
-        # Format: star_<nodes>_<max_coeff> (e.g., "star_5_2.0")
+        # Format: star_<nodes>_<max_coeff> or star_<nodes>_<max_coeff>_<noise_std>
         parts = args.scm_type.split('_')
         if len(parts) >= 3:
             num_nodes = int(parts[1])
             max_coefficient = float(parts[2])
-            single_scm, scm_name = create_star_graph_scm(num_nodes, max_coefficient, seed=args.seed)
-            logger.info(f"Created star graph SCM with {num_nodes} nodes and L={max_coefficient}")
+            
+            # Check for optional noise parameter
+            if len(parts) >= 4:
+                noise_std = float(parts[3])
+            else:
+                noise_std = 0.0  # Default to deterministic
+            
+            single_scm, scm_name = create_star_graph_scm(num_nodes, max_coefficient, noise_std, seed=args.seed)
+            
+            if noise_std > 0:
+                logger.info(f"Created star graph SCM with {num_nodes} nodes, L={max_coefficient}, noise={noise_std}")
+            else:
+                logger.info(f"Created star graph SCM with {num_nodes} nodes, L={max_coefficient}, deterministic")
         else:
             raise ValueError(f"Invalid star graph SCM type format: {args.scm_type}")
     elif args.scm_type.startswith('fixed_'):

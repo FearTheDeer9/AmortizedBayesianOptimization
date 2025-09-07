@@ -986,6 +986,14 @@ def create_enhanced_config(
         # Architecture
         'policy_architecture': 'quantile',
         
+        # Model architecture configuration - for deeper/larger models
+        'architecture': {
+            'hidden_dim': 512,     # Increased from default 256 for more capacity
+            'num_layers': 8,       # Increased from default 4 for deeper model
+            'num_heads': 16,       # Increased from default 8 for more attention heads
+            'dropout': 0.15,       # Increased from default 0.1 for better regularization
+        },
+        
         # Surrogate integration
         'use_surrogate': True,
         'use_grpo_rewards': True,

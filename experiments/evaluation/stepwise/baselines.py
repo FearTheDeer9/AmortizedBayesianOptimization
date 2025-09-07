@@ -280,6 +280,57 @@ class GreedyBaseline:
         return selected_var, intervention_value
 
 
+class OracleSurrogateBaseline:
+    """Oracle surrogate that provides perfect parent predictions.
+    
+    This is NOT an intervention selector but a surrogate replacement that
+    gives perfect structural information for testing policy behavior.
+    """
+    
+    def __init__(self, scm: Any):
+        """Initialize oracle surrogate.
+        
+        Args:
+            scm: The structural causal model with full information
+        """
+        self.scm = scm
+        self._extract_scm_info()
+    
+    def _extract_scm_info(self):
+        """Extract and cache SCM structure."""
+        from src.causal_bayes_opt.data_structures.scm import (
+            get_target, get_parents
+        )
+        
+        self.target = get_target(self.scm)
+        self.true_parents = set(get_parents(self.scm, self.target))
+    
+    def __call__(self, tensor_3ch, target_var_name, variable_list):
+        """Oracle surrogate function interface.
+        
+        Args:
+            tensor_3ch: 3-channel tensor (unused - oracle knows ground truth)
+            target_var_name: Name of target variable
+            variable_list: List of all variables in order
+            
+        Returns:
+            Dict with 'parent_probs' key containing perfect predictions
+        """
+        import jax.numpy as jnp
+        
+        # Return perfect parent probabilities
+        parent_probs = []
+        for var in variable_list:
+            if var == target_var_name:
+                parent_probs.append(0.0)  # Target itself
+            elif var in self.true_parents:
+                parent_probs.append(1.0)  # True parent
+            else:
+                parent_probs.append(0.0)  # Non-parent
+        
+        return {'parent_probs': jnp.array(parent_probs)}
+
+
 def create_baseline(baseline_type: str, scm: Optional[Any] = None, seed: int = 42) -> Any:
     """Factory function to create baseline policies.
     

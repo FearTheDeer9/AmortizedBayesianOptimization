@@ -39,6 +39,7 @@ from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables,
 from src.causal_bayes_opt.interventions.handlers import create_perfect_intervention
 from src.causal_bayes_opt.environments.sampling import sample_with_intervention
 from src.causal_bayes_opt.training.utils.wandb_setup import WandBManager
+from diagnostic_utils import DiagnosticLogger, QuantilePreferenceTracker
 
 # Configure logging
 logging.basicConfig(
@@ -112,6 +113,12 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
             'num_vars': 0,
             'convergence_triggered': False
         }
+        
+        # Initialize diagnostic logger
+        self.diagnostic_logger = DiagnosticLogger(
+            log_dir=Path(config.get('checkpoint_dir', 'checkpoints')) / 'diagnostics',
+            experiment_name='grpo_multi_scm'
+        )
         
         logger.info(f"Initialized EnhancedGRPOTrainer:")
         logger.info(f"  - Rotate every episode: {self.rotate_every_episode}")
@@ -270,20 +277,30 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         logger.info(f"   Target: {target_var}")
         logger.info(f"   True Parents: {true_parents}")
         
-        # Extract coefficients
-        coefficients = {}
-        if hasattr(scm, 'mechanisms') and target_var in scm['mechanisms']:
-            target_mechanism = scm['mechanisms'][target_var]
-            if hasattr(target_mechanism, 'coefficients'):
-                coefficients = dict(target_mechanism['coefficients'])
+        # Extract coefficients from metadata
+        coefficients = scm.get('metadata', {}).get('coefficients', {})
+        parent_coeffs = {}
+        for edge, coeff in coefficients.items():
+            if isinstance(edge, tuple) and edge[1] == target_var and edge[0] in true_parents:
+                parent_coeffs[edge[0]] = coeff
         
-        if coefficients:
+        if parent_coeffs:
             logger.info(f"   Parent Coefficients:")
-            for parent, coeff in coefficients.items():
+            for parent, coeff in parent_coeffs.items():
                 logger.info(f"      {parent} → {target_var}: {coeff:.3f}")
         else:
             logger.info(f"   Parent Coefficients: Not available")
         logger.info(f"="*60)
+        
+        # Log episode start to diagnostic logger
+        scm_info = {
+            'variables': variables,
+            'target': target_var,
+            'parents': true_parents,
+            'coefficients': parent_coeffs,
+            'structure_type': scm.get('metadata', {}).get('structure_type', 'unknown')
+        }
+        self.diagnostic_logger.log_episode_start(episode_idx, scm_info)
         
         logger.info(f"\nEpisode {episode_idx}: SCM with {len(variables)} vars, "
                    f"target={target_var}, parents={true_parents}")
@@ -394,6 +411,8 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         # Save checkpoint if needed
         if episode_idx in self.checkpoint_episodes:
             self._save_checkpoint(episode_idx)
+            # Also save diagnostic checkpoint
+            self.diagnostic_logger.save_checkpoint(episode_idx)
         
         # Log summary every 10 episodes
         if episode_idx % 10 == 0:

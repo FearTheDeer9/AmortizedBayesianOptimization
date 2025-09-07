@@ -60,7 +60,7 @@ MODEL_CONFIGS = {
         'structure_type': 'fork'  # API calls star structures "fork"
     },
     'random': {
-        'path': 'imperial-vm-checkpoints/checkpoints/avici_style_20250905_041416/best_model.pkl',
+        'path': 'imperial-vm-checkpoints/avici_style_20250905_222147/checkpoint_step_1000.pkl',
         'name': 'Random-trained',
         'structure_type': 'random'
     }
@@ -513,10 +513,17 @@ def main():
             print(f"  Precision: {result['precision_mean']:.3f} ± {result['precision_std']:.3f}")
             print(f"  Recall: {result['recall_mean']:.3f} ± {result['recall_std']:.3f}")
             
-            # Save result
-            args.output_dir.mkdir(parents=True, exist_ok=True)
+            # Save result in the same nested structure as batch mode
+            # Format: output_dir/trained_on/tested_on/eval_Nvars_timestamp.json
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            result_file = args.output_dir / f"single_{args.trained_on}_to_{args.test_on}_{args.num_vars}vars_{timestamp}.json"
+            
+            # Create nested directory structure
+            result_dir = args.output_dir / args.trained_on / args.test_on
+            result_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Use same naming convention as batch mode
+            result_file = result_dir / f"eval_{args.num_vars}vars_{timestamp}.json"
+            
             with open(result_file, 'w') as f:
                 json.dump(result, f, indent=2, default=lambda x: x.tolist() if hasattr(x, 'tolist') else x)
             print(f"\n💾 Result saved to: {result_file}")

@@ -225,7 +225,8 @@ def evaluate_episode(
     max_history_size: Optional[int] = None,
     seed: int = 42,
     verbose: bool = False,
-    baseline: Optional[Any] = None
+    baseline: Optional[Any] = None,
+    use_oracle_surrogate: bool = False
 ) -> Dict[str, Any]:
     """
     Evaluate one episode with comprehensive metrics tracking.
@@ -322,11 +323,20 @@ def evaluate_episode(
     # Initialize buffer with observations
     buffer = ExperienceBuffer()
     
+    # Debug: Print data configuration
+    print(f"\n[DEBUG] Data Configuration:")
+    print(f"  - Initial observations: {initial_observations}")
+    print(f"  - Initial interventions: {initial_interventions}")
+    print(f"  - Total initial data: {initial_observations + initial_interventions}")
+    print(f"  - Policy interventions: {num_interventions}")
+    
     # Add observational samples
     rng_key, sample_key = random.split(rng_key)
     samples = sample_from_linear_scm(scm, n_samples=initial_observations, seed=int(sample_key[0]))
     for sample in samples:
         buffer.add_observation(sample)
+    
+    print(f"  - Added {len(samples)} observations to buffer")
     
     # Add initial random interventions if specified
     if initial_interventions > 0:
@@ -362,25 +372,44 @@ def evaluate_episode(
             for sample in samples:
                 buffer.add_intervention({selected_var: intervened_value}, sample)
     
+    # Debug: Print buffer state after initial data
+    print(f"[DEBUG] Buffer state after initial data:")
+    print(f"  - Observations in buffer: {len(buffer._observations)}")
+    print(f"  - Interventions in buffer: {len(buffer._interventions)}")
+    print(f"  - Total data points: {len(buffer._observations) + len(buffer._interventions)}")
+    
     # Create surrogate wrapper
-    def surrogate_fn(tensor_3ch, target_var_name, variable_list):
-        """Wrapper for surrogate predictions."""
-        target_idx = list(variable_list).index(target_var_name)
-        rng_key_surrogate = random.PRNGKey(42)
-        predictions = surrogate_net.apply(surrogate_params, rng_key_surrogate, tensor_3ch, target_idx, False)
-        parent_probs = predictions.get('parent_probabilities', jnp.full(len(variable_list), 0.5))
-        return {'parent_probs': parent_probs}
+    if use_oracle_surrogate:
+        # Use oracle surrogate with perfect parent predictions
+        from baselines import OracleSurrogateBaseline
+        oracle_surrogate = OracleSurrogateBaseline(scm)
+        surrogate_fn = oracle_surrogate
+    else:
+        # Use learned surrogate
+        def surrogate_fn(tensor_3ch, target_var_name, variable_list):
+            """Wrapper for surrogate predictions."""
+            target_idx = list(variable_list).index(target_var_name)
+            rng_key_surrogate = random.PRNGKey(42)
+            predictions = surrogate_net.apply(surrogate_params, rng_key_surrogate, tensor_3ch, target_idx, False)
+            parent_probs = predictions.get('parent_probabilities', jnp.full(len(variable_list), 0.5))
+            return {'parent_probs': parent_probs}
     
     # Special case: data-only evaluation (no interventions)
     if num_interventions == 0:
         # Get final buffer state and make predictions
         # Use all available data (no artificial limit)
+        print(f"\n[DEBUG] Converting buffer to tensor for surrogate prediction...")
+        print(f"  - Max history size: {max_history_size}")
+        
         tensor_4ch, mapper, _ = buffer_to_four_channel_tensor(
             buffer, target_var, 
             surrogate_fn=surrogate_fn,
             max_history_size=max_history_size,  # Use provided limit or all data
             standardize=True
         )
+        
+        print(f"  - Tensor shape: {tensor_4ch.shape}")
+        print(f"  - History points used: {tensor_4ch.shape[0]}")
         
         # Get parent probability predictions
         current_parent_probs = {}
@@ -389,8 +418,16 @@ def evaluate_episode(
                 prob = float(tensor_4ch[-1, i, 3])
                 current_parent_probs[var] = prob
         
+        # Debug: Print probability predictions
+        print(f"\n[DEBUG] Parent probability predictions:")
+        print(f"  - True parents: {true_parents}")
+        for var, prob in sorted(current_parent_probs.items()):
+            is_parent = "(TRUE PARENT)" if var in true_parents else ""
+            print(f"    {var}: {prob:.3f} {is_parent}")
+        
         # Calculate F1 score for structure learning
         predicted_parents = {var for var, prob in current_parent_probs.items() if prob > 0.5}
+        print(f"  - Predicted parents (>0.5): {predicted_parents}")
         tp = len(true_parents & predicted_parents)
         fp = len(predicted_parents - true_parents)
         fn = len(true_parents - predicted_parents)
@@ -524,7 +561,8 @@ def evaluate_checkpoint_pair(
     num_vars_list: List[int] = [5, 8],
     seed: int = 42,
     verbose: bool = True,
-    include_baselines: bool = False
+    include_baselines: bool = False,
+    use_oracle_surrogate: bool = False
 ) -> Dict[str, Any]:
     """
     Evaluate a policy-surrogate checkpoint pair across multiple SCMs.
@@ -533,7 +571,10 @@ def evaluate_checkpoint_pair(
     print(f"\n{'='*70}")
     print(f"Evaluating Checkpoint Pair")
     print(f"Policy: {policy_path.name}")
-    print(f"Surrogate: {surrogate_path.name}")
+    if use_oracle_surrogate:
+        print(f"Surrogate: ORACLE (perfect parent predictions)")
+    else:
+        print(f"Surrogate: {surrogate_path.name}")
     print(f"{'='*70}")
     
     # Load models
@@ -582,7 +623,8 @@ def evaluate_checkpoint_pair(
                     initial_interventions=initial_interventions,
                     max_history_size=max_history_size,
                     seed=seed + episode_count * 1000,
-                    verbose=False
+                    verbose=False,
+                    use_oracle_surrogate=use_oracle_surrogate
                 )
                 
                 if verbose:
@@ -605,7 +647,8 @@ def evaluate_checkpoint_pair(
                         max_history_size=max_history_size,
                         seed=seed + episode_count * 1000,
                         verbose=False,
-                        baseline=random_baseline
+                        baseline=random_baseline,
+                        use_oracle_surrogate=use_oracle_surrogate
                     )
                     
                     # Oracle baseline - uses perfect knowledge for intervention selection
@@ -621,7 +664,8 @@ def evaluate_checkpoint_pair(
                         max_history_size=max_history_size,
                         seed=seed + episode_count * 1000,
                         verbose=False,
-                        baseline=oracle_baseline
+                        baseline=oracle_baseline,
+                        use_oracle_surrogate=use_oracle_surrogate
                     )
                     
                     if verbose:
@@ -806,6 +850,8 @@ def main():
                        help='Generate trajectory plots')
     parser.add_argument('--baselines', action='store_true',
                        help='Include random and oracle baselines')
+    parser.add_argument('--oracle-surrogate', action='store_true',
+                       help='Use oracle surrogate with perfect parent predictions instead of learned surrogate')
     
     args = parser.parse_args()
     
@@ -866,7 +912,8 @@ def main():
             structure_types=args.structures,
             num_vars_list=args.num_vars,
             seed=args.seed,
-            include_baselines=args.baselines
+            include_baselines=args.baselines,
+            use_oracle_surrogate=args.oracle_surrogate
         )
         
         # Save results

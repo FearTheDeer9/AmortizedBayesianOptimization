@@ -324,11 +324,6 @@ def evaluate_episode(
     buffer = ExperienceBuffer()
     
     # Debug: Print data configuration
-    print(f"\n[DEBUG] Data Configuration:")
-    print(f"  - Initial observations: {initial_observations}")
-    print(f"  - Initial interventions: {initial_interventions}")
-    print(f"  - Total initial data: {initial_observations + initial_interventions}")
-    print(f"  - Policy interventions: {num_interventions}")
     
     # Add observational samples
     rng_key, sample_key = random.split(rng_key)
@@ -336,7 +331,6 @@ def evaluate_episode(
     for sample in samples:
         buffer.add_observation(sample)
     
-    print(f"  - Added {len(samples)} observations to buffer")
     
     # Add initial random interventions if specified
     if initial_interventions > 0:
@@ -372,11 +366,6 @@ def evaluate_episode(
             for sample in samples:
                 buffer.add_intervention({selected_var: intervened_value}, sample)
     
-    # Debug: Print buffer state after initial data
-    print(f"[DEBUG] Buffer state after initial data:")
-    print(f"  - Observations in buffer: {len(buffer._observations)}")
-    print(f"  - Interventions in buffer: {len(buffer._interventions)}")
-    print(f"  - Total data points: {len(buffer._observations) + len(buffer._interventions)}")
     
     # Create surrogate wrapper
     if use_oracle_surrogate:
@@ -398,9 +387,6 @@ def evaluate_episode(
     if num_interventions == 0:
         # Get final buffer state and make predictions
         # Use all available data (no artificial limit)
-        print(f"\n[DEBUG] Converting buffer to tensor for surrogate prediction...")
-        print(f"  - Max history size: {max_history_size}")
-        
         tensor_4ch, mapper, _ = buffer_to_four_channel_tensor(
             buffer, target_var, 
             surrogate_fn=surrogate_fn,
@@ -408,26 +394,15 @@ def evaluate_episode(
             standardize=True
         )
         
-        print(f"  - Tensor shape: {tensor_4ch.shape}")
-        print(f"  - History points used: {tensor_4ch.shape[0]}")
-        
-        # Get parent probability predictions
+        # Extract parent probabilities from the 4th channel
         current_parent_probs = {}
         for i, var in enumerate(mapper.variables):
             if var != target_var:
                 prob = float(tensor_4ch[-1, i, 3])
                 current_parent_probs[var] = prob
         
-        # Debug: Print probability predictions
-        print(f"\n[DEBUG] Parent probability predictions:")
-        print(f"  - True parents: {true_parents}")
-        for var, prob in sorted(current_parent_probs.items()):
-            is_parent = "(TRUE PARENT)" if var in true_parents else ""
-            print(f"    {var}: {prob:.3f} {is_parent}")
-        
         # Calculate F1 score for structure learning
         predicted_parents = {var for var, prob in current_parent_probs.items() if prob > 0.5}
-        print(f"  - Predicted parents (>0.5): {predicted_parents}")
         tp = len(true_parents & predicted_parents)
         fp = len(predicted_parents - true_parents)
         fn = len(true_parents - predicted_parents)

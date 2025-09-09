@@ -23,6 +23,14 @@ sys.path.insert(0, str(project_root))
 from optimizer_utils import create_adaptive_optimizer, create_curriculum_optimizer_config
 from src.causal_bayes_opt.utils.checkpoint_utils import save_checkpoint
 from src.causal_bayes_opt.data_structures.scm import get_parents, get_variables, get_target
+
+# Add BC utilities import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from bc_utils import (
+    load_expert_demonstrations, 
+    run_bc_warmup,
+    compute_kl_regularization
+)
 from src.causal_bayes_opt.experiments.variable_scm_factory import VariableSCMFactory
 import pyrsistent as pyr
 from src.causal_bayes_opt.mechanisms.linear import sample_from_linear_scm
@@ -224,8 +232,9 @@ def compute_surrogate_loss(params, net, buffer, target_idx, target_var, true_par
 
 
 def compute_vectorized_surrogate_loss(params, net, batch_tensors, batch_target_indices, 
-                                     batch_true_parents, variables, rng_key, use_weighted_loss=True):
-    """Compute BCE loss for vectorized batch of surrogate predictions."""
+                                     batch_true_parents, variables, rng_key, use_weighted_loss=True,
+                                     bc_reference_params=None, kl_weight=0.0):
+    """Compute BCE loss for vectorized batch of surrogate predictions with optional KL regularization."""
     # batch_tensors: [batch_size, N, d, 3]
     # batch_target_indices: [batch_size] 
     # batch_true_parents: List of sets of parent variable names
@@ -275,9 +284,41 @@ def compute_vectorized_surrogate_loss(params, net, batch_tensors, batch_target_i
         bce_loss = -(labels * jnp.log(pred_probs) + (1 - labels) * jnp.log(1 - pred_probs))
     
     # Normalize by number of possible parent edges for target (d - 1, excluding self)
-    loss = jnp.mean(jnp.sum(bce_loss, axis=-1) / (d - 1))
+    bce_loss_value = jnp.mean(jnp.sum(bce_loss, axis=-1) / (d - 1))
     
-    return loss, pred_probs, labels
+    # Add KL regularization if BC reference params provided
+    total_loss = bce_loss_value
+    if bc_reference_params is not None and kl_weight > 0:
+        # Get predictions from reference model
+        ref_predictions = net.apply(bc_reference_params, rng_key, batch_tensors, 
+                                   batch_target_indices, False)  # is_training=False
+        
+        if 'parent_probabilities' in ref_predictions:
+            ref_probs = ref_predictions['parent_probabilities']
+        else:
+            ref_logits = ref_predictions.get('attention_logits', jnp.zeros((len(batch_tensors), d)))
+            ref_probs = jax.nn.sigmoid(ref_logits)
+        
+        ref_probs = jnp.clip(ref_probs, 1e-7, 1 - 1e-7)
+        
+        # Compute KL divergence for each example in batch
+        # KL(current || reference) for Bernoulli distributions
+        kl_pos = pred_probs * jnp.log(pred_probs / ref_probs)
+        kl_neg = (1 - pred_probs) * jnp.log((1 - pred_probs) / (1 - ref_probs))
+        kl_div = kl_pos + kl_neg
+        
+        # Mask out target variables for KL computation
+        mask = jnp.ones((batch_size, d))
+        for b in range(batch_size):
+            mask = mask.at[b, batch_target_indices[b]].set(0.0)
+        
+        masked_kl = kl_div * mask
+        kl_loss = jnp.mean(jnp.sum(masked_kl, axis=-1) / jnp.sum(mask, axis=-1))
+        
+        # Add weighted KL to total loss
+        total_loss = bce_loss_value + kl_weight * kl_loss
+    
+    return total_loss, pred_probs, labels
 
 
 def train_batch_vectorized(scm_batch: List,
@@ -289,7 +330,9 @@ def train_batch_vectorized(scm_batch: List,
                            min_obs_ratio: float,
                            max_obs_ratio: float,
                            rng_key,
-                           use_weighted_loss: bool = True) -> Tuple:
+                           use_weighted_loss: bool = True,
+                           bc_reference_params=None,
+                           kl_weight: float = 0.0) -> Tuple:
     """Train on a homogeneous batch of SCMs with vectorized processing."""
     
     batch_size = len(scm_batch)
@@ -374,15 +417,6 @@ def train_batch_vectorized(scm_batch: List,
         batch_target_indices.append(target_idx)
         batch_true_parents.append(true_parents)
         batch_mappers.append(mapper)
-        
-        # Debug: Print mapper info for each SCM
-        if len(batch_mappers) <= 2:  # Only for first 2 SCMs
-            scm_vars = get_variables(scm)
-            print(f"  [DEBUG] SCM {len(batch_mappers)-1}: target={target_var}, idx={target_idx}")
-            print(f"  [DEBUG] SCM variables: {sorted(scm_vars)}")
-            print(f"  [DEBUG] Batch variables: {sorted(variables)}")
-            print(f"  [DEBUG] Mapper variables: {mapper.variables}")
-            print(f"  [DEBUG] True parents: {sorted(true_parents)}")
     
     # Stack all tensors into batch format
     # Find max N across all tensors for padding
@@ -408,7 +442,8 @@ def train_batch_vectorized(scm_batch: List,
         rng_key_loss = random.PRNGKey(0)  # Deterministic for gradient
         loss, pred_probs, labels = compute_vectorized_surrogate_loss(
             params, surrogate_net, batch_data, batch_target_indices,
-            batch_true_parents, variables, rng_key_loss, use_weighted_loss
+            batch_true_parents, variables, rng_key_loss, use_weighted_loss,
+            bc_reference_params, kl_weight
         )
         return loss, (pred_probs, labels)
     
@@ -520,14 +555,6 @@ def train_batch(scm_batch: List,
         num_observations = int(total_datapoints * obs_ratio)
         num_interventions = total_datapoints - num_observations
         
-        # Diagnostic: Print data configuration for first SCM in batch
-        if scm == scm_batch[0]:
-            print(f"  [DIAGNOSTIC] First SCM: {len(variables)} vars, target={target_var}")
-            print(f"  [DIAGNOSTIC] Variables from first SCM: {sorted(variables)}")
-            print(f"  [DIAGNOSTIC] This SCM variables: {sorted(get_variables(scm))}")
-            print(f"  [DIAGNOSTIC] Target index: {target_idx}")
-            print(f"  [DIAGNOSTIC] Data: {total_datapoints} total ({num_observations} obs, {num_interventions} int)")
-            print(f"  [DIAGNOSTIC] Obs ratio: {obs_ratio:.1%}")
         
         # Observational data
         rng_key, obs_key = random.split(rng_key)
@@ -567,11 +594,6 @@ def train_batch(scm_batch: List,
                     interventions_by_var[var_name] = []
                 interventions_by_var[var_name].append(float(intervention_values[i]))
             
-            # Diagnostic: Print intervention distribution for first SCM
-            if scm == scm_batch[0]:
-                int_counts = {var: len(vals) for var, vals in interventions_by_var.items()}
-                print(f"  [DIAGNOSTIC] Intervention distribution: {int_counts}")
-                print(f"  [DIAGNOSTIC] Mean interventions per var: {np.mean(list(int_counts.values())):.1f}")
             
             # Process interventions by variable (more cache-friendly)
             seed_counter = 0
@@ -590,28 +612,6 @@ def train_batch(scm_batch: List,
                     if post_data:
                         buffer.add_intervention(intervention, post_data[0])
         
-        # Diagnostic: Check tensor for first SCM
-        if scm == scm_batch[0]:
-            tensor, _ = buffer_to_three_channel_tensor(buffer, target_var)
-            actual_buffer_size = len(buffer._observations) + len(buffer._interventions)
-            print(f"  [DIAGNOSTIC] Buffer size: {actual_buffer_size} (expected: {total_datapoints})")
-            print(f"  [DIAGNOSTIC] Tensor shape: {tensor.shape}")
-            print(f"  [DIAGNOSTIC] Channel means - Obs: {jnp.mean(tensor[:, :, 0]):.3f}, Int: {jnp.mean(tensor[:, :, 1]):.3f}")
-            
-            # Show rows where data actually exists (last rows since padding is at start)
-            print("\n  [DIAGNOSTIC] Last 5 rows of tensor channels (where actual data is):")
-            print("  Channel 0 - Variable VALUES (last 5 rows, all vars):")
-            print(f"  {tensor[-5:, :, 0]}")
-            print("  Channel 1 - TARGET indicators (1 if target variable, last 5 rows):")
-            print(f"  {tensor[-5:, :, 1]}")
-            print("  Channel 2 - INTERVENTION indicators (1 if intervened, last 5 rows):")
-            print(f"  {tensor[-5:, :, 2]}")
-            
-            # Count non-zero entries
-            values_nonzero = jnp.sum(tensor[:, :, 0] != 0)
-            target_ones = jnp.sum(tensor[:, :, 1] == 1)
-            intervention_ones = jnp.sum(tensor[:, :, 2] == 1)
-            print(f"\n  [DIAGNOSTIC] Non-zero counts - Values: {values_nonzero}, Target indicators: {target_ones}, Intervention indicators: {intervention_ones}")
         
         # Compute loss and gradients
         def loss_fn(params):
@@ -638,16 +638,6 @@ def train_batch(scm_batch: List,
         recall = tp / (tp + fn + 1e-8)
         f1 = 2 * precision * recall / (precision + recall + 1e-8)
         
-        # Diagnostic: Print predictions for first SCM
-        if scm == scm_batch[0]:
-            print(f"\n  [DIAGNOSTIC] Model predictions for first SCM:")
-            print(f"  True parents of {target_var}: {sorted(true_parents)}")
-            print(f"  Prediction probabilities: {pred_probs}")
-            print(f"  Predicted parents (>0.5): {predictions}")
-            print(f"  True labels: {labels}")
-            predicted_parents = [mapper.get_name(i) for i in range(len(predictions)) if predictions[i] == 1]
-            print(f"  Predicted parent names: {sorted(predicted_parents) if predicted_parents else 'None'}")
-            print(f"  TP={float(tp):.0f}, FP={float(fp):.0f}, FN={float(fn):.0f}, F1={float(f1):.3f}")
         
         metrics.append({
             'num_vars': len(variables),
@@ -721,6 +711,19 @@ def main():
                        choices=['random', 'chain', 'fork', 'true_fork', 'collider', 'mixed', 'scale_free', 'two_layer'],
                        help='SCM structure types to train on')
     
+    # Behavioral Cloning warm-up arguments
+    parser.add_argument('--bc-warm-up', action='store_true',
+                       help='Enable behavioral cloning warm-up using expert demonstrations')
+    parser.add_argument('--bc-steps', type=int, default=500,
+                       help='Number of BC warm-up steps')
+    parser.add_argument('--kl-weight', type=float, default=0.01,
+                       help='Weight for KL regularization after BC warm-up')
+    parser.add_argument('--demo-path', type=str, 
+                       default='expert_demonstrations/raw/raw_demonstrations',
+                       help='Path to expert demonstrations')
+    parser.add_argument('--max-demos', type=int, default=None,
+                       help='Maximum number of demonstration files to load (for testing)')
+    
     args = parser.parse_args()
     
     print("\n" + "="*70)
@@ -735,6 +738,14 @@ def main():
     print(f"  Datapoints: {args.min_datapoints}-{args.max_datapoints} per graph")
     print(f"  Observation ratio: {args.min_obs_ratio:.1%}-{args.max_obs_ratio:.1%}")
     print(f"  Learning rate: {args.lr}")
+    
+    if args.bc_warm_up:
+        print(f"\nBC Warm-up Configuration:")
+        print(f"  BC steps: {args.bc_steps}")
+        print(f"  KL weight: {args.kl_weight}")
+        print(f"  Demo path: {args.demo_path}")
+        if args.max_demos:
+            print(f"  Max demos: {args.max_demos} (limited for testing)")
     
     # Create checkpoint directory
     run_name = f"avici_style_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -820,6 +831,37 @@ def main():
     print(f"  Base LR: {args.lr} -> Scaled LR: {learning_rate:.6f}")
     print(f"  Optimizer: LAMB with gradient clipping (1.0)")
     
+    # Run BC warm-up if enabled
+    bc_reference_params = None
+    if args.bc_warm_up:
+        print(f"\n{'='*70}")
+        print("BEHAVIORAL CLONING WARM-UP PHASE")
+        print(f"{'='*70}")
+        
+        # Load expert demonstrations
+        demo_path = Path(project_root) / args.demo_path
+        expert_demos = load_expert_demonstrations(str(demo_path), max_demos=args.max_demos)
+        
+        if not expert_demos:
+            print("WARNING: No expert demonstrations found, skipping BC warm-up")
+            args.bc_warm_up = False
+        else:
+            print(f"Loaded {len(expert_demos)} expert demonstrations")
+            
+            # Run BC warm-up
+            rng_key, bc_key = random.split(rng_key)
+            surrogate_params, opt_state, bc_metrics = run_bc_warmup(
+                surrogate_net, surrogate_params, expert_demos,
+                optimizer, opt_state, args.bc_steps, args.batch_size,
+                bc_key, use_weighted_loss=not args.use_weighted_loss
+            )
+            
+            # Store BC-trained params as reference for KL regularization
+            bc_reference_params = jax.tree.map(lambda x: x, surrogate_params)
+            
+            print(f"BC warm-up complete. Final loss: {bc_metrics['final_bc_loss']:.4f}")
+            print(f"{'='*70}\n")
+    
     print(f"\nTraining for {args.num_steps} steps...")
     
     # Training metrics
@@ -868,6 +910,10 @@ def main():
         
         # Time the vectorized approach
         batch_start_time = time.time()
+        
+        # Pass BC reference params and KL weight if BC warm-up was done
+        kl_weight = args.kl_weight if (args.bc_warm_up and bc_reference_params is not None) else 0.0
+        
         surrogate_params, opt_state, avg_loss, avg_f1, avg_auroc, avg_auprc, batch_metrics = train_batch_vectorized(
             scm_batch, policy_net, policy_params,
             surrogate_net, surrogate_params,
@@ -877,7 +923,9 @@ def main():
             args.min_obs_ratio,
             args.max_obs_ratio,
             train_key,
-            not args.use_weighted_loss  # Invert flag: --use-weighted-loss now disables weighting
+            not args.use_weighted_loss,  # Invert flag: --use-weighted-loss now disables weighting
+            bc_reference_params,
+            kl_weight
         )
         batch_time = time.time() - batch_start_time
         

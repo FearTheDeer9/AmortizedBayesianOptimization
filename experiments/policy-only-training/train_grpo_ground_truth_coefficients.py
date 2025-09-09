@@ -147,6 +147,13 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
             'convergence_triggered': False
         }
         
+        # Wall-clock based checkpointing
+        self.training_start_time = time.time()
+        self.last_checkpoint_time = time.time()
+        self.checkpoint_interval_minutes = 30  # Save every 30 minutes
+        self.total_interventions_count = 0
+        self.interventions_per_checkpoint = 100  # Save every 100 interventions
+        
         logger.info(f"Initialized EnhancedGRPOTrainer:")
         logger.info(f"  - Rotate every episode: {self.rotate_every_episode}")
         logger.info(f"  - Convergence patience: {self.convergence_patience}")
@@ -155,6 +162,10 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         logger.info(f"  - Surrogate enabled: {config.get('use_surrogate', True)}")
         logger.info(f"  - Per-batch rotation: {self.rotate_after_batch}")
         logger.info(f"  - Ground truth channel: {self.use_ground_truth_channel}")
+        logger.info(f"  📁 Checkpoint strategy:")
+        logger.info(f"    - Episode checkpoints: {self.checkpoint_episodes}")
+        logger.info(f"    - Wall-clock checkpoint: Every {self.checkpoint_interval_minutes} minutes")
+        logger.info(f"    - Intervention checkpoint: Every 100 interventions")
         if self.use_ground_truth_channel:
             logger.info(f"  - Convergence rate factor: {self.convergence_rate_factor}")
             logger.info(f"  - Initial interventions per SCM: {self.initial_interventions_per_scm}")
@@ -581,19 +592,39 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         self.episode_performances.append(metrics)
         self.completed_episodes_count += 1  # Simple episode counter
         
-        # Save checkpoint if needed
+        # Episode-based checkpoint
         if episode_idx in self.checkpoint_episodes:
+            logger.info(f"📌 Episode checkpoint: Saving at episode {episode_idx}")
             self._save_checkpoint(episode_idx)
+        
+        # Wall-clock based checkpointing
+        current_time = time.time()
+        elapsed_minutes = (current_time - self.last_checkpoint_time) / 60
+        if elapsed_minutes >= self.checkpoint_interval_minutes:
+            logger.info(f"⏰ Wall-clock checkpoint: {elapsed_minutes:.1f} minutes elapsed")
+            self._save_checkpoint(f"time_{int(elapsed_minutes)}min")
+            self.last_checkpoint_time = current_time
+        
+        # Intervention-based checkpointing
+        if self.total_interventions_count >= self.interventions_per_checkpoint:
+            logger.info(f"🔄 Intervention checkpoint: {self.total_interventions_count} interventions completed")
+            self._save_checkpoint(f"int_{self.total_interventions_count}")
+            self.interventions_per_checkpoint += 100  # Next checkpoint at +100 interventions
         
         # Log summary every 10 episodes
         if episode_idx % 10 == 0:
             recent_metrics = self.episode_performances[-10:]
-            avg_interventions = np.mean([m['num_interventions'] for m in recent_metrics])
-            convergence_rate = np.mean([m['convergence_triggered'] for m in recent_metrics])
+            avg_interventions = np.mean([m['num_interventions'] for m in recent_metrics]) if recent_metrics else 0
+            convergence_rate = np.mean([m['convergence_triggered'] for m in recent_metrics]) if recent_metrics else 0
             
-            logger.info(f"\n📊 Last 10 episodes summary:")
-            logger.info(f"   Avg interventions: {avg_interventions:.1f}")
-            logger.info(f"   Convergence rate: {convergence_rate:.1%}")
+            total_elapsed = (current_time - self.training_start_time) / 60
+            logger.info(f"\n📊 Episode {episode_idx} summary:")
+            logger.info(f"   Episodes completed: {self.completed_episodes_count}")
+            logger.info(f"   Total interventions: {self.total_interventions_count}")
+            logger.info(f"   Time elapsed: {total_elapsed:.1f} minutes")
+            if recent_metrics:
+                logger.info(f"   Last 10 episodes - Avg interventions: {avg_interventions:.1f}")
+                logger.info(f"   Convergence rate: {convergence_rate:.1%}")
             logger.info(f"   Total rotations: {self.total_rotations}")
             logger.info(f"   Early/Total: {self.early_rotations}/{self.total_rotations}")
     
@@ -751,6 +782,14 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         # Target progression
         if all_target_values:
             logger.debug(f"TARGET PROGRESSION - Best: {min(all_target_values):.3f}, Worst: {max(all_target_values):.3f}, Mean: {np.mean(all_target_values):.3f}")
+        
+        # Track episode performance and save checkpoints
+        self.current_episode_data['target_values'] = all_target_values
+        self.current_episode_data['num_vars'] = len(variables) if 'variables' in locals() else 0
+        self._track_episode_performance(episode_idx)
+        
+        # Update total interventions count
+        self.total_interventions_count += len(intervention_metrics)
         
         # Return metrics for compatibility with parent class
         return {

@@ -40,7 +40,7 @@ python full_evaluation.py \
 
 ### Core Components
 
-- **`src/`** - Core library implementing causal Bayesian optimization primitives. Largely a mess as befits a true research repo but has critical dependenciesfor my later research.
+- **`src/`** - Core library implementing causal Bayesian optimization primitives. Largely a mess as befits a true research repo but has critical dependencies for the training scripts.
 
 - **`experiments/`** - Main training and evaluation scripts:
   - `joint-training/` - Alternating surrogate-policy training

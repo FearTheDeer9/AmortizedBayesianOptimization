@@ -1,8 +1,40 @@
 #!/usr/bin/env python3
 """
-Step 4: Full Evaluation with Metrics
-Comprehensive evaluation of trained models with metric calculation and extraction.
-This script evaluates GRPO models to understand why performance degrades with training.
+Model Evaluation Suite.
+
+Comprehensive evaluation of trained policy and surrogate models.
+Computes metrics for structure learning (F1), intervention quality (regret),
+and causal discovery (parent selection rate).
+
+Example usage:
+    # Evaluate single checkpoint pair
+    python full_evaluation.py \\
+        --policy-path policy.pkl \\
+        --surrogate-path surrogate.pkl \\
+        --num-episodes 30
+    
+    # Evaluate with baselines for comparison
+    python full_evaluation.py \\
+        --policy-path policy.pkl \\
+        --surrogate-path surrogate.pkl \\
+        --baselines
+    
+    # Evaluate training progression across checkpoints
+    python full_evaluation.py \\
+        --checkpoint-dir checkpoints/ \\
+        --surrogate-path surrogate.pkl
+    
+    # Generate plots of results
+    python full_evaluation.py \\
+        --policy-path policy.pkl \\
+        --surrogate-path surrogate.pkl \\
+        --plot
+
+Output:
+    - JSON file with detailed metrics per episode
+    - Summary statistics (mean, std) across episodes
+    - Optional: Comparison with random/oracle baselines
+    - Optional: Trajectory plots showing learning progression
 """
 
 import sys
@@ -32,6 +64,16 @@ from src.causal_bayes_opt.avici_integration.continuous.model import ContinuousPa
 from src.causal_bayes_opt.interventions.handlers import create_perfect_intervention
 from src.causal_bayes_opt.environments.sampling import sample_with_intervention
 from src.causal_bayes_opt.data_structures.sample import get_values
+
+# Import statistical features calculation if available
+try:
+    # Import from training script where it's defined
+    sys.path.append(str(project_root / 'experiments' / 'policy-only-training'))
+    from train_grpo_ground_truth_rotation import calculate_statistical_features
+    STATS_AVAILABLE = True
+except ImportError:
+    STATS_AVAILABLE = False
+    print("[Warning] Statistical features calculation not available")
 
 # Import baselines - use absolute import when running as script
 try:
@@ -195,12 +237,28 @@ def load_models(policy_path: Path, surrogate_path: Path) -> Tuple[Any, Any, Any,
     policy_params = policy_checkpoint['params']
     policy_architecture = policy_checkpoint.get('architecture', {})
     
-    # Create policy network
-    from src.causal_bayes_opt.policies.clean_policy_factory import create_quantile_policy
+    # Detect policy type and create appropriate network
+    architecture_type = policy_architecture.get('architecture_type', 'quantile')
     
-    policy_fn = create_quantile_policy(
-        hidden_dim=policy_architecture.get('hidden_dim', 256)
-    )
+    # Check if using statistical features
+    using_stats = architecture_type == 'quantile_with_stats' or 'quantile_with_stats' in str(policy_architecture)
+    
+    # Create policy network
+    if using_stats:
+        from src.causal_bayes_opt.policies.clean_policy_factory import create_quantile_policy_with_stats
+        stats_weight = policy_architecture.get('stats_weight', 0.1)
+        print(f"[Evaluation] Using quantile_with_stats policy with stats_weight={stats_weight}")
+        policy_fn = create_quantile_policy_with_stats(
+            hidden_dim=policy_architecture.get('hidden_dim', 256),
+            stats_weight=stats_weight
+        )
+    else:
+        from src.causal_bayes_opt.policies.clean_policy_factory import create_quantile_policy
+        print(f"[Evaluation] Using standard quantile policy")
+        policy_fn = create_quantile_policy(
+            hidden_dim=policy_architecture.get('hidden_dim', 256)
+        )
+    
     policy_net = hk.without_apply_rng(hk.transform(policy_fn))
     
     # Extract training metadata
@@ -209,7 +267,9 @@ def load_models(policy_path: Path, surrogate_path: Path) -> Tuple[Any, Any, Any,
         'policy_architecture': policy_architecture,
         'surrogate_architecture': surrogate_architecture,
         'policy_path': str(policy_path),
-        'surrogate_path': str(surrogate_path)
+        'surrogate_path': str(surrogate_path),
+        'using_statistical_features': using_stats,
+        'stats_weight': policy_architecture.get('stats_weight', 0.1) if using_stats else None
     }
     
     return policy_net, policy_params, surrogate_net, surrogate_params, metadata
@@ -226,7 +286,8 @@ def evaluate_episode(
     seed: int = 42,
     verbose: bool = False,
     baseline: Optional[Any] = None,
-    use_oracle_surrogate: bool = False
+    use_oracle_surrogate: bool = False,
+    use_statistical_features: bool = False
 ) -> Dict[str, Any]:
     """
     Evaluate one episode with comprehensive metrics tracking.
@@ -454,8 +515,14 @@ def evaluate_episode(
             # Get target index
             target_idx = mapper.get_index(target_var)
             
-            # Call policy
-            policy_output = policy_net.apply(policy_params, tensor_4ch, target_idx)
+            # Calculate statistical features if needed
+            if use_statistical_features and STATS_AVAILABLE:
+                statistical_features = calculate_statistical_features(tensor_4ch, target_idx, mapper)
+                # Call policy with statistical features
+                policy_output = policy_net.apply(policy_params, tensor_4ch, target_idx, statistical_features)
+            else:
+                # Call policy without statistical features
+                policy_output = policy_net.apply(policy_params, tensor_4ch, target_idx)
             
             # Decode quantile output
             quantile_scores = policy_output['quantile_scores']
@@ -599,7 +666,8 @@ def evaluate_checkpoint_pair(
                     max_history_size=max_history_size,
                     seed=seed + episode_count * 1000,
                     verbose=False,
-                    use_oracle_surrogate=use_oracle_surrogate
+                    use_oracle_surrogate=use_oracle_surrogate,
+                    use_statistical_features=metadata.get('using_statistical_features', False)
                 )
                 
                 if verbose:
@@ -623,7 +691,8 @@ def evaluate_checkpoint_pair(
                         seed=seed + episode_count * 1000,
                         verbose=False,
                         baseline=random_baseline,
-                        use_oracle_surrogate=use_oracle_surrogate
+                        use_oracle_surrogate=use_oracle_surrogate,
+                        use_statistical_features=metadata.get('using_statistical_features', False)
                     )
                     
                     # Oracle baseline - uses perfect knowledge for intervention selection
@@ -640,7 +709,8 @@ def evaluate_checkpoint_pair(
                         seed=seed + episode_count * 1000,
                         verbose=False,
                         baseline=oracle_baseline,
-                        use_oracle_surrogate=use_oracle_surrogate
+                        use_oracle_surrogate=use_oracle_surrogate,
+                        use_statistical_features=metadata.get('using_statistical_features', False)
                     )
                     
                     if verbose:
@@ -786,7 +856,27 @@ def evaluate_training_progression(
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Full evaluation with metrics")
+    parser = argparse.ArgumentParser(
+        description="Comprehensive model evaluation with metrics",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Evaluate single checkpoint
+  %(prog)s --policy-path model.pkl --surrogate-path surrogate.pkl
+  
+  # Include baseline comparisons
+  %(prog)s --policy-path model.pkl --surrogate-path surrogate.pkl --baselines
+  
+  # Evaluate checkpoint progression
+  %(prog)s --checkpoint-dir checkpoints/ --surrogate-path surrogate.pkl
+  
+Metrics computed:
+  - F1 Score: Structure learning accuracy
+  - Parent Selection Rate: Percentage of interventions on true parents
+  - Target Value: Optimization objective achieved
+  - Regret: Difference from optimal intervention strategy
+        """
+    )
     
     # Model paths
     parser.add_argument('--policy-path', type=Path,
@@ -798,7 +888,7 @@ def main():
     
     # Evaluation config
     parser.add_argument('--num-episodes', type=int, default=30,
-                       help='Number of episodes per configuration')
+                       help='Number of episodes per configuration (more episodes = more robust statistics)')
     parser.add_argument('--num-interventions', type=int, default=30,
                        help='Number of interventions per episode')
     parser.add_argument('--initial-observations', type=int, default=20,

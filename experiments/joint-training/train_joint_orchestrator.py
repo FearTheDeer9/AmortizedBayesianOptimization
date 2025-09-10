@@ -1,9 +1,25 @@
 #!/usr/bin/env python3
 """
-Simple Joint Training Orchestrator
+Joint Training Orchestrator - Alternating surrogate and policy training.
 
-Alternates between surrogate and policy training phases based on time.
-Manages checkpoint passing between phases.
+This script manages the joint training process by alternating between:
+1. Surrogate model training (causal discovery)
+2. Policy model training (intervention selection)
+
+The models share checkpoints between phases to enable co-adaptation.
+
+Example usage:
+    # Basic 2-hour training with 10-minute phases
+    python train_joint_orchestrator.py --total-minutes 120 --phase-minutes 10
+    
+    # Resume training from existing checkpoints
+    python train_joint_orchestrator.py \\
+        --initial-surrogate-checkpoint path/to/surrogate.pkl \\
+        --initial-policy-checkpoint path/to/policy.pkl \\
+        --total-minutes 60
+    
+    # Use custom configuration file
+    python train_joint_orchestrator.py --config configs/production.json
 """
 
 import os
@@ -372,7 +388,21 @@ def create_default_config() -> Dict[str, Any]:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Joint Training Orchestrator")
+    parser = argparse.ArgumentParser(
+        description="Joint Training Orchestrator - Alternates between surrogate and policy training phases",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Train for 2 hours with 10-minute phases
+  %(prog)s --total-minutes 120 --phase-minutes 10
+  
+  # Resume from checkpoints
+  %(prog)s --initial-surrogate-checkpoint model.pkl --total-minutes 60
+  
+  # Use configuration file
+  %(prog)s --config configs/production.json
+        """
+    )
     
     # Time configuration
     parser.add_argument('--total-minutes', type=int, default=60,

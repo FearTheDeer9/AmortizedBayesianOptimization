@@ -226,12 +226,24 @@ class UnifiedGRPOTrainer:
             fixed_std = self.config.get('fixed_std', 0.5)
             
             logger.info(f"GRPO using {policy_architecture} policy architecture")
-            policy_fn = create_clean_grpo_policy(
-                architecture=policy_architecture,
-                hidden_dim=self.hidden_dim,
-                use_fixed_std=use_fixed_std,
-                fixed_std=fixed_std
-            )
+            
+            # Check if using statistical features variant
+            if policy_architecture == 'quantile_with_stats':
+                stats_weight = self.config.get('statistical_features_weight', 0.1)
+                policy_fn = create_clean_grpo_policy(
+                    architecture=policy_architecture,
+                    hidden_dim=self.hidden_dim,
+                    use_fixed_std=use_fixed_std,
+                    fixed_std=fixed_std,
+                    stats_weight=stats_weight
+                )
+            else:
+                policy_fn = create_clean_grpo_policy(
+                    architecture=policy_architecture,
+                    hidden_dim=self.hidden_dim,
+                    use_fixed_std=use_fixed_std,
+                    fixed_std=fixed_std
+                )
         else:
             logger.warning("GRPO using legacy policy architecture")
             policy_fn = create_clean_grpo_policy(hidden_dim=self.hidden_dim)
@@ -239,10 +251,16 @@ class UnifiedGRPOTrainer:
         self.policy_fn = hk.transform(policy_fn)
         
         # Initialize with dummy data - use correct number of channels
-        n_channels = 4 if policy_architecture in ['quantile', 'permutation_invariant'] else 5
+        n_channels = 4 if policy_architecture in ['quantile', 'permutation_invariant', 'quantile_with_stats'] else 5
         dummy_tensor = jnp.zeros((10, 5, n_channels))
         self.rng_key, init_key = random.split(self.rng_key)
-        self.policy_params = self.policy_fn.init(init_key, dummy_tensor, 0)
+        
+        # Initialize with statistical features if using quantile_with_stats
+        if policy_architecture == 'quantile_with_stats':
+            dummy_stats = jnp.zeros(5)  # 5 variables
+            self.policy_params = self.policy_fn.init(init_key, dummy_tensor, 0, dummy_stats)
+        else:
+            self.policy_params = self.policy_fn.init(init_key, dummy_tensor, 0)
         
         # Log the actual architecture being used (not self.architecture_level which is different)
         actual_architecture = self.config.get('policy_architecture', 'simplified_permutation_invariant')

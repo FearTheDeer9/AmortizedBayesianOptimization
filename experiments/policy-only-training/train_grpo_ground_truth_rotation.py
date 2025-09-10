@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
 """
-Ground Truth Channel GRPO Training with Per-Intervention SCM Rotation.
+GRPO Policy Training with SCM Rotation.
 
-This script modifies train_grpo_per_batch_rotation_simple.py to use ground truth
-SCM information with progressive certainty instead of expensive surrogate predictions.
+Trains intervention policies using Generalized Reward Policy Optimization (GRPO).
+Supports both learned surrogate models and ground truth parent information.
 
-Key features:
-1. Uses ground truth parent information with progressive certainty
-2. Each SCM maintains persistent buffer that grows over time
-3. Option to pre-populate with initial interventions
-4. Per-intervention SCM rotation to prevent hyperspecialization
+Features:
+- Per-intervention SCM rotation to prevent overfitting
+- Support for multiple reward components (target, parent selection, info gain)
+- Optional ground truth channel for ablation studies
+- Persistent buffers across SCM rotations
 
-Progressive certainty model:
-- Starts at 0.2 probability (maximum uncertainty)
-- Converges to 0.5 for true parents, 0 for non-parents (observational data)
-- Converges to 1.0 for true parents, 0 for non-parents (interventional data)
-- Convergence rate scales with graph size
+Example usage:
+    # Basic training on chain structures
+    python train_grpo_ground_truth_rotation.py --episodes 100 --structure-types chain
+    
+    # Train with ground truth instead of surrogate
+    python train_grpo_ground_truth_rotation.py --use-ground-truth --episodes 50
+    
+    # Custom reward weights
+    python train_grpo_ground_truth_rotation.py \\
+        --target-weight 0.8 --parent-weight 0.2 --info-weight 0.0 \\
+        --episodes 100
+    
+    # Resume from checkpoint
+    python train_grpo_ground_truth_rotation.py \\
+        --policy-checkpoint policy.pkl --episodes 50
 """
 
 import os
@@ -61,6 +71,64 @@ logging.basicConfig(
     datefmt='%H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+
+def calculate_statistical_features(tensor: jnp.ndarray, target_idx: int, mapper) -> jnp.ndarray:
+    """
+    Calculate statistical features between each variable and the target.
+    
+    Args:
+        tensor: [T, n_vars, n_channels] tensor with values in channel 0
+        target_idx: Index of the target variable
+        mapper: Variable mapper for debugging
+        
+    Returns:
+        features: [n_vars] array of covariance values with target
+    """
+    T, n_vars, _ = tensor.shape
+    
+    # Extract values from channel 0 (actual variable values)
+    values = tensor[:, :, 0]  # [T, n_vars]
+    
+    # Find actual data (non-padded) samples
+    # Padded samples typically have all zeros or very small values
+    sample_norms = jnp.sum(jnp.abs(values), axis=1)  # [T]
+    valid_mask = sample_norms > 1e-6  # Samples with actual data
+    n_valid = jnp.sum(valid_mask)
+    
+    if n_valid < 2:
+        # Not enough samples for covariance
+        logger.debug(f"  ⚠️ Only {n_valid} valid samples, returning zero covariances")
+        return jnp.zeros(n_vars)
+    
+    # Get target values for valid samples
+    target_values = values[:, target_idx]  # [T]
+    target_mean = jnp.mean(jnp.where(valid_mask, target_values, 0.0)) / (jnp.mean(valid_mask) + 1e-8)
+    
+    # Calculate covariance for each variable with target
+    covariances = jnp.zeros(n_vars)
+    
+    for var_idx in range(n_vars):
+        if var_idx == target_idx:
+            # Target with itself - set to 0 to avoid self-selection
+            covariances = covariances.at[var_idx].set(0.0)
+        else:
+            var_values = values[:, var_idx]  # [T]
+            var_mean = jnp.mean(jnp.where(valid_mask, var_values, 0.0)) / (jnp.mean(valid_mask) + 1e-8)
+            
+            # Covariance = E[(X - E[X])(Y - E[Y])]
+            # Only use valid samples
+            centered_var = jnp.where(valid_mask, var_values - var_mean, 0.0)
+            centered_target = jnp.where(valid_mask, target_values - target_mean, 0.0)
+            
+            cov = jnp.sum(centered_var * centered_target) / (n_valid + 1e-8)
+            covariances = covariances.at[var_idx].set(cov)
+    
+    # Normalize covariances to [-1, 1] range for stability
+    max_abs_cov = jnp.max(jnp.abs(covariances)) + 1e-8
+    normalized_covariances = covariances / max_abs_cov
+    
+    return normalized_covariances
 
 
 class EnhancedGRPOTrainer(JointACBOTrainer):
@@ -150,9 +218,13 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         # Wall-clock based checkpointing
         self.training_start_time = time.time()
         self.last_checkpoint_time = time.time()
-        self.checkpoint_interval_minutes = 30  # Save every 30 minutes
+        self.checkpoint_interval_minutes = config.get('checkpoint_interval_minutes', 15)  # Save every N minutes
         self.total_interventions_count = 0
         self.interventions_per_checkpoint = 100  # Save every 100 interventions
+        
+        # Statistical features configuration
+        self.use_statistical_features = config.get('use_statistical_features', False)
+        self.statistical_features_weight = config.get('statistical_features_weight', 0.1)
         
         logger.info(f"Initialized EnhancedGRPOTrainer:")
         logger.info(f"  - Rotate every episode: {self.rotate_every_episode}")
@@ -166,6 +238,8 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         logger.info(f"    - Episode checkpoints: {self.checkpoint_episodes}")
         logger.info(f"    - Wall-clock checkpoint: Every {self.checkpoint_interval_minutes} minutes")
         logger.info(f"    - Intervention checkpoint: Every 100 interventions")
+        if self.use_statistical_features:
+            logger.info(f"  📊 Statistical features: ENABLED (weight={self.statistical_features_weight})")
         if self.use_ground_truth_channel:
             logger.info(f"  - Convergence rate factor: {self.convergence_rate_factor}")
             logger.info(f"  - Initial interventions per SCM: {self.initial_interventions_per_scm}")
@@ -304,11 +378,31 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         # Move to next SCM
         self.current_pool_index = (self.current_pool_index + 1) % len(self.scm_pool)
         
-        # Log rotation message
-        logger.info(f"\nROTATING SCM: #{old_index} → #{self.current_pool_index}")
+        # Log rotation message with SCM details
+        logger.info(f"\n🔄 ROTATING SCM: #{old_index} → #{self.current_pool_index}")
         try:
             scm_info = get_scm_info(scm)
-            logger.debug(f"  New SCM coefficients: {scm_info.get('coefficients', {})}")
+            target = get_target(scm)
+            parents = get_parents(scm, target)
+            coeffs = scm_info.get('coefficients', {})
+            
+            logger.info(f"  📐 SCM Structure:")
+            logger.info(f"     Target: {target}")
+            logger.info(f"     Parents: {parents}")
+            
+            # Extract coefficients for parents
+            parent_coeffs = {}
+            for edge, coeff in coeffs.items():
+                if isinstance(edge, tuple) and len(edge) == 2:
+                    from_var, to_var = edge
+                    if to_var == target and from_var in parents:
+                        parent_coeffs[from_var] = coeff
+            
+            if parent_coeffs:
+                logger.info(f"     Coefficients:")
+                for parent in parents:
+                    if parent in parent_coeffs:
+                        logger.info(f"       {parent} → {target}: {parent_coeffs[parent]:.3f}")
         except:
             pass
         logger.debug(f"  Buffer from pool: {buffer.num_observations()} obs, {buffer.num_interventions()} int")
@@ -762,6 +856,31 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
                     logger.info(f"     Lambda rate: {diagnostics['lambda_rate']:.4f}")
                     logger.info(f"     True parents: {diagnostics['true_parents']}")
                     
+                    # Display SCM coefficients if available
+                    try:
+                        # Get SCM info which includes coefficients
+                        scm_info = get_scm_info(scm)
+                        all_coefficients = scm_info.get('coefficients', {})
+                        parent_coefficients = {}
+                        
+                        # Coefficients are stored as {(from_var, to_var): coeff}
+                        for edge, coeff in all_coefficients.items():
+                            if isinstance(edge, tuple) and len(edge) == 2:
+                                from_var, to_var = edge
+                                if to_var == target_var and from_var in diagnostics['true_parents']:
+                                    parent_coefficients[from_var] = coeff
+                        
+                        # Display coefficients
+                        if parent_coefficients:
+                            logger.info(f"  📐 SCM Coefficients:")
+                            for parent in diagnostics['true_parents']:
+                                if parent in parent_coefficients:
+                                    logger.info(f"     {parent} → {target_var}: {parent_coefficients[parent]:.3f}")
+                        else:
+                            logger.info(f"  📐 SCM Coefficients: (not found - may be using different mechanism type)")
+                    except Exception as e:
+                        logger.debug(f"  Could not extract coefficients: {str(e)}")
+                    
                     # Debug: Print tensor channel information
                     logger.info("  📊 Tensor channels (most recent 3 samples):")
                     n_samples = min(3, actual_buffer_size)
@@ -788,11 +907,33 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
                     buffer, target_var, surrogate_fn=surrogate_fn, max_history_size=history_size, standardize=True
                 )
             
-            # Get policy output
+            # Calculate statistical features if enabled
+            statistical_features = None
+            if self.use_statistical_features:
+                statistical_features = calculate_statistical_features(tensor, mapper.target_idx, mapper)
+                
+                # Log covariance values for first intervention of each SCM
+                if step == 0:
+                    logger.info(f"  📊 COVARIANCES with target {target_var}:")
+                    for i, var_name in enumerate(mapper.variables):
+                        cov_value = float(statistical_features[i])
+                        is_parent = var_name in true_parents
+                        parent_marker = " ← PARENT" if is_parent else ""
+                        if var_name != target_var:  # Don't show target's covariance with itself
+                            logger.info(f"     {var_name}: {cov_value:+.4f}{parent_marker}")
+            
+            # Get policy output (with or without statistical features)
             key, policy_key = random.split(key)
-            policy_output = self.policy_fn.apply(
-                self.policy_params, policy_key, tensor, mapper.target_idx
-            )
+            if self.use_statistical_features and statistical_features is not None:
+                # Pass statistical features to policy
+                policy_output = self.policy_fn.apply(
+                    self.policy_params, policy_key, tensor, mapper.target_idx, statistical_features
+                )
+            else:
+                # Standard policy call without features
+                policy_output = self.policy_fn.apply(
+                    self.policy_params, policy_key, tensor, mapper.target_idx
+                )
             
             # Sample intervention - support both architectures
             key, selection_key = random.split(key)
@@ -1125,13 +1266,26 @@ def create_enhanced_config(
 
 
 def main():
-    """Main training function for enhanced multi-SCM GRPO with surrogate and dynamic rotation."""
+    """Main training function for GRPO policy training with SCM rotation."""
     
-    # Version confirmation
-    logger.info("🚀 SCRIPT VERSION: Per-Batch SCM Rotation - Anti-Hyperspecialization")
-    logger.info("📍 Script location: train_grpo_per_batch_rotation_simple.py")
-    
-    parser = argparse.ArgumentParser(description="Enhanced Multi-SCM GRPO training")
+    parser = argparse.ArgumentParser(
+        description="GRPO Policy Training with SCM Rotation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Train on chain structures
+  %(prog)s --episodes 100 --structure-types chain
+  
+  # Use ground truth for ablation
+  %(prog)s --use-ground-truth --episodes 50
+  
+  # Custom reward configuration
+  %(prog)s --target-weight 0.8 --parent-weight 0.2 --episodes 100
+  
+  # Resume training
+  %(prog)s --policy-checkpoint model.pkl --episodes 50
+        """
+    )
     parser.add_argument('--episodes', type=int, default=200,
                         help='Number of training episodes')
     parser.add_argument('--pool-size', type=int, default=50,
@@ -1176,7 +1330,7 @@ def main():
                         help='Maximum number of variables in SCM')
     parser.add_argument('--reward-type', type=str, default='binary',
                         choices=['composite', 'binary', 'clean', 'better_clean'],
-                        help='Type of reward computation (binary uses 0/+1 group ranking)')
+                        help='Reward type: binary (0/+1 group ranking), composite (weighted sum)')
     parser.add_argument('--info-gain-type', type=str, default='probability_change',
                         choices=['entropy_reduction', 'probability_change'],
                         help='Info gain computation: probability_change (sum absolute changes) or entropy_reduction')
@@ -1198,12 +1352,24 @@ def main():
                         help='Save checkpoint every N episodes')
     parser.add_argument('--log-freq', type=int, default=10,
                         help='Log metrics every N episodes')
+    parser.add_argument('--checkpoint-interval', type=int, default=15,
+                        help='Save checkpoint every N minutes (wall-clock time)')
+    parser.add_argument('--use-statistical-features', action='store_true',
+                        help='Enable statistical features (covariance) in policy model')
+    parser.add_argument('--statistical-features-weight', type=float, default=0.1,
+                        help='Weight for statistical features contribution (default: 0.1)')
+    parser.add_argument('--policy-architecture', type=str, default='quantile',
+                        help='Policy architecture to use (quantile, quantile_with_stats, simplified_permutation_invariant)')
+    parser.add_argument('--checkpoint-dir', type=str, default='checkpoints',
+                        help='Directory for saving checkpoints')
+    parser.add_argument('--batch-size', type=int, default=64,
+                        help='Batch size for GRPO updates')
     
     args = parser.parse_args()
     
     # Create timestamped run directory
     run_name = f"grpo_enhanced_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    checkpoint_dir = Path("checkpoints/grpo_enhanced") / run_name
+    checkpoint_dir = Path(args.checkpoint_dir) / run_name
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     
     # Create configuration first
@@ -1271,12 +1437,32 @@ def main():
         logger.info(f"   Pre-population: {args.min_obs}-{args.max_obs} obs, {args.min_int}-{args.max_int} int")
         logger.info(f"   Checkpoint every {args.save_freq} episodes")
     
+    # Configure statistical features if requested
+    if args.use_statistical_features:
+        config['use_statistical_features'] = True
+        config['statistical_features_weight'] = args.statistical_features_weight
+        # Use enhanced policy architecture if not explicitly set
+        if args.policy_architecture == 'quantile':  # Default value
+            config['policy_architecture'] = 'quantile_with_stats'
+        else:
+            config['policy_architecture'] = args.policy_architecture
+    else:
+        # Use specified architecture without stats
+        config['policy_architecture'] = args.policy_architecture
+        config['use_statistical_features'] = False
+    
+    # Set batch size if provided
+    if args.batch_size:
+        config['batch_size'] = args.batch_size
+        config['grpo_config']['group_size'] = args.batch_size
+    
     # Set time limit if provided
     if args.max_time_minutes:
         config['wall_clock_timeout_minutes'] = args.max_time_minutes
     
-    # Update checkpoint directory
+    # Update checkpoint directory and interval
     config['checkpoint_dir'] = str(checkpoint_dir)
+    config['checkpoint_interval_minutes'] = args.checkpoint_interval
     
     # Print header with configuration details
     logger.info("\n" + "="*70)
@@ -1292,6 +1478,10 @@ def main():
     # Log critical settings
     logger.info("Critical settings:")
     logger.info(f"  - Policy: {config['policy_architecture']}")
+    if config.get('use_statistical_features', False):
+        logger.info(f"  - Statistical Features: ENABLED (weight={config.get('statistical_features_weight', 0.1)})")
+    else:
+        logger.info(f"  - Statistical Features: DISABLED")
     logger.info(f"  - Surrogate: {'Enabled' if config['use_surrogate'] else 'Disabled'}")
     logger.info(f"  - Rotation: Every episode + convergence detection")
     logger.info(f"  - Convergence: {args.patience} consecutive @ >{args.threshold:.1%}")

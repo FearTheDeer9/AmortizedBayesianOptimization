@@ -12,7 +12,10 @@ ensures consistent module paths across training and inference.
 import jax
 import jax.numpy as jnp
 import haiku as hk
-from typing import Dict, Any, Callable
+from typing import Dict, Any, Callable, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 # Import handling for permutation_invariant_alternating_policy
 try:
     from .permutation_invariant_alternating_policy import create_permutation_invariant_alternating_policy
@@ -30,7 +33,8 @@ def create_clean_grpo_policy(
     hidden_dim: int = 256,
     architecture: str = "permutation_invariant",
     use_fixed_std: bool = False,
-    fixed_std: float = 0.5
+    fixed_std: float = 0.5,
+    stats_weight: float = 0.1
 ) -> Callable:
     """
     Create GRPO policy function with consistent module paths.
@@ -70,6 +74,9 @@ def create_clean_grpo_policy(
         return create_simplified_permutation_invariant_policy(hidden_dim, use_fixed_std, fixed_std)
     elif architecture == "quantile":
         return create_quantile_policy(hidden_dim, use_fixed_std, fixed_std)
+    elif architecture == "quantile_with_stats":
+        # Enhanced version with statistical features
+        return create_quantile_policy_with_stats(hidden_dim, use_fixed_std, fixed_std, stats_weight)
     else:
         raise ValueError(f"Unknown architecture: {architecture}")
 
@@ -388,6 +395,110 @@ def _simple_attention_layer(x, hidden_dim, layer_name):
         # Reshape and add residual
         x_ffn = ffn_output.reshape(T, n_vars, hidden_dim)
         return x_attended + x_ffn
+
+
+def create_quantile_policy_with_stats(
+    hidden_dim: int = 256,
+    use_fixed_std: bool = True,
+    fixed_std: float = 0.5,
+    stats_weight: float = 0.1
+) -> Callable:
+    """
+    Create quantile-based policy that can incorporate statistical features.
+    
+    This is an enhanced version that accepts optional statistical features
+    (like covariance) to augment the embedding space.
+    """
+    
+    def quantile_policy_fn(tensor_input: jnp.ndarray, target_idx: int = 0, 
+                          statistical_features: Optional[jnp.ndarray] = None) -> Dict[str, jnp.ndarray]:
+        """Quantile-based policy with optional statistical features."""
+        T, n_vars, n_channels = tensor_input.shape
+        
+        # Handle channel conversion (same as original)
+        if n_channels == 3:
+            padded = jnp.zeros((T, n_vars, 4))
+            padded = padded.at[:, :, :3].set(tensor_input)
+            padded = padded.at[:, :, 3].set(0.5)
+            tensor_input = padded
+        elif n_channels == 5:
+            tensor_input = tensor_input[:, :, :4]
+        elif n_channels != 4:
+            raise ValueError(f"Expected 3, 4, or 5 channels, got {n_channels}")
+        
+        # Enhanced processing with alternating attention
+        x_flat = tensor_input.reshape(-1, 4)
+        x_proj = hk.Linear(hidden_dim, name="input_projection")(x_flat)
+        x = x_proj.reshape(T, n_vars, hidden_dim)
+        
+        # ALTERNATING ATTENTION: Share information through both samples and variables
+        num_layers = 4
+        num_heads = 4
+        
+        for layer_idx in range(num_layers):
+            if layer_idx % 2 == 0:
+                x = _sample_attention_layer_vmap(x, num_heads, hidden_dim, f"time_attn_{layer_idx}")
+            else:
+                x = _variable_attention_layer_vmap(x, num_heads, hidden_dim, f"var_attn_{layer_idx}")
+        
+        # Advanced pooling with learned attention weights
+        pooling_query = hk.get_parameter(
+            "pooling_query", [1, hidden_dim],
+            init=hk.initializers.TruncatedNormal()
+        )
+        pooling_query = jnp.broadcast_to(pooling_query, (n_vars, hidden_dim))
+        
+        # Compute attention weights over time
+        scores = jnp.einsum('vh,tvh->tv', pooling_query, x) / jnp.sqrt(hidden_dim)
+        attention_weights = jax.nn.softmax(scores, axis=0)
+        
+        # Weighted sum over time
+        x_pooled = jnp.einsum('tv,tvh->vh', attention_weights, x)  # [n_vars, hidden_dim]
+        
+        # INCORPORATE STATISTICAL FEATURES if provided
+        if statistical_features is not None:
+            # Project features to hidden dimension
+            stats_proj = hk.Sequential([
+                hk.Linear(hidden_dim // 2, name="stats_mlp_1"),
+                jax.nn.gelu,
+                hk.Linear(hidden_dim, name="stats_projection")
+            ])(statistical_features.reshape(n_vars, 1))  # [n_vars, hidden_dim]
+            
+            # Add to pooled features with controlled weight
+            x_pooled = x_pooled + stats_proj * stats_weight
+            
+            # Log for debugging (only first call)
+            if hk.running_init():
+                logger.info(f"  🔬 Statistical features integrated with weight {stats_weight}")
+        
+        # Final processing
+        x_final = hk.LayerNorm(
+            axis=-1, create_scale=True, create_offset=True,
+            name="output_norm"
+        )(x_pooled)
+        
+        # UNIFIED QUANTILE HEAD: 3 scores per variable
+        quantile_scores = hk.Sequential([
+            hk.Linear(hidden_dim // 2, name="quantile_mlp_1"),
+            jax.nn.gelu,
+            hk.Linear(3, name="quantile_output")
+        ])(x_final)
+        
+        # Mask target variable
+        target_mask = jnp.full(3, -jnp.inf)
+        quantile_scores = quantile_scores.at[target_idx, :].set(target_mask)
+        
+        # For interface compatibility
+        variable_logits = jnp.max(quantile_scores, axis=1)
+        value_params = jnp.zeros((n_vars, 2))
+        
+        return {
+            'quantile_scores': quantile_scores,
+            'variable_logits': variable_logits,
+            'value_params': value_params
+        }
+    
+    return quantile_policy_fn
 
 
 def create_quantile_policy(

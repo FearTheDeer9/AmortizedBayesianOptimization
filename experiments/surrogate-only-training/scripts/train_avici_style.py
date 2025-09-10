@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-"""Train surrogate model with AVICI-style diverse graph generation."""
+"""
+AVICI-style Surrogate Model Training.
+
+Trains a causal discovery surrogate model using diverse graph generation.
+Uses homogeneous batches (same number of variables) for efficient training.
+
+Example usage:
+    # Basic training for 1000 steps
+    python train_avici_style.py --num-steps 1000 --batch-size 32
+    
+    # Continue training from checkpoint
+    python train_avici_style.py --checkpoint checkpoint.pkl --num-steps 500
+    
+    # Train on specific structures with custom learning rate
+    python train_avici_style.py --structure-types chain fork --lr 1e-4 --num-steps 2000
+    
+    # Train with time limit (useful for cluster jobs)
+    python train_avici_style.py --max-time-minutes 120 --checkpoint-output final.pkl
+"""
 
 import sys
 import os
@@ -662,7 +680,23 @@ def train_batch(scm_batch: List,
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train surrogate with AVICI-style diverse graphs')
+    parser = argparse.ArgumentParser(
+        description='AVICI-style surrogate training with diverse graph generation',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic training
+  %(prog)s --num-steps 1000 --batch-size 32
+  
+  # Continue from checkpoint
+  %(prog)s --checkpoint model.pkl --num-steps 500
+  
+  # Train on specific structures
+  %(prog)s --structure-types chain fork scale_free --num-steps 2000
+  
+Note: Learning rate is scaled by sqrt(batch_size) following AVICI's approach.
+        """
+    )
     parser.add_argument('--hidden-dim', type=int, default=128,
                        help='Hidden dimension (AVICI uses 128)')
     parser.add_argument('--num-layers', type=int, default=8,
@@ -674,7 +708,7 @@ def main():
     parser.add_argument('--dropout', type=float, default=0.1,
                        help='Dropout rate')
     parser.add_argument('--batch-size', type=int, default=32,
-                       help='Batch size for training')
+                       help='Batch size (note: learning rate is scaled by sqrt(batch_size))')
     parser.add_argument('--num-observations', type=int,  default=200, help='Number of observations per graph (deprecated, use min/max-datapoints)')
     parser.add_argument('--min-datapoints', type=int, default=100,
                        help='Minimum total datapoints (obs + interventions) per graph')

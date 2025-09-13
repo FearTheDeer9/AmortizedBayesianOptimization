@@ -180,6 +180,11 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         self.batch_rotation_count = 0
         self.rotate_after_batch = config.get('rotate_after_batch', True)
         
+        # Pool refresh management
+        self.pool_refresh_minutes = config.get('pool_refresh_minutes', 60)
+        self.pool_creation_time = time.time()
+        self.pool_refresh_count = 0
+        
         # Ground truth channel configuration
         self.use_ground_truth_channel = config.get('use_ground_truth_channel', False)
         self.convergence_rate_factor = config.get('convergence_rate_factor', 0.2)
@@ -426,6 +431,51 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         
         return idx, scm_name, scm, buffer
     
+    def _refresh_scm_pool(self):
+        """Refresh the SCM pool with new SCMs and fresh buffers."""
+        # Log statistics about the old pool before refreshing
+        if self.scm_pool:
+            logger.info(f"\n📊 OLD POOL STATISTICS (before refresh #{self.pool_refresh_count + 1}):")
+            total_usage = sum(m['usage_count'] for m in self.scm_pool_metadata)
+            logger.info(f"  Total SCMs: {len(self.scm_pool)}")
+            logger.info(f"  Total usage across all SCMs: {total_usage}")
+            logger.info(f"  Average usage per SCM: {total_usage / len(self.scm_pool):.1f}")
+            
+            # Find most and least used SCMs
+            usage_counts = [(i, m['usage_count']) for i, m in enumerate(self.scm_pool_metadata)]
+            usage_counts.sort(key=lambda x: x[1], reverse=True)
+            
+            if usage_counts:
+                most_used = usage_counts[0]
+                least_used = usage_counts[-1]
+                logger.info(f"  Most used SCM: #{most_used[0]} ({most_used[1]} times)")
+                logger.info(f"  Least used SCM: #{least_used[0]} ({least_used[1]} times)")
+            
+            # Show buffer growth
+            for i, (_, _, buffer) in enumerate(self.scm_pool[:5]):  # Show first 5 for brevity
+                metadata = self.scm_pool_metadata[i]
+                initial_size = metadata['n_obs'] + metadata['n_int']
+                current_size = buffer.size()
+                growth = current_size - initial_size
+                logger.info(f"  SCM #{i}: Buffer grew from {initial_size} to {current_size} (+{growth} samples)")
+        
+        # Clear old pool
+        self.scm_pool.clear()
+        self.scm_pool_metadata.clear()
+        self.current_pool_index = 0
+        
+        # Generate new pool with same size
+        pool_size = self.config.get('scm_pool_size', 50)
+        logger.info(f"\n🎲 GENERATING NEW SCM POOL #{self.pool_refresh_count + 1}...")
+        self.setup_scm_pool(pool_size)
+        
+        # Update tracking
+        self.pool_creation_time = time.time()
+        self.pool_refresh_count += 1
+        
+        logger.info(f"✅ Pool refresh #{self.pool_refresh_count} complete")
+        logger.info(f"  Next refresh in {self.pool_refresh_minutes} minutes\n")
+    
     # REMOVED: Convergence detection methods (_check_convergence and _reset_convergence_tracking)
     # These are incompatible with per-batch rotation since each intervention uses a different SCM
     # with potentially different variables and structure. Convergence can't be meaningfully detected
@@ -652,6 +702,13 @@ class EnhancedGRPOTrainer(JointACBOTrainer):
         from src.causal_bayes_opt.data_structures.scm import get_variables, get_target, get_parents
         from src.causal_bayes_opt.data_structures.sample import get_values
         import time
+        
+        # Check if pool refresh is needed based on time
+        if self.pool_refresh_minutes and self.scm_pool:
+            elapsed_minutes = (time.time() - self.pool_creation_time) / 60
+            if elapsed_minutes >= self.pool_refresh_minutes:
+                logger.info(f"\n🔄 POOL REFRESH TRIGGERED: {elapsed_minutes:.1f} minutes elapsed (threshold: {self.pool_refresh_minutes} min)")
+                self._refresh_scm_pool()
         
         # Print episode header
         logger.debug(f"EPISODE {episode_idx} - RANDOM SCM SAMPLING")
@@ -1168,10 +1225,10 @@ def create_enhanced_config(
         
         # Model architecture configuration - for deeper/larger models
         'architecture': {
-            'hidden_dim': 512,     # Increased from default 256 for more capacity
-            'num_layers': 8,       # Increased from default 4 for deeper model
-            'num_heads': 16,       # Increased from default 8 for more attention heads
-            'dropout': 0.15,       # Increased from default 0.1 for better regularization
+            'hidden_dim': 512,     # Default, can be overridden by args
+            'num_layers': 8,       # Default, can be overridden by args
+            'num_heads': 16,       # Default, can be overridden by args
+            'dropout': 0.15,       # Default, can be overridden by args
         },
         
         # Surrogate integration
@@ -1365,6 +1422,20 @@ Examples:
     parser.add_argument('--batch-size', type=int, default=64,
                         help='Batch size for GRPO updates')
     
+    # Model architecture arguments
+    parser.add_argument('--hidden-dim', type=int, default=512,
+                        help='Hidden dimension for model (default: 512)')
+    parser.add_argument('--num-layers', type=int, default=8,
+                        help='Number of layers in model (default: 8)')
+    parser.add_argument('--num-heads', type=int, default=16,
+                        help='Number of attention heads (default: 16)')
+    parser.add_argument('--dropout', type=float, default=0.15,
+                        help='Dropout rate (default: 0.15)')
+    
+    # Pool refresh argument
+    parser.add_argument('--pool-refresh-minutes', type=int, default=60,
+                        help='Refresh SCM pool every N minutes to prevent overtraining (default: 60)')
+    
     args = parser.parse_args()
     
     # Create timestamped run directory
@@ -1456,6 +1527,15 @@ Examples:
         config['batch_size'] = args.batch_size
         config['grpo_config']['group_size'] = args.batch_size
     
+    # Override model architecture from args
+    config['architecture']['hidden_dim'] = args.hidden_dim
+    config['architecture']['num_layers'] = args.num_layers
+    config['architecture']['num_heads'] = args.num_heads
+    config['architecture']['dropout'] = args.dropout
+    
+    # Set pool refresh interval
+    config['pool_refresh_minutes'] = args.pool_refresh_minutes
+    
     # Set time limit if provided
     if args.max_time_minutes:
         config['wall_clock_timeout_minutes'] = args.max_time_minutes
@@ -1487,6 +1567,20 @@ Examples:
     logger.info(f"  - Convergence: {args.patience} consecutive @ >{args.threshold:.1%}")
     logger.info(f"  - Learning rate: {config['learning_rate']}")
     logger.info(f"  - GRPO group size: {config['grpo_config']['group_size']}")
+    
+    # Log model architecture
+    logger.info("\n📐 Model Architecture:")
+    logger.info(f"  - Hidden dimension: {config['architecture']['hidden_dim']}")
+    logger.info(f"  - Number of layers: {config['architecture']['num_layers']}")
+    logger.info(f"  - Number of heads: {config['architecture']['num_heads']}")
+    logger.info(f"  - Dropout: {config['architecture']['dropout']}")
+    
+    # Log pool refresh settings
+    logger.info("\n🔄 Pool Refresh Settings:")
+    logger.info(f"  - Pool size: {args.pool_size} SCMs")
+    logger.info(f"  - Refresh interval: {args.pool_refresh_minutes} minutes")
+    if args.pool_refresh_minutes:
+        logger.info(f"  - Expected refreshes in 24h: {24 * 60 // args.pool_refresh_minutes}")
     
     # Document reward components and entropy
     logger.info("\n📊 REWARD COMPONENTS & ENTROPY:")
